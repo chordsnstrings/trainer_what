@@ -36,9 +36,15 @@ export function legalDate(value: string | null | undefined, locale: Locale = "en
 export function PublishedLegal({
   documentKey,
   platformName,
+  fromApp = false,
 }: {
   documentKey: LegalKey;
   platformName?: string;
+  /**
+   * Opened from the member app (?from=app) or inside the installed app: the
+   * way back leads into the app, which has no browser back button.
+   */
+  fromApp?: boolean;
 }) {
   const [version, setVersion] = useState(""),
     [data, setData] = useState<any>(null),
@@ -90,10 +96,34 @@ export function PublishedLegal({
   const english = locale !== "en" && !/[\u0600-\u06FF]/.test(data?.document.content ?? "");
   return (
     <main className="legal-page" id="main">
-      <a className="legal-home" href="/">
-        <ChevronLeft size={18} aria-hidden="true" className="bidi-mirror" />
-        {t("home")}
-      </a>
+      {fromApp ? (
+        <a
+          className="legal-home legal-back-to-app"
+          href="/app"
+          onClick={(event) => {
+            // Straight back to the screen the member came from, when it was
+            // the app on this address.
+            const referrer = window.document.referrer;
+            const from = referrer ? new URL(referrer) : null;
+            if (
+              from?.origin === location.origin &&
+              /^\/app(\/|$)/.test(from.pathname) &&
+              history.length > 1
+            ) {
+              event.preventDefault();
+              history.back();
+            }
+          }}
+        >
+          <ChevronLeft size={18} aria-hidden="true" className="bidi-mirror" />
+          {t("backToApp")}
+        </a>
+      ) : (
+        <a className="legal-home" href="/">
+          <ChevronLeft size={18} aria-hidden="true" className="bidi-mirror" />
+          {t("home")}
+        </a>
+      )}
       <article className="legal-document" aria-labelledby="legal-title">
         <h1 id="legal-title">
           {locale === "en" ? (data?.document.title ?? title) : title}

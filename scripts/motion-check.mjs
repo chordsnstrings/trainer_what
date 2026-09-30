@@ -16,13 +16,17 @@
 //   rings: 700 ms), or repeats without being one of the live loops;
 // - the analytics bar is still in the page after an answer;
 // - with prefers-reduced-motion emulated, or with the member's own "Reduce
-//   motion" choice (the device cookie), any transform animation runs.
+//   motion" choice (the device cookie), any transform animation runs;
+// - in English or Arabic, a screencast of tab switches, a sub-page and Back
+//   shows a frame where the top bar or the tab bar is blank (the frame must
+//   hold still while only the page content moves).
 // Start it through scripts/run-motion-check.mjs (npm run test:motion), which
 // seeds a fresh database and starts the production build. Results go to
 // test-results/motion-check.json.
 import { createRequire } from "node:module";
 import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
+import { inflateSync } from "node:zlib";
 
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
@@ -368,8 +372,8 @@ async function flows(run) {
     await step(run, "answer analytics", () => noThanks.first().tap(), {
       settle: 800,
       expect: (got) =>
-        !run.still && !moved(got, /motion-bar-out/)
-          ? "the analytics bar did not slide away"
+        !run.still && !moved(got, /motion-fade-out/)
+          ? "the analytics bar did not fade away"
           : null,
     });
     const left = await page.locator(".consent-bar, .acquisition-consent").count();
@@ -533,6 +537,178 @@ async function flows(run) {
   });
 }
 
+/** Decodes an 8-bit RGB/RGBA PNG (a screencast frame) to rows of pixels. */
+function decodePng(buffer) {
+  let pos = 8,
+    width = 0,
+    height = 0,
+    channels = 4;
+  const data = [];
+  while (pos < buffer.length) {
+    const length = buffer.readUInt32BE(pos),
+      type = buffer.toString("ascii", pos + 4, pos + 8),
+      body = buffer.subarray(pos + 8, pos + 8 + length);
+    if (type === "IHDR") {
+      width = body.readUInt32BE(0);
+      height = body.readUInt32BE(4);
+      channels = body[9] === 2 ? 3 : 4;
+    } else if (type === "IDAT") data.push(body);
+    pos += 12 + length;
+  }
+  const raw = inflateSync(Buffer.concat(data));
+  const stride = width * channels,
+    pixels = Buffer.alloc(height * stride);
+  for (let y = 0; y < height; y++) {
+    const filter = raw[y * (stride + 1)],
+      row = raw.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1));
+    for (let x = 0; x < stride; x++) {
+      const a = x >= channels ? pixels[y * stride + x - channels] : 0,
+        b = y > 0 ? pixels[(y - 1) * stride + x] : 0,
+        c = y > 0 && x >= channels ? pixels[(y - 1) * stride + x - channels] : 0;
+      const p = a + b - c,
+        pa = Math.abs(p - a),
+        pb = Math.abs(p - b),
+        pc = Math.abs(p - c);
+      const predictor =
+        filter === 1
+          ? a
+          : filter === 2
+            ? b
+            : filter === 3
+              ? (a + b) >> 1
+              : filter === 4
+                ? pa <= pb && pa <= pc
+                  ? a
+                  : pb <= pc
+                    ? b
+                    : c
+                : 0;
+      pixels[y * stride + x] = (row[x] + predictor) & 255;
+    }
+  }
+  return { width, height, channels, pixels };
+}
+/** Spread of brightness in a band of rows: about 0 when the band is blank. */
+function bandSpread({ width, channels, pixels }, from, to) {
+  let n = 0,
+    sum = 0,
+    sq = 0;
+  for (let y = from; y < to; y++)
+    for (let x = 0; x < width; x += 2) {
+      const i = (y * width + x) * channels;
+      const v = 0.3 * pixels[i] + 0.59 * pixels[i + 1] + 0.11 * pixels[i + 2];
+      n++;
+      sum += v;
+      sq += v * v;
+    }
+  const mean = sum / n;
+  return Math.sqrt(Math.max(0, sq / n - mean * mean));
+}
+/**
+ * Records every painted frame while `action` runs (DevTools screencast) and
+ * fails when the top bar or the tab bar band is blank in any of them.
+ */
+async function frameHoldsStill(page, cdp, label, action) {
+  const frames = [];
+  const onFrame = (event) => {
+    frames.push(Buffer.from(event.data, "base64"));
+    cdp.send("Page.screencastFrameAck", { sessionId: event.sessionId }).catch(() => {});
+  };
+  cdp.on("Page.screencastFrame", onFrame);
+  await cdp.send("Page.startScreencast", { format: "png", everyNthFrame: 1 });
+  try {
+    await action();
+    await page.waitForTimeout(900);
+  } finally {
+    await cdp.send("Page.stopScreencast").catch(() => {});
+    cdp.off("Page.screencastFrame", onFrame);
+  }
+  const bars = await page.evaluate(() => {
+    const box = (s) => {
+      const r = document.querySelector(s)?.getBoundingClientRect();
+      return r ? [r.top, r.bottom] : null;
+    };
+    return { top: box(".member-topbar"), tab: box(".member-tabbar"), vh: innerHeight };
+  });
+  let blank = 0;
+  // MOTION_FRAME_DIR=<dir> keeps the recorded frames for a person to look at.
+  if (process.env.MOTION_FRAME_DIR) {
+    const dir = `${process.env.MOTION_FRAME_DIR}/${label.replace(/\W+/g, "-")}-${Date.now()}`;
+    await mkdir(dir, { recursive: true });
+    await Promise.all(
+      frames.map((f, i) => writeFile(`${dir}/${String(i).padStart(3, "0")}.png`, f)),
+    );
+  }
+  for (const buffer of frames) {
+    const image = decodePng(buffer);
+    const scale = image.height / bars.vh;
+    for (const [name, band] of [["top bar", bars.top], ["tab bar", bars.tab]]) {
+      if (!band) continue;
+      const from = Math.max(0, Math.round(band[0] * scale) + 2),
+        to = Math.min(image.height, Math.round(band[1] * scale) - 2);
+      if (to - from > 4 && bandSpread(image, from, to) < 2) {
+        blank++;
+        fail(label, `the ${name} went blank in a frame of the transition`);
+        break;
+      }
+    }
+    if (blank > 2) break;
+  }
+  report.push({ run: label, step: "frame holds still", screenshots: frames.length, blankFrames: blank });
+}
+
+/** Tab switches, a sub-page and Back, recorded frame by frame. */
+async function frameRun(browser, language) {
+  const label = `frame (${language})`;
+  const run = await signedInRun(browser, label, {});
+  try {
+    if (language === "ar") {
+      const current = await (
+        await run.ctx.request.get(base + "/api/v1/notifications/preferences")
+      ).json();
+      const { options, ...body } = current;
+      await run.ctx.request.put(base + "/api/v1/notifications/preferences", {
+        headers: { origin: base },
+        data: { ...body, data: { ...body.data, language: "ar" } },
+      });
+    }
+    const { page } = run;
+    const cdp = await run.ctx.newCDPSession(page);
+    await cdp.send("Emulation.setCPUThrottlingRate", { rate: CPU_SLOWDOWN });
+    await page.goto(base + "/app", { waitUntil: "load" });
+    await ready(page);
+    await page.waitForTimeout(1500);
+    await frameHoldsStill(page, cdp, label + " tab", () =>
+      tapTab(page, "program", "/app/program"),
+    );
+    await frameHoldsStill(page, cdp, label + " tab", () =>
+      tapTab(page, "more", "/app/more"),
+    );
+    await frameHoldsStill(page, cdp, label + " sub-page", async () => {
+      await page.locator("a.more-link[href='/app/bookings']").tap();
+      await page.waitForURL("**/app/bookings");
+    });
+    await frameHoldsStill(page, cdp, label + " back", async () => {
+      await page.locator(".member-back").tap();
+      await page.waitForURL("**/app/more");
+    });
+    if (language === "ar") {
+      const current = await (
+        await run.ctx.request.get(base + "/api/v1/notifications/preferences")
+      ).json();
+      const { options, ...body } = current;
+      await run.ctx.request.put(base + "/api/v1/notifications/preferences", {
+        headers: { origin: base },
+        data: { ...body, data: { ...body.data, language: "en" } },
+      });
+    }
+  } catch (e) {
+    fail(label, e.message.split("\n")[0]);
+  } finally {
+    await run.ctx.close();
+  }
+}
+
 const browser = await chromium.launch({
   headless: true,
   ...(executablePath ? { executablePath } : {}),
@@ -552,6 +728,7 @@ try {
       await run.ctx.close();
     }
   }
+  for (const language of ["en", "ar"]) await frameRun(browser, language);
 } finally {
   await browser.close();
   await mkdir("test-results", { recursive: true });

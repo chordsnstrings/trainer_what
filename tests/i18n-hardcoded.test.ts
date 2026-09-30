@@ -3,8 +3,10 @@
 // of a file that also holds trainer screens, takes every sentence a member
 // reads from the message catalogs (lib/i18n/messages). The check parses the
 // source and reports JSX text, labelled attributes (label, placeholder,
-// aria-label, title, alt, …) and prose string literals ("Two words" or
-// more) that are not passed to a translator or used as data.
+// aria-label, title, alt, …), prose string literals ("Two words" or
+// more) that are not passed to a translator or used as data, and any string
+// or template literal rendered directly as JSX children — one word included
+// ({n === 1 ? "set" : "sets"}, {`${reps} reps`}).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
@@ -136,16 +138,52 @@ function findings(source: string, scope: true | string[], data: string[]) {
   const report = (node: Node, text: string) => {
     if (!data.includes(text)) out.push(`${node.loc.start.line}: ${text}`);
   };
-  type Context = { quiet?: boolean; labelled?: boolean };
+  type Context = { quiet?: boolean; labelled?: boolean; rendered?: boolean };
+  /** Expressions whose value (or a branch of it) is what gets shown. */
+  const SHOWN = new Set([
+    "StringLiteral",
+    "TemplateLiteral",
+    "ConditionalExpression",
+    "LogicalExpression",
+    "BinaryExpression",
+    "ParenthesizedExpression",
+  ]);
   const visit = (node: Node | null | undefined, ctx: Context): void => {
     if (!node || typeof node.type !== "string") return;
     if (node.type.startsWith("TS") || node.type === "ImportDeclaration") return;
+    // Call arguments, object values and array items are data, not the text
+    // shown; only literals reached through branches and joins are rendered.
+    if (ctx.rendered && !SHOWN.has(node.type)) ctx = { ...ctx, rendered: false };
+    if (ctx.rendered && node.type === "ConditionalExpression") {
+      visit(node.test, { ...ctx, rendered: false });
+      visit(node.consequent, ctx);
+      visit(node.alternate, ctx);
+      return;
+    }
+    if (ctx.rendered && node.type === "LogicalExpression" && node.operator === "&&") {
+      visit(node.left, { ...ctx, rendered: false });
+      visit(node.right, ctx);
+      return;
+    }
     switch (node.type) {
       case "JSXText": {
         const text = node.value.replace(/\s+/g, " ").trim();
         if (/[A-Za-z]{2,}/.test(text)) report(node, text);
         return;
       }
+      case "JSXExpressionContainer":
+        // A child expression's strings are shown as they are.
+        visit(node.expression, { ...ctx, rendered: !ctx.quiet && !ctx.labelled });
+        return;
+      case "JSXElement":
+      case "JSXFragment":
+        // Attributes and children of a nested element start afresh.
+        for (const key of ["openingElement", "children"]) {
+          const value = node[key];
+          if (Array.isArray(value)) value.forEach((v) => visit(v, { ...ctx, rendered: false }));
+          else visit(value, { ...ctx, rendered: false });
+        }
+        return;
       case "JSXAttribute": {
         const name =
           typeof node.name.name === "string" ? node.name.name : node.name.name.name;
@@ -180,12 +218,20 @@ function findings(source: string, scope: true | string[], data: string[]) {
         for (const statement of node.consequent) visit(statement, ctx);
         return;
       case "StringLiteral":
-        if (!ctx.quiet && (ctx.labelled ? /[A-Za-z]{2,}\s/.test(node.value) : prose(node.value)))
+        if (
+          !ctx.quiet &&
+          (ctx.rendered
+            ? /[A-Za-z]{2,}/.test(node.value)
+            : ctx.labelled
+              ? /[A-Za-z]{2,}\s/.test(node.value)
+              : prose(node.value))
+        )
           report(node, node.value);
         return;
       case "TemplateLiteral": {
         const text = node.quasis.map((q: Node) => q.value.cooked).join("{}");
-        if (!ctx.quiet && prose(text)) report(node, text);
+        if (!ctx.quiet && (ctx.rendered ? /[A-Za-z]{2,}/.test(text) : prose(text)))
+          report(node, text);
         for (const expression of node.expressions) visit(expression, ctx);
         return;
       }
@@ -243,13 +289,13 @@ test("the check itself notices English", () => {
     function Screen() {
       const t = useT("nutrition");
       setError("Something broke here");
-      return <p title="Plain title" aria-label={t("label")}>Hello there {t("ok")}</p>;
+      return <p title="Plain title" aria-label={t("label")}>Hello there {t("ok")}{n === 1 ? "set" : "sets"}{\`\${reps} reps\`}<span className={big ? "large" : "small"}>{t("x")}</span></p>;
     }
     function Trainer() { return <p>Trainer only</p>; }`;
   const { out, missing } = findings(source, ["Screen"], []);
   assert.deepEqual(missing, []);
   assert.deepEqual(
     out.map((line) => line.replace(/^\d+: /, "")),
-    ["Something broke here", "Plain title", "Hello there"],
+    ["Something broke here", "Plain title", "Hello there", "set", "sets", "{} reps"],
   );
 });

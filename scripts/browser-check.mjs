@@ -364,7 +364,12 @@ try {
     // (the sticky action bar offers the next set).
     .getByRole("button", { name: "Finish workout now", exact: true })
     .click();
-  await subscriber.getByText("Workout completed", { exact: true }).waitFor();
+  // The completion card announces the finished workout (role="status");
+  // there is no separate toast.
+  await subscriber
+    .locator(".workout-complete")
+    .getByText("Workout done", { exact: true })
+    .waitFor();
   await capture(subscriber, {
     path: "test-results/subscriber-workout-mobile.png",
     fullPage: true,

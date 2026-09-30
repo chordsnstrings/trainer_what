@@ -166,3 +166,16 @@ The invitation tests use synthetic email settings (`https://email.invalid/send`)
 | Dates in grant notice and invitation email printed as UTC dates | Fixed. Member's saved zone, otherwise Asia/Dubai. Tests added. |
 | No tests for digital coach, follow-ups and program nudges with complimentary access | Added (coaching-runtime and joining-complimentary suites). |
 | "Your coaches" section referenced a heading that was not rendered | Fixed (`aria-label` when the heading is absent). Test added. |
+
+## Verification round (30 September 2026)
+
+- While the legal status loads, the form shows no box to tick and the main
+  action waits with "Getting the joining terms ready…" (never "Tick the box
+  above" with no box on screen); if the status cannot be read, all three
+  documents are asked for and the API decides, as before.
+- Documents not published yet are not mentioned to joiners (the note about
+  the platform's unpublished terms is gone).
+- A coach's join page no longer repeats "Already coaching with …? Sign in":
+  "I already have an account" in the form is the way in.
+- The ended-membership notice on sign-in keeps its link secondary, so Sign
+  in is the one primary action.

@@ -5,6 +5,7 @@ import { formatWhen, humanize } from "../lib/format";
 import { translator, type Locale } from "../lib/i18n/core";
 import supportMessages from "../lib/i18n/messages/support";
 import { Rich, useLocale, useT } from "../lib/i18n/react";
+import { StickyActionBar } from "./phone-ui";
 
 const CATEGORY_KEYS = [
   "account",
@@ -187,6 +188,7 @@ export function Support({
       <section className="card" aria-labelledby="support-new">
         <h2 id="support-new">{t("start")}</h2>
         <form
+          id="support-new-form"
           onSubmit={(e) => {
             e.preventDefault();
             const f = new FormData(e.currentTarget);
@@ -227,9 +229,24 @@ export function Support({
               required
             />
           </label>
-          <button className="button" disabled={busy}>
-            {t("send")}
-          </button>
+          {/* Send sits in the bottom action bar, in thumb reach; with a
+              conversation open, its reply keeps that place instead. */}
+          {thread ? (
+            <button className="button" disabled={busy}>
+              {t("send")}
+            </button>
+          ) : (
+            <StickyActionBar label={t("start")}>
+              <button
+                className="button"
+                type="submit"
+                form="support-new-form"
+                disabled={busy}
+              >
+                {t("send")}
+              </button>
+            </StickyActionBar>
+          )}
         </form>
       </section>
     </>

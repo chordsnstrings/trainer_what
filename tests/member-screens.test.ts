@@ -505,7 +505,7 @@ test("the workspace error screen is clearly an error, with a retry and a way to 
     onSignOut: () => {},
   });
   assert.match(html, /role="alert"/);
-  assert.match(text(html), /Your workspace could not be opened/);
+  assert.match(text(html), /Your coaching app could not open/);
   assert.match(text(html), /Try again/);
   assert.match(text(html), /Sign out/);
 });
@@ -844,7 +844,7 @@ test("member screens use the shared format, plain labels and 'coach' wording", a
   const workspace = await source("apps/web/components/workspace.tsx");
   assert.match(
     workspace,
-    /state\.environment === "development" \? \(\s*<p className="member-dev-note">/,
+    /state\.environment === "development" &&\s*!path\.startsWith\("\/app\/chat"\) \? \(\s*<p className="member-dev-note">/,
   );
 });
 

@@ -204,9 +204,11 @@ export function AccountJoinForm({
   const accepted = acceptanceGiven(plan, agreed);
   const blocked = !open
     ? t("blockedClosed")
-    : !accepted
-      ? t("blockedTick")
-      : "";
+    : plan.loading
+      ? t("checkingTerms")
+      : !accepted
+        ? t("blockedTick")
+        : "";
   const label = busy ? t("joining") : t("joinTitle", { name: coachName });
   return (
     <>
@@ -505,9 +507,11 @@ export function InvitationJoin({
     if (v.emailMatches && preview.role === "subscriber") {
       const blocked = !open
         ? t("blockedClosed")
-        : !accepted
-          ? t("blockedTick")
-          : "";
+        : plan.loading
+          ? t("checkingTerms")
+          : !accepted
+            ? t("blockedTick")
+            : "";
       const label = busy ? t("joining") : t("joinTitle", { name });
       return (
         <AuthPage title={t("joinTitle", { name })} intro={intro} wide>

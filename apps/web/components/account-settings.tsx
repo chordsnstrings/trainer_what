@@ -108,7 +108,14 @@ function ProofFields({
   );
 }
 
-export function AccountSettings({ returnTo }: { returnTo: ReturnPath }) {
+export function AccountSettings({
+  returnTo,
+  leave = true,
+}: {
+  returnTo: ReturnPath;
+  /** Show "Leave your coach" here (the member Profile puts it last instead). */
+  leave?: boolean;
+}) {
   const [account, setAccount] = useState<Account | null>(null),
     [loadError, setLoadError] = useState(""),
     [busy, setBusy] = useState(""),
@@ -533,7 +540,7 @@ export function AccountSettings({ returnTo }: { returnTo: ReturnPath }) {
         </section>
       )}
 
-      {account.workspace.role === "subscriber" && <LeaveTrainer />}
+      {leave && account.workspace.role === "subscriber" && <LeaveTrainer />}
     </div>
   );
 }

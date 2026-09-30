@@ -8,6 +8,7 @@ export default defineMessages(
     privacyTitle: "Privacy policy",
     aiTitle: "Digital coaching disclosure",
     home: "Home",
+    backToApp: "Back to the app",
     notPublished: "Not published yet",
     stillApprovingFor:
       "The {document} for {platform} is still being approved and will appear on this page once it is published.",
@@ -125,13 +126,14 @@ export default defineMessages(
     privacyTitle: "سياسة الخصوصية",
     aiTitle: "إفصاح التدريب الرقمي",
     home: "الرئيسية",
+    backToApp: "العودة إلى التطبيق",
     notPublished: "لم يُنشر بعد",
     stillApprovingFor:
-      "ما زال اعتماد {document} الخاصة بـ {platform} جاريًا، وسيظهر المستند في هذه الصفحة بعد نشره.",
+      "ما زال اعتماد {document} الخاصة بـ {platform} جاريًا، وستظهر المستندات في هذه الصفحة بعد نشرها.",
     stillApproving: "ما زال اعتماد {document} جاريًا، وسيظهر المستند في هذه الصفحة بعد نشره.",
     stillApprovingForMany:
-      "ما زال اعتماد {document} الخاصة بـ {platform} جاريًا، وسيظهر المستند في هذه الصفحة بعد نشره.",
-    stillApprovingMany: "ما زال اعتماد {document} جاريًا، وسيظهر المستند في هذه الصفحة بعد نشره.",
+      "ما زال اعتماد {document} الخاصة بـ {platform} جاريًا، وستظهر المستندات في هذه الصفحة بعد نشرها.",
+    stillApprovingMany: "ما زال اعتماد {document} جاريًا، وستظهر المستندات في هذه الصفحة بعد نشرها.",
     nobodyAsked: "حتى ذلك الحين، لا يُطلب من أحد الموافقة على هذا المستند عند الانضمام إلى مدرب.",
     nobodyAskedMany: "حتى ذلك الحين، لا يُطلب من أحد الموافقة على هذا المستند عند الانضمام إلى مدرب.",
     loadFailed: "تعذّر تحميل هذه الصفحة. يُرجى التحقق من الاتصال والمحاولة مرة أخرى.",

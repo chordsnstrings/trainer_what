@@ -69,6 +69,8 @@ export async function clearPersonalCaches() {
   try {
     localStorage.removeItem(LAUNCH_COLOUR_KEY);
   } catch {}
+  // The home-screen icon's unread count belongs to the person leaving.
+  setAppBadge(0);
   try {
     navigator.serviceWorker?.controller?.postMessage({
       type: SW_MESSAGES.clearPersonal,
@@ -171,6 +173,22 @@ export function isStandalone() {
   );
 }
 
+/**
+ * Legal pages opened from the member app carry `?from=app`: the page then
+ * leads back into the app instead of the platform's marketing header, so an
+ * installed app (no browser back button) never strands the member there.
+ */
+export function legalHref(
+  document: "terms" | "privacy" | "ai-disclosure",
+  fromApp: boolean,
+) {
+  return `/${document}${fromApp ? "?from=app" : ""}`;
+}
+/** True when a legal page should offer the way back into the member app. */
+export function legalOpenedFromApp(search: string, standalone: boolean) {
+  return standalone || new URLSearchParams(search).get("from") === "app";
+}
+
 type InstallPromptEvent = Event & {
   prompt: () => Promise<void>;
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
@@ -241,11 +259,23 @@ export function showInstallCard(input: {
   consentAnswered: boolean;
   visits: number;
   loggedSession: boolean;
+  /** Installing needs a connection; offline the card waits. */
+  online?: boolean;
+  /**
+   * The analytics question was answered in an earlier session: two prompts
+   * never come back to back (the answer, then "install" on the next page).
+   */
+  consentBeforeThisSession?: boolean;
+  /** The "New version ready" toast is showing: one prompt at a time. */
+  updateShowing?: boolean;
 }) {
   return (
     !input.installed &&
     !input.dismissed &&
     input.consentAnswered &&
+    input.online !== false &&
+    input.consentBeforeThisSession !== false &&
+    !input.updateShowing &&
     (input.visits >= 2 || input.loggedSession)
   );
 }
@@ -271,8 +301,20 @@ export function isSessionScreen(path: string) {
     path.startsWith("/app/voice-session/")
   );
 }
-/** Any form field changed and not saved: a reload would lose it. */
+/**
+ * Any form field changed and not saved: a reload would lose it.
+ *
+ * React copies the current value of a controlled field into its
+ * defaultValue on every render, so comparing value with defaultValue only
+ * sees uncontrolled fields. Screens with controlled fields (the chat
+ * composer, the meal log's photo, barcode and review forms) mark the form or
+ * field with `data-unsaved` while it holds typing that was not sent or
+ * saved; this check reads those marks first, then compares uncontrolled
+ * fields with their defaults. `data-ignore-unsaved` skips a region.
+ */
 export function hasUnsavedInput(root: ParentNode) {
+  for (const marked of root.querySelectorAll("[data-unsaved]"))
+    if (!marked.closest("[data-ignore-unsaved]")) return true;
   for (const field of root.querySelectorAll<
     HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
   >("input, textarea, select")) {
@@ -294,6 +336,36 @@ export function hasUnsavedInput(root: ParentNode) {
       return true;
   }
   return false;
+}
+/** The `data-unsaved` mark for a controlled form: present only while dirty. */
+export function unsavedMark(dirty: boolean) {
+  return dirty ? { "data-unsaved": "" } : {};
+}
+/** The update toast's "Later", per waiting release, for this browser session. */
+export const UPDATE_LATER_KEY = "member-app:update-later";
+const laterReleases = new Set<string>();
+/**
+ * Records "Later" for the waiting worker (its script address names the
+ * release). The member workspace remounts on every page, so component state
+ * alone would bring the toast back on the next tab; module memory covers
+ * this page's life and sessionStorage covers reloads in the same session.
+ */
+export function dismissUpdate(release: string | null) {
+  if (!release) return;
+  laterReleases.add(release);
+  try {
+    sessionStorage.setItem(UPDATE_LATER_KEY, release);
+  } catch {}
+}
+/** True when the member chose "Later" for this waiting release. */
+export function updateDismissed(release: string | null) {
+  if (!release) return false;
+  if (laterReleases.has(release)) return true;
+  try {
+    return sessionStorage.getItem(UPDATE_LATER_KEY) === release;
+  } catch {
+    return false;
+  }
 }
 /** The update toast waits while a session runs; the reload never happens by itself. */
 export function showUpdateToast(input: { waiting: boolean; path: string }) {

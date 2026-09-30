@@ -421,11 +421,12 @@ test("the bottom sheet shows a grab handle and closes by button, Escape or backd
   assert.match(markup, /class="bottom-sheet-handle" aria-hidden="true"/);
   assert.match(markup, /aria-label="Close"/);
   const ui = await source("apps/web/components/phone-ui.tsx");
-  // It slides away first (faster than it came), and closes at once with
-  // reduced motion.
-  assert.match(ui, /el\.dataset\.closing = ""/);
-  assert.match(ui, /closing\.current = window\.setTimeout\(finish, MOTION\.base \+ 40\)/);
-  assert.match(ui, /if \(prefersReducedMotion\(\)\) return finish\(\);/);
+  // The modal closes at once (the page works again), then the sheet slides
+  // away as a non-modal dialog (faster than it came) and closes; with
+  // reduced motion it closes at once.
+  assert.match(ui, /shut\(\);\s*el\.dataset\.closing = "";\s*el\.show\(\);/);
+  assert.match(ui, /closing\.current = window\.setTimeout\(\(\) => \{[\s\S]*?shut\(\);\s*\}, MOTION\.base \+ 40\)/);
+  assert.match(ui, /if \(prefersReducedMotion\(\) \|\| typeof el\.show !== "function"\) \{\s*shut\(\);/);
 });
 
 test("the shell, the controls and the screens play their microanimations", async () => {
@@ -437,7 +438,10 @@ test("the shell, the controls and the screens play their microanimations", async
   const page = await source("apps/web/app/[[...path]]/page.tsx");
   assert.match(page, /if \(path\[0\] === "app"\)\s*return \(\s*<MemberPageTransition>\s*<Workspace/);
   // First views settle in; without View Transitions a new page fades in.
-  assert.match(shell, /if \(firstView\("screen:" \+ screenKey\(path\)\)\) playArrival\(el\);/);
+  // First view of a screen settles in, but never on top of a navigation's
+  // View Transition (no second arrival after the crossfade).
+  assert.match(shell, /const first = firstView\("screen:" \+ screenKey\(path\)\);/);
+  assert.match(shell, /if \(first && !navigating\) playArrival\(el\);/);
   assert.match(shell, /!supportsViewTransitions\(\)/);
   // The tab pill slides across from the tab you left; badges pop.
   assert.match(shell, /pseudoElement: "::before"/);
@@ -449,7 +453,7 @@ test("the shell, the controls and the screens play their microanimations", async
   assert.match(ui, /playMotion\(leaving, rollOutKeyframes\(direction\)/);
   assert.match(ui, /playMotion\(input\.current, tickKeyframes\(direction\)/);
   const workspace = await source("apps/web/components/workspace.tsx");
-  assert.match(workspace, /setJustLogged\(row\.logicalKey\);\s*haptic\(\);\s*requestAnimationFrame\(revealNextSet\);/);
+  assert.match(workspace, /setJustLogged\(row\.logicalKey\);\s*setOpenSet\(null\);\s*haptic\(\);\s*requestAnimationFrame\(revealNextSet\);/);
   assert.match(workspace, /const finish = \(\) => \{\s*haptic\(\);/);
   assert.match(workspace, /<WorkoutComplete/);
   assert.match(workspace, /<ProgressRing\s+value=\{restTotal \? restLeft \/ restTotal : 0\}/);

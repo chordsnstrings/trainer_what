@@ -442,7 +442,7 @@ export default defineMessages(
     homeLabel: "صفحة تدريبك الرئيسية",
     yourFocus: "تركيزك",
     yourCoaching: "تدريبك",
-    section_program: "برنامجي",
+    section_program: "البرنامج",
     section_program_note: "جلستك التالية، بالوتيرة التي تناسبك.",
     section_nutrition: "تغذيتي",
     section_nutrition_note: "الوجبات والوصفات وقائمة تسوّقك الأسبوعية.",

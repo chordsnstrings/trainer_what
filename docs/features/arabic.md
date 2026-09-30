@@ -105,7 +105,7 @@ ids (the coaching context, nutrition weeks, check-ins, diary, invoices).
 ## Wording
 
 - Modern Standard Arabic, short and plain. Tab labels are one or two words
-  (اليوم، برنامجي، المحادثة، التغذية، المزيد).
+  (اليوم، البرنامج، المحادثة، التغذية، المزيد).
 - Gender-neutral where the chrome addresses the member: a verbal noun for
   actions and headings ("حفظ التفضيلات", "اختيار صورة الوجبة"), "يُرجى …"
   or "يمكنك …" for instructions. Safety instructions to stop exercising stay
@@ -300,3 +300,32 @@ Not translated, and why:
   (`analytics-consent`, `client-twin-adherence`, `joining-web`,
   `public-pages`, `rtl-layout`), and `docs/features/rtl-layout.md`,
   `phone-first.md`, `pwa.md`.
+
+## Verification round (30 September 2026)
+
+- `tests/i18n-hardcoded.test.ts` also reports any string or template
+  literal rendered directly as JSX children, one word included
+  (`{n === 1 ? "set" : "sets"}`, `` {`${reps} reps`} ``); call arguments,
+  object values and conditions are data and stay quiet.
+- The voice-led plan list uses `setCount` / `setsByReps` plurals with
+  "3 × 10" in one left-to-right isolate (measured in Chromium: the sets
+  number renders left of the reps number in Arabic rows).
+- A logged set reads "16 كغ × 10 تكرارات · متبقٍّ 2" (`loggedLine`), each
+  quantity its own isolate, with the Arabic unit.
+- Catalog fixes: `join.unsynced*` one form "إدخال واحد (تمرين أو وجبة)",
+  `public.stillApprovingFor*` plural "وستظهر المستندات", `nav.program`
+  "البرنامج", one barcode term ("باركود") in `nav.mealDetail` and the
+  Arabic manifest shortcut, `connect.titleMember` matches the top bar
+  ("الأجهزة المتصلة"), and "(RIR)" is dropped from the Arabic reps-left
+  label. The many/other forms of `context.mcMissing` and `join.unsynced*`
+  keep the feminine singular pronoun (عنها، مزامنتها): after 11 and above
+  the counted noun is a singular tamyiz but the referent is a plural of
+  things, which MSA agrees in the feminine singular, as the following verbs
+  (ستبقى وتُزامَن) already do.
+- Page changes in Arabic no longer show a blank screen: React sizes the
+  View Transition layer to 0 x 0 with `inset: 0`, which in a right-to-left
+  page puts the layer at the right edge and every snapshot off screen.
+  `::view-transition { right: auto }` in `motion.css` pins it (the one
+  justified physical declaration in `tests/logical-css.test.ts`); the
+  motion check's Arabic screencast holds every frame. See
+  `docs/features/motion.md`.

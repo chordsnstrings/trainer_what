@@ -376,7 +376,13 @@ export function WorkoutComplete({
       aria-labelledby="workout-complete-title"
     >
       <span className="workout-complete-badge">
-        <ProgressRing value={total ? done / total : 1} from={0} size={64} />
+        {/* The ring fills first, then the check draws (motion.css). */}
+        <ProgressRing
+          value={total ? done / total : 1}
+          from={0}
+          size={64}
+          immediate
+        />
         <DrawnCheck draw emphasis />
       </span>
       <div>

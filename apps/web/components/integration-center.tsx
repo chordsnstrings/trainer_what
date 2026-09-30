@@ -12,6 +12,7 @@ import {
   BottomSheet,
   FileInput,
   ProgressRing,
+  Skeleton,
   StickyActionBar,
 } from "./phone-ui";
 import { VoiceSessionStyle } from "./voice-session-style";
@@ -164,6 +165,12 @@ export function ImportRefusedNotice({ trainer }: { trainer: boolean }) {
   );
 }
 
+const DEVICE_PROVIDERS = ["whoop", "zepp"] as const;
+const DEVICE_NAMES: Record<(typeof DEVICE_PROVIDERS)[number], string> = {
+  whoop: "WHOOP",
+  zepp: "Amazfit / Zepp",
+};
+
 function HealthConnections({
   integrations,
   trainer = false,
@@ -233,11 +240,26 @@ function HealthConnections({
     setObservations(rows);
     action.setMessage(t("reviewFirst"));
   };
+  const comingDevices = DEVICE_PROVIDERS.filter((provider) => {
+    const setting = integrations.find((i) => i.id === provider);
+    return (
+      !(setting?.configured && setting?.approved) &&
+      !data.connections.some((c: any) => c.provider === provider)
+    );
+  }).map((provider) => DEVICE_NAMES[provider]);
   return (
     <>
       <Notice value={action.message} />
+      {/* Members see only devices they can connect; the rest is one line. */}
+      {!trainer && comingDevices.length > 0 && (
+        <p className="muted">
+          {t("moreDevices", { devices: comingDevices.join(", ") })}
+        </p>
+      )}
       <div className="integration-grid">
-        {["whoop", "zepp"].map((provider) => {
+        {DEVICE_PROVIDERS.filter(
+          (provider) => trainer || !comingDevices.includes(DEVICE_NAMES[provider]),
+        ).map((provider) => {
           const setting = integrations.find((i) => i.id === provider),
             connection = data.connections.find(
               (c: any) => c.provider === provider,
@@ -246,7 +268,7 @@ function HealthConnections({
           return (
             <Panel
               key={provider}
-              title={provider === "whoop" ? "WHOOP" : "Amazfit / Zepp"}
+              title={DEVICE_NAMES[provider]}
             >
               <p className="muted">
                 {connection
@@ -682,6 +704,12 @@ export function GuidedSession({ workoutId }: { workoutId: string }) {
         </p>
       </div>
       <Notice value={action.message} />
+      {/* The step card is on its way: never a page with only the stop card. */}
+      {!data && !action.message && (
+        <section className="card">
+          <Skeleton label={t("gLoading")} lines={4} block />
+        </section>
+      )}
       {segment && (
         <Panel
           title={
@@ -720,22 +748,28 @@ export function GuidedSession({ workoutId }: { workoutId: string }) {
             >
               {t("gStartRest")}
             </button>
-            <button
-              type="button"
-              className="button secondary"
-              onClick={() => setRunning(!running)}
-              disabled={paused || rest <= 0}
-            >
-              {running ? t("gPause") : t("gResume")}
-            </button>
-            <button
-              type="button"
-              className="button secondary"
-              disabled={paused || index === 0}
-              onClick={() => move(index - 1)}
-            >
-              {t("gPrevious")}
-            </button>
+            {/* Shown only when they apply (a rest is counting, an earlier
+                exercise exists), never as look-alike disabled boxes. */}
+            {rest > 0 && (
+              <button
+                type="button"
+                className="button secondary"
+                onClick={() => setRunning(!running)}
+                disabled={paused}
+              >
+                {running ? t("gPause") : t("gResume")}
+              </button>
+            )}
+            {index > 0 && (
+              <button
+                type="button"
+                className="button secondary"
+                disabled={paused}
+                onClick={() => move(index - 1)}
+              >
+                {t("gPrevious")}
+              </button>
+            )}
           </div>
           {paused && (
             <p className="control-reason">
@@ -790,9 +824,11 @@ export function GuidedSession({ workoutId }: { workoutId: string }) {
       <Panel title={t("gStopTitle")}>
         <p>{t("gStopText")}</p>
         <div className="guided-controls">
+          {/* A danger control, not a second primary: the step's own action
+              (Next exercise, in the bottom bar) stays the one primary. */}
           <button
             type="button"
-            className="button"
+            className="button secondary guided-stop"
             disabled={action.busy}
             onClick={() => setPainOpen(true)}
           >
@@ -880,8 +916,8 @@ export function GuidedSession({ workoutId }: { workoutId: string }) {
         >
           <label className="field">
             <span>{t("gConcern")}</span>
+            {/* No autofocus: the keyboard would cover the stop action. */}
             <textarea
-              data-autofocus
               name="description"
               value={painText}
               onChange={(e) => setPainText(e.target.value)}

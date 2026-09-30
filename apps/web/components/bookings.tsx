@@ -10,7 +10,7 @@ import { translator, type Locale } from "../lib/i18n/core";
 import bookingMessages from "../lib/i18n/messages/bookings";
 import { useEffect, useState } from "react";
 import { StripeFeeNote } from "./programme-offers";
-import { BottomSheet } from "./phone-ui";
+import { BottomSheet, Skeleton } from "./phone-ui";
 async function request(path: string, body?: unknown) {
   const r = await fetch("/api/v1/bookings" + path, {
     method: body ? "POST" : "GET",
@@ -314,6 +314,8 @@ export function Bookings({ role }: { role: string }) {
       )}
       <section className="card">
         <h2>{t("upcoming")}</h2>
+        {/* Loading: a placeholder, never an empty card. */}
+        {!data && !notice && <Skeleton label={t("loading")} lines={3} />}
         {data?.slots
           .filter((s: any) => new Date(s.starts_at).getTime() > Date.now())
           .map((s: any) => {
@@ -323,12 +325,19 @@ export function Bookings({ role }: { role: string }) {
                 ["confirmed", "payment_pending"].includes(b.status),
             );
             return (
-              <div className="list-row" key={s.id}>
+              <div
+                className={"list-row" + (sub ? " booking-slot" : "")}
+                key={s.id}
+              >
                 <div>
                   <strong dir="auto">{s.title}</strong>
                   <p dir="auto">
                     {date(s.starts_at, zone, locale)} ·{" "}
-                    {s.status === "open"
+                    {/* Booked already: say so here; the details are in
+                        Your reservations below. */}
+                    {sub && mine?.status === "confirmed"
+                      ? t("youreBooked")
+                      : s.status === "open"
                       ? t("placesLeft", {
                           count: Math.max(0, s.capacity - s.booked),
                         })

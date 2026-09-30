@@ -97,10 +97,9 @@ export default defineMessages(
     alreadyCancelled: "The renewal is already cancelled; no further payments are taken.",
     recordsStay:
       "Your coaching records stay with this coach for the time the privacy policy sets.",
-    deletionStaysOpen:
-      " Your deletion request stays open; the platform privacy team still processes it after you leave.",
+    deletionStaysOpen: " Your deletion request is still handled after you leave.",
     toErase:
-      " To have them erased instead, submit a deletion request in Privacy and download your data export before leaving; the request is still processed after you leave, but you cannot sign in here to file one afterwards.",
+      " To have them erased, ask in Privacy before you leave: you cannot sign in here afterwards.",
     notAffected: "Your account and any other coaches are not affected.",
     cannotEnd: "This membership cannot end yet: {reasons}",
     thisCoach: "this coach",
@@ -115,6 +114,8 @@ export default defineMessages(
     sheetRenewal: " Renewal is cancelled, so no further payments are taken.",
     sheetAccount: " Your account and any other coaches stay as they are.",
     stay: "Stay with {name}",
+    stayShort: "Stay",
+    leaveShort: "Leave",
     leaving: "Leaving…",
     noteFor: "Note for {name} (optional)",
     noteHint: "{name} will see this. Leave out health details.",
@@ -217,10 +218,9 @@ export default defineMessages(
     alreadyCancelled: "التجديد ملغى بالفعل؛ لن تُخصم أي مدفوعات أخرى.",
     recordsStay:
       "تبقى سجلات تدريبك لدى هذا المدرب للمدة التي تحددها سياسة الخصوصية.",
-    deletionStaysOpen:
-      " يبقى طلب الحذف الخاص بك مفتوحًا، ويواصل فريق الخصوصية في المنصة معالجته بعد مغادرتك.",
+    deletionStaysOpen: " يُعالَج طلب الحذف الخاص بك حتى بعد مغادرتك.",
     toErase:
-      " لمحوها بدلًا من ذلك، يُرجى تقديم طلب حذف من «الخصوصية» وتنزيل نسخة من بياناتك قبل المغادرة؛ يُعالَج الطلب بعد مغادرتك، لكن لا يمكنك تسجيل الدخول هنا لتقديمه لاحقًا.",
+      " لمحوها، يُرجى طلب ذلك من «الخصوصية» قبل المغادرة، إذ لا يمكنك تسجيل الدخول هنا بعد ذلك.",
     notAffected: "لا يتأثر حسابك ولا أي مدربين آخرين لديك.",
     cannotEnd: "لا يمكن إنهاء هذا الاشتراك بعد: {reasons}",
     thisCoach: "هذا المدرب",
@@ -235,6 +235,8 @@ export default defineMessages(
     sheetRenewal: " يُلغى التجديد، فلا تُخصم أي مدفوعات أخرى.",
     sheetAccount: " يبقى حسابك وأي مدربين آخرين كما هم.",
     stay: "البقاء مع {name}",
+    stayShort: "البقاء",
+    leaveShort: "المغادرة",
     leaving: "جارٍ المغادرة…",
     noteFor: "ملاحظة إلى {name} (اختيارية)",
     noteHint: "سيرى {name} هذه الملاحظة. يُرجى عدم ذكر تفاصيل صحية.",

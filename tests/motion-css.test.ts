@@ -251,6 +251,7 @@ function horizontal(value: string, sign: 1 | -1, shift = 0) {
   const expr = m[1]
     .replace(/var\(--inline-sign,\s*1\)/g, String(sign))
     .replace(/var\(--motion-shift,\s*0px\)/g, `${shift}px`)
+    .replace(/var\(--motion-title-shift,\s*0px\)/g, `${shift}px`)
     .replace(/var\(--motion-distance-xs\)/g, "4px")
     .replace(/var\(--motion-distance-sm\)/g, "8px")
     .replace(/var\(--motion-distance-md\)/g, "16px")
@@ -319,6 +320,38 @@ test("screen transitions: forward comes from the inline end, back reverses, both
       (r) =>
         r.selector.includes(':root[data-vt^="nav-"]::view-transition-group(member-tabbar)') &&
         r.decls.some((d) => d.prop === "animation" && d.value === "none"),
+    ),
+  );
+  // ...and never goes blank. React names the entering page after the bars
+  // were captured, so without a z-index its opaque snapshot paints over the
+  // bars while it fades in (seen frame by frame in motion-check.mjs). The
+  // bars' groups sit above the page, the live new bar shows, and the old
+  // picture is hidden only while a new one is there (:only-child keeps it).
+  for (const name of ["member-topbar", "member-tabbar", "member-sidenav", "member-action-bar", "member-consent"]) {
+    const on = (pseudo: string) =>
+      rules.filter((r) =>
+        r.selector
+          .split(",")
+          .some((part) => part.trim() === `:root[data-vt^="nav-"]::view-transition-${pseudo}`),
+      );
+    const decl = (pseudo: string, prop: string) =>
+      on(pseudo).flatMap((r) => r.decls.filter((d) => d.prop === prop).map((d) => d.value));
+    assert.deepEqual(decl(`group(${name})`, "z-index"), ["1"], `${name}: above the page`);
+    assert.ok(decl(`group(${name})`, "animation").includes("none"), `${name}: held still`);
+    assert.ok(decl(`new(${name})`, "animation").includes("none"), `${name}: new bar not faded`);
+    assert.ok(decl(`old(${name})`, "opacity").includes("0"), `${name}: no ghost behind the new bar`);
+    assert.ok(decl(`old(${name}):only-child`, "opacity").includes("1"), `${name}: a bar only the old page had stays until it fades`);
+    assert.match(decl(`old(${name}):only-child`, "animation")[0] ?? "", /^motion-fade-out /);
+    assert.match(decl(`new(${name}):only-child`, "animation")[0] ?? "", /^motion-fade-in /);
+    for (const pseudo of [`old(${name})`, `new(${name})`, `group(${name})`])
+      assert.deepEqual(decl(pseudo, "display"), [], `${name}: never display:none`);
+  }
+  // The analytics bar (root layout, outside the page) has a name of its own.
+  assert.ok(
+    rules.some(
+      (r) =>
+        r.selector.trim() === '.consent-bar[data-audience="people"]' &&
+        r.decls.some((d) => d.prop === "view-transition-name" && d.value === "member-consent"),
     ),
   );
 });

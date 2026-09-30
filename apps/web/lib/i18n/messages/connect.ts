@@ -19,6 +19,7 @@ export default defineMessages(
       "Select an export with at most 2,000 numeric observations. Nothing has been imported.",
     reviewFirst: "Review the export and give permission before importing.",
     readyToConnect: "Ready to connect",
+    moreDevices: "More devices are coming: {devices}.",
     notAvailable: "Not available in your coaching space yet",
     status_active: "Connected",
     status_pending: "Connecting…",
@@ -70,7 +71,7 @@ export default defineMessages(
     importDeleted: "Import deleted",
     deleteImport: "Delete import",
     revokeHelp:
-      "Revoking stops further use. Deleting an import removes its observations. Request an export or full deletion from your privacy settings.",
+      "“Stop using these readings” keeps them but your coach no longer uses them. “Delete import” removes the readings from that file. To get a copy of all your data or delete it, go to Profile > Privacy.",
     titleMember: "Connections",
     introMember:
       "Share readings from your watch or phone with your coach. You choose what to share and can stop at any time.",
@@ -90,6 +91,7 @@ export default defineMessages(
     tooMany: "يُرجى اختيار ملف يحتوي على 2,000 قياس رقمي كحد أقصى. لم يُستورد أي شيء.",
     reviewFirst: "يُرجى مراجعة الملف ومنح الإذن قبل الاستيراد.",
     readyToConnect: "جاهز للربط",
+    moreDevices: "أجهزة أخرى قادمة: {devices}.",
     notAvailable: "غير متاح في مساحة تدريبك بعد",
     status_active: "متصل",
     status_pending: "جارٍ الاتصال…",
@@ -149,8 +151,8 @@ export default defineMessages(
     importDeleted: "تم حذف الاستيراد",
     deleteImport: "حذف الاستيراد",
     revokeHelp:
-      "الإلغاء يوقف أي استخدام لاحق، وحذف الاستيراد يزيل قياساته. يمكن طلب نسخة أو حذف كامل من إعدادات الخصوصية.",
-    titleMember: "الاتصالات",
+      "«إيقاف استخدام هذه القراءات» يُبقيها لكن مدربك لا يستخدمها بعد ذلك. «حذف الاستيراد» يزيل قراءات ذلك الملف. للحصول على نسخة من كل بياناتك أو حذفها، انتقل إلى الملف الشخصي > الخصوصية.",
+    titleMember: "الأجهزة المتصلة",
     introMember:
       "يمكنك مشاركة القراءات من ساعتك أو هاتفك مع مدربك. أنت تختار ما تشاركه ويمكنك التوقف في أي وقت.",
   },

@@ -6,6 +6,17 @@ import { Rich, useLocale, useT } from "../lib/i18n/react";
 import { translator, type Locale } from "../lib/i18n/core";
 import consentMessages from "../lib/i18n/messages/consent";
 import { MOTION, prefersReducedMotion } from "./motion";
+import { legalHref } from "./pwa";
+
+/**
+ * The privacy policy's address: from the member app it carries ?from=app,
+ * so the page leads back into the app (an installed app has no browser
+ * back button).
+ */
+function usePrivacyHref() {
+  const path = usePathname() ?? "";
+  return legalHref("privacy", path === "/app" || path.startsWith("/app/"));
+}
 
 type Permission = {
   granted: boolean;
@@ -308,6 +319,7 @@ export function ConsentBar({
   leaving?: boolean;
 }) {
   const t = translator(consentMessages, audience === "trainers" ? "en" : locale);
+  const privacyHref = usePrivacyHref();
   const bar = useRef<HTMLElement>(null);
   const [size, setSize] = useState(0);
   useEffect(() => {
@@ -347,7 +359,7 @@ export function ConsentBar({
           <div className="consent-bar-copy">
             <p className="consent-bar-text">
               {audience === "trainers" ? CONSENT_BAR_TEXT[audience] : t("barText")}{" "}
-              <a className="consent-link" href="/privacy">
+              <a className="consent-link" href={privacyHref}>
                 {t("privacyPolicy")}
               </a>
             </p>
@@ -412,6 +424,7 @@ export function ConsentSheet({
   locale?: Locale;
 }) {
   const t = translator(consentMessages, locale);
+  const privacyHref = usePrivacyHref();
   const sheet = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const dialog = sheet.current;
@@ -460,7 +473,7 @@ export function ConsentSheet({
             k="sheetOff"
             tags={{
               link: (text) => (
-                <a className="consent-link" href="/privacy">
+                <a className="consent-link" href={privacyHref}>
                   {text}
                 </a>
               ),
@@ -515,13 +528,14 @@ export function ConsentSheet({
 export function AnalyticsSetting() {
   const { permission, busy, error, choose } = useAnalyticsConsent();
   const t = useT("consent");
+  const privacyHref = usePrivacyHref();
   const on = !!permission?.granted;
   return (
     <div className="analytics-setting">
       <h3>{t("sheetTitle")}</h3>
       <p className="muted">
         {t("settingText")}{" "}
-        <a className="consent-link" href="/privacy">
+        <a className="consent-link" href={privacyHref}>
           {t("privacyPolicy")}
         </a>
       </p>

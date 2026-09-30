@@ -218,15 +218,7 @@ export function LeaveTrainer() {
             open={open}
             onClose={() => !busy && setOpen(false)}
             title={t("leaveQuestion", { name })}
-            description={
-              <p>
-                {t("sheetText")}
-                {preview.action === "renewal_cancelled"
-                  ? t("sheetRenewal")
-                  : ""}
-                {t("sheetAccount")}
-              </p>
-            }
+            // The points below say what happens; no intro repeating them.
             footer={
               <>
                 <button
@@ -235,7 +227,7 @@ export function LeaveTrainer() {
                   disabled={busy}
                   onClick={() => setOpen(false)}
                 >
-                  {t("stay", { name })}
+                  {t("stayShort")}
                 </button>
                 <button
                   type="submit"
@@ -243,7 +235,7 @@ export function LeaveTrainer() {
                   className="button acct-leave-confirm"
                   disabled={busy}
                 >
-                  {busy ? t("leaving") : t("leave", { name })}
+                  {busy ? t("leaving") : t("leaveShort")}
                 </button>
               </>
             }

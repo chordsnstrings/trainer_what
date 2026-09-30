@@ -212,7 +212,7 @@
   min-block-size: 64px;
   padding: 6px 2px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 550;
   line-height: 1.2;
   text-align: center;
@@ -252,6 +252,18 @@
 }
 .member-tab[aria-current="page"] .member-tab-icon::before {
   opacity: 1;
+}
+/* Tapped, page still loading: the new tab is already the highlighted one. */
+.member-tab[data-pending] {
+  color: var(--brand-link, var(--ink));
+}
+.member-tab[data-pending] .member-tab-icon::before {
+  opacity: 1;
+}
+.member-tabbar:has([data-pending])
+  .member-tab[aria-current="page"]:not([data-pending])
+  .member-tab-icon::before {
+  opacity: 0;
 }
 .member-tab-label {
   max-inline-size: 100%;
@@ -752,6 +764,10 @@
 .bottom-sheet[open] {
   display: flex;
   flex-direction: column;
+}
+/* Sliding away after close: shown but never in the way of a tap. */
+.bottom-sheet[data-closing] {
+  pointer-events: none;
 }
 .bottom-sheet::backdrop {
   background: rgb(0 0 0 / 0.42);
@@ -1282,12 +1298,38 @@
   gap: 4px 12px;
   font-size: 16px;
 }
+/* Logged: the status on one line, the values on the next ("16 kg × 10
+   reps · 2 left"), never split into cramped columns. */
 .set-logged {
+  display: grid;
+  gap: 2px;
+  min-inline-size: 0;
+  color: var(--success);
+  font-size: 15px;
+}
+.set-logged-status {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: var(--success);
+}
+.set-logged-values {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+/* Sets after the current one stay one line until opened. */
+.set-row.is-later .set-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.set-open {
+  min-block-size: 44px;
   font-size: 15px;
+  white-space: nowrap;
+}
+.set-log {
+  white-space: nowrap;
 }
 .set-attention {
   color: var(--error);
@@ -1684,7 +1726,7 @@
 
 /* Chat: a message on its way, and the digital coach typing. */
 .chat-message.is-sending {
-  opacity: 0.6;
+  opacity: 0.75;
 }
 .chat-sending {
   font-size: 13px;
@@ -1741,4 +1783,59 @@
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+/* Rows that scroll sideways (useEdgeFade in components/phone-ui.tsx): the
+   edge that still hides items fades out, in either reading direction. */
+.edge-fade {
+  --fade-start: 0px;
+  --fade-end: 0px;
+  mask-image: linear-gradient(
+    calc(90deg * var(--inline-sign, 1)),
+    transparent 0,
+    #000 var(--fade-start),
+    #000 calc(100% - var(--fade-end)),
+    transparent 100%
+  );
+}
+.edge-fade[data-overflow-start] {
+  --fade-start: 28px;
+}
+.edge-fade[data-overflow-end] {
+  --fade-end: 36px;
+}
+
+/* A page heading that repeats the top bar's title (member-shell.tsx) stays
+   for screen readers only on phones; laptops show it. */
+.member-shell h1.is-topbar-title {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+@media (min-width: 1024px) {
+  .member-shell h1.is-topbar-title {
+    position: static;
+    inline-size: auto;
+    block-size: auto;
+    overflow: visible;
+    clip-path: none;
+    white-space: normal;
+  }
+}
+
+/* Small print on subscriber surfaces is never under 12 px (phone-check.mjs
+   MIN_TEXT): eyebrows, card labels, step numbers and tab labels. The
+   trainer workspace keeps its own sizes. */
+.member-shell :is(.eyebrow, .small-label),
+.coach-website .eyebrow,
+main.directory .eyebrow,
+.public:not(.mk) .eyebrow {
+  font-size: 12px;
+  letter-spacing: 0.1em;
+}
+.member-shell .step-circle {
+  font-size: 13px;
 }

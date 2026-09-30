@@ -14,6 +14,7 @@ import {
 } from "./chat-attachments";
 import { BottomSheet, Skeleton, StickyActionBar } from "./phone-ui";
 import { MOTION } from "./motion";
+import { unsavedMark } from "./pwa";
 import { formatWhen } from "../lib/format";
 import { translator, type Locale } from "../lib/i18n/core";
 import chatMessages from "../lib/i18n/messages/chat";
@@ -177,21 +178,24 @@ export function MemberChat({ state }: { state: any }) {
     setBusy(true);
     setError("");
     setNotice("");
-    sentText.current = text.trim();
-    setSending({ text: text.trim(), digital });
+    const draft = text;
+    sentText.current = draft.trim();
+    setSending({ text: draft.trim(), digital });
+    // The message leaves the composer at once (it shows in the thread as
+    // "Sending"), so it never appears twice; a failed send puts it back.
+    setText("");
     try {
       const result = await api(
         digital ? "/coaching/ask" : "/messages",
         "POST",
         digital
-          ? { message: text }
+          ? { message: draft }
           : {
-              text,
+              text: draft,
               subscriberId: userId,
               attachmentIds: attachments.map((file) => file.id),
             },
       );
-      setText("");
       setAttachments([]);
       setComposerKey((v) => v + 1);
       // The server's own sentence is English; other languages get ours.
@@ -202,6 +206,7 @@ export function MemberChat({ state }: { state: any }) {
         );
       await load();
     } catch (e: any) {
+      setText((current) => current || draft);
       setError(e.status === 429 ? t("tooMany") : t("notSent"));
     } finally {
       setBusy(false);
@@ -368,6 +373,7 @@ export function MemberChat({ state }: { state: any }) {
       >
         <form
           className="chat-composer"
+          {...unsavedMark(!!text.trim() || attachments.length > 0)}
           onSubmit={(event) => {
             event.preventDefault();
             void send(false);
@@ -422,7 +428,9 @@ export function MemberChat({ state }: { state: any }) {
               disabled={!canSend}
             >
               <Send size={16} aria-hidden="true" />
-              {t("sendTo", { coach: coachFirst })}
+              {/* Short on a phone; the full name is the accessible name. */}
+              <span aria-hidden="true">{t("sendShort")}</span>
+              <span className="sr-only">{t("sendTo", { coach: coachFirst })}</span>
             </button>
           </div>
         </form>

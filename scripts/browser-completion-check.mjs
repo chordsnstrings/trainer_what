@@ -183,7 +183,12 @@ async function assertConsentBar(page, label) {
       (viewport.width >= 760 || Math.abs(allow.width - decline.width) <= 1),
     `${label}: Allow and No thanks must carry equal weight`,
   );
-  assert.deepEqual(bar.privacy, ["/privacy"], `${label}: the privacy policy link`);
+  // In the member app the link leads back into the app (?from=app).
+  assert.deepEqual(
+    bar.privacy,
+    [label.startsWith("member app") ? "/privacy?from=app" : "/privacy"],
+    `${label}: the privacy policy link`,
+  );
   assert.ok(layout.overflow <= 1, `${label}: horizontal overflow of ${layout.overflow}px`);
   // It reserves its own space: the end of the page scrolls clear of it.
   const end = await pageEnd(page);
@@ -815,19 +820,21 @@ export async function checkCompletionFlows({
     // A select's label also reads its chosen option, so match the start.
     .getByLabel("Time zone for reminders and quiet hours")
     .selectOption("Asia/Dubai");
+  // Quiet hours are 24-hour choices every half hour (never the phone's
+  // 12-hour time field).
   await preferences
-    .getByLabel("Quiet hours start", { exact: true })
-    .fill("23:00");
+    .getByLabel(/^Quiet hours start/)
+    .selectOption({ label: "23:00" });
   await preferences
-    .getByLabel("Quiet hours end", { exact: true })
-    .fill("06:30");
+    .getByLabel(/^Quiet hours end/)
+    .selectOption({ label: "06:30" });
   await mutation(subscriber, "/notifications/preferences", "PUT", () =>
     preferences
       .getByRole("button", { name: "Save preferences", exact: true })
       .click(),
   );
   await subscriber.reload();
-  await preferences.getByLabel("Quiet hours start", { exact: true }).waitFor();
+  await preferences.getByLabel(/^Quiet hours start/).waitFor();
   assert.equal(
     await preferences
       .getByLabel("Email reminders", { exact: true })
@@ -861,15 +868,15 @@ export async function checkCompletionFlows({
   );
   assert.equal(
     await preferences
-      .getByLabel("Quiet hours start", { exact: true })
+      .getByLabel(/^Quiet hours start/)
       .inputValue(),
-    "23:00",
+    "1380",
   );
   assert.equal(
     await preferences
-      .getByLabel("Quiet hours end", { exact: true })
+      .getByLabel(/^Quiet hours end/)
       .inputValue(),
-    "06:30",
+    "390",
   );
   await publicContext.close();
   return {

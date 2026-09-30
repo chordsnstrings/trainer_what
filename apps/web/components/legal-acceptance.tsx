@@ -27,9 +27,18 @@ export const LEGAL_PATHS: Record<LegalKey, string> = {
 };
 const ORDER: LegalKey[] = ["terms", "privacy", "ai-disclosure"];
 
+/** Asked when the status cannot be read: all three, and the API decides. */
+const ASK_ALL: LegalStatus = {
+  joiningOpen: true,
+  documents: [
+    { key: "terms", published: true },
+    { key: "privacy", published: true },
+    { key: "ai-disclosure", published: true },
+  ],
+};
 /**
- * Loads the legal status once. While it loads, and if it cannot be read, the
- * form behaves as before (all three documents, API decides), so a failed
+ * Loads the legal status once (null while it loads). If it cannot be read,
+ * the form asks for all three documents and the API decides, so a failed
  * request never lets someone skip an acceptance the API requires.
  */
 export function useLegalStatus(): LegalStatus | null {
@@ -39,10 +48,16 @@ export function useLegalStatus(): LegalStatus | null {
     fetch("/api/v1/public/legal-status", { credentials: "same-origin" })
       .then((r) => (r.ok ? r.json() : null))
       .then((value) => {
-        if (active && value && Array.isArray(value.documents))
-          setStatus(value as LegalStatus);
+        if (!active) return;
+        setStatus(
+          value && Array.isArray(value.documents)
+            ? (value as LegalStatus)
+            : ASK_ALL,
+        );
       })
-      .catch(() => {});
+      .catch(() => {
+        if (active) setStatus(ASK_ALL);
+      });
     return () => {
       active = false;
     };
@@ -57,10 +72,15 @@ export type LegalPlan = {
   ask: LegalKey[];
   /** Documents that are not published yet, so nobody is asked to accept them. */
   pending: LegalKey[];
+  /**
+   * The status is still loading: no box to tick yet and the main action
+   * waits (never a "tick the box above" with no box on screen).
+   */
+  loading?: true;
 };
-/** What the form shows for a status (null: not loaded, ask for all three). */
+/** What the form shows for a status (null: still loading). */
 export function legalPlan(status: LegalStatus | null): LegalPlan {
-  if (!status) return { open: true, ask: [...ORDER], pending: [] };
+  if (!status) return { open: true, ask: [], pending: [], loading: true };
   const published = new Set(
     status.documents.filter((d) => d.published).map((d) => d.key),
   );
@@ -78,7 +98,7 @@ export function listWords(items: string[]) {
 }
 /** Whether the form may send `accepted: true` with this plan and tick. */
 export function acceptanceGiven(plan: LegalPlan, ticked: boolean) {
-  return plan.open && (plan.ask.length === 0 || ticked);
+  return !plan.loading && plan.open && (plan.ask.length === 0 || ticked);
 }
 
 /**
@@ -116,18 +136,10 @@ export function LegalAcceptance({
       </Link>
     </span>
   ));
-  const names = plan.pending.map(nameOf);
-  const pendingNote = plan.pending.length > 0 && (
-    <p className="legal-pending-note muted">
-      {t(plan.pending.length === 1 ? "pendingOne" : "pendingMany", {
-        names:
-          names.length < 2
-            ? (names[0] ?? "")
-            : names.slice(0, -1).join(t("listComma")) + t("and") + names.at(-1),
-      })}
-    </p>
-  );
-  if (!plan.ask.length) return pendingNote || null;
+  // Documents still being approved are not mentioned: nobody is asked to
+  // accept them, and their status is the platform's business, not the
+  // joiner's.
+  if (!plan.ask.length) return null;
   const [before, after] = t.template("accept").split("{links}");
   return (
     <>
@@ -145,7 +157,6 @@ export function LegalAcceptance({
           {after}
         </span>
       </label>
-      {pendingNote}
     </>
   );
 }

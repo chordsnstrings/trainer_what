@@ -315,6 +315,10 @@ export function MemberToday({
           })}
         </ul>
       )}
+      {data && !active && <EndOfProgramme data={data} />}
+      <CoachSwitcher current={state.user.tenantId} userId={state.user.userId} />
+      <CoachNote name={state.tenant.name} theme={state.tenant.theme} />
+      {/* Last on Today: the day's work and the coach's note come first. */}
       <InstallCard
         coachName={state.tenant.name}
         tenantId={state.user.tenantId}
@@ -326,9 +330,6 @@ export function MemberToday({
           )
         }
       />
-      {data && !active && <EndOfProgramme data={data} />}
-      <CoachSwitcher current={state.user.tenantId} userId={state.user.userId} />
-      <CoachNote name={state.tenant.name} theme={state.tenant.theme} />
     </div>
   );
 }

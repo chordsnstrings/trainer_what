@@ -387,9 +387,13 @@ export function timeZoneChoices(current?: string | null, locale: Locale = "en") 
     .filter(Boolean)
     .map((zone) => ({
       value: zone,
+      // The device's own zone reads short ("Dubai · this device"), so the
+      // closed picker is never cut off on a 360 px phone.
       label:
         zone === device
-          ? `${locale === "ar" ? "هذا الجهاز" : "This device"} · ${zoneChoiceLabel(zone, locale)}`
+          ? locale === "ar"
+            ? `${zoneName(zone, "ar")} · هذا الجهاز`
+            : `${zone.split("/").pop()?.replaceAll("_", " ") ?? zone} · this device`
           : zoneChoiceLabel(zone, locale),
     }));
 }

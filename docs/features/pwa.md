@@ -152,8 +152,20 @@ offline screen follows the same appearance (`member-neutral` wrapper).
   button), above the tab bar, any action bar and, while it shows, the
   analytics consent bar (`--consent-bar-block-size`). It never shows on the
   workout, guided or voice screens, and Reload refuses to discard typed,
-  unsaved input ("Save or clear what you typed first, then reload."). Only
-  the tab where Reload was tapped reloads; nothing reloads by itself. The
+  unsaved input ("Save or clear what you typed first, then reload."). React
+  keeps a controlled field's `defaultValue` equal to its value, so forms
+  with controlled fields mark themselves with `data-unsaved` while they
+  hold unsent typing (`unsavedMark` in `pwa.ts`: the chat composer, the
+  meal log's photo note, barcode and review forms, the diary item editor,
+  the workspace message form); `hasUnsavedInput` reads those marks, then
+  compares uncontrolled fields with their defaults (tested with React DOM
+  in Chromium, `tests/react-dom-behaviour.test.ts`). **Later** is kept for
+  the waiting release (its script address) in module memory and
+  `sessionStorage`, so the toast stays away on the next page and after a
+  reload until a newer release waits. While it shows, the page ends above
+  it (`html[data-update-toast]`) and the install card waits: one prompt at
+  a time. Only the tab where Reload was tapped reloads; nothing reloads by
+  itself. The
   trainer workspace and public pages keep the earlier behaviour: a new
   worker takes over at once, without a reload.
 - **Personal pages are cleared** (`clearPersonalCaches`: deletes every
@@ -270,3 +282,21 @@ offline screen follows the same appearance (`member-neutral` wrapper).
 - Not run: the whole `npm test` suite, `test:rtl`, the PostgreSQL sandbox and
   a real iPhone or Android device (installing to a real home screen, iOS
   push and the app badge were not tried on hardware).
+
+## Verification round (30 September 2026)
+
+- **Leaving clears the icon badge**: `clearPersonalCaches` (sign-out, coach
+  switch, leaving a coach, a 401) also clears the installed app's unread
+  badge, so a shared phone never shows the previous member's count.
+- **Legal pages from the app**: the member app links to `/privacy?from=app`
+  (Profile > Privacy, the consent bar and sheet, the shell footer). A legal
+  page opened that way, or inside the installed app (display-mode
+  standalone), shows **Back to the app** instead of the platform's marketing
+  header, so an installed app is never stranded on trainer marketing.
+- **The install card** shows on phones only (hidden from 1024 px; Profile
+  keeps the Install the app row), last on Today after the coach's note,
+  never offline, never in the same browser session as the analytics answer
+  (the answer must predate the session) and never while the update toast
+  shows (`showInstallCard`).
+- **The offline page** (`/app/offline`) follows the member's Light, Dark or
+  System choice like the other neutral screens.

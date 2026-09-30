@@ -295,6 +295,24 @@ export type MemberShellProps = {
   children: ReactNode;
 };
 
+/**
+ * True once a refresh has run for MOTION.refreshDelay: the quick refresh
+ * after every page change never shows the top bar's refresh bar (and so
+ * never animates during a page transition); a slow one then says so.
+ */
+function useSlowRefresh(refreshing: boolean) {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    if (!refreshing) {
+      setSlow(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setSlow(true), MOTION.refreshDelay);
+    return () => window.clearTimeout(timer);
+  }, [refreshing]);
+  return refreshing && slow;
+}
+
 export function MemberShell({
   path,
   tenant,
@@ -321,6 +339,7 @@ export function MemberShell({
   const page = useRef<HTMLDivElement>(null),
     tabbar = useRef<HTMLElement>(null);
   const unread = useUnreadChat(path, messages, user.tenantId, user.userId);
+  const slowRefresh = useSlowRefresh(refreshing);
   // The installed app's icon shows unread coach messages, where supported.
   useEffect(() => setAppBadge(unread), [unread]);
   const tabs = memberTabs(nav),
@@ -328,6 +347,27 @@ export function MemberShell({
     current = activeDestination(path),
     back = memberBackTarget(path, nav),
     title = memberPageTitle(path, { ...nav, workoutTitle });
+  // The top bar already names this page: a page heading with the same words
+  // is kept for screen readers but not shown again on phones (saves ~60 px;
+  // phone-first.css "is-topbar-title").
+  useEffect(() => {
+    const root = page.current;
+    if (!root || !title) return;
+    const mark = () => {
+      const h1 = root.querySelector("h1");
+      root
+        .querySelectorAll("h1.is-topbar-title")
+        .forEach((el) => el !== h1 && el.classList.remove("is-topbar-title"));
+      h1?.classList.toggle(
+        "is-topbar-title",
+        h1.textContent?.trim() === title.trim(),
+      );
+    };
+    mark();
+    const observer = new MutationObserver(mark);
+    observer.observe(root, { childList: true, subtree: true, characterData: true });
+    return () => observer.disconnect();
+  }, [title]);
   // Snapshot of the previous page's shell, taken when this page mounts.
   const [before] = useState(() => ({ ...shownBefore }));
   const changed = shellChanges(before, {
@@ -346,12 +386,16 @@ export function MemberShell({
   useLayoutEffect(() => {
     document.documentElement.dataset.vt = "nav-" + direction;
   }, [direction, path]);
-  // A screen's first view in this tab: its blocks settle in, 30 ms apart.
-  // Without View Transitions, any other new page fades in instead.
+  // The app's first screen in this tab: its blocks settle in, 30 ms apart.
+  // A page reached by navigation already moves in its View Transition, so
+  // it never plays a second arrival on top (no blink after the crossfade);
+  // without View Transitions a new page fades in instead.
   useEffect(() => {
     const el = page.current;
     if (!el) return;
-    if (firstView("screen:" + screenKey(path))) playArrival(el);
+    const first = firstView("screen:" + screenKey(path));
+    const navigating = direction !== "none" && supportsViewTransitions();
+    if (first && !navigating) playArrival(el);
     else if (direction !== "none" && !supportsViewTransitions())
       playMotion(el, [{ opacity: 0 }, { opacity: 1 }], {
         duration: MOTION.fast,
@@ -443,7 +487,7 @@ export function MemberShell({
       <div className="member-frame">
         <header
           className="member-topbar"
-          data-refreshing={refreshing || undefined}
+          data-refreshing={slowRefresh || undefined}
         >
           {back && (
             <Link
@@ -505,7 +549,7 @@ export function MemberShell({
           {supportEmail && (
             <a href={`mailto:${supportEmail}`}>{common("contactSupport")}</a>
           )}
-          <Link href="/privacy">{common("privacyPolicy")}</Link>
+          <Link href="/privacy?from=app">{common("privacyPolicy")}</Link>
         </footer>
       </div>
       <nav
@@ -526,6 +570,15 @@ export function MemberShell({
                 (active && changed.tab ? " is-arriving" : "")
               }
               aria-current={active ? "page" : undefined}
+              // The tapped tab lights up at once, before the next page has
+              // loaded (the pill then settles when it commits).
+              onPointerDown={(event) => {
+                if (active) return;
+                tabbar.current
+                  ?.querySelectorAll("[data-pending]")
+                  .forEach((el) => el.removeAttribute("data-pending"));
+                event.currentTarget.setAttribute("data-pending", "");
+              }}
             >
               <span className="member-tab-icon">
                 <Icon size={22} aria-hidden="true" />

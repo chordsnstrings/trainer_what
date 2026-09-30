@@ -14,6 +14,11 @@ export default defineMessages(
     aheadDay: "Get your session ready before the day. ",
     intro:
       "Your coach’s session plan, one step at a time. Say or tap “pain” at any moment and the session stops and your coach is told.",
+    introText:
+      "Your coach’s session plan, one step at a time. Tap “Report pain” at any moment and the session stops and your coach is told.",
+    sessionActions: "Session actions",
+    setCount: { one: "# set", other: "# sets" },
+    setsByReps: { one: "{setsReps} rep", other: "{setsReps} reps" },
     started: "This session has started.",
     openRunner: "Open the voice-led session",
     notOpen: "This planned session is no longer open.",
@@ -109,6 +114,7 @@ export default defineMessages(
     logReps: "Log reps",
     painNote: "Pain button pressed during the voice session",
     pain: "Pain — stop now",
+    painShort: "Report pain",
     endEarly: "End session without finishing",
     finished: "Workout finished and saved.",
     waiting:
@@ -153,7 +159,7 @@ export default defineMessages(
     status_pain: "Stopped. Your coach has been told.",
     status_member: "Session ended.",
     status_review: "Stopped for your coach’s review.",
-    eyebrowGuided: "Guided session",
+    eyebrowGuided: "Text guidance",
     vrHeld: "Training is paused until your coach has reviewed your report.",
     vrMembership: "Guided sessions need an active membership.",
     vrVoicePlan:
@@ -174,6 +180,25 @@ export default defineMessages(
     aheadDay: "يمكنك تجهيز جلستك قبل يوم الجلسة. ",
     intro:
       "خطة جلسة مدربك خطوة بخطوة. عند قول «ألم» أو الضغط عليه في أي لحظة تتوقف الجلسة ويُبلَّغ مدربك.",
+    introText:
+      "خطة جلسة مدربك خطوة بخطوة. عند الضغط على «الإبلاغ عن ألم» في أي لحظة تتوقف الجلسة ويُبلَّغ مدربك.",
+    sessionActions: "إجراءات الجلسة",
+    setCount: {
+      zero: "لا مجموعات",
+      one: "مجموعة واحدة",
+      two: "مجموعتان",
+      few: "# مجموعات",
+      many: "# مجموعة",
+      other: "# مجموعة",
+    },
+    setsByReps: {
+      zero: "{setsReps} تكرار",
+      one: "{setsReps} تكرار",
+      two: "{setsReps} تكرار",
+      few: "{setsReps} تكرارات",
+      many: "{setsReps} تكرارًا",
+      other: "{setsReps} تكرار",
+    },
     started: "بدأت هذه الجلسة.",
     openRunner: "فتح الجلسة الصوتية",
     notOpen: "هذه الجلسة المخطط لها لم تعد متاحة.",
@@ -269,6 +294,7 @@ export default defineMessages(
     logReps: "تسجيل التكرارات",
     painNote: "ضُغط زر الألم أثناء الجلسة الصوتية",
     pain: "ألم — توقف الآن",
+    painShort: "الإبلاغ عن ألم",
     endEarly: "إنهاء الجلسة دون إكمالها",
     finished: "انتهى التمرين وحُفظ.",
     waiting: "اكتملت الجلسة. سيُنهى تمرينك بعد مزامنة سجلات المجموعات.",
@@ -318,7 +344,7 @@ export default defineMessages(
     status_pain: "توقفت الجلسة وأُبلغ مدربك.",
     status_member: "انتهت الجلسة.",
     status_review: "توقفت الجلسة لمراجعة مدربك.",
-    eyebrowGuided: "جلسة موجّهة",
+    eyebrowGuided: "بتوجيه نصي",
     vrHeld: "التدريب متوقف حتى يراجع مدربك بلاغك.",
     vrMembership: "تتطلب الجلسات الموجّهة اشتراكًا نشطًا.",
     vrVoicePlan: "لا تشمل باقتك صوت مدربك، لذا تُوجَّه هذه الجلسة نصيًا.",

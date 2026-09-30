@@ -52,6 +52,9 @@ export default defineMessages(
       "Answer a few questions so your coach can plan training that fits you.",
     startProfile: "Start your coaching profile",
     securityTitle: "Sign-in security",
+    alertsTitle: "Phone alerts",
+    alertsDetail: "Alerts while the app is closed, and your devices",
+    dangerZone: "Leave your coach",
     securityDetail: "Authenticator app, passkeys and where you are signed in",
     yourData: "Your data",
     yourDataText:
@@ -152,6 +155,9 @@ export default defineMessages(
       "يُرجى الإجابة عن بضعة أسئلة ليتمكن مدربك من تخطيط تدريب يناسبك.",
     startProfile: "بدء ملف التدريب",
     securityTitle: "أمان تسجيل الدخول",
+    alertsTitle: "تنبيهات الهاتف",
+    alertsDetail: "التنبيهات عندما يكون التطبيق مغلقًا، وأجهزتك",
+    dangerZone: "مغادرة مدربك",
     securityDetail:
       "تطبيق المصادقة ومفاتيح المرور والأجهزة التي سجّلت الدخول منها",
     yourData: "بياناتك",

@@ -6,6 +6,9 @@ export default defineMessages(
     title: "Your training plan",
     loadFailed:
       "Your plan could not be loaded. Check your connection, then try again.",
+    savedPlan:
+      "No connection right now. Showing the plan saved on this phone (last updated {when}).",
+    tryAgain: "Try again",
     errActive: "You already have a workout in progress. Finish or end it first.",
     errChanged:
       "Your coach just changed this session. The plan below is up to date.",
@@ -85,6 +88,8 @@ export default defineMessages(
     title: "خطة تدريبك",
     loadFailed:
       "تعذّر تحميل خطتك. يُرجى التحقق من الاتصال ثم المحاولة مرة أخرى.",
+    savedPlan: "لا يوجد اتصال الآن. نعرض الخطة المحفوظة على هذا الهاتف (آخر تحديث {when}).",
+    tryAgain: "المحاولة مرة أخرى",
     errActive: "لديك تمرين قيد التنفيذ. يُرجى إنهاؤه أولًا.",
     errChanged: "غيّر مدربك هذه الجلسة للتو. الخطة أدناه محدّثة.",
     errStart:

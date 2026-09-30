@@ -65,7 +65,11 @@ import { AccountExtras } from "./account-completion";
 import { AccountSettings } from "./account-settings";
 import { AnalyticsSetting } from "./acquisition";
 import { OperatorRecovery } from "./operator-recovery";
-import { FollowerRemoval, FormerFollowers } from "./membership-exit";
+import {
+  FollowerRemoval,
+  FormerFollowers,
+  LeaveTrainer,
+} from "./membership-exit";
 import { GalleryStudio, WebsiteStudio, CoachWebsite } from "./coach-site";
 import { MemberAppManifest } from "./member-app-install";
 import { MemberShell, MoreScreen } from "./member-shell";
@@ -84,7 +88,6 @@ import {
   formatCountdown,
   formatDate,
   formatMoney,
-  formatRange,
   formatSetsReps,
   humanize,
 } from "../lib/format";
@@ -152,6 +155,7 @@ import {
   installKeys,
   queuedLabel,
   queuedSummary,
+  unsavedMark,
 } from "./pwa";
 import {
   AppUpdateToast,
@@ -1335,6 +1339,7 @@ export default function Workspace({
         <AppUpdateToast
           path={path}
           waiting={serviceWorker.waiting}
+          release={serviceWorker.release}
           onReload={serviceWorker.reload}
         />
         <MemberLanguage member={`${state.user.tenantId}:${state.user.userId}`} />
@@ -1368,7 +1373,10 @@ export default function Workspace({
           }
           onSignOut={() => void signOut()}
           footerNote={
-            state.environment === "development" ? (
+            // Development builds only (the API reports "production" under
+            // strict security); never between a chat thread and its composer.
+            state.environment === "development" &&
+            !path.startsWith("/app/chat") ? (
               <p className="member-dev-note">{shellT("devNote")}</p>
             ) : null
           }
@@ -2973,7 +2981,10 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
     [finished, setFinished] = useState(false),
     // The set logged last on this screen: it confirms itself once
     // (phone-first.css "Motion") and the next set comes into view.
-    [justLogged, setJustLogged] = useState<string | null>(null);
+    [justLogged, setJustLogged] = useState<string | null>(null),
+    // The one set shown with its steppers: the next to log unless the
+    // member opened another (phone first: one set at a time).
+    [openSet, setOpenSet] = useState<string | null>(null);
   useEffect(() => {
     if (!restUntil) return;
     const tick = () => {
@@ -3005,7 +3016,18 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
         t("savedOnDevice", { reason: toError(result.stopped.failure) }),
       );
     else if (result.rejected.length) setNotice(t("rejectedOne"));
-  }, [tenantId, userId, refreshQueue, t, toError]);
+    // Back online and everything sent: say so plainly (then it goes).
+    else if (
+      result.synced.length &&
+      !readList(localStorage, key).length
+    )
+      setNotice(t("allSynced"));
+  }, [tenantId, userId, refreshQueue, t, toError, key]);
+  useEffect(() => {
+    if (notice !== t("allSynced")) return;
+    const gone = window.setTimeout(() => setNotice(""), 4000);
+    return () => window.clearTimeout(gone);
+  }, [notice, t]);
   useEffect(() => {
     refreshQueue();
     const online = () => void sync();
@@ -3089,6 +3111,13 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
   const next = exercises
     .flatMap(({ ex, sets }) => sets.map((s) => ({ ...s, ex })))
     .find((s) => !s.done && !s.needsAttention);
+  // The set on screen with its steppers: one the member opened, else next.
+  const current =
+    exercises
+      .flatMap(({ ex, sets }) => sets.map((s) => ({ ...s, ex })))
+      .find(
+        (s) => s.logicalKey === openSet && !s.done && !s.needsAttention,
+      ) ?? next;
 
   const remaining = exercises.reduce(
     (n, { sets }) => n + sets.filter((s) => !s.done).length,
@@ -3099,17 +3128,16 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
     rejected.some((r) => r.item.path === `/workouts/${workout.id}/sets`);
   const finish = () => {
     haptic();
+    // No toast: the completion card itself says the workout is done.
     void action(
       () => api(`/workouts/${workout.id}/finish`, "POST", {}),
-      t("completed"),
+      "",
     ).then((result) => {
       if (result === null) return;
+      // The completion moment is at the top of the workout: go there once,
+      // instantly, before the card rises, so nothing jumps under it.
+      window.scrollTo({ top: 0, behavior: "auto" });
       setFinished(true);
-      // The completion moment is at the top of the workout.
-      window.scrollTo({
-        top: 0,
-        behavior: prefersReducedMotion() ? "auto" : "smooth",
-      });
     });
   };
   const allSets = exercises.flatMap(({ sets }) => sets);
@@ -3154,8 +3182,10 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
           </button>
         </div>
       )}
+      {/* Keyed by its words: it drops in once per new message, not again
+          when the page re-renders after a reload. */}
       {notice && (
-        <div className="notice" role="status">
+        <div className="notice" role="status" key={notice}>
           {notice}
         </div>
       )}
@@ -3229,19 +3259,28 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
               {ex.cue}
             </p>
           )}
-          <p className="rir-help">
-            <Rich
-              t={t}
-              k="rirHelp"
-              params={{ rir: ex.rir ?? 2 }}
-              tags={{ b: (text) => <strong>{text}</strong> }}
-            />
-          </p>
+          {/* "Reps left" is explained once, in the first exercise. */}
+          {i === exercises[0]?.i && (
+            <p className="rir-help">
+              <Rich
+                t={t}
+                k="rirHelp"
+                params={{ rir: ex.rir ?? 2 }}
+                tags={{ b: (text) => <strong>{text}</strong> }}
+              />
+            </p>
+          )}
           {sets.map((row) => (
             <form
               className={
                 "set-row" +
                 (row.done ? " is-done" : "") +
+                (active &&
+                !row.done &&
+                !row.needsAttention &&
+                row.logicalKey !== current?.logicalKey
+                  ? " is-later"
+                  : "") +
                 (row.done && row.logicalKey === justLogged
                   ? " just-logged"
                   : "")
@@ -3288,6 +3327,7 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
                   },
                 }));
                 setJustLogged(row.logicalKey);
+                setOpenSet(null);
                 haptic();
                 requestAnimationFrame(revealNextSet);
                 localStorage.setItem(key, JSON.stringify(pending));
@@ -3314,43 +3354,50 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
                 <strong>{t("setN", { n: row.set })}</strong>
                 {row.done && (
                   <span className="set-logged">
-                    {/* Drawn once when this set was just logged. */}
-                    <DrawnCheck />
-                    {row.pending
-                      ? locale === "en"
-                        ? QUEUED_LABEL
-                        : queuedLabel(locale)
-                      : t("logged")}
+                    <span className="set-logged-status">
+                      {/* Drawn once when this set was just logged. */}
+                      <DrawnCheck />
+                      {row.pending
+                        ? locale === "en"
+                          ? QUEUED_LABEL
+                          : queuedLabel(locale)
+                        : t("logged")}
+                    </span>
                     {row.values && (
-                      <>
-                        {": "}
-                        {locale === "en" ? (
-                          <>
-                            <bdi dir="ltr">
-                              {row.values.loadKg} kg × {row.values.reps}
-                            </bdi>{" "}
-                            reps · {row.values.rir ?? 2} left
-                          </>
-                        ) : (
-                          t("loggedValues", {
-                            weightReps: formatRange(
-                              `${row.values.loadKg} kg`,
-                              row.values.reps,
-                              locale,
-                              " × ",
-                            ),
-                            rir: row.values.rir ?? 2,
-                          })
-                        )}
-                      </>
+                      <span className="set-logged-values">
+                        {t("loggedLine", {
+                          kg: row.values.loadKg,
+                          count: row.values.reps,
+                          rir: row.values.rir ?? 2,
+                        })}
+                      </span>
                     )}
                   </span>
                 )}
                 {row.needsAttention && (
                   <span className="set-attention">{t("needsAttention")}</span>
                 )}
+                {active &&
+                  !row.done &&
+                  !row.needsAttention &&
+                  row.logicalKey !== current?.logicalKey && (
+                    <button
+                      type="button"
+                      className="button secondary set-open"
+                      aria-label={t("openSetLabel", {
+                        exercise: ex.name,
+                        set: row.set,
+                      })}
+                      onClick={() => setOpenSet(row.logicalKey)}
+                    >
+                      {t("openSet")}
+                    </button>
+                  )}
               </div>
-              {active && !row.done && !row.needsAttention && (
+              {active &&
+                !row.done &&
+                !row.needsAttention &&
+                row.logicalKey === current?.logicalKey && (
                 <>
                   <NumberStepper
                     label={t("weightKg")}
@@ -3435,6 +3482,17 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
         onChange={async () => {
           await action(async () => ({}), t("sessionUpdated"));
         }}
+        rest={{
+          left: restLeft,
+          start: (seconds) => {
+            setRestTotal(seconds);
+            setRestUntil(Date.now() + seconds * 1000);
+          },
+          reset: () => {
+            setRestUntil(null);
+            setRestLeft(0);
+          },
+        }}
       />
       {active && (
         <StickyActionBar
@@ -3448,12 +3506,15 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
                   ticking
                 />
                 {restText}
-                {next
-                  ? t("nextAfterRest", { exercise: next.ex.name, set: next.set })
+                {current
+                  ? t("nextAfterRest", {
+                      exercise: current.ex.name,
+                      set: current.set,
+                    })
                   : ""}
               </span>
-            ) : next ? (
-              t("next", { exercise: next.ex.name, set: next.set })
+            ) : current ? (
+              t("next", { exercise: current.ex.name, set: current.set })
             ) : finishBlocked ? (
               t("waitingSync")
             ) : (
@@ -3470,14 +3531,14 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
             <AlertCircle size={18} aria-hidden="true" />
             {t("reportPain")}
           </button>
-          {next ? (
+          {current ? (
             <button
               type="submit"
-              form={next.formId}
+              form={current.formId}
               className="button"
               disabled={busy}
             >
-              {t("logSet", { n: next.set })}
+              {t("logSet", { n: current.set })}
             </button>
           ) : (
             <button
@@ -3532,8 +3593,9 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
         >
           <label className="field">
             <span>{t("whatHappened")}</span>
+            {/* No autofocus: the phone keyboard would open mid-slide and
+                cover "Stop workout and notify coach"; the note is optional. */}
             <textarea
-              data-autofocus
               value={painText}
               onChange={(e) => setPainText(e.target.value)}
               rows={4}
@@ -3647,6 +3709,7 @@ function Messages({ state, records, action, busy }: ViewProps) {
           )}
         </div>
         <form
+          {...unsavedMark(!!text.trim())}
           onSubmit={(e) => {
             e.preventDefault();
             void action(
@@ -4676,10 +4739,19 @@ function MemberSettings({
         </Link>
       </section>
       <InstallAppRow coachName={state.tenant.name} variant="card" />
-      <AccountSettings returnTo="/app/profile" />
+      <AccountSettings returnTo="/app/profile" leave={false} />
       <DisplayPreferences />
       <NotificationPreferences />
-      <PushNotifications />
+      {/* Secondary detail folds away (phone first: a shorter page). */}
+      <details className="card settings-group" id="phone-alerts">
+        <summary>
+          <span>
+            <strong>{t("alertsTitle")}</strong>
+            <small>{t("alertsDetail")}</small>
+          </span>
+        </summary>
+        <PushNotifications />
+      </details>
       <details className="card settings-group" id="security">
         <summary>
           <span>
@@ -4734,6 +4806,10 @@ function MemberSettings({
         <div className="divider" />
         <AnalyticsSetting />
       </Card>
+      {/* The one destructive action, last and on its own. */}
+      <section className="member-danger-zone" aria-label={t("dangerZone")}>
+        <LeaveTrainer />
+      </section>
     </div>
   );
 }

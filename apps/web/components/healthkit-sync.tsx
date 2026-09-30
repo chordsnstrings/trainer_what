@@ -233,7 +233,10 @@ export function HealthKitSyncView({
       ) : !status.available ? (
         <p>
           <span className="badge amber">{t("notAvailable")}</span>{" "}
-          {locale === "en" ? status.message : t("notAvailableText")}
+          {/* Members read one plain line, never the platform's status. */}
+          {role === "subscriber" || locale !== "en"
+            ? t("notAvailableText")
+            : status.message}
         </p>
       ) : role === "owner" && !status.coachAllowsSync ? (
         <p>

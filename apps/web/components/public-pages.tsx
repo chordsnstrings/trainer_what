@@ -8,7 +8,13 @@
  * there is a coach, the main action in thumb reach and a subscriber footer,
  * never the trainer-marketing footer or story.
  */
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { Field } from "./field";
@@ -24,6 +30,7 @@ import { MagicAccess } from "./account-completion";
 import { AccountRecovery } from "./account-security";
 import { EmailChangeConfirm, RecoveryLinkReset } from "./account-links";
 import { PublishedLegal } from "./published-legal";
+import { isStandalone, legalOpenedFromApp } from "./pwa";
 import {
   LegalAcceptance,
   acceptanceGiven,
@@ -57,6 +64,8 @@ export type PublicPlatform = {
   registrationOpen: boolean;
 };
 type Trainer = { name: string; slug: string; theme: unknown };
+
+const subscribeNothing = () => () => {};
 
 function PlainShell({
   children,
@@ -145,6 +154,14 @@ export function Public({
   // Joining pages are the coach's from the first paint, before its details
   // load, so a first-time joiner never sees the trainer-marketing header.
   const coach = !!siteSlug || join;
+  // A legal page opened from the member app, or inside the installed app:
+  // no platform marketing header, and the way back leads into the app.
+  const legal = ["/terms", "/privacy", "/ai-disclosure"].includes(path);
+  const fromApp = useSyncExternalStore(
+    subscribeNothing,
+    () => legal && legalOpenedFromApp(location.search, isStandalone()),
+    () => false,
+  );
   const Shell = coach ? TrainerTheme : PlainShell;
   const coachName = trainer?.name ?? null;
   // The platform's own pages stay light (docs/features/brand.md); a coach's
@@ -157,6 +174,7 @@ export function Public({
       theme={store?.trainer?.theme}
       colorScheme={coach ? colorScheme : undefined}
     >
+      {!fromApp && (
       <PublicHeader
         path={path}
         platform={platform}
@@ -171,6 +189,7 @@ export function Public({
             : null
         }
       />
+      )}
       {path === "/sign-in/verify" ? (
         <SocialSignInVerify />
       ) : path.startsWith("/verify-email-change/") ? (
@@ -213,6 +232,7 @@ export function Public({
         <PublishedLegal
           documentKey={path.slice(1) as "terms" | "privacy" | "ai-disclosure"}
           platformName={platform.name}
+          fromApp={fromApp}
         />
       ) : null}
       {signup ? (
@@ -255,13 +275,14 @@ function MembershipEnded({
           : t("noMembershipText")}
       </p>
       <p className="auth-state-next">{t("whatNext")}</p>
+      {/* Secondary: the sign-in form below keeps the one primary action. */}
       <div className="auth-state-actions">
         {coach ? (
-          <Link className="button" href={`/join-coach/${coach.slug}`}>
+          <Link className="button secondary" href={`/join-coach/${coach.slug}`}>
             {t("rejoin", { name: coach.name ?? t("thisCoach") })}
           </Link>
         ) : (
-          <Link className="button" href="/coaches">
+          <Link className="button secondary" href="/coaches">
             {t("findCoach")}
           </Link>
         )}
@@ -533,12 +554,8 @@ function JoinCoachPage({
           <SocialSignIn intent="join" coachSlug={slug} accepted={given} />
         )}
       />
-      <p className="auth-new">
-        {t("alreadyCoaching", { coach: coachName })}{" "}
-        <Link className="text-link" href="/login">
-          {t("signIn")}
-        </Link>
-      </p>
+      {/* "I already have an account" in the form is the way in for an
+          existing member; no second sign-in link here. */}
     </AuthPage>
   );
 }

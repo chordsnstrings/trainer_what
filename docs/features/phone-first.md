@@ -404,3 +404,21 @@ cards, the joining fields, the success check) is in docs/features/motion.md.
 - Dark mode is `docs/features/dark-mode.md` (branch `ui/dark`): the shell
   and every control above follow the member's Light, Dark or System choice
   through the same tokens; new subscriber CSS must use tokens only.
+
+## Verification round (30 September 2026)
+
+- `scripts/phone-check.mjs` also fails on visible text under 12 px
+  (`MIN_TEXT`, captions, chips, tab labels and footnotes included), and
+  visits `/app/voice-session/<id>`: Prepare and Start must be the bottom
+  action bar's action, and once running **Report pain** and **Done** must
+  sit in the bar, on screen and reachable at 360x740 and 390x844.
+- Meal logging (`app/meal-capture.css`) and the meal plan
+  (`app/nutrition.css`) are rewritten phone first: base rules are the phone
+  layout, columns come back with `min-width` queries, and their
+  `max-width` blocks are gone.
+- Rows that scroll sideways (in-screen tabs, meal plan days, the coach
+  website's sections) fade the edge that still hides items and bring the
+  current item fully into view (`useEdgeFade`, `.edge-fade`).
+- Support: **Send** for a new request sits in the bottom action bar.
+- Voice-led session: see member-screens.md; the safety control is never
+  below the fold.

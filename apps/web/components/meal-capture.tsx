@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { StickyActionBar } from "./phone-ui";
+import { StickyActionBar, useTakingLong } from "./phone-ui";
+import { unsavedMark } from "./pwa";
 import { formatDate, humanize, recentDays } from "../lib/format";
 import { scaleCapturedPortion } from "../../../packages/domain/src/nutrition-completion";
 import { Rich, useErrorText, useLocale, useT } from "../lib/i18n/react";
@@ -483,7 +484,10 @@ export function MealCapture() {
               {t("reload")}
             </button>
           ) : (
-            t("loadingPermissions")
+            <SlowPermissions
+              label={t("loadingPermissions")}
+              onRetry={() => void action(load)}
+            />
           )}
         </p>
       )}
@@ -592,6 +596,7 @@ export function MealCapture() {
               <span>{t("photoMissing")}</span>
               <textarea
                 value={context}
+                {...unsavedMark(!!context.trim())}
                 maxLength={1000}
                 rows={3}
                 onChange={(e) => setContext(e.target.value)}
@@ -689,6 +694,24 @@ export function MealCapture() {
             </div>
             <h2>{t("labelTitle")}</h2>
             <p>{t("labelText")}</p>
+            {settings && !settings.barcodeEnabled ? (
+              // One unavailable state: no camera frame that looks tappable,
+              // no second copy of the same sentence.
+              <div className="capture-connection capture-unavailable">
+                <p>{t("lookupWaiting")}</p>
+                <button
+                  type="button"
+                  className="button secondary"
+                  onClick={() => {
+                    setMode("manual");
+                    setEventKey("");
+                  }}
+                >
+                  {t("writeLabelInstead")}
+                </button>
+              </div>
+            ) : (
+              <>
             <div className="capture-dropzone">
               <CameraIcon barcode />
               <b>{t("pointCamera")}</b>
@@ -729,6 +752,7 @@ export function MealCapture() {
               <span>{t("barcodeNumbers")}</span>
               <input
                 value={code}
+                {...unsavedMark(!!code.trim())}
                 onChange={(e) => setCode(e.target.value)}
                 inputMode="numeric"
                 autoComplete="off"
@@ -737,31 +761,9 @@ export function MealCapture() {
                 dir="ltr"
               />
             </label>
-            {settings && !settings.barcodeEnabled && (
-              <p className="capture-connection">
-                {t("lookupWaiting")}{" "}
-                <button
-                  type="button"
-                  className="nutrition-text-button"
-                  onClick={() => {
-                    setMode("manual");
-                    setEventKey("");
-                  }}
-                >
-                  {t("writeLabelInstead")}
-                </button>
-                .
-              </p>
-            )}
             <StickyActionBar
               label={t("productActions")}
-              note={
-                settings && !settings.barcodeEnabled
-                  ? t("lookupWaiting")
-                  : !code.trim()
-                    ? t("scanFirst")
-                    : undefined
-              }
+              note={!code.trim() ? t("scanFirst") : undefined}
             >
               <button
                 type="button"
@@ -777,6 +779,8 @@ export function MealCapture() {
                 {t("findProduct")}
               </button>
             </StickyActionBar>
+              </>
+            )}
           </section>
           <aside className="card capture-aside">
             <span className="capture-overline">{t("labelFirst")}</span>
@@ -891,7 +895,7 @@ export function MealCapture() {
         </section>
       )}
       {draft && (
-        <form id="meal-review-form" onSubmit={confirm}>
+        <form id="meal-review-form" onSubmit={confirm} data-unsaved="">
           <section className="card capture-main">
             <div className="capture-section-label">
               <span>
@@ -910,7 +914,11 @@ export function MealCapture() {
                     <ul>
                       {draft.data.estimate.questions.map(
                         (q: string, i: number) => (
-                          <li key={i}>{q}</li>
+                          // The estimate's own words: their direction is
+                          // their own (a question mark stays at the end).
+                          <li key={i} dir="auto">
+                            {q}
+                          </li>
                         ),
                       )}
                     </ul>
@@ -918,17 +926,17 @@ export function MealCapture() {
                   </div>
                 )}
                 {draft.data.estimate.notes && (
-                  <p>{draft.data.estimate.notes}</p>
+                  <p dir="auto">{draft.data.estimate.notes}</p>
                 )}
               </>
             )}
             {draft.kind === "barcode" && (
               <div className="capture-product">
                 <div>
-                  <span className="capture-overline">
+                  <span className="capture-overline" dir="auto">
                     {draft.data.product.brand || t("packaged")}
                   </span>
-                  <h3>{draft.data.product.name}</h3>
+                  <h3 dir="auto">{draft.data.product.name}</h3>
                   <p>
                     {t("barcodeLine", {
                       code: draft.data.product.code,
@@ -1189,7 +1197,7 @@ export function MealCapture() {
                             item.uncertainty as keyof typeof UNCERTAINTY_KEYS
                           ],
                         )
-                      : item.uncertainty}
+                      : <bdi>{item.uncertainty}</bdi>}
                   </p>
                 </div>
               ))}
@@ -1293,7 +1301,7 @@ export function MealCapture() {
                 {d.status === "draft" ? t("review") : t("checkStatus")}
               </button>
               <button
-                className="capture-remove"
+                className="button secondary capture-remove"
                 type="button"
                 disabled={busy}
                 onClick={() =>
@@ -1310,5 +1318,26 @@ export function MealCapture() {
         </section>
       )}
     </div>
+  );
+}
+
+/** "Loading your nutrition permissions…", then Try again if it never answers. */
+function SlowPermissions({
+  label,
+  onRetry,
+}: {
+  label: string;
+  onRetry: () => void;
+}) {
+  const common = useT("common");
+  const slow = useTakingLong(true);
+  if (!slow) return <>{label}</>;
+  return (
+    <>
+      {common("slowLoad")}{" "}
+      <button type="button" className="button secondary" onClick={onRetry}>
+        {common("tryAgain")}
+      </button>
+    </>
   );
 }

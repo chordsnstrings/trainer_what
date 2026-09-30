@@ -12,6 +12,7 @@ import {
   calendarDate,
   formatDate,
   formatSetsReps,
+  formatWhen,
   nextDays,
 } from "../lib/format";
 import { translator, type Locale } from "../lib/i18n/core";
@@ -131,17 +132,38 @@ export function MemberProgram({
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
     [busy, setBusy] = useState(false),
-    [sheet, setSheet] = useState<Sheet>(null);
+    [sheet, setSheet] = useState<Sheet>(null),
+    // The plan last loaded on this device, shown when it cannot load now.
+    [savedAt, setSavedAt] = useState<number | null>(null);
+  // "trainer:" keys are removed at sign-out (clearLocalData).
+  const cacheKey = `trainer:overview:${state.user?.tenantId}:${state.user?.userId}`;
   const load = useCallback(
     () =>
       api("/training/overview").then(
         (d) => {
           setData(d);
           setError("");
+          setSavedAt(null);
+          try {
+            localStorage.setItem(
+              cacheKey,
+              JSON.stringify({ savedAt: Date.now(), data: d }),
+            );
+          } catch {}
         },
-        () => setError(t("loadFailed")),
+        () => {
+          let cached: { savedAt: number; data: any } | null = null;
+          try {
+            cached = JSON.parse(localStorage.getItem(cacheKey) ?? "null");
+          } catch {}
+          if (cached?.data) {
+            setData((current: any) => current ?? cached.data);
+            setSavedAt(cached.savedAt);
+            setError("");
+          } else setError(t("loadFailed"));
+        },
       ),
-    [t],
+    [t, cacheKey],
   );
   useEffect(() => {
     void load();
@@ -244,9 +266,35 @@ export function MemberProgram({
         <h1>{t("title")}</h1>
       </header>
       {error && (
-        <p role="alert" className="notice error">
-          {error}
-        </p>
+        <div role="alert" className="notice error">
+          <p>{error}</p>
+          <button
+            type="button"
+            className="button secondary"
+            onClick={() => {
+              setError("");
+              void load();
+            }}
+          >
+            {t("tryAgain")}
+          </button>
+        </div>
+      )}
+      {savedAt !== null && (
+        <div role="status" className="notice">
+          <p>
+            {t("savedPlan", {
+              when: formatWhen(new Date(savedAt), { locale }),
+            })}
+          </p>
+          <button
+            type="button"
+            className="button secondary"
+            onClick={() => void load()}
+          >
+            {t("tryAgain")}
+          </button>
+        </div>
       )}
       {notice && (
         <p role="status" className="notice success">

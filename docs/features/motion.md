@@ -257,3 +257,62 @@ them with the same tokens and reduced-motion rules:
 Note: "Reduce motion" is a device choice; on that device it also stills
 the marketing site's own motion (the global rule in `motion.css`), which is
 the member's accessibility preference rather than a change to the site.
+
+## Verification round (30 September 2026)
+
+- **The frame holds still.** The cause of the blank bars, found frame by
+  frame: React names the entering page (`div.trainer-theme`, `_t_1_`) after
+  the bars were captured, a later name paints on top, and React drops the
+  root's snapshot; so the new page's opaque full-screen snapshot covered
+  the top bar, the tab bar and the analytics bar while it faded in, and
+  they reappeared only when the transition ended. Now, during a navigation,
+  the top bar, tab bar, side navigation, action bar and analytics bar
+  (`member-consent`, named because it lives in the root layout) have
+  groups with `z-index: 1` above the page and no animation; the new, live
+  bar shows (its title and tab pill move in place) and the old picture is
+  hidden only while a new one exists (`opacity: 0`; `:only-child` keeps a
+  bar only one page has and fades it with the page). `motion-check.mjs`
+  records every painted frame of tab switches, a sub-page and Back
+  (DevTools screencast, English and Arabic) and fails if the top bar or
+  tab bar band is blank in any frame; `MOTION_FRAME_DIR=<dir>` keeps the
+  frames for a person to look at. Local Chromium's renderer crashed when a
+  script read `getComputedStyle()` of a transition pseudo-element that has
+  an `:only-child` rule (a diagnostic probe did this; the app and the
+  checks never do).
+- **Arabic page changes no longer go blank.** React also sizes the
+  `::view-transition` layer to 0 x 0 while the browser keeps `inset: 0`; in
+  a right-to-left page that over-constrained box keeps its right edge, so
+  the layer sat at the right side of the screen and every snapshot (placed
+  from its physical top-left) was off screen: the whole screen was blank
+  for each Arabic tab switch, sub-page and Back. `::view-transition
+  { right: auto }` (motion.css, the one physical declaration allowed in
+  `tests/logical-css.test.ts`) pins the layer to the left in both
+  directions. Seen and confirmed frame by frame in the motion check's
+  Arabic screencast.
+- **No second arrival.** A screen's first-view settle-in plays only on the
+  app's first load (or without View Transitions); a page reached by
+  navigation moves only in its transition.
+- **Title direction** follows the page (`--motion-title-shift`): in from the
+  inline end on a sub-page, from the inline start on Back, a fade between
+  tabs.
+- **Refresh bar** waits 400 ms (`MOTION.refreshDelay`; the shell sets
+  `data-refreshing` only once a refresh has run that long), so quick
+  page-change refreshes show nothing and nothing animates in the top bar
+  during a page transition; it never shows over skeletons.
+- **Tab bar**: the tapped tab lights up on pointerdown (`data-pending`),
+  before the next page commits.
+- **Sheets** close the modal at once and slide away as a non-modal,
+  untappable dialog, so taps on the page work during the slide; the
+  keyframes start and end fully below the screen (shadow and safe area
+  included). The pain sheets no longer focus their optional note (the
+  keyboard covered "Stop workout and notify coach").
+- **Finishing a workout**: an instant scroll to the top, no toast, the ring
+  fills at once in `--motion-slow` and the check draws after it in
+  `--motion-fast` (420 ms in all, the motion limit). The card's `h2` has
+  `role="status"`, so checks find it by its text ("Workout done"), not as
+  a heading.
+- **Press feedback** also covers the coach website's section links, "More
+  about", text links, Today's secondary link and Sign out (an instant 60 %
+  tint, no scale); card-sized targets use a 5 % tint.
+- **Consent bar** fades where it is after an answer (no slide across the
+  page); the workout notice replays only when its words change.

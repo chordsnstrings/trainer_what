@@ -13,6 +13,7 @@ export default defineMessages(
     savedOnDevice: "Saved on this device. {reason}",
     rejectedOne: "A set log could not be saved. Review it below; later sets kept syncing.",
     savedForDevice: "Workout saved for this device. Set logs can sync after a connection loss.",
+    allSynced: "All sets synced.",
     keepOpen:
       "Keep this workout open. Offline reload is not ready; reconnect to save it for this device.",
     unavailable: "Workout unavailable",
@@ -48,7 +49,13 @@ export default defineMessages(
     setLogged: "Set {set} of {exercise} logged.",
     setN: "Set {n}",
     logged: "Logged",
-    loggedValues: "{weightReps} reps · {rir} left",
+    // "16 kg × 10 reps · 2 left", on its own line under Logged.
+    loggedLine: {
+      one: "{kg} kg × # rep · {rir} left",
+      other: "{kg} kg × # reps · {rir} left",
+    },
+    openSet: "Log this set",
+    openSetLabel: "Log {exercise} set {set} now",
     needsAttention: "Needs your attention",
     weightKg: "Weight (kg)",
     reps: "Reps",
@@ -84,6 +91,7 @@ export default defineMessages(
     painExample: "For example: sharp pain in my left knee during the second set",
     gPausedNotified: "Workout paused and your coach notified",
     gTitle: "Guided workout",
+    gLoading: "Loading your guided session…",
     gWarning:
       "Stop straight away if you feel pain or dizziness, and tap Report pain.",
     gOf: "{n} of {total}",
@@ -128,6 +136,7 @@ export default defineMessages(
     savedOnDevice: "محفوظ على هذا الجهاز. {reason}",
     rejectedOne: "تعذّر حفظ إحدى المجموعات. يُرجى مراجعتها أدناه؛ واستمرت مزامنة المجموعات التالية.",
     savedForDevice: "حُفظ التمرين على هذا الجهاز، ويمكن مزامنة المجموعات بعد انقطاع الاتصال.",
+    allSynced: "تمت مزامنة كل المجموعات.",
     keepOpen:
       "يُرجى إبقاء هذا التمرين مفتوحًا. إعادة التحميل دون اتصال غير جاهزة بعد؛ إعادة الاتصال تحفظه على هذا الجهاز.",
     unavailable: "التمرين غير متاح",
@@ -171,15 +180,26 @@ export default defineMessages(
     setLogged: "سُجّلت المجموعة {set} من {exercise}.",
     setN: "المجموعة {n}",
     logged: "مسجّلة",
-    loggedValues: "{weightReps} تكرار · متبقٍّ {rir}",
+    // Each quantity is its own isolate, so "16 كغ × 10 تكرارات" reads
+    // weight first, then reps, in right to left.
+    loggedLine: {
+      zero: "{kg} كغ × # تكرار · متبقٍّ {rir}",
+      one: "{kg} كغ × تكرار واحد · متبقٍّ {rir}",
+      two: "{kg} كغ × تكراران · متبقٍّ {rir}",
+      few: "{kg} كغ × # تكرارات · متبقٍّ {rir}",
+      many: "{kg} كغ × # تكرارًا · متبقٍّ {rir}",
+      other: "{kg} كغ × # تكرار · متبقٍّ {rir}",
+    },
+    openSet: "تسجيل هذه المجموعة",
+    openSetLabel: "تسجيل المجموعة {set} من {exercise} الآن",
     needsAttention: "تحتاج إلى انتباهك",
     weightKg: "الوزن (كغ)",
     reps: "التكرارات",
-    repsLeft: "التكرارات المتبقية (RIR)",
+    repsLeft: "التكرارات المتبقية",
     weightLabel: "وزن المجموعة {set} من {exercise} بالكيلوغرام",
     repsLabel: "تكرارات المجموعة {set} من {exercise}",
     rirLabel: "التكرارات المتبقية في المجموعة {set} من {exercise}",
-    logSet: "تسجيل المجموعة {n}",
+    logSet: "تسجيل المجموعة\u00a0{n}",
     addNote: "إضافة ملاحظة إلى المجموعة {n}",
     note: "ملاحظة",
     noteLabel: "ملاحظة المجموعة {set} من {exercise}",
@@ -211,6 +231,7 @@ export default defineMessages(
     painExample: "مثلًا: ألم حاد في الركبة اليسرى أثناء المجموعة الثانية",
     gPausedNotified: "توقف التمرين وأُبلغ مدربك",
     gTitle: "تمرين موجّه",
+    gLoading: "جارٍ تحميل الجلسة الموجّهة…",
     gWarning:
       "توقّف فورًا إذا شعرت بألم أو دوار، ويمكنك إبلاغ مدربك عبر «الإبلاغ عن ألم».",
     gOf: "{n} من {total}",

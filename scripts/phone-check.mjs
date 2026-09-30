@@ -10,6 +10,10 @@
 //   text are exempt, as in WCAG 2.5.8; a checkbox counts its label);
 // - something fixed covers the tab bar or the screen's primary action;
 // - with reduced motion, anything animates (a tab tap, opening a sheet);
+// - visible text is smaller than 12 px (MIN_TEXT; captions, chips and
+//   footnotes included);
+// - the voice-led session, once started, has no Done and Pain controls in
+//   the bottom action bar (safety controls are never below the fold);
 // - signed out: a field's text is under 16 px or the trainer-marketing
 //   footer shows.
 // Start it through scripts/run-phone-check.mjs (npm run test:phone), which
@@ -94,6 +98,7 @@ async function saveLanguage(ctx, value) {
 }
 const MIN_TARGET = 44;
 const MIN_TAB = 56;
+const MIN_TEXT = 12;
 
 const failures = [];
 const measured = [];
@@ -101,7 +106,7 @@ const pageErrors = [];
 const fail = (label, message) => failures.push(`${label}: ${message}`);
 
 /** Everything the rules need, measured in the page. */
-function inspect({ minTarget, minTab, publicPage = false }) {
+function inspect({ minTarget, minTab, minText = 12, publicPage = false }) {
   const width = window.innerWidth;
   const root = document.documentElement;
   const visible = (el) =>
@@ -191,8 +196,26 @@ function inspect({ minTarget, minTab, publicPage = false }) {
         parseFloat(getComputedStyle(el).fontSize) < 16,
     )
     .map(describe);
+  // Text under the minimum size (read on a phone at arm's length).
+  const smallText = [];
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  const seen = new Set();
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    const el = n.parentElement;
+    if (!el || seen.has(el) || !n.textContent.trim()) continue;
+    seen.add(el);
+    if (el.closest("script, style, noscript, nextjs-portal, svg, .site-honeypot"))
+      continue;
+    if (!visible(el)) continue;
+    const r = el.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1) continue;
+    const size = parseFloat(getComputedStyle(el).fontSize);
+    if (size < minText - 0.05)
+      smallText.push(`${describe(el)} ${size.toFixed(1)}px`);
+  }
   return {
     path: location.pathname,
+    smallText,
     overflow: Math.max(
       root.scrollWidth - root.clientWidth,
       document.body.scrollWidth - document.body.clientWidth,
@@ -277,6 +300,7 @@ async function publicCheck(phone) {
         const m = await page.evaluate(inspect, {
           minTarget: MIN_TARGET,
           minTab: MIN_TAB,
+          minText: MIN_TEXT,
           publicPage: true,
         });
         measured.push({ label, ...m });
@@ -291,6 +315,11 @@ async function publicCheck(phone) {
           );
         if (m.smallFields.length)
           fail(label, `fields under 16 px: ${m.smallFields.join("; ")}`);
+        if (m.smallText.length)
+          fail(
+            label,
+            `${m.smallText.length} text(s) under ${MIN_TEXT}px: ${m.smallText.slice(0, 6).join("; ")}`,
+          );
         if (m.trainerFooter) fail(label, "shows the trainer-marketing footer");
         if (m.stickyPrimary && m.stickyReach !== true)
           fail(
@@ -511,7 +540,12 @@ try {
     const routes = [
       ...MEMBER_ROUTES,
       ...(workout
-        ? [`/app/workouts/${workout.id}`, `/app/guided/${workout.id}`]
+        ? [
+            `/app/workouts/${workout.id}`,
+            `/app/guided/${workout.id}`,
+            // Last: starting it moves the session on.
+            `/app/voice-session/${workout.id}`,
+          ]
         : []),
     ];
     if (!workout) fail(phone.name, "no workout to check (seed a program)");
@@ -523,8 +557,61 @@ try {
         const m = await page.evaluate(inspect, {
           minTarget: MIN_TARGET,
           minTab: MIN_TAB,
+          minText: MIN_TEXT,
         });
         measured.push({ label, ...m });
+        if (m.smallText.length)
+          fail(
+            label,
+            `${m.smallText.length} text(s) under ${MIN_TEXT}px: ${m.smallText.slice(0, 6).join("; ")}`,
+          );
+        if (route.startsWith("/app/voice-session/")) {
+          // Prepare, then Start: each is the bar's one primary action.
+          // Running: Done and Pain.
+          const prepare = page.locator(".sticky-action-bar .voice-prepare");
+          if (await prepare.count()) {
+            await prepare.last().tap();
+            await page
+              .locator(".sticky-action-bar .voice-start")
+              .waitFor({ timeout: 30_000 })
+              .catch(() => {});
+            await settle(page);
+          }
+          const start = page.locator(".sticky-action-bar .voice-start");
+          if (!(await start.count()))
+            fail(label, "Start session is not in the bottom action bar");
+          else {
+            await start.tap();
+            await page.waitForTimeout(400);
+            const running = await page.evaluate(inspect, {
+              minTarget: MIN_TARGET,
+              minTab: MIN_TAB,
+              minText: MIN_TEXT,
+            });
+            measured.push({ label: label + " running", ...running });
+            const bar = await page.evaluate(() => {
+              const reach = (el) => {
+                if (!el) return "missing";
+                const r = el.getBoundingClientRect();
+                const hit = document.elementFromPoint(
+                  r.left + r.width / 2,
+                  r.top + r.height / 2,
+                );
+                return r.bottom <= innerHeight && hit && (hit === el || el.contains(hit))
+                  ? true
+                  : "not reachable";
+              };
+              return {
+                pain: reach(document.querySelector(".sticky-action-bar .voice-pain")),
+                done: reach(document.querySelector(".sticky-action-bar .voice-done")),
+              };
+            });
+            if (bar.pain !== true) fail(label + " running", `Pain: ${bar.pain}`);
+            if (bar.done !== true) fail(label + " running", `Done: ${bar.done}`);
+            if (running.overflow > 1)
+              fail(label + " running", `horizontal overflow of ${running.overflow}px`);
+          }
+        }
         if (language === "ar" && (m.lang !== "ar" || m.dir !== "rtl"))
           fail(label, `rendered lang=${m.lang} dir=${m.dir}, expected Arabic`);
         if (m.loading) fail(label, "still loading");

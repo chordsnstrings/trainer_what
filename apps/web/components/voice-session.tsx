@@ -5,9 +5,9 @@
 // for spoken replies and performs the effects: set logs go through the same
 // device queue as the workout page, pain opens the existing safety hold.
 import { queuedSummary } from "./pwa";
-import { ProgressRing, Skeleton } from "./phone-ui";
-import { Mic } from "lucide-react";
-import { formatDate } from "../lib/format";
+import { ProgressRing, Skeleton, StickyActionBar } from "./phone-ui";
+import { AlertCircle, Mic } from "lucide-react";
+import { formatDate, formatSetsReps } from "../lib/format";
 import { translator, type Locale, type Translator } from "../lib/i18n/core";
 import { useErrorText, useLocale, useT } from "../lib/i18n/react";
 import voiceMessages from "../lib/i18n/messages/voice";
@@ -199,6 +199,12 @@ type Loaded = {
   workoutStatus?: string;
 };
 
+/** The count a plural agrees with: the last number in "10" or "8-12". */
+const lastCount = (value: unknown) => {
+  const numbers = String(value ?? "").match(/\d+/g);
+  return numbers ? Number(numbers[numbers.length - 1]) : 0;
+};
+
 /**
  * The voice-led session page. `workoutId` runs the session for an active
  * workout; `plannedSessionId` prepares it ahead of the day, so the trainer's
@@ -327,7 +333,10 @@ export function VoiceSessionRunner({
                 })
               : t("aheadDay")
             : ""}
-          {t("intro")}
+          {session?.mode === "text" ||
+          (gate && gate.mode === "text" && !voiceBlockedOnlyByConsentFor(gate))
+            ? t("introText")
+            : t("intro")}
         </p>
       </div>
       {notice && (
@@ -369,14 +378,7 @@ export function VoiceSessionRunner({
                       {t("consentVoice")}
                     </label>
                   )}
-                  <div className="button-row">
-                    <button
-                      className="button"
-                      disabled={busy || (voiceBlockedOnlyByConsent && !consent)}
-                      onClick={() => void prepare(voiceBlockedOnlyByConsent)}
-                    >
-                      {t("prepareVoice")}
-                    </button>
+                  <StickyActionBar label={t("sessionActions")}>
                     <button
                       className="button secondary"
                       disabled={busy}
@@ -384,7 +386,14 @@ export function VoiceSessionRunner({
                     >
                       {t("useText")}
                     </button>
-                  </div>
+                    <button
+                      className="button voice-prepare"
+                      disabled={busy || (voiceBlockedOnlyByConsent && !consent)}
+                      onClick={() => void prepare(voiceBlockedOnlyByConsent)}
+                    >
+                      {t("prepareVoice")}
+                    </button>
+                  </StickyActionBar>
                 </>
               ) : (
                 <>
@@ -392,13 +401,15 @@ export function VoiceSessionRunner({
                   <p className="voice-reason">
                     {voiceReason(gate.reasons, locale)}
                   </p>
-                  <button
-                    className="button"
-                    disabled={busy}
-                    onClick={() => void prepare(false)}
-                  >
-                    {ahead ? t("prepareText") : t("startText")}
-                  </button>
+                  <StickyActionBar label={t("sessionActions")}>
+                    <button
+                      className="button voice-prepare"
+                      disabled={busy}
+                      onClick={() => void prepare(false)}
+                    >
+                      {ahead ? t("prepareText") : t("startText")}
+                    </button>
+                  </StickyActionBar>
                 </>
               )}
             </>
@@ -1218,9 +1229,13 @@ function Runner({
             {script.exercises.map((e) => (
               <li key={e.index}>
                 <strong>{e.name}</strong>
-                <span className="muted" dir="auto">
-                  {e.sets} {e.sets === 1 ? "set" : "sets"}
-                  {(e as any).reps ? ` × ${(e as any).reps} reps` : ""}
+                <span className="muted">
+                  {(e as any).reps
+                    ? t("setsByReps", {
+                        setsReps: formatSetsReps(e.sets, (e as any).reps, t.locale),
+                        count: lastCount((e as any).reps),
+                      })
+                    : t("setCount", { count: Number(e.sets) })}
                 </span>
               </li>
             ))}
@@ -1263,15 +1278,17 @@ function Runner({
           </div>
         ) : state.phase === "ready" ? (
           runnable ? (
-            <button
-              className="button voice-start"
-              onClick={() => {
-                void flush("running");
-                dispatch({ type: "start" });
-              }}
-            >
-              {t("startSession")}
-            </button>
+            <StickyActionBar label={t("sessionActions")}>
+              <button
+                className="button voice-start"
+                onClick={() => {
+                  void flush("running");
+                  dispatch({ type: "start" });
+                }}
+              >
+                {t("startSession")}
+              </button>
+            </StickyActionBar>
           ) : session.status === "revoked" || session.stale ? (
             <div className="stack">
               <p className="notice">{t("noMatch")}</p>
@@ -1284,10 +1301,28 @@ function Runner({
           )
         ) : running ? (
           <>
-            <div className="voice-commands" role="group" aria-label={t("replies")}>
-              <button className="button" onClick={() => command({ type: "done" })}>
-                {t("done")}
+            {/* Done and Pain stay in thumb reach above the tab bar, never
+                below the fold (phone-first rules: safety controls visible). */}
+            <StickyActionBar label={t("sessionActions")}>
+              <button
+                type="button"
+                className="button secondary voice-pain workout-pain"
+                onClick={() => command({ type: "pain", transcript: t("painNote") })}
+              >
+                <AlertCircle size={18} aria-hidden="true" />
+                {t("painShort")}
               </button>
+              {state.phase === "paused" ? (
+                <button type="button" className="button" onClick={() => command({ type: "resume" })}>
+                  {t("resume")}
+                </button>
+              ) : (
+                <button type="button" className="button voice-done" onClick={() => command({ type: "done" })}>
+                  {t("done")}
+                </button>
+              )}
+            </StickyActionBar>
+            <div className="voice-commands" role="group" aria-label={t("replies")}>
               <button className="button secondary" onClick={() => command({ type: "too_heavy" })}>
                 {t("tooHeavy")}
               </button>
@@ -1339,12 +1374,6 @@ function Runner({
                 </button>
               </form>
             )}
-            <button
-              className="button voice-pain"
-              onClick={() => command({ type: "pain", transcript: t("painNote") })}
-            >
-              {t("pain")}
-            </button>
             <button
               className="text-button"
               onClick={() => dispatch({ type: "end" })}

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Field } from "./field";
 import { offerTermsText } from "./programme-offers";
 import Link from "next/link";
@@ -7,7 +7,7 @@ import { usePathname } from "next/navigation";
 import { TrainerTheme, CoachIdentity } from "./trainer-design";
 import { resolveBrandDesign } from "@trainer/contracts";
 import { AtSign, Mail, MessageCircle, PlayCircle } from "lucide-react";
-import { Skeleton, StickyActionBar } from "./phone-ui";
+import { Skeleton, StickyActionBar, useEdgeFade } from "./phone-ui";
 import { useInvalidShake } from "./motion";
 import { SubscriberFooter } from "./subscriber-footer";
 import { coachAppLinks } from "./app-routes";
@@ -20,7 +20,7 @@ import { translator, type Locale } from "../lib/i18n/core";
 import siteMessages from "../lib/i18n/messages/site";
 import commonMessages from "../lib/i18n/messages/common";
 import { errorText } from "../lib/i18n/errors";
-import { useLocale } from "../lib/i18n/react";
+import { useErrorText, useLocale } from "../lib/i18n/react";
 
 async function api(path: string, method = "GET", body?: unknown) {
   const r = await fetch("/api/v1" + path, {
@@ -245,6 +245,10 @@ export function GalleryStudio({ client = false }: { client?: boolean }) {
   // The member's view follows their language; the coach's studio is unchanged.
   const pageLocale = useLocale();
   const t = translator(siteMessages, client ? pageLocale : "en");
+  // Members read plain words ("No connection…"), never "Failed to fetch".
+  const toError = useErrorText();
+  const problem = (e: unknown) =>
+    client ? toError(e) : ((e as Error).message ?? "");
   async function load(offset = 0) {
     const d = await api(`/tenant/galleries?offset=${offset}`);
     setGalleries((v) => (offset ? [...v, ...d.galleries] : d.galleries));
@@ -253,7 +257,7 @@ export function GalleryStudio({ client = false }: { client?: boolean }) {
     return d.galleries;
   }
   useEffect(() => {
-    void load().catch((e) => setMessage(e.message));
+    void load().catch((e) => setMessage(problem(e)));
   }, []);
   function choose(g: any) {
     setSelected(g);
@@ -267,7 +271,7 @@ export function GalleryStudio({ client = false }: { client?: boolean }) {
       await fn();
       await load();
     } catch (e) {
-      setMessage((e as Error).message);
+      setMessage(problem(e));
     } finally {
       setBusy(false);
     }
@@ -299,6 +303,18 @@ export function GalleryStudio({ client = false }: { client?: boolean }) {
         </div>
       </div>
       <Notice message={message} />
+      {client && !loaded && message && (
+        <button
+          type="button"
+          className="button secondary"
+          onClick={() => {
+            setMessage("");
+            void load().catch((e) => setMessage(problem(e)));
+          }}
+        >
+          {translator(commonMessages, pageLocale)("tryAgain")}
+        </button>
+      )}
       {!client && (
         <form
           className="card inline-form"
@@ -982,6 +998,10 @@ export function CoachWebsite({
     };
   }, [initialData, preview, language]);
   useEffect(() => setSent(false), [path]);
+  // The section row scrolls sideways on phones: fade the hidden edge and
+  // show the current section in full.
+  const siteNav = useRef<HTMLElement>(null);
+  useEdgeFade(siteNav, '[aria-current="page"]', `${path}:${!!data}`);
   if (!data)
     return (
       <main className="coach-website">
@@ -1082,7 +1102,11 @@ export function CoachWebsite({
         <Link href={base} className="site-identity">
           <CoachIdentity name={name} theme={tenant.theme} compact />
         </Link>
-        <nav aria-label={t("websiteNav")} className="site-nav">
+        <nav
+          ref={siteNav}
+          aria-label={t("websiteNav")}
+          className="site-nav edge-fade"
+        >
           {links.map(([key, href, label]) => (
             <Link
               key={key || "home"}

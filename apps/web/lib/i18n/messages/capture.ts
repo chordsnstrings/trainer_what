@@ -94,7 +94,7 @@ export default defineMessages(
     step3Text:
       "Your edited entry goes straight into your diary. Routine coach approval is not needed.",
     photoFine:
-      "Photo metadata is removed before analysis. The server deletes image bytes after analysis; abandoned images expire within 24 hours. The AI provider’s own retention policy also applies.",
+      "We remove the photo’s location and camera details first, and delete the photo after the estimate. A photo you don’t finish is deleted within a day. The estimating service may keep it briefly under its own privacy rules.",
     packaged: "PACKAGED FOOD",
     checkProduct: "Check the exact product",
     labelTitle: "From label to meal diary.",
@@ -311,7 +311,7 @@ export default defineMessages(
     step3: "تأكيد وجبتك.",
     step3Text: "يدخل إدخالك المعدّل مباشرة إلى مذكرتك، دون حاجة إلى موافقة روتينية من المدرب.",
     photoFine:
-      "تُزال بيانات الصورة الوصفية قبل التحليل. يحذف الخادم الصورة بعد التحليل، وتنتهي الصور المتروكة خلال 24 ساعة. وتنطبق أيضًا سياسة الاحتفاظ لدى مزوّد الذكاء الاصطناعي.",
+      "نزيل أولًا بيانات الموقع والكاميرا من الصورة، ونحذف الصورة بعد التقدير. تُحذف الصورة التي لم تُكمل تسجيلها خلال يوم. وقد تحتفظ خدمة التقدير بها لفترة قصيرة وفق قواعد الخصوصية الخاصة بها.",
     packaged: "طعام معلّب",
     checkProduct: "التحقق من المنتج بدقة",
     labelTitle: "من الملصق إلى مذكرة الوجبات.",

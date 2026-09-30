@@ -162,10 +162,25 @@ in sessions read "This device" / "Another device or browser" with
   details given." when it is empty or very short), because stopping is a
   safety action. The guided session uses the same sheet.
 - Guided session: one plain safety line, secondary controls (rest timer,
-  previous exercise) and **Next exercise** only in the sticky bar.
-- Voice-led preparation shows one plain reason when the coach's voice is not
-  available (`voiceReason`), never the list of internal checks; the page is
-  titled "Workout guide" and says "Guided session" when it runs in text.
+  previous exercise) and **Next exercise** only in the sticky bar. Resume and
+  Previous appear only when they apply; a placeholder shows while the step
+  loads (never a page with only the stop card); **Stop workout and notify
+  coach** is a danger outline, not a second primary.
+- Voice-led session (`/app/voice-session/<id>`): titled "Voice-led session",
+  with "Text guidance" as the eyebrow when it runs in text (and the intro
+  then says "Tap Report pain", never "Say"). Prepare/Start are the bottom
+  action bar's one primary action; while it runs, **Report pain** and
+  **Done** (or **Resume** when paused) sit in the bottom action bar, never
+  below the fold. The plan list uses the catalog's set and rep plurals with
+  "3 × 10" in a left-to-right isolate.
+- Workout: only the set to log now shows its steppers; later sets are one
+  line with **Log this set**. "Reps left (RIR)" is explained once. A logged
+  set reads "Logged" (or "Saved on this phone — will sync") on one line and
+  "16 kg × 10 reps · 2 left" on the next (Arabic "16 كغ × 10 تكرارات"). The
+  session tools' rest presets are buttons and share the screen's one rest
+  timer with the bottom bar. After a sync that sends everything, "All sets
+  synced." shows and then goes. Finishing scrolls to the top at once, with
+  no toast: the completion card says it (ring, then check, about 0.5 s).
 
 ## Other screens
 
@@ -332,3 +347,43 @@ fresh `.data/mm*` directories, production build unless noted):
 - Server error messages passed through from the API are not all reworded
   (bookings replaces "trainer" with "coach"; membership and account errors
   have their own plain wording).
+
+## Verification round (30 September 2026)
+
+- **Chat**: the message leaves the composer as it is sent (it returns if
+  sending fails); the sending bubble is 75 % opaque; Send reads "Send" with
+  "Send to <coach>" as its name; the development note never sits between
+  the thread and the composer.
+- **Meal log** (`meal-capture.css`, phone first): the method list is one
+  column of 56 px rows with 13 px+ text, three columns from 640 px; the two
+  column layout from 900 px. When product lookup is off, the barcode tab
+  shows one unavailable line and **Write what the label says instead**. The
+  photo privacy note is plain ("We remove the photo's location and camera
+  details first…"). Estimate text keeps its own direction (`dir="auto"`).
+  Remove in Unfinished captures is a 44 px button.
+- **Nutrition**: the recorded-nutrition table is a `ResponsiveTable` (one
+  card per day on phones); day chips and tabs fade at the edge that hides
+  more (`useEdgeFade`) and bring the current one into view.
+- **Programme**: when the plan cannot load, the plan last saved on this
+  phone shows with its time and **Try again** (key `trainer:overview:*`,
+  cleared at sign-out); without one, the error has **Try again**.
+- **Bookings**: a placeholder while loading; the slot's action is a full
+  width button under its details on phones; a slot you booked says
+  "You're booked" instead of places left.
+- **Notifications**: Refresh is a small icon button; the list, the meal
+  log's permissions and Membership receipts turn into "This is taking
+  longer than usual" with **Try again** after 15 s (`LoadingOrRetry`).
+- **Profile**: quiet hours are 24-hour choices every half hour; the time
+  zone picker names the device's zone briefly ("Dubai · this device");
+  Phone alerts fold away; **Leave your coach** is last, on its own, in the
+  error colour, and its sheet says Stay / Leave with short points.
+- **Connections**: Apple Health's unavailable state is one plain line;
+  devices that cannot connect yet are one "More devices are coming" line.
+- **Top bar**: a page heading that repeats the top bar's title is kept for
+  screen readers but not shown again on phones (`is-topbar-title`).
+- **Coach-authored words** (`dir="auto"`) line up with the row they sit in
+  (`text-align: match-parent`), so English names in Arabic rows do not
+  zigzag; timeline dates never wrap inside themselves.
+- **Today**: an odd last status tile takes the full row.
+- Small print on subscriber surfaces is at least 12 px (`phone-check.mjs`
+  fails below that).

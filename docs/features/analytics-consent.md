@@ -148,3 +148,13 @@ the brand check (`scripts/run-brand-check.mjs`, `RTL_WEB_MODE=start`)
 passed on 112 screens; the full browser check
 (`scripts/run-browser-check.mjs` on a freshly seeded demo database)
 passed on 69 routes with no page errors.
+
+## Verification round (30 September 2026)
+
+- The privacy policy link in the member app (bar, sheet, Profile > Privacy)
+  is `/privacy?from=app`, so the page leads back into the app.
+- After an answer the bar fades where it is and is then removed.
+- Behaviour is tested with React DOM in local Chromium
+  (`tests/react-dom-behaviour.test.ts`): after "No thanks" or Close the bar
+  and its spacer leave the page, the answer is stored, no consent is sent
+  to the server, and the bar stays gone after a reload.

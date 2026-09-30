@@ -1,5 +1,5 @@
 "use client";
-import { queuedLabel, queuedSummary } from "./pwa";
+import { queuedLabel, queuedSummary, unsavedMark } from "./pwa";
 import {
   deviceTimeZone,
   formatDate,
@@ -12,12 +12,20 @@ import {
 } from "../lib/format";
 import { type Locale } from "../lib/i18n/core";
 import { Rich, useErrorText, useLocale, useT } from "../lib/i18n/react";
-import { ProgressRing, ScrollTabs, Skeleton, tabPanelProps } from "./phone-ui";
+import {
+  ProgressRing,
+  ResponsiveTable,
+  ScrollTabs,
+  Skeleton,
+  tabPanelProps,
+  useEdgeFade,
+} from "./phone-ui";
 import { useArrivals } from "./motion";
 import { Field } from "./field";
 import {
   useCallback,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
   type FormEvent,
@@ -2054,6 +2062,8 @@ export function WeekView({
     !!plan.data.synthetic || plan.data.origin === "synthetic_fixture";
   const [date, setDate] = useState(view.days[0]?.date);
   const day = view.days.find((d: any) => d.date === date) ?? view.days[0];
+  const daysRow = useRef<HTMLElement>(null);
+  useEdgeFade(daysRow);
   const t = useT("nutrition"),
     locale = useLocale();
   const unknown = t("unknownValue");
@@ -2068,7 +2078,11 @@ export function WeekView({
       {!synthetic && view.explanation && (
         <p dir="auto">{view.explanation}</p>
       )}
-      <nav className="nutrition-days" aria-label={t("daysLabel")}>
+      <nav
+        ref={daysRow}
+        className="nutrition-days edge-fade"
+        aria-label={t("daysLabel")}
+      >
         {view.days.map((d: any) => (
           <button
             key={d.date}
@@ -3173,8 +3187,14 @@ function DiaryForm({
     setItems((old) =>
       old.map((i, n) => (n === index ? { ...i, ...patch } : i)),
     );
+  const initialItems = initial?.items ?? [];
+  const dirty =
+    items !== initialItems && items.length > 0
+      ? true
+      : manualKcal !== String(initial?.kcal ?? "");
   return (
     <form
+      {...unsavedMark(dirty)}
       onSubmit={(e) => {
         e.preventDefault();
         const f = new FormData(e.currentTarget);
@@ -4161,45 +4181,41 @@ function NutritionConsumed({
             })}{" "}
             {r.data.partialInput ? t("partial") : ""}
           </p>
-          <div style={{ overflowX: "auto" }}>
-            <table>
-              <thead>
-                <tr>
-                  <th>{t("th_date")}</th>
-                  <th>{t("th_recorded")}</th>
-                  <th>{t("th_planned")}</th>
-                  <th>{t("th_protein")}</th>
-                  <th>{t("th_carbohydrate")}</th>
-                  <th>{t("th_fat")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {r.data.days
-                  .slice(-7)
-                  .reverse()
-                  .map((d: any) => (
-                    <tr key={d.date}>
-                      <td>{day(d.date)}</td>
-                      <td>
-                        {d.meals
-                          ? (d.totals.kcal ??
-                            t("knownPlus", { value: d.knownTotals.kcal }))
-                          : t("noEntry")}
-                      </td>
-                      <td>{d.planned?.kcal ?? "—"}</td>
-                      {["protein", "carbohydrate", "fat"].map((k) => (
-                        <td key={k}>
-                          {d.meals
-                            ? (d.totals[k] ??
-                              t("knownPlus", { value: d.knownTotals[k] }))
-                            : "—"}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
+          {/* One card per day on phones, a table from 768 px. */}
+          <ResponsiveTable
+            label={t("trendsTitle")}
+            columns={[
+              { key: "date", label: t("th_date") },
+              { key: "recorded", label: t("th_recorded"), numeric: true },
+              { key: "planned", label: t("th_planned"), numeric: true },
+              { key: "protein", label: t("th_protein"), numeric: true },
+              { key: "carbohydrate", label: t("th_carbohydrate"), numeric: true },
+              { key: "fat", label: t("th_fat"), numeric: true },
+            ]}
+            rows={r.data.days
+              .slice(-7)
+              .reverse()
+              .map((d: any) => ({
+                key: d.date,
+                cells: {
+                  date: day(d.date),
+                  recorded: d.meals
+                    ? (d.totals.kcal ??
+                      t("knownPlus", { value: d.knownTotals.kcal }))
+                    : t("noEntry"),
+                  planned: d.planned?.kcal ?? "—",
+                  ...Object.fromEntries(
+                    (["protein", "carbohydrate", "fat"] as const).map((k) => [
+                      k,
+                      d.meals
+                        ? (d.totals[k] ??
+                          t("knownPlus", { value: d.knownTotals[k] }))
+                        : "—",
+                    ]),
+                  ),
+                },
+              }))}
+          />
           <details>
             <summary>{t("allDays")}</summary>
             {r.data.days.map((d: any) => (

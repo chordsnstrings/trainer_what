@@ -453,7 +453,7 @@ export const APP_SHORTCUTS_AR: Record<
   meal: {
     name: "تسجيل وجبة",
     short_name: "تسجيل وجبة",
-    description: "صورة أو رمز شريطي أو ملاحظة",
+    description: "صورة أو باركود أو ملاحظة",
   },
   chat: {
     name: "محادثة المدرب",

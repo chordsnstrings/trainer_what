@@ -570,3 +570,37 @@
     grid-template-columns: 80px 1fr;
   }
 }
+
+/* No photo yet: the initials sit inline as a small round tile, so neither
+   "Meet your coach" nor About opens a large empty column. */
+.site-meet:has(> .site-portrait.is-placeholder) {
+  grid-template-columns: 56px minmax(0, 1fr);
+  align-items: center;
+}
+.site-meet .site-portrait.is-placeholder,
+.site-about .site-portrait.is-large.is-placeholder {
+  inline-size: 56px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  font-size: 18px;
+}
+.site-portrait.is-placeholder span {
+  inline-size: auto;
+  aspect-ratio: auto;
+  border: 0;
+}
+@media (min-width: 768px) {
+  .site-meet:has(> .site-portrait.is-placeholder) {
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: 20px;
+  }
+  .site-meet .site-portrait.is-placeholder,
+  .site-about .site-portrait.is-large.is-placeholder {
+    inline-size: 72px;
+    font-size: 22px;
+  }
+  .site-about:has(> .site-portrait.is-placeholder) {
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: 24px;
+  }
+}

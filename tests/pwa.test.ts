@@ -16,9 +16,14 @@ import {
 } from "../packages/contracts/src/index.ts";
 import {
   cacheNames,
+  clearPersonalCaches,
   consentAnswered,
-  hasUnsavedInput,
+  dismissUpdate,
   inAppBrowser,
+  legalHref,
+  legalOpenedFromApp,
+  unsavedMark,
+  updateDismissed,
   installKeys,
   installRoute,
   isPersonalCache,
@@ -204,6 +209,12 @@ test("the install card waits for use and the analytics choice, and never returns
   assert.equal(card({ consentAnswered: false }), false);
   assert.equal(card({ dismissed: true }), false);
   assert.equal(card({ installed: true }), false);
+  // Never offline, never right after the analytics answer, never together
+  // with the update toast.
+  assert.equal(card({ online: false }), false);
+  assert.equal(card({ consentBeforeThisSession: false }), false);
+  assert.equal(card({ consentBeforeThisSession: true, online: true }), true);
+  assert.equal(card({ updateShowing: true }), false);
   assert.equal(consentAnswered(null, undefined), false);
   assert.equal(consentAnswered(null, false), false);
   assert.equal(consentAnswered(null, true), true);
@@ -231,44 +242,41 @@ test("the update toast never shows during a session, and a reload never loses ty
     assert.equal(showUpdateToast({ waiting: true, path }), false, path);
   }
   assert.equal(isSessionScreen("/app/chat"), false);
-  // hasUnsavedInput compares each field with its default value.
-  class Input {
-    type = "text";
-    value = "";
-    defaultValue = "";
-    checked = false;
-    defaultChecked = false;
-    constructor(props: Partial<Input>) {
-      Object.assign(this, props);
-    }
-    closest() {
-      return null;
-    }
-  }
-  const doc = (fields: Input[]) =>
-    ({ querySelectorAll: () => fields }) as unknown as ParentNode;
-  const globals = globalThis as Record<string, unknown>;
-  const saved = [globals.HTMLInputElement, globals.HTMLSelectElement];
-  globals.HTMLInputElement = Input;
-  globals.HTMLSelectElement = class {};
+  // hasUnsavedInput itself runs against React DOM in Chromium
+  // (tests/react-dom-behaviour.test.ts): React keeps a controlled field's
+  // defaultValue equal to its value, so controlled forms carry data-unsaved.
+  assert.deepEqual(unsavedMark(true), { "data-unsaved": "" });
+  assert.deepEqual(unsavedMark(false), {});
+});
+
+test("leaving clears the app icon's unread count; Later is kept per release", async () => {
+  const calls: string[] = [];
+  const nav = globalThis.navigator as Navigator & Record<string, unknown>;
+  const saved = [nav.setAppBadge, nav.clearAppBadge];
+  Object.assign(nav, {
+    setAppBadge: async (n: number) => void calls.push(`set ${n}`),
+    clearAppBadge: async () => void calls.push("clear"),
+  });
   try {
-    assert.equal(hasUnsavedInput(doc([new Input({})])), false);
-    assert.equal(
-      hasUnsavedInput(doc([new Input({ value: "Tired today" })])),
-      true,
-    );
-    assert.equal(
-      hasUnsavedInput(doc([new Input({ type: "checkbox", checked: true })])),
-      true,
-    );
-    // A chosen file or a search box is not typed work to protect.
-    assert.equal(
-      hasUnsavedInput(doc([new Input({ type: "search", value: "oats" })])),
-      false,
-    );
+    await clearPersonalCaches();
+    assert.deepEqual(calls, ["clear"]);
   } finally {
-    [globals.HTMLInputElement, globals.HTMLSelectElement] = saved;
+    Object.assign(nav, { setAppBadge: saved[0], clearAppBadge: saved[1] });
   }
+  // "Later" on the update toast: module memory when storage is missing.
+  assert.equal(updateDismissed("/sw.js?v=a"), false);
+  dismissUpdate("/sw.js?v=a");
+  assert.equal(updateDismissed("/sw.js?v=a"), true);
+  assert.equal(updateDismissed("/sw.js?v=b"), false);
+  assert.equal(updateDismissed(null), false);
+});
+
+test("legal pages opened from the member app lead back into it", () => {
+  assert.equal(legalHref("privacy", true), "/privacy?from=app");
+  assert.equal(legalHref("terms", false), "/terms");
+  assert.equal(legalOpenedFromApp("?from=app", false), true);
+  assert.equal(legalOpenedFromApp("", true), true);
+  assert.equal(legalOpenedFromApp("?from=site", false), false);
 });
 
 test("plain offline and queue wording", () => {

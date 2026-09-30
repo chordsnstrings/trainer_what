@@ -91,8 +91,12 @@
   color: var(--ink);
   text-decoration: none;
 }
+/* An odd tile out takes the whole row (no empty half row). */
+.today-status li:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
 .today-status .small-label {
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.35;
 }
 .today-status strong {
@@ -179,10 +183,14 @@ span.today-coach-photo {
 .timeline-week .programme-timeline li:last-child {
   border-block-end: 0;
 }
+/* The date never wraps inside itself ("Wednesday, 30 / September"): it
+   takes its own width, and the session moves to the next line if needed. */
 .timeline-week .timeline-date {
-  flex: 0 0 92px;
+  flex: 0 0 auto;
+  min-inline-size: 92px;
   color: var(--muted);
   font-size: 14px;
+  white-space: nowrap;
 }
 .timeline-week .timeline-label {
   flex: 1 1 120px;
@@ -506,7 +514,8 @@ span.today-coach-photo {
 }
 .chat-composer-actions {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr) minmax(0, 1fr);
+  /* Attach, Ask the digital coach (the room left), Send (its own width). */
+  grid-template-columns: 44px minmax(0, 1fr) auto;
   gap: 8px;
   align-items: stretch;
 }
@@ -817,4 +826,56 @@ span.today-coach-photo {
   inline-size: 40px;
   block-size: 40px;
   color: var(--brand-primary, var(--green));
+}
+
+/* Bookings (member): the slot's details, then its action as a full-width
+   button under them on phones; side by side from 640 px. */
+.booking-slot {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+.booking-slot > .button-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+.booking-slot > .button-row .button {
+  inline-size: 100%;
+  white-space: nowrap;
+}
+@media (min-width: 640px) {
+  .booking-slot {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+}
+
+/* Notifications: Refresh is a small icon control beside the heading. */
+.member-shell .page-heading:has(.notifications-refresh) {
+  flex-direction: row;
+  align-items: flex-start;
+}
+.notifications-refresh {
+  flex: none;
+  inline-size: 44px;
+  block-size: 44px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+.notifications-refresh[aria-busy] svg {
+  opacity: 0.5;
+}
+
+/* Coach-authored words (exercise, session and meal names, notes) keep
+   their own direction (dir="auto") but line up with the row they sit in,
+   so an English name in an Arabic row is not left-aligned against it. */
+.member-shell [dir="auto"] {
+  text-align: match-parent;
+}
+
+/* Leaving a coach reads as the one destructive action on Profile. */
+.member-shell .button.secondary.acct-leave-open:not(:disabled) {
+  color: var(--error);
+  border-color: var(--error-line);
 }

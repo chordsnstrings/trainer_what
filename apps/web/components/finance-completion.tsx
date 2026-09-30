@@ -2,7 +2,7 @@
 import { formatDate, formatMoney, humanize } from "../lib/format";
 import { useErrorText, useLocale, useT } from "../lib/i18n/react";
 import { useEffect, useState } from "react";
-import { Skeleton } from "./phone-ui";
+import { LoadingOrRetry } from "./phone-ui";
 import { money } from "@trainer/domain";
 /** "July 2026" for a YYYY-MM month. */
 const monthName = (period: string) =>
@@ -59,7 +59,12 @@ export function BillingHistory({ active = false }: { active?: boolean }) {
           {message}
         </p>
       )}
-      {!data && !message && <Skeleton label={t("loadingBilling")} lines={3} />}
+      {!data && !message && (
+        <LoadingOrRetry
+          label={t("loadingBilling")}
+          onRetry={() => void refresh().catch((e) => setMessage(toError(e)))}
+        />
+      )}
       {data && (
         <>
           {data.transitions.length > 0 && (

@@ -31,7 +31,8 @@ export default defineMessages(
       "Pair the companion iPhone app to send workouts, heart rate, heart-rate variability, resting heart rate, sleep, steps, active energy and body mass in the background. Your readings are shown to you and your coach and used for simple coaching checks. The digital coach never sees them, and they are never used for advertising.",
     loading: "Loading sync status…",
     notAvailable: "Not available",
-    notAvailableText: "Automatic Apple Health sync is not available yet.",
+    notAvailableText:
+      "Automatic sync from Apple Health is coming later. You can add an Apple Health export file now.",
     notEnabled: "Not enabled",
     forClients: "For clients",
     clientsOnly:
@@ -123,7 +124,8 @@ export default defineMessages(
       "يمكنك ربط تطبيق iPhone المرافق لإرسال التمارين ونبض القلب وتغيّر معدل ضربات القلب ونبض الراحة والنوم والخطوات والطاقة النشطة ووزن الجسم في الخلفية. تظهر قراءاتك لك ولمدربك وتُستخدم في فحوصات تدريبية بسيطة. لا يراها المدرب الرقمي أبدًا، ولا تُستخدم للإعلانات إطلاقًا.",
     loading: "جارٍ تحميل حالة المزامنة…",
     notAvailable: "غير متاح",
-    notAvailableText: "المزامنة التلقائية مع Apple Health غير متاحة بعد.",
+    notAvailableText:
+      "المزامنة التلقائية مع Apple Health ستتوفر لاحقًا. يمكنك إضافة ملف تصدير من Apple Health الآن.",
     notEnabled: "غير مفعّل",
     forClients: "للمشتركين",
     clientsOnly:

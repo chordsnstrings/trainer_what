@@ -228,11 +228,13 @@ export function BottomSheet({
     const el = dialog.current;
     if (!el) return;
     if (open) {
-      // Opened again while it was sliding away: keep it.
+      // Opened again while it was sliding away: open it properly again
+      // (it was left as a plain, non-modal dialog for the slide).
       if (closing.current != null) {
         window.clearTimeout(closing.current);
         closing.current = null;
         delete el.dataset.closing;
+        if (typeof el.close === "function") el.close();
       }
       if (el.open) return;
       opener.current =
@@ -244,17 +246,27 @@ export function BottomSheet({
       const first = el.querySelector<HTMLElement>("[data-autofocus]");
       first?.focus();
     } else if (el.open && closing.current == null) {
-      const finish = () => {
-        closing.current = null;
-        delete el.dataset.closing;
+      const shut = () => {
         if (typeof el.close === "function") el.close();
         else el.removeAttribute("open");
-        opener.current?.focus?.();
       };
-      if (prefersReducedMotion()) return finish();
-      // Slide away first (phone-first.css), then close and return focus.
+      if (prefersReducedMotion() || typeof el.show !== "function") {
+        shut();
+        opener.current?.focus?.();
+        return;
+      }
+      // The page works again at once: the modal closes now, and the sheet
+      // slides away as a plain (non-modal, untappable) dialog on top, so
+      // no tap is swallowed while it goes (motion.css "e").
+      shut();
       el.dataset.closing = "";
-      closing.current = window.setTimeout(finish, MOTION.base + 40);
+      el.show();
+      opener.current?.focus?.();
+      closing.current = window.setTimeout(() => {
+        closing.current = null;
+        delete el.dataset.closing;
+        shut();
+      }, MOTION.base + 40);
     }
   }, [open]);
   useEffect(() => {
@@ -585,6 +597,50 @@ export function NumberStepper({
 }
 
 /* ------------------------------------------------------------------ */
+/* Slow loading                                                         */
+/* ------------------------------------------------------------------ */
+
+/** True once `waiting` has lasted `ms` (a request that has not answered). */
+export function useTakingLong(waiting: boolean, ms = 15000) {
+  const [long, setLong] = useState(false);
+  useEffect(() => {
+    if (!waiting) {
+      setLong(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setLong(true), ms);
+    return () => window.clearTimeout(timer);
+  }, [waiting, ms]);
+  return waiting && long;
+}
+/**
+ * A placeholder while something loads that turns into a plain "taking longer
+ * than usual" line with Try again, so a request that never answers never
+ * leaves an endless skeleton.
+ */
+export function LoadingOrRetry({
+  label,
+  lines = 3,
+  onRetry,
+}: {
+  label: string;
+  lines?: number;
+  onRetry: () => void;
+}) {
+  const common = useT("common");
+  const slow = useTakingLong(true);
+  if (!slow) return <Skeleton label={label} lines={lines} />;
+  return (
+    <div className="notice" role="status">
+      <p>{common("slowLoad")}</p>
+      <button type="button" className="button secondary" onClick={onRetry}>
+        {common("tryAgain")}
+      </button>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* ResponsiveTable                                                      */
 /* ------------------------------------------------------------------ */
 
@@ -739,6 +795,51 @@ export function tabPanelProps(prefix: string, selected: string) {
 }
 
 /**
+ * A row that scrolls sideways on phones (tabs, day chips, a website's
+ * navigation): fades the edge that still hides items (data-overflow-start /
+ * data-overflow-end with the `edge-fade` class, phone-first.css) and brings
+ * the current item fully into view when the row first appears, so a cut-off
+ * label is never the only cue.
+ */
+export function useEdgeFade<T extends HTMLElement>(
+  ref: { current: T | null },
+  current = '[aria-current="page"], [aria-selected="true"], .selected',
+  /** Re-run when this changes (the row appears later, or on a new page). */
+  watch?: unknown,
+) {
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const active = el.querySelector<HTMLElement>(current);
+    if (active) {
+      // Scroll only this row (never the page) so the item is fully visible.
+      const row = el.getBoundingClientRect(),
+        item = active.getBoundingClientRect();
+      if (item.left < row.left || item.right > row.right)
+        el.scrollLeft += item.left < row.left
+          ? item.left - row.left - 16
+          : item.right - row.right + 16;
+    }
+    const measure = () => {
+      const edges = scrollEdges(el);
+      if (edges.start) el.dataset.overflowStart = "";
+      else delete el.dataset.overflowStart;
+      if (edges.end) el.dataset.overflowEnd = "";
+      else delete el.dataset.overflowEnd;
+    };
+    measure();
+    el.addEventListener("scroll", measure, { passive: true });
+    const observer =
+      typeof ResizeObserver === "function" ? new ResizeObserver(measure) : null;
+    observer?.observe(el);
+    return () => {
+      el.removeEventListener("scroll", measure);
+      observer?.disconnect();
+    };
+  }, [ref, current, watch]);
+}
+
+/**
  * Tabs in one row that scroll sideways on phones (never wrapping), each at
  * least 44 px tall. Arrow keys move between tabs in the reading direction;
  * Home and End jump to the first and last.
@@ -759,6 +860,7 @@ export function ScrollTabs({
 }) {
   const list = useRef<HTMLDivElement>(null);
   const moved = useRef(false);
+  useEdgeFade(list);
   useEffect(() => {
     if (!moved.current) return;
     moved.current = false;
@@ -798,7 +900,7 @@ export function ScrollTabs({
   return (
     <div
       ref={list}
-      className="scroll-tabs"
+      className="scroll-tabs edge-fade"
       role="tablist"
       aria-label={label}
       onKeyDown={onKeyDown}
@@ -960,12 +1062,18 @@ export function ProgressRing({
   from,
   size = 28,
   ticking = false,
+  immediate = false,
   className,
 }: {
   value: number;
   from?: number;
   size?: number;
   ticking?: boolean;
+  /**
+   * Fill at once on mount (the completion moment, already on screen), not
+   * when it scrolls into view, and in the short `MOTION.slow`.
+   */
+  immediate?: boolean;
   className?: string;
 }) {
   const arc = useRef<SVGCircleElement>(null);
@@ -973,12 +1081,16 @@ export function ProgressRing({
   useLayoutEffect(() => {
     const el = arc.current;
     if (!el || from === undefined || from === share) return;
-    return whenFirstInView(el, () => {
+    const play = () =>
       playMotion(el, ringKeyframes(from, share), {
-        duration: MOTION.progress,
+        duration: immediate ? MOTION.slow : MOTION.progress,
         easing: EASE.out,
       });
-    });
+    if (immediate) {
+      play();
+      return;
+    }
+    return whenFirstInView(el, play);
     // Plays once, when the ring first shows.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

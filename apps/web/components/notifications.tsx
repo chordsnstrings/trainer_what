@@ -4,7 +4,8 @@ import Link from "next/link";
 import { parseLanguage } from "../document-language";
 import { rememberMemberLanguage } from "./document-direction";
 import { PREFERENCES_SAVED_EVENT } from "./appearance";
-import { Skeleton } from "./phone-ui";
+import { LoadingOrRetry } from "./phone-ui";
+import { RefreshCw } from "lucide-react";
 import { useErrorText, useLocale, useT } from "../lib/i18n/react";
 import { formatWhen, timeZoneChoices } from "../lib/format";
 import { translator, type Locale } from "../lib/i18n/core";
@@ -196,18 +197,24 @@ export function NotificationPreferences() {
           ).map(([key, label]) => (
             <label className="field" key={key}>
               <span>{label}</span>
-              <input
-                type="time"
-                value={`${String(Math.floor(value.data[key] / 60)).padStart(2, "0")}:${String(value.data[key] % 60).padStart(2, "0")}`}
+              {/* 24-hour times, like the rest of the app (a native time
+                  field follows the phone's 12-hour setting). */}
+              <select
+                value={value.data[key]}
                 required
-                onChange={(e) => {
-                  const [h, m] = e.target.value.split(":").map(Number);
+                onChange={(e) =>
                   setValue({
                     ...value,
-                    data: { ...value.data, [key]: h * 60 + m },
-                  });
-                }}
-              />
+                    data: { ...value.data, [key]: Number(e.target.value) },
+                  })
+                }
+              >
+                {quietTimes(value.data[key]).map((minutes) => (
+                  <option key={minutes} value={minutes}>
+                    {clock(minutes)}
+                  </option>
+                ))}
+              </select>
             </label>
           ))}
           <small>{t("quietHelp")}</small>
@@ -221,6 +228,17 @@ export function NotificationPreferences() {
     </section>
   );
 }
+/** "22:00": minutes after midnight as a 24-hour time. */
+const clock = (minutes: number) =>
+  `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+/** Every half hour, plus the saved time when it is not on the half hour. */
+function quietTimes(current: number) {
+  const times = Array.from({ length: 48 }, (_, i) => i * 30);
+  return times.includes(current)
+    ? times
+    : [...times, current].sort((a, b) => a - b);
+}
+
 export function NotificationInbox() {
   const [rows, setRows] = useState<any[]>([]),
     [more, setMore] = useState(false),
@@ -259,12 +277,18 @@ export function NotificationInbox() {
           <h1>{t("yourNotifications")}</h1>
           <p className="muted">{t("notificationsIntro")}</p>
         </div>
+        {/* A small control: the notifications are the page, not Refresh. */}
         <button
-          className="button secondary"
-          disabled={loading}
-          onClick={() => void load().catch((e) => setError(toError(e)))}
+          type="button"
+          className="icon-button notifications-refresh"
+          aria-label={t("refresh")}
+          title={t("refresh")}
+          aria-busy={loading || undefined}
+          onClick={() => {
+            if (!loading) void load().catch((e) => setError(toError(e)));
+          }}
         >
-          {t("refresh")}
+          <RefreshCw size={20} aria-hidden="true" />
         </button>
       </div>
       {error && (
@@ -274,7 +298,10 @@ export function NotificationInbox() {
       )}
       {loading && (
         <section className="card">
-          <Skeleton label={t("loadingNotifications")} lines={3} />
+          <LoadingOrRetry
+            label={t("loadingNotifications")}
+            onRetry={() => void load().catch((e) => setError(toError(e)))}
+          />
         </section>
       )}
       {!loading && !error && !rows.length && (

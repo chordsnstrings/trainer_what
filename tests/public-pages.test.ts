@@ -195,21 +195,27 @@ test("joining forms never ask anyone to accept an unpublished document", () => {
   const some = render(legalPlan(status(["privacy"])));
   assert.match(some, /I accept the <span><a target="_blank" rel="noopener" href="\/privacy">privacy policy<\/a><\/span>\./);
   assert.doesNotMatch(some, /href="\/terms"/);
-  assert.match(
-    some,
-    /The platform’s terms of service and digital coaching disclosure are not published yet, so you are not asked to accept them\./,
-  );
+  // Documents still being approved are not mentioned to joiners.
+  assert.doesNotMatch(some, /not published yet/);
   const none = render(legalPlan(status([])));
   assert.doesNotMatch(none, /checkbox/);
-  assert.match(none, /are not published yet, so you are not asked to accept them/);
+  assert.equal(none, "", "nothing to accept: nothing shown");
   assert.equal(render(legalPlan(status([], false))), "", "closed: the page explains");
   // What the form may send.
   assert.equal(acceptanceGiven(legalPlan(status([])), false), true);
   assert.equal(acceptanceGiven(legalPlan(status(["terms"])), false), false);
   assert.equal(acceptanceGiven(legalPlan(status(["terms"])), true), true);
   assert.equal(acceptanceGiven(legalPlan(status([], false)), true), false);
-  // Before the status loads the form asks for all three, as before.
-  assert.deepEqual(legalPlan(null).ask, ["terms", "privacy", "ai-disclosure"]);
+  // While the status loads there is no box to tick and nothing can be
+  // sent yet (useLegalStatus asks for all three if it cannot be read).
+  assert.deepEqual(legalPlan(null), {
+    open: true,
+    ask: [],
+    pending: [],
+    loading: true,
+  });
+  assert.equal(acceptanceGiven(legalPlan(null), true), false);
+  assert.doesNotMatch(render(legalPlan(null)), /checkbox/);
   assert.equal(listWords(["a", "b", "c"]), "a, b and c");
 });
 
@@ -233,12 +239,14 @@ test("the join flow is short: account choice, one column, no authenticator or fo
   assert.doesNotMatch(form, /Authenticator|one-time-code|Forgot your password/);
   assert.doesNotMatch(form, /Welcome back|Pick up exactly|trainer/i);
   // The main action is in the sticky bar (and inline from 768 px), and says
-  // why it waits while the terms are not accepted.
+  // why it waits: while the joining terms load, never "Tick the box above"
+  // with no box on screen.
   assert.match(
     form,
     /class="sticky-action-bar"[\s\S]*<button class="button" type="submit" form="join-coach-form" disabled="">Join Alex Morgan<\/button>/,
   );
-  assert.match(form, /Tick the box above to accept the terms\./);
+  assert.match(form, /Getting the joining terms ready…/);
+  assert.doesNotMatch(form, /Tick the box above/);
   assert.equal(
     joinErrorMessage({ code: "INVALID_LOGIN", message: "x" }, "new"),
     "An account already uses this email address. Choose “I already have an account” and enter its password.",
@@ -447,10 +455,11 @@ test("leaving asks in an in-app bottom sheet, not the browser's checkbox tooltip
   assert.match(leave, /<BottomSheet/);
   assert.doesNotMatch(leave, /type="checkbox"/);
   assert.match(leave, /window\.location\.assign\("\/login\?left=1"\)/);
-  // "Stay with {name}" comes from the catalog (lib/i18n/messages/prefs.ts).
-  assert.match(leave, /t\("stay", \{ name \}\)/);
+  // Short labels that fit on one line ("Stay" / "Leave"), from the catalog.
+  assert.match(leave, /t\("stayShort"\)/);
+  assert.match(leave, /t\("leaveShort"\)/);
   const prefs = await source("apps/web/lib/i18n/messages/prefs.ts");
-  assert.match(prefs, /stay: "Stay with \{name\}"/);
+  assert.match(prefs, /stayShort: "Stay"/);
 });
 
 test("the subscriber stylesheets are mobile first", async () => {

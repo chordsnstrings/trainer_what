@@ -34,7 +34,7 @@ export default defineMessages(
       "The link may be old or mistyped. Everything in your coaching space is one tap away from Today or More.",
     nfToday: "Go to Today",
     nfMore: "See everything in More",
-    unTitle: "Your workspace could not be opened",
+    unTitle: "Your coaching app could not open",
     unText:
       "Your saved workouts and meals are safe. If this keeps happening, contact your coach or try again in a few minutes.",
     unTrying: "Trying again…",
@@ -80,7 +80,7 @@ export default defineMessages(
       "قد يكون الرابط قديمًا أو مكتوبًا بشكل خاطئ. كل ما في مساحة تدريبك على بُعد نقرة من «اليوم» أو «المزيد».",
     nfToday: "الانتقال إلى «اليوم»",
     nfMore: "عرض كل شيء في «المزيد»",
-    unTitle: "تعذّر فتح مساحتك",
+    unTitle: "تعذّر فتح تطبيق التدريب",
     unText:
       "تمارينك ووجباتك المحفوظة في أمان. إذا تكرر ذلك، يُرجى التواصل مع مدربك أو المحاولة بعد بضع دقائق.",
     unTrying: "جارٍ إعادة المحاولة…",

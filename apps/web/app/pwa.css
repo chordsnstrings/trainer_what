@@ -250,3 +250,16 @@
   min-block-size: 44px;
   padding-inline: 12px;
 }
+
+/* While "New version ready" shows, the page ends above it, so it never
+   covers the last card (the coach's note on Today). */
+:root[data-update-toast] .member-shell .member-content {
+  padding-block-end: calc(var(--member-bottom-inset, 0px) + 96px);
+}
+/* The install card is a phone prompt; laptops install from the browser's
+   own menu (Profile keeps the Install the app row). */
+@media (min-width: 1024px) {
+  .install-card {
+    display: none;
+  }
+}

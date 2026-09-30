@@ -31,7 +31,9 @@ import {
   OFFLINE_STATE_KEY,
   SW_MESSAGES,
   consentAnswered,
+  dismissUpdate,
   hasUnsavedInput,
+  updateDismissed,
   inAppBrowser,
   installKeys,
   installPromptAvailable,
@@ -54,6 +56,7 @@ import {
   languageFromCookieHeader,
 } from "../document-language";
 import { applyDocumentLanguage } from "./document-direction";
+import { useColorScheme } from "./appearance";
 
 function read(key: string) {
   try {
@@ -121,16 +124,21 @@ export function OfflinePage() {
       languageFromCookieHeader(document.cookie, LANGUAGE_COOKIE);
     if (language) applyDocumentLanguage(language);
   }, []);
+  // The member's Light, Dark or System choice (this device's cookie), like
+  // the app's other neutral screens (app/appearance.css .member-neutral).
+  const scheme = useColorScheme();
   return (
-    <OfflineScreen
-      savedAt={savedAt}
-      onRetry={() =>
-        // The fallback keeps the address that failed; offline itself goes home.
-        location.pathname === "/app/offline"
-          ? location.assign("/app")
-          : location.reload()
-      }
-    />
+    <div className="member-neutral" data-color-scheme={scheme}>
+      <OfflineScreen
+        savedAt={savedAt}
+        onRetry={() =>
+          // The fallback keeps the address that failed; offline itself goes home.
+          location.pathname === "/app/offline"
+            ? location.assign("/app")
+            : location.reload()
+        }
+      />
+    </div>
   );
 }
 
@@ -198,7 +206,7 @@ export function useAppServiceWorker(member: boolean) {
     // Already active (another tab chose Reload first): reload now.
     if (waiting.state === "activated") location.reload();
   }, [waiting]);
-  return { waiting: !!waiting, reload };
+  return { waiting: !!waiting, release: waiting?.scriptURL ?? null, reload };
 }
 
 /**
@@ -209,13 +217,16 @@ export function useAppServiceWorker(member: boolean) {
 export function AppUpdateToast({
   path,
   waiting,
+  release = null,
   onReload,
 }: {
   path: string;
   waiting: boolean;
+  /** The waiting worker's script address: "Later" is kept per release. */
+  release?: string | null;
   onReload: () => void;
 }) {
-  const [later, setLater] = useState(false),
+  const [later, setLater] = useState(() => updateDismissed(release)),
     [leaving, setLeaving] = useState(false),
     [blocked, setBlocked] = useState(false);
   const t = useT("pwa");
@@ -224,7 +235,17 @@ export function AppUpdateToast({
     const gone = window.setTimeout(() => setLater(true), MOTION.fast + 40);
     return () => window.clearTimeout(gone);
   }, [leaving]);
-  if (later || !showUpdateToast({ waiting, path })) return null;
+  const hidden = later || updateDismissed(release);
+  const shown = !hidden && showUpdateToast({ waiting, path });
+  // One prompt at a time: the install card waits while this shows, and the
+  // page gets room below its last card (pwa.css).
+  useEffect(() => {
+    if (!shown) return;
+    const root = document.documentElement;
+    root.setAttribute("data-update-toast", "");
+    return () => root.removeAttribute("data-update-toast");
+  }, [shown]);
+  if (!shown) return null;
   return (
     <div
       className={"app-update-toast" + (leaving ? " is-leaving" : "")}
@@ -250,9 +271,11 @@ export function AppUpdateToast({
         type="button"
         className="icon-button app-update-later"
         aria-label={t("later")}
-        onClick={() =>
-          prefersReducedMotion() ? setLater(true) : setLeaving(true)
-        }
+        onClick={() => {
+          dismissUpdate(release);
+          if (prefersReducedMotion()) setLater(true);
+          else setLeaving(true);
+        }}
       >
         <X size={18} aria-hidden="true" />
       </button>
@@ -545,6 +568,64 @@ function useVisits(tenantId: string, userId: string) {
   }, [tenantId, userId]);
   return visits;
 }
+/** navigator.onLine, kept current. */
+function useOnline() {
+  return useSyncExternalStore(
+    (callback) => {
+      window.addEventListener("online", callback);
+      window.addEventListener("offline", callback);
+      return () => {
+        window.removeEventListener("online", callback);
+        window.removeEventListener("offline", callback);
+      };
+    },
+    () => navigator.onLine,
+    () => true,
+  );
+}
+/**
+ * Whether the analytics question had already been answered when this
+ * browser session began (sessionStorage remembers the first reading), so the
+ * install card never follows the analytics answer in the same session.
+ */
+function useConsentBeforeThisSession(
+  tenantId: string,
+  userId: string,
+  answeredNow: boolean,
+) {
+  const [before, setBefore] = useState<boolean | null>(null);
+  useEffect(() => {
+    const key = `member-app:consent-at-start:${tenantId}:${userId}`;
+    try {
+      let value = sessionStorage.getItem(key);
+      if (value === null) {
+        value = consentAnswered(read("analytics-preference"), undefined)
+          ? "1"
+          : "0";
+        sessionStorage.setItem(key, value);
+      }
+      setBefore(value === "1");
+    } catch {
+      setBefore(answeredNow);
+    }
+  }, [tenantId, userId, answeredNow]);
+  return before ?? false;
+}
+/** True while the "New version ready" toast is on screen (html[data-update-toast]). */
+function useUpdateToastShowing() {
+  return useSyncExternalStore(
+    (callback) => {
+      const observer = new MutationObserver(callback);
+      observer.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ["data-update-toast"],
+      });
+      return () => observer.disconnect();
+    },
+    () => document.documentElement.hasAttribute("data-update-toast"),
+    () => false,
+  );
+}
 /** Whether the analytics question has been answered on this device. */
 function useConsentAnswered() {
   const [answered, setAnswered] = useState(false);
@@ -613,6 +694,9 @@ export function InstallCard({
     if (prefersReducedMotion()) setDismissed(true);
     else setLeaving(true);
   };
+  const online = useOnline(),
+    consentBefore = useConsentBeforeThisSession(tenantId, userId, consent),
+    updateShowing = useUpdateToastShowing();
   const visible =
     !!route &&
     showInstallCard({
@@ -621,6 +705,9 @@ export function InstallCard({
       consentAnswered: consent,
       visits,
       loggedSession,
+      online,
+      consentBeforeThisSession: consentBefore,
+      updateShowing,
     });
   useEffect(() => {
     if (visible && firstView("install-card")) setArriving(true);

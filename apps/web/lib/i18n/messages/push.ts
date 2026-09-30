@@ -47,7 +47,7 @@ export default defineMessages(
       "Get a generic update alert while the app is closed. Open your inbox to see the details.",
     checking: "Checking push notifications…",
     notConfigured:
-      "Phone and browser notifications are not switched on for this app yet. Your in-app inbox still shows every update.",
+      "Alerts on your phone are not available yet. Every update still shows in Notifications here.",
     insecure: "Open this app over HTTPS to enable browser push notifications.",
     iosInstall:
       "On iPhone or iPad, open the Share menu and choose Add to Home Screen. Open the installed app, sign in, then enable notifications here.",
@@ -73,7 +73,7 @@ export default defineMessages(
     removeDevice: "Remove {name}",
     removeDeviceHere: "Remove {name} from this browser",
     stopsWhen:
-      "Push stops when you sign out, revoke this session, or the session expires. Enable it again after signing in. Removing another device disconnects it from this account.",
+      "Alerts stop when you sign out or your sign-in ends; switch them on again after signing in. Removing another device stops its alerts.",
     refresh: "Check again",
     devicesOf: {
       one: "{n} of up to # device.",
@@ -124,7 +124,7 @@ export default defineMessages(
       "تنبيه عام بوجود تحديث حتى عندما يكون التطبيق مغلقًا. التفاصيل في صندوق الوارد.",
     checking: "جارٍ التحقق من الإشعارات…",
     notConfigured:
-      "إشعارات الهاتف والمتصفح غير مفعّلة لهذا التطبيق بعد، وما زال صندوق الإشعارات داخل التطبيق يعرض كل المستجدات.",
+      "تنبيهات الهاتف غير متاحة بعد. تظهر كل المستجدات في «الإشعارات» هنا.",
     insecure: "يلزم فتح هذا التطبيق عبر HTTPS لتفعيل إشعارات المتصفح.",
     iosInstall:
       "على iPhone أو iPad: قائمة المشاركة ثم «إضافة إلى الشاشة الرئيسية». بعدها يمكنك فتح التطبيق المثبّت وتسجيل الدخول وتفعيل الإشعارات من هنا.",
@@ -150,7 +150,7 @@ export default defineMessages(
     removeDevice: "إزالة {name}",
     removeDeviceHere: "إزالة {name} من هذا المتصفح",
     stopsWhen:
-      "تتوقف الإشعارات عند تسجيل الخروج أو إلغاء هذه الجلسة أو انتهائها، ويمكن تفعيلها مجددًا بعد تسجيل الدخول. إزالة جهاز آخر تفصله عن هذا الحساب.",
+      "تتوقف التنبيهات عند تسجيل الخروج أو انتهاء تسجيل الدخول، ويمكن تفعيلها مجددًا بعد تسجيل الدخول. إزالة جهاز آخر توقف تنبيهاته.",
     refresh: "التحقق مرة أخرى",
     devicesOf: {
       zero: "{n}.",

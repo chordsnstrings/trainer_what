@@ -38,6 +38,8 @@ export const MOTION = {
   progress: 640,
   /** Delay between siblings that arrive together. */
   stagger: 30,
+  /** A refresh shorter than this never shows the top bar's refresh bar. */
+  refreshDelay: 400,
   /** How many siblings are staggered; the rest arrive with the last. */
   staggerMax: 6,
   /** The only loops: live states. */
