@@ -1,7 +1,7 @@
 "use client";
 import { useErrorText, useLocale, useT } from "../lib/i18n/react";
-import { formatDate } from "../lib/format";
 import { useEffect, useState } from "react";
+import { formatDate, humanize } from "../lib/format";
 
 async function request(path: string, body?: unknown) {
   const r = await fetch("/api/v1" + path, {
@@ -24,11 +24,13 @@ function Notice({ text }: { text: string }) {
 const REQUEST_STATES = [
   "requested",
   "pending",
+  "local_erasure_completed",
   "in_review",
   "approved",
   "completed",
   "rejected",
   "cancelled",
+  "canceled",
 ] as const;
 export function PersonalPrivacyStatus() {
   const [data, setData] = useState<any>(null),
@@ -39,7 +41,7 @@ export function PersonalPrivacyStatus() {
   const state = (status: string) =>
     (REQUEST_STATES as readonly string[]).includes(status)
       ? t(`request_${status as (typeof REQUEST_STATES)[number]}`)
-      : status.replaceAll("_", " ");
+      : humanize(status);
   useEffect(() => {
     void request("/privacy/status")
       .then(setData)
@@ -49,13 +51,16 @@ export function PersonalPrivacyStatus() {
     <section className="card">
       <h2>{t("privacyRequests")}</h2>
       <Notice text={message} />
-      <p>{t("privacyRequestsText")}</p>
+      <p className="muted">{t("privacyRequestsText")}</p>
       {data && !data.requests.length && (
         <p className="muted">{t("noDeletion")}</p>
       )}
       {data?.requests.map((r: any) => (
         <p key={r.id}>
-          {state(r.status)} · {formatDate(r.created_at, { locale })}
+          {t("requestLine", {
+            status: state(r.status),
+            date: formatDate(r.created_at, { locale }),
+          })}
         </p>
       ))}
       {data?.followups.map((f: any) => (

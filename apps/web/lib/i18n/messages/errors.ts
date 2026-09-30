@@ -68,6 +68,9 @@ export default defineMessages(
     PASSKEY_NONE: "No passkey was selected.",
     ANALYTICS_SAVE:
       "Your analytics preference could not be saved. Please try again.",
+    NETWORK:
+      "Your account details could not be reached. Check your connection and try again.",
+    SUPPORT_THREAD_FULL: "This conversation is full. Start a new one below.",
   },
   {
     status400: "تعذّر الحفظ. يُرجى التحقق من البيانات والمحاولة مرة أخرى.",
@@ -127,5 +130,8 @@ export default defineMessages(
     PASSKEY_UNSUPPORTED: "تتطلب مفاتيح المرور متصفحًا يدعمها عبر HTTPS أو localhost.",
     PASSKEY_NONE: "لم يُختر أي مفتاح مرور.",
     ANALYTICS_SAVE: "تعذّر حفظ تفضيل التحليلات. يُرجى المحاولة مرة أخرى.",
+    NETWORK:
+      "تعذّر الوصول إلى تفاصيل حسابك. يُرجى التحقق من الاتصال ثم المحاولة مرة أخرى.",
+    SUPPORT_THREAD_FULL: "هذه المحادثة ممتلئة. يُرجى بدء محادثة جديدة أدناه.",
   },
 );

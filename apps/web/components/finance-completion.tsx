@@ -2,6 +2,7 @@
 import { formatDate, formatMoney, humanize } from "../lib/format";
 import { useErrorText, useLocale, useT } from "../lib/i18n/react";
 import { useEffect, useState } from "react";
+import { Skeleton } from "./phone-ui";
 import { money } from "@trainer/domain";
 /** "July 2026" for a YYYY-MM month. */
 const monthName = (period: string) =>
@@ -21,7 +22,8 @@ async function request(url: string, body?: unknown) {
     throw new Error(data.message ?? "Request could not be completed");
   return data;
 }
-export function BillingHistory() {
+/** Receipts, refund requests and renewal confirmation for a member. */
+export function BillingHistory({ active = false }: { active?: boolean }) {
   const [data, setData] = useState<any>(null),
     [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false);
@@ -57,7 +59,7 @@ export function BillingHistory() {
           {message}
         </p>
       )}
-      {!data && !message && <p>{t("loadingBilling")}</p>}
+      {!data && !message && <Skeleton label={t("loadingBilling")} lines={3} />}
       {data && (
         <>
           {data.transitions.length > 0 && (
@@ -72,7 +74,11 @@ export function BillingHistory() {
               </button>
             </div>
           )}
-          {!data.invoices.length && <p>{t("noInvoices")}</p>}
+          {!data.invoices.length && (
+            <p className="muted">
+              {active ? t("receiptsAppear") : t("noPayments")}
+            </p>
+          )}
           {data.invoices.map((r: any) => (
             <article className="list-row" key={r.id}>
               <div>

@@ -8,9 +8,9 @@ import { queuedSummary } from "./pwa";
 import { ProgressRing, Skeleton } from "./phone-ui";
 import { Mic } from "lucide-react";
 import { formatDate } from "../lib/format";
-import type { Translator } from "../lib/i18n/core";
+import { translator, type Locale, type Translator } from "../lib/i18n/core";
 import { useErrorText, useLocale, useT } from "../lib/i18n/react";
-import type voiceMessages from "../lib/i18n/messages/voice";
+import voiceMessages from "../lib/i18n/messages/voice";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ECHO_GRACE_MS,
@@ -105,9 +105,6 @@ function statusLine(
   }
   return "";
 }
-/** A gate or unavailability reason, by its code (the server's words otherwise). */
-const reasonText = (t: VoiceT, r: { code: string; message: string }) =>
-  t.dynamic(`reason_${r.code}`, r.message);
 
 type Gate = {
   mode: "voice" | "text";
@@ -308,7 +305,12 @@ export function VoiceSessionRunner({
   return (
     <div className="stack voice-session">
       <div className="page-heading">
-        <p className="eyebrow">{t("eyebrow")}</p>
+        <p className="eyebrow">
+          {session?.mode === "text" ||
+          (gate && gate.mode === "text" && !voiceBlockedOnlyByConsentFor(gate))
+            ? t("eyebrowGuided")
+            : t("eyebrow")}
+        </p>
         <h1>
           {session?.script.title ?? planned?.title ?? t("fallbackTitle")}
         </h1>
@@ -317,6 +319,8 @@ export function VoiceSessionRunner({
             ? planned?.date
               ? t("aheadOn", {
                   date: formatDate(planned.date, {
+                    weekday: true,
+                    year: false,
                     locale,
                     fallback: planned.date,
                   }),
@@ -384,11 +388,10 @@ export function VoiceSessionRunner({
                 </>
               ) : (
                 <>
-                  <ul className="voice-reasons">
-                    {gate.reasons.map((r) => (
-                      <li key={r.code}>{reasonText(t, r)}</li>
-                    ))}
-                  </ul>
+                  {/* One plain reason, never the list of internal checks. */}
+                  <p className="voice-reason">
+                    {voiceReason(gate.reasons, locale)}
+                  </p>
                   <button
                     className="button"
                     disabled={busy}
@@ -408,12 +411,16 @@ export function VoiceSessionRunner({
             <h2 id="voice-ahead">
               {session.mode === "voice" ? t("trainerVoice") : t("textSession")}
             </h2>
-            <span className={"badge" + (session.mode === "voice" ? "" : " amber")}>
-              {audioBadge(session, t)}
-            </span>
+            {audioBadge(session, t) && (
+              <span className={"badge" + (session.mode === "voice" ? "" : " amber")}>
+                {audioBadge(session, t)}
+              </span>
+            )}
           </div>
           {session.unavailableReason && (
-            <p className="muted">{reasonText(t, session.unavailableReason)}</p>
+            <p className="muted">
+              {voiceReason([session.unavailableReason], locale)}
+            </p>
           )}
           <p className="muted">
             {session.audioStatus === "generating"
@@ -454,6 +461,39 @@ export function VoiceSessionRunner({
     </div>
   );
 }
+/**
+ * One plain reason a session is guided in text instead of the coach's voice
+ * (the server lists every check that failed). Most important first; the
+ * member can act on the membership and the permission, not on the rest.
+ */
+export function voiceReason(
+  reasons: Array<{ code: string; message?: string }>,
+  locale: Locale = "en",
+) {
+  const t = translator(voiceMessages, locale);
+  const codes = new Set(reasons.map((r) => r.code));
+  if (codes.has("TRAINING_HELD")) return t("vrHeld");
+  if (codes.has("MEMBERSHIP_REQUIRED")) return t("vrMembership");
+  // The same order as the server's stored reason (voice-session.ts), so
+  // the preparation page and the running session say the same thing.
+  if (codes.has("VOICE_MEMBERSHIP")) return t("vrVoicePlan");
+  if (
+    codes.has("VOICE_CONTRACT") ||
+    codes.has("VOICE_NOT_VERIFIED") ||
+    codes.has("VOICE_UNAVAILABLE")
+  )
+    return t("vrUnavailable");
+  if (codes.has("VOICE_BUDGET")) return t("vrBudget");
+  if (codes.has("VOICE_SCRIPT_INVALID")) return t("vrScript");
+  if (codes.has("PLAYBACK_CONSENT")) return t("vrConsent");
+  return t("vrText");
+}
+function voiceBlockedOnlyByConsentFor(gate: { reasons: Array<{ code: string }> }) {
+  return (
+    gate.reasons.length > 0 &&
+    gate.reasons.every((r) => r.code === "PLAYBACK_CONSENT")
+  );
+}
 const audioBadge = (session: SessionView, t: VoiceT) =>
   session.audioStatus === "generating"
     ? t("badgePreparing", {
@@ -464,7 +504,8 @@ const audioBadge = (session: SessionView, t: VoiceT) =>
       ? session.audioStatus === "capped"
         ? t("badgePaused")
         : t("badgeReady")
-      : t("badgeText");
+      : // The heading already says "Text-guided session".
+        "";
 
 /** Holds whether the trainer's voice is audible now, for the echo guard. */
 type Playback = {
@@ -1115,10 +1156,14 @@ function Runner({
           <h2 id="voice-mode">
             {voiceMode ? t("trainerVoice") : t("textSession")}
           </h2>
-          <span className={"badge" + (voiceMode ? "" : " amber")}>{audioBadge(session, t)}</span>
+          {audioBadge(session, t) && (
+            <span className={"badge" + (voiceMode ? "" : " amber")}>{audioBadge(session, t)}</span>
+          )}
         </div>
         {session.unavailableReason && (
-          <p className="muted">{reasonText(t, session.unavailableReason)}</p>
+          <p className="muted">
+            {voiceReason([session.unavailableReason], t.locale)}
+          </p>
         )}
         {session.audioStatus === "generating" && (
           <p className="muted">{t("generating")}</p>
@@ -1167,6 +1212,20 @@ function Runner({
         <h2 id="voice-now" className="voice-now">
           {statusLine(ctx, state, t)}
         </h2>
+        {state.phase === "ready" && (
+          // What the session holds, before it starts.
+          <ul className="voice-plan">
+            {script.exercises.map((e) => (
+              <li key={e.index}>
+                <strong>{e.name}</strong>
+                <span className="muted" dir="auto">
+                  {e.sets} {e.sets === 1 ? "set" : "sets"}
+                  {(e as any).reps ? ` × ${(e as any).reps} reps` : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
         {ex && ["setup", "set", "rest"].includes(state.phase) && target && (
           <p className="voice-target">
             <bdi>{ex.name}</bdi> · {t("setOf", { set: state.set, sets: ex.sets })} ·{" "}

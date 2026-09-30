@@ -4,7 +4,7 @@ import { defineMessages } from "../core";
 export default defineMessages(
   {
     today: "Today",
-    program: "My program",
+    program: "Programme",
     programDetail: "Your plan and training calendar",
     timeline: "Timeline",
     timelineDetail: "Every day of this block",
@@ -44,8 +44,9 @@ export default defineMessages(
     groupCoaching: "Coaching",
     titleWorkout: "Workout",
     titleGuided: "Guided session",
-    titleVoice: "Voice-led session",
+    titleVoice: "Workout guide",
     titleFallback: "Your coaching",
+    titleNotFound: "Page not found",
   },
   {
     today: "اليوم",
@@ -89,7 +90,8 @@ export default defineMessages(
     groupCoaching: "التدريب",
     titleWorkout: "التمرين",
     titleGuided: "جلسة موجّهة",
-    titleVoice: "جلسة بتوجيه صوتي",
+    titleVoice: "دليل التمرين",
     titleFallback: "تدريبك",
+    titleNotFound: "الصفحة غير موجودة",
   },
 );

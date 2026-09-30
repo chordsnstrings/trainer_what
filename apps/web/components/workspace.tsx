@@ -98,19 +98,23 @@ import { DirectoryListingSettings } from "./directory-listing";
 import { PlatformSettings } from "./platform-settings";
 import { ProviderSandboxBanner } from "./provider-sandbox-banner";
 import { MealCapture } from "./meal-capture";
-import {
-  ProgrammeToday,
-  ProgrammeTimeline,
-  WorkoutComplete,
-} from "./programme-today";
+import { ProgrammeTimeline, WorkoutComplete } from "./programme-today";
+import { MemberToday } from "./member-today";
+import { MemberProgram } from "./member-program";
+import { MemberCoachingContext } from "./member-context";
+import { MemberChat } from "./member-chat";
+import { MemberIntake } from "./member-intake";
+import { MemberMembership } from "./member-membership";
+import { MemberNotFound, WorkspaceUnavailable } from "./member-states";
+import { painDescription } from "./pain-report";
+import { isMemberRoute } from "./member-nav";
 import { UpfrontMembership, VoiceAddOnCard } from "./programme-membership";
 import { OfferForm, OfferTerms, OfferVoicePrice } from "./programme-offers";
 import {
   TrainerDesign,
   TrainerTheme,
   CoachIdentity,
-  CoachWelcome,
-  ClientHomeSections,
+
 } from "./trainer-design";
 import {
   BRAND_COPY,
@@ -302,7 +306,7 @@ const nav = [
 ] as const;
 const subNav = [
   ["Today", "/app", LayoutDashboard],
-  ["My program", "/app/program", Layers],
+  ["Programme", "/app/program", Layers],
   ["Programme timeline", "/app/timeline", Layers],
   ["Nutrition", "/app/nutrition", Activity],
   ["Log a meal", "/app/nutrition/log", Camera],
@@ -847,30 +851,20 @@ export default function Workspace({
     );
   if (!loading && !state && bootstrapError)
     return memberScreen(
-      <main className="loading-screen" style={{ padding: 24 }}>
-        <section
-          className="card"
-          style={{ width: "min(100%, 480px)", textAlign: "center" }}
-        >
-          <AlertCircle size={29} aria-hidden="true" />
-          <h1 style={{ fontSize: 27, marginTop: 20 }}>
-            {shellT("unavailableTitle")}
-          </h1>
-          <p className="muted" role="alert">
-            {bootstrapText}
-          </p>
-          <button
-            className="button"
-            type="button"
-            onClick={() => {
-              setLoading(true);
-              void load();
-            }}
-          >
-            {common("retry")} <RefreshCw size={15} />
-          </button>
-        </section>
-      </main>
+      <WorkspaceUnavailable
+        message={bootstrapText}
+        busy={loading}
+        onRetry={() => {
+          setLoading(true);
+          void load();
+        }}
+        onSignOut={async () => {
+          await api("/auth/logout", "POST", {}).catch(() => {});
+          clearLocalData(localStorage, { keepQueues: true });
+          memberStateCache = null;
+          router.push("/login");
+        }}
+      />
     );
   // A member keeps the app frame while a page refreshes (the top bar shows
   // the refresh); the full-screen loader is only for the first load.
@@ -1024,7 +1018,9 @@ export default function Workspace({
     </>
   );
   const page =
-    path === "/app/more" && subscriber ? (
+    subscriber && path.startsWith("/app") && !isMemberRoute(path) ? (
+      <MemberNotFound />
+    ) : path === "/app/more" && subscriber ? (
       <MoreScreen
         nav={memberNav}
         coachName={state.tenant.name}
@@ -1171,6 +1167,7 @@ export default function Workspace({
             <NutritionSubscriber
               userId={state.user.userId}
               tenantId={state.user.tenantId}
+              environment={state.environment}
             />
           ) : path === "/trainer/galleries" ||
             path === "/trainer/website" ||
@@ -1212,6 +1209,8 @@ export default function Workspace({
                 records={records("support")}
                 action={action}
                 busy={busy}
+                userId={state.user.userId}
+                member={subscriber}
               />
               <LoadMore
                 more={more}
@@ -1233,7 +1232,7 @@ export default function Workspace({
           ) : path.includes("/subscribers") ? (
             <Members {...props} />
           ) : path === "/app/twin" ? (
-            <ClientTwin userId={state.user.userId} subscriber />
+            <MemberCoachingContext userId={state.user.userId} />
           ) : path.startsWith("/app/guided/") ? (
             <GuidedSession workoutId={path.split("/")[3]} />
           ) : path.startsWith("/app/voice-session/") ? (
@@ -1245,14 +1244,21 @@ export default function Workspace({
               userId={state.user.userId}
             />
           ) : path.includes("/program") ? (
-            <TrainingPrograms state={state} />
+            subscriber ? (
+              <MemberProgram
+                state={view}
+                programLabel={memberNav.programLabel}
+              />
+            ) : (
+              <TrainingPrograms state={state} />
+            )
           ) : path.includes("/workouts") ? (
             <Workout {...props} />
           ) : path.includes("/messages") || path.includes("/chat") ? (
-            <>
-              {/* A coach's reply is the moment to offer notifications. */}
-              {subscriber &&
-                records("message").some((m) =>
+            subscriber ? (
+              <>
+                {/* A coach's reply is the moment to offer notifications. */}
+                {records("message").some((m) =>
                   ["trainer", "digital_qualified", "digital_reviewed"].includes(
                     m.data?.author,
                   ),
@@ -1265,10 +1271,19 @@ export default function Workspace({
                     }
                   />
                 )}
+                <MemberChat state={view} />
+              </>
+            ) : (
               <CoachingMessages state={state} />
-            </>
+            )
           ) : path.includes("/exceptions") ? (
             <Exceptions {...props} />
+          ) : subscriber && path === "/app/membership" ? (
+            <MemberMembership
+              state={view}
+              offers={records("product")}
+              onChanged={load}
+            />
           ) : path.includes("/finance") ||
             path.includes("/payout") ||
             path.includes("/membership") ||
@@ -1296,21 +1311,19 @@ export default function Workspace({
               {state.user.role === "owner" && <RetentionPanel />}
             </>
           ) : path === "/app/timeline" ? (
-            <ProgrammeTimeline />
+            <ProgrammeTimeline programLabel={memberNav.programLabel} />
           ) : path === "/app/progress" ? (
             <TrainingProgress state={state} />
           ) : path.includes("/analytics") || path.includes("/progress") ? (
             <Analytics {...props} />
+          ) : subscriber ? (
+            <MemberToday
+              state={view}
+              programLabel={memberNav.programLabel}
+              nutrition={memberNav.nutrition}
+            />
           ) : (
-            <>
-              {subscriber && (
-                <CoachSwitcher
-                  current={state.user.tenantId}
-                  userId={state.user.userId}
-                />
-              )}
-              <Overview {...props} />
-            </>
+            <Overview {...props} />
           );
   if (subscriber)
     return (
@@ -1623,22 +1636,7 @@ function Overview({ state, records }: ViewProps) {
           </Link>
         }
       />
-      {sub && (
-        <>
-          <ProgrammeToday />
-          <InstallCard
-            coachName={state.tenant.name}
-            tenantId={state.user.tenantId}
-            userId={state.user.userId}
-            loggedSession={
-              state.sets.length > 0 ||
-              workouts.some((w) => w.status === "completed")
-            }
-          />
-          <CoachWelcome name={state.tenant.name} theme={state.tenant.theme} />
-          <ClientHomeSections theme={state.tenant.theme} />
-        </>
-      )}
+
       {state.user.role === "owner" && (
         <section className="card" aria-labelledby="growth-nudge-h">
           <h2 id="growth-nudge-h">What could your followers be worth?</h2>
@@ -3511,7 +3509,7 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
               type="submit"
               form="workout-pain-report"
               className="button"
-              disabled={busy || !painText.trim()}
+              disabled={busy}
             >
               {t("stopNotify")}
             </button>
@@ -3522,8 +3520,8 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
           id="workout-pain-report"
           onSubmit={(e) => {
             e.preventDefault();
-            const description = painText.trim();
-            if (!description) return;
+            // Stopping never waits for a note (pain-report.ts).
+            const description = painDescription(painText);
             setPainOpen(false);
             setPainText("");
             void action(
@@ -3540,7 +3538,6 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
               onChange={(e) => setPainText(e.target.value)}
               rows={4}
               maxLength={2000}
-              required
               enterKeyHint="send"
               placeholder={t("painExample")}
             />
@@ -4630,158 +4627,143 @@ function Integrations({ state, action, busy, path }: ViewProps) {
   );
 }
 
-function SettingsView({ state, records, action, busy, path }: ViewProps) {
-  const intake = records("intake")[0]?.data ?? {},
-    sub = state.user.role === "subscriber",
-    // A member's coaching intake has its own page, so "Complete your
-    // coaching profile" opens the questions, not account security.
-    intakePage = sub && path === "/app/intake";
+function SettingsView({
+  state,
+  records,
+  action,
+  busy,
+  path,
+  onSaved,
+}: ViewProps) {
+  const sub = state.user.role === "subscriber";
+  // A member's coaching profile questions are their own step-by-step page
+  // (member-intake.tsx); account security stays in Profile and settings.
+  if (sub && path === "/app/intake")
+    return (
+      <MemberIntake intake={records("intake")[0]?.data} onSaved={onSaved} />
+    );
+  if (sub) return <MemberSettings state={state} action={action} busy={busy} />;
+  return <TrainerSettingsView state={state} action={action} busy={busy} />;
+}
+
+/**
+ * Profile and settings for a member, phone first: the coaching profile link,
+ * the installed app, account details, display preferences (appearance and
+ * motion), notifications, sign-in security folded into one section, privacy
+ * (analytics included) and leaving the coach (a bottom sheet in
+ * AccountSettings).
+ */
+function MemberSettings({
+  state,
+  action,
+  busy,
+}: Pick<ViewProps, "state" | "action" | "busy">) {
+  const t = useT("profile");
+  const intakeDone = state.records.some((r) => r.kind === "intake");
+  return (
+    <div className="member-settings" data-stagger>
+      <header className="page-heading">
+        <h1>{t("settingsTitle")}</h1>
+        <p className="muted">{t("settingsIntro")}</p>
+      </header>
+      <section className="card" aria-labelledby="settings-coaching">
+        <h2 id="settings-coaching">{t("coachingProfile")}</h2>
+        <p className="muted">
+          {intakeDone ? t("profileDoneText") : t("profileStartText")}
+        </p>
+        <Link className="button secondary" href="/app/intake">
+          {intakeDone ? t("reviewProfile") : t("startProfile")}
+        </Link>
+      </section>
+      <InstallAppRow coachName={state.tenant.name} variant="card" />
+      <AccountSettings returnTo="/app/profile" />
+      <DisplayPreferences />
+      <NotificationPreferences />
+      <PushNotifications />
+      <details className="card settings-group" id="security">
+        <summary>
+          <span>
+            <strong>{t("securityTitle")}</strong>
+            <small>{t("securityDetail")}</small>
+          </span>
+        </summary>
+        <AccountSecurity />
+        <AccountExtras />
+      </details>
+      <PersonalPrivacyStatus />
+      {/* Profile > Privacy (/app/profile#privacy), linked from More. */}
+      <Card id="privacy">
+        <h2>{t("yourData")}</h2>
+        <p className="muted">{t("yourDataText")}</p>
+        <div className="button-row">
+          <a className="button secondary" href="/api/v1/privacy/export">
+            <Download size={16} />
+            {t("downloadData")}
+          </a>
+          <Button
+            secondary
+            disabled={busy}
+            onClick={() =>
+              void action(
+                () => api("/privacy/delete-request", "POST", {}),
+                t("deletionReceived"),
+              )
+            }
+          >
+            {t("askDelete")}
+          </Button>
+        </div>
+        <div className="divider" />
+        <p className="muted">{t("digitalText")}</p>
+        <Button
+          secondary
+          disabled={busy}
+          onClick={() =>
+            void action(
+              () =>
+                api("/privacy/consent", "POST", {
+                  type: "coaching",
+                  granted: false,
+                }),
+              t("digitalStopped"),
+            )
+          }
+        >
+          {t("stopDigital")}
+        </Button>
+        <div className="divider" />
+        <AnalyticsSetting />
+      </Card>
+    </div>
+  );
+}
+
+function TrainerSettingsView({
+  state,
+  action,
+  busy,
+}: Pick<ViewProps, "state" | "action" | "busy">) {
   const t = useT("profile");
   return (
     <>
       <Heading
-        eyebrow={sub ? t("eyebrow") : "YOUR SPACE, YOUR CHOICES"}
-        title={
-          intakePage
-            ? t("intakeTitle")
-            : sub
-              ? t("profileTitle")
-              : "Your workspace settings."
-        }
-        detail={
-          intakePage
-            ? t("intakeDetail")
-            : sub
-              ? t("profileDetail")
-              : "Keep your information useful, your permissions clear and your data under your control."
-        }
+        eyebrow="YOUR SPACE, YOUR CHOICES"
+        title="Your workspace settings."
+        detail="Keep your information useful, your permissions clear and your data under your control."
       />
-      {!intakePage && (
-        <>
-          <AccountSecurity />
-          <AccountExtras />
-          <AccountSettings
-            returnTo={sub ? "/app/profile" : "/trainer/settings"}
-          />
-          <PersonalPrivacyStatus />
-        </>
-      )}
+      <AccountSecurity />
+      <AccountExtras />
+      <AccountSettings returnTo="/trainer/settings" />
+      <PersonalPrivacyStatus />
       {["owner", "staff"].includes(state.user.role) && (
         <WorkspaceLifecycle role={state.user.role} />
       )}
-      {sub && !intakePage && (
-        <InstallAppRow coachName={state.tenant.name} variant="card" />
-      )}
-      {sub && !intakePage && (
-        <Card>
-          <h2>{t("coachingProfile")}</h2>
-          <p className="muted">{t("coachingProfileText")}</p>
-          <Link className="button secondary" href="/app/intake">
-            {t("reviewProfile")}
-          </Link>
-        </Card>
-      )}
-      {intakePage && (
-        <Card>
-          <h2>{t("helpCoach")}</h2>
-          <PlanIntakeNotice />
-          <form
-            id="intake-form"
-            onSubmit={(e) => {
-              e.preventDefault();
-              const f = new FormData(e.currentTarget);
-              void action(
-                () =>
-                  api("/intake", "POST", {
-                    age: Number(f.get("age")),
-                    goal: f.get("goal"),
-                    experience: f.get("experience"),
-                    daysPerWeek: Number(f.get("days")),
-                    equipment: f.get("equipment"),
-                    limitations: f.get("limitations"),
-                    consent: true,
-                  }),
-                t("profileSaved"),
-              );
-            }}
-          >
-            <div className="form-grid">
-              <Field label={t("age")}>
-                <input
-                  type="number"
-                  name="age"
-                  inputMode="numeric"
-                  min={18}
-                  max={100}
-                  defaultValue={intake.age}
-                  required
-                />
-              </Field>
-              <Field label={t("experience")}>
-                <select
-                  name="experience"
-                  defaultValue={intake.experience ?? "beginner"}
-                >
-                  {(["beginner", "intermediate", "advanced"] as const).map(
-                    (x) => (
-                      <option key={x} value={x}>
-                        {t(x)}
-                      </option>
-                    ),
-                  )}
-                </select>
-              </Field>
-              <Field label={t("goal")}>
-                <input name="goal" defaultValue={intake.goal} required />
-              </Field>
-              <Field label={t("days")}>
-                <input
-                  name="days"
-                  type="number"
-                  inputMode="numeric"
-                  min={1}
-                  max={7}
-                  defaultValue={intake.daysPerWeek ?? 3}
-                  required
-                />
-              </Field>
-              <Field label={t("equipment")}>
-                <input name="equipment" defaultValue={intake.equipment} />
-              </Field>
-              <Field label={t("limitations")}>
-                <textarea
-                  name="limitations"
-                  defaultValue={intake.limitations}
-                />
-              </Field>
-            </div>
-            <label className="check-field">
-              <input type="checkbox" required />
-              {t("intakeConsent")}
-            </label>
-            {/* The page's one main action, in thumb reach. */}
-            <StickyActionBar label={t("profileActions")}>
-              <button
-                type="submit"
-                form="intake-form"
-                className="button"
-                disabled={busy}
-              >
-                {t("saveProfile")}
-              </button>
-            </StickyActionBar>
-          </form>
-        </Card>
-      )}
-      {!intakePage && (
       <div className="two-columns">
-        {sub && <DisplayPreferences />}
         <NotificationPreferences />
         <PushNotifications />
         {state.user.role === "owner" && <WorkoutNotificationPolicy />}
-        {/* Profile > Privacy (/app/profile#privacy), linked from More. */}
         <Card id="privacy">
-          <h2>{sub ? t("privacyTitle") : "Your data"}</h2>
+          <h2>Your data</h2>
           <p className="muted">{t("privacyText")}</p>
           <div className="button-row">
             <a className="button secondary" href="/api/v1/privacy/export">
@@ -4822,7 +4804,6 @@ function SettingsView({ state, records, action, busy, path }: ViewProps) {
           <AnalyticsSetting />
         </Card>
       </div>
-      )}
       {state.user.role === "owner" && (
         <Card>
           <h2>Team access</h2>

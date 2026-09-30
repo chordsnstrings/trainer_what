@@ -671,4 +671,21 @@ export function registerSubscriptionCheckout(
   app.post("/api/v1/payments/checkout/reconcile", (req) =>
     reconcileMembershipCheckout(db, identity(req)),
   );
+  // Whether this member has a membership checkout that has not finished
+  // (read only, no provider call): the member app shows "Checkout status"
+  // only then.
+  app.get("/api/v1/payments/checkout/pending", (req) =>
+    pendingMembershipCheckout(db, identity(req)),
+  );
+}
+/** A started membership checkout that is neither finished, expired nor closed. */
+export async function pendingMembershipCheckout(db: Database, a: Actor) {
+  if (a.role !== "subscriber") return { pending: false };
+  const [r] = await db.tenant(a, (tx) =>
+    tx.query(
+      `SELECT id FROM records WHERE kind='checkout' AND owner_user_id=$1 AND status NOT IN ('expired','closed','completed') AND ${MEMBERSHIP_INTENT} LIMIT 1`,
+      [a.userId],
+    ),
+  );
+  return { pending: !!r };
 }

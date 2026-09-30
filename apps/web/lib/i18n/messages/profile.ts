@@ -13,10 +13,10 @@ export default defineMessages(
     coachingProfile: "Coaching profile",
     coachingProfileText:
       "Your goals, experience, equipment and limits help your coach plan your training.",
-    reviewProfile: "Review my coaching profile",
+    reviewProfile: "Review your coaching profile",
     helpCoach: "Help your coach understand you",
     intakeNotice:
-      "When you save this, your trainer’s Brain prepares your training plan from it: your goal, experience, training days and equipment. Your trainer reviews it whenever the Brain is not sure. Anything you list as a limitation, and any pain you report later, always goes to your trainer personally.",
+      "Your coach uses your answers to prepare your training plan: your goal, experience, training days and equipment. Anything you list as a limitation, and any pain you report later, always goes to your coach personally.",
     profileSaved: "Coaching profile saved",
     age: "Age (18+)",
     experience: "Experience",
@@ -42,8 +42,68 @@ export default defineMessages(
     // Training hold
     holdTitle: "Your training is paused.",
     holdText:
-      "Your trainer must review this hold before another session can begin. You can still send them a message. Seek urgent local medical help for severe or urgent symptoms.",
-    messageTrainer: "Message your trainer",
+      "Your coach reviews this before your next session can start. You can still message them. Seek urgent local medical help for severe or urgent symptoms.",
+    messageTrainer: "Message your coach",
+    settingsTitle: "Profile and settings",
+    settingsIntro: "Your account, notifications, sign-in security and privacy.",
+    profileDoneText:
+      "Your goals, experience, equipment and limits. Change them any time.",
+    profileStartText:
+      "Answer a few questions so your coach can plan training that fits you.",
+    startProfile: "Start your coaching profile",
+    securityTitle: "Sign-in security",
+    securityDetail: "Authenticator app, passkeys and where you are signed in",
+    yourData: "Your data",
+    yourDataText:
+      "Download your coaching records, or ask for your account to be deleted. Payment records are kept for as long as the law requires.",
+    downloadData: "Download my data",
+    askDelete: "Ask to delete my data",
+    deletionReceived: "Deletion request received. We will confirm by email.",
+    digitalText:
+      "You can stop your coach using your coaching profile answers for digital coaching. Your coach can still message you.",
+    stopDigital: "Stop digital coaching using my answers",
+    digitalStopped: "Your answers are no longer used for digital coaching.",
+    inStepAbout: "About you",
+    inStepGoal: "Your goal",
+    inStepWeek: "Your training week",
+    inStepLimits: "Anything your coach should know",
+    inBeginnerDetail: "New to training, or back after a long break",
+    inIntermediateDetail: "Training regularly for 6 months or more",
+    inAdvancedDetail: "Several years of structured training",
+    inErrReview:
+      "Your coach is reviewing your training right now. Try again in a little while.",
+    inErrSave:
+      "Your answers were not saved. Check your connection and try again.",
+    inThanks: "Thank you",
+    inThanksText:
+      "Your coach has your answers. Your plan appears on Today as soon as it is ready, and you can change these answers at any time.",
+    inBackToday: "Back to Today",
+    inStepOf: "Step {step} of {total}",
+    inTitle: "Your coaching profile",
+    inProgress: "Coaching profile progress",
+    inCheckAnswers:
+      "Check your answers and change anything that is different now.",
+    inIntro:
+      "A few questions so your coach can plan training that fits you. It takes about two minutes.",
+    inAge: "Your age",
+    inAgeNote: "You need to be 18 or over for coaching here.",
+    inGoal: "What would you like to achieve?",
+    inGoalPlaceholder: "For example: get stronger and move without back pain",
+    inExperience: "Your training experience",
+    inDays: "Days you can train each week",
+    inEquipment: "Equipment you can use",
+    inEquipmentPlaceholder:
+      "For example: a gym, or dumbbells and a bench at home",
+    inLimits: "Injuries, pain or health limits (optional)",
+    inLimitsPlaceholder: "Leave empty if there is nothing to add",
+    inConsent:
+      "I agree that my coach may use these answers for my coaching, and I understand that digital coaching does not replace medical care.",
+    inSteps: "Coaching profile steps",
+    inNext: "Next: {step}",
+    inSaveAnswers: "save your answers",
+    inBack: "Back",
+    inNextButton: "Next",
+    inSaving: "Saving…",
   },
   {
     eyebrow: "مساحتك، واختياراتك",
@@ -58,7 +118,7 @@ export default defineMessages(
     reviewProfile: "مراجعة ملف تدريبي",
     helpCoach: "لكي يفهمك مدربك",
     intakeNotice:
-      "عند الحفظ، يُعدّ «العقل الرقمي» لمدربك خطة تدريبك بناءً على هذه الإجابات: هدفك وخبرتك وأيام التدريب والمعدات. ويراجعها مدربك كلما لم يكن العقل الرقمي متأكدًا. وكل ما تذكره من قيود، وأي ألم تبلّغ عنه لاحقًا، يصل دائمًا إلى مدربك شخصيًا.",
+      "يستخدم مدربك إجاباتك لإعداد خطة تدريبك: هدفك وخبرتك وأيام التدريب والمعدات. وكل ما تذكره من قيود، وأي ألم تبلّغ عنه لاحقًا، يصل دائمًا إلى مدربك شخصيًا.",
     profileSaved: "تم حفظ ملف التدريب",
     age: "العمر (18 عامًا فأكثر)",
     experience: "الخبرة",
@@ -83,7 +143,64 @@ export default defineMessages(
     consentWithdrawn: "أُوقف أي استخدام جديد لإجاباتك من قِبل النموذج",
     holdTitle: "تدريبك متوقف مؤقتًا.",
     holdText:
-      "يجب أن يراجع مدربك هذا الإيقاف قبل بدء أي جلسة أخرى، وما زال بإمكانك مراسلته. في حال وجود أعراض شديدة أو عاجلة، يُرجى طلب مساعدة طبية عاجلة محليًا.",
+      "يراجع مدربك هذا الإيقاف قبل أن تبدأ جلستك التالية، وما زال بإمكانك مراسلته. في حال وجود أعراض شديدة أو عاجلة، يُرجى طلب مساعدة طبية عاجلة محليًا.",
     messageTrainer: "مراسلة مدربك",
+    settingsTitle: "الملف الشخصي والإعدادات",
+    settingsIntro: "حسابك والإشعارات وأمان تسجيل الدخول والخصوصية.",
+    profileDoneText: "أهدافك وخبرتك ومعداتك وحدودك. يمكنك تغييرها في أي وقت.",
+    profileStartText:
+      "يُرجى الإجابة عن بضعة أسئلة ليتمكن مدربك من تخطيط تدريب يناسبك.",
+    startProfile: "بدء ملف التدريب",
+    securityTitle: "أمان تسجيل الدخول",
+    securityDetail:
+      "تطبيق المصادقة ومفاتيح المرور والأجهزة التي سجّلت الدخول منها",
+    yourData: "بياناتك",
+    yourDataText:
+      "يمكنك تنزيل سجلات تدريبك أو طلب حذف حسابك. تُحفظ سجلات الدفع للمدة التي يفرضها القانون.",
+    downloadData: "تنزيل بياناتي",
+    askDelete: "طلب حذف بياناتي",
+    deletionReceived: "وصلنا طلب الحذف، وسنؤكده عبر البريد الإلكتروني.",
+    digitalText:
+      "يمكنك إيقاف استخدام إجابات ملف التدريب في التدريب الرقمي، وسيظل بإمكان مدربك مراسلتك.",
+    stopDigital: "إيقاف استخدام إجاباتي في التدريب الرقمي",
+    digitalStopped: "لم تعد إجاباتك تُستخدم في التدريب الرقمي.",
+    inStepAbout: "عنك",
+    inStepGoal: "هدفك",
+    inStepWeek: "أسبوع تدريبك",
+    inStepLimits: "ما يجب أن يعرفه مدربك",
+    inBeginnerDetail: "جديد على التدريب، أو عائد بعد انقطاع طويل",
+    inIntermediateDetail: "تدريب منتظم منذ 6 أشهر أو أكثر",
+    inAdvancedDetail: "سنوات عدة من التدريب المنظّم",
+    inErrReview: "يراجع مدربك تدريبك الآن. يُرجى المحاولة مرة أخرى بعد قليل.",
+    inErrSave:
+      "لم تُحفظ إجاباتك. يُرجى التحقق من الاتصال ثم المحاولة مرة أخرى.",
+    inThanks: "شكرًا لك",
+    inThanksText:
+      "وصلت إجاباتك إلى مدربك. تظهر خطتك في صفحة «اليوم» فور جاهزيتها، ويمكنك تغيير هذه الإجابات في أي وقت.",
+    inBackToday: "العودة إلى «اليوم»",
+    inStepOf: "الخطوة {step} من {total}",
+    inTitle: "ملف التدريب",
+    inProgress: "التقدّم في ملف التدريب",
+    inCheckAnswers: "يُرجى مراجعة إجاباتك وتغيير ما تغيّر منها.",
+    inIntro:
+      "بضعة أسئلة ليتمكن مدربك من تخطيط تدريب يناسبك، وتستغرق نحو دقيقتين.",
+    inAge: "عمرك",
+    inAgeNote: "يجب أن يكون عمرك 18 عامًا أو أكثر للتدريب هنا.",
+    inGoal: "ما الذي تودّ تحقيقه؟",
+    inGoalPlaceholder: "مثال: زيادة القوة والحركة دون ألم في الظهر",
+    inExperience: "خبرتك في التدريب",
+    inDays: "أيام التدريب المتاحة أسبوعيًا",
+    inEquipment: "المعدات المتاحة لك",
+    inEquipmentPlaceholder: "مثال: نادٍ رياضي، أو دمبلز ومقعد في المنزل",
+    inLimits: "الإصابات أو الألم أو القيود الصحية (اختياري)",
+    inLimitsPlaceholder: "يمكن تركه فارغًا إن لم يكن هناك ما يُضاف",
+    inConsent:
+      "أوافق على أن يستخدم مدربي هذه الإجابات في تدريبي، وأفهم أن التدريب الرقمي لا يغني عن الرعاية الطبية.",
+    inSteps: "خطوات ملف التدريب",
+    inNext: "التالي: {step}",
+    inSaveAnswers: "حفظ إجاباتك",
+    inBack: "رجوع",
+    inNextButton: "التالي",
+    inSaving: "جارٍ الحفظ…",
   },
 );

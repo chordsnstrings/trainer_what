@@ -340,7 +340,19 @@ test("Display preferences: a labelled group of three choices, the device's first
 
 test("the profile page offers Display preferences to members only", async () => {
   const workspace = await source("apps/web/components/workspace.tsx");
-  assert.match(workspace, /\{sub && <DisplayPreferences \/>\}/);
+  // Members' Profile and settings (MemberSettings) has it; the coach's
+  // settings (TrainerSettingsView) does not.
+  const member = workspace.slice(
+    workspace.indexOf("function MemberSettings("),
+    workspace.indexOf("function TrainerSettingsView("),
+  );
+  assert.match(member, /<DisplayPreferences \/>/);
+  const trainer = workspace.slice(
+    workspace.indexOf("function TrainerSettingsView("),
+    workspace.indexOf("function Analytics("),
+  );
+  assert.ok(trainer.length > 0);
+  assert.doesNotMatch(trainer, /DisplayPreferences/);
   // The member app's browser colour follows the choice; trainers keep theirs.
   const install = await source("apps/web/components/member-app-install.tsx");
   assert.match(

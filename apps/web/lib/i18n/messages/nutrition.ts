@@ -11,9 +11,9 @@ export default defineMessages(
     loading: "Loading your nutrition…",
     eyebrow: "EAT WELL, WITH YOUR COACH",
     title: "Nutrition",
-    intro: "Your meals, preparation and shopping, connected.",
+    intro: "Your meals, cooking and shopping for the week.",
     badgeEntitled: "Workout + nutrition",
-    badgeRequired: "Nutrition membership required",
+    badgeRequired: "Needs a nutrition membership",
     tabsLabel: "Your nutrition",
     tab_today: "Meal plan",
     tab_groceries: "Weekly groceries",
@@ -59,9 +59,9 @@ export default defineMessages(
     membershipOptions: "Membership options",
     // Meal plan
     mealWeek: "Meal week",
-    planStatus_delivered: "Delivered",
-    planStatus_needs_recheck: "Being rechecked",
-    planStatus_superseded: "Replaced",
+    planStatus_delivered: "current",
+    planStatus_needs_recheck: "being rechecked",
+    planStatus_superseded: "replaced",
     planNext: "Plan your next week",
     firstWeek: "Your first week",
     startWith: "Start with <link>your food preferences and permissions</link>.",
@@ -69,18 +69,18 @@ export default defineMessages(
     weekStarts: "Week starts",
     prepareWeek: "Prepare my week",
     notReady:
-      "Your coach’s nutrition setup is not ready for new automatic plans yet.",
+      "Your coach is still setting up meal plans, so new weeks are not available yet. Your current plan stays here.",
     enableAi:
-      "Enable AI nutrition permission in Food preferences to request an automatic plan.",
+      "Turn on meal planning help in Food preferences to prepare a week.",
     keepCopy:
-      "Keep a private copy of the latest plan on this device for up to 12 hours.",
+      "Keep a copy of this week on this phone for 12 hours, to use without a connection.",
     synthetic:
-      "Demonstration plan with synthetic food and coach data. It has not been qualified for personal use.",
+      "This is a sample week that shows how meal plans work. Ask your coach before following it.",
     qualified: "This plan follows your coach’s qualified nutrition rules.",
     recheck:
-      "Being rechecked — your coach withdrew a food or recipe in this week. Do not follow it or shop from it until a new week is prepared.",
+      "Your coach removed a food or recipe from this week. Do not follow it or shop from it until a new week is ready.",
     historical:
-      "Historical plan — your preferences, permission or coach context may have changed. Prepare a new week before following it.",
+      "This is an earlier week. Your preferences or your coach's approach may have changed since, so prepare a new week before following it.",
     mealsAppear: "Your meals will appear here",
     mealsAppearText:
       "Complete your profile and prepare a week. You will receive recipes, portions, cooking instructions and a grocery list together.",
@@ -95,18 +95,18 @@ export default defineMessages(
     cancel: "Cancel",
     // Week view
     weekTitle: "Your week of meals",
-    approxDay: "Approx. {kcal} kcal / day",
+    approxDay: "About {kcal} kcal a day",
     daysLabel: "Meal plan days",
     dayTotals:
-      "Approx. {kcal} kcal · protein {protein} g · carbohydrate {carbohydrate} g · fat {fat} g",
-    unknownValue: "unknown",
+      "About {kcal} kcal · protein {protein} g · carbohydrate {carbohydrate} g · fat {fat} g",
+    unknownValue: "not known",
     slot_breakfast: "Breakfast",
     slot_lunch: "Lunch",
     slot_dinner: "Dinner",
     slot_snack: "Snack",
     servingsLine: {
-      one: "# serving · approx. {kcal} kcal",
-      other: "# servings · approx. {kcal} kcal",
+      one: "# serving · about {kcal} kcal",
+      other: "# servings · about {kcal} kcal",
     },
     noEquipment: "No cooking equipment",
     ingredientsTitle: "Ingredients & cooking instructions",
@@ -115,7 +115,7 @@ export default defineMessages(
     prep_cooked: "cooked",
     prep_ready_to_eat: "ready to eat",
     batch:
-      "Shared preparation batch: {batch}. The grocery list includes each allocated portion once.",
+      "Cooked in one batch with other meals this week. The grocery list counts it once.",
     recipeSource:
       "Recipe source: {source}. Ingredient estimates are saved with this plan.",
     logMeal: "Log this meal",
@@ -129,7 +129,7 @@ export default defineMessages(
     listOld:
       "This list belongs to a week that is no longer current. Prepare a new week before shopping.",
     listIntro:
-      "{range}. Quantities are the ingredients used by the planned portions; shop pack sizes separately.",
+      "{range}. Amounts are what the planned portions use; packs in the shop may be larger.",
     pantrySaved: "Pantry checklist saved",
     downloadList: "Download grocery list",
     groceryChanges:
@@ -168,8 +168,8 @@ export default defineMessages(
     noProfile: "No profile supplied.",
     prefsSaved:
       "Preferences saved. Prepare a new week using the updated information.",
-    aiRevoked: "AI nutrition permission revoked",
-    revokeAi: "Revoke AI nutrition permission",
+    aiRevoked: "Meal planning help is off",
+    revokeAi: "Turn off meal planning help",
     processingRevoked: "Nutrition processing permission revoked",
     revokeProcessing: "Revoke nutrition processing",
     age: "Age",
@@ -194,12 +194,12 @@ export default defineMessages(
     scope_unknown: "Needs clarification",
     scope_general: "General wellness coaching",
     scope_specialist: "I need specialist dietary guidance",
-    timezone: "Timezone",
+    timezone: "Time zone for your meal days",
     notes: "Practical preferences or questions",
     processingConsent:
       "Allow this coach and platform to process this nutrition profile for my coaching.",
     aiConsent:
-      "Allow my nutrition information to be sent to the configured AI service for nutrition coaching. I can revoke this separately.",
+      "Let the meal-planning assistant use my food preferences to suggest meal weeks. I can turn this off at any time.",
     prepareSample: "Prepare sample week",
     saveHeldOut: "Save this held-out case",
     saveProfile: "Save nutrition profile",
@@ -290,16 +290,34 @@ export default defineMessages(
     weightOptional: "Weight in kg (optional)",
     helped: "What helped or got in the way?",
     saveCheckin: "Save check-in",
-    checkinLine: "{date} · hunger {hunger} · difficulty {difficulty}",
+    checkinLine: "{date} · hunger {hunger} of 5 · how hard {difficulty} of 5",
+    noCooking: "No cooking needed",
+    recipeFrom: "Recipe from {source}.",
+    src_coach: "your coach",
+    src_trainer: "your coach",
+    src_platform: "the recipe library",
+    src_library: "the recipe library",
+    src_platform_library: "the recipe library",
+    src_default: "your coach's recipes",
+    testData:
+      "Test data (development only): made-up foods and coach rules for trying the app.",
+    kcalUnknown: "calories not known",
+    reasonMembership: "New meal weeks come with a nutrition membership.",
+    reasonOffline: "You are offline. Prepare a week when you are back online.",
+    reasonPaused:
+      "Meal planning is paused for your account. Message your coach.",
+    planStatus_archived: "earlier week",
+    ringEaten: "{kcal} kcal recorded",
+    ringOf: "of {kcal} kcal planned · {date}",
   },
   {
     saved: "تم الحفظ",
     loading: "جارٍ تحميل التغذية…",
     eyebrow: "تغذية جيدة، مع مدربك",
     title: "التغذية",
-    intro: "وجباتك وتحضيرها وتسوّقها في مكان واحد.",
+    intro: "وجباتك وطهيك وتسوّقك لهذا الأسبوع.",
     badgeEntitled: "التمارين + التغذية",
-    badgeRequired: "يلزم اشتراك التغذية",
+    badgeRequired: "يتطلب اشتراكًا في التغذية",
     tabsLabel: "تغذيتك",
     tab_today: "خطة الوجبات",
     tab_groceries: "مشتريات الأسبوع",
@@ -354,7 +372,7 @@ export default defineMessages(
       "لخطط التغذية الجديدة، يمكنك اختيار اشتراك التمارين + التغذية لدى مدربك. تبقى سجلاتك السابقة متاحة.",
     membershipOptions: "خيارات الاشتراك",
     mealWeek: "أسبوع الوجبات",
-    planStatus_delivered: "مُسلَّمة",
+    planStatus_delivered: "الحالية",
     planStatus_needs_recheck: "قيد إعادة التحقق",
     planStatus_superseded: "مُستبدَلة",
     planNext: "تخطيط أسبوعك القادم",
@@ -363,17 +381,19 @@ export default defineMessages(
     weekReady: "أسبوع وجباتك جاهز",
     weekStarts: "بداية الأسبوع",
     prepareWeek: "تجهيز أسبوعي",
-    notReady: "إعداد التغذية لدى مدربك غير جاهز بعد للخطط التلقائية الجديدة.",
+    notReady:
+      "ما زال مدربك يُعدّ خطط الوجبات، لذا لا تتوفر أسابيع جديدة بعد. تبقى خطتك الحالية هنا.",
     enableAi:
-      "لطلب خطة تلقائية، يُرجى تفعيل إذن التغذية بالذكاء الاصطناعي في «تفضيلات الطعام».",
-    keepCopy: "الاحتفاظ بنسخة خاصة من أحدث خطة على هذا الجهاز لمدة تصل إلى 12 ساعة.",
+      "يُرجى تفعيل المساعدة في تخطيط الوجبات من «تفضيلات الطعام» لتجهيز أسبوع.",
+    keepCopy:
+      "الاحتفاظ بنسخة من هذا الأسبوع على هذا الهاتف لمدة 12 ساعة، لاستخدامها دون اتصال.",
     synthetic:
-      "خطة تجريبية ببيانات طعام ومدرب اصطناعية. لم تُعتمد للاستخدام الشخصي.",
+      "هذا أسبوع نموذجي يوضح طريقة عمل خطط الوجبات. يُرجى سؤال مدربك قبل اتباعه.",
     qualified: "تتبع هذه الخطة قواعد التغذية المعتمدة لدى مدربك.",
     recheck:
-      "قيد إعادة التحقق — سحب مدربك طعامًا أو وصفة في هذا الأسبوع. يُرجى عدم اتباعها أو التسوّق منها حتى يُجهَّز أسبوع جديد.",
+      "أزال مدربك طعامًا أو وصفة من هذا الأسبوع. يُرجى عدم اتباعه أو التسوّق وفقه حتى يصبح أسبوع جديد جاهزًا.",
     historical:
-      "خطة سابقة — ربما تغيّرت تفضيلاتك أو إذنك أو سياق مدربك. يُرجى تجهيز أسبوع جديد قبل اتباعها.",
+      "هذا أسبوع سابق. ربما تغيّرت تفضيلاتك أو نهج مدربك منذ ذلك الحين، لذا يُرجى تجهيز أسبوع جديد قبل اتباعه.",
     mealsAppear: "ستظهر وجباتك هنا",
     mealsAppearText:
       "بعد إكمال ملفك وتجهيز أسبوع، تصلك الوصفات والحصص وطريقة الطهي وقائمة المشتريات معًا.",
@@ -387,7 +407,7 @@ export default defineMessages(
     applyChange: "تطبيق التغيير",
     cancel: "إلغاء",
     weekTitle: "أسبوع وجباتك",
-    approxDay: "نحو {kcal} سعرة / يوم",
+    approxDay: "نحو {kcal} سعرة يوميًا",
     daysLabel: "أيام خطة الوجبات",
     dayTotals:
       "نحو {kcal} سعرة · بروتين {protein} غ · كربوهيدرات {carbohydrate} غ · دهون {fat} غ",
@@ -411,7 +431,7 @@ export default defineMessages(
     prep_cooked: "مطهو",
     prep_ready_to_eat: "جاهز للأكل",
     batch:
-      "دفعة تحضير مشتركة: {batch}. تتضمن قائمة المشتريات كل حصة مخصصة مرة واحدة.",
+      "تُطهى في دفعة واحدة مع وجبات أخرى هذا الأسبوع، وتُحتسب مرة واحدة في قائمة التسوّق.",
     recipeSource: "مصدر الوصفة: {source}. تُحفظ تقديرات المكونات مع هذه الخطة.",
     logMeal: "تسجيل هذه الوجبة",
     changeMeal: "تغيير الوجبة أو طريقة الطهي",
@@ -423,7 +443,7 @@ export default defineMessages(
     listOld:
       "هذه القائمة تخص أسبوعًا لم يعد حاليًا. يُرجى تجهيز أسبوع جديد قبل التسوّق.",
     listIntro:
-      "{range}. الكميات هي المكونات المستخدمة في الحصص المخطط لها؛ أحجام العبوات تُراعى عند الشراء.",
+      "{range}. الكميات هي ما تستخدمه الحصص المخطط لها، وقد تكون العبوات في المتجر أكبر.",
     pantrySaved: "تم حفظ قائمة المخزن",
     downloadList: "تنزيل قائمة المشتريات",
     groceryChanges:
@@ -466,8 +486,8 @@ export default defineMessages(
     profileSummary: "{goal} · {diet} · {time} لتحضير الوجبة",
     noProfile: "لم يُقدَّم ملف.",
     prefsSaved: "تم حفظ التفضيلات. يُرجى تجهيز أسبوع جديد بالمعلومات المحدّثة.",
-    aiRevoked: "أُلغي إذن التغذية بالذكاء الاصطناعي",
-    revokeAi: "إلغاء إذن التغذية بالذكاء الاصطناعي",
+    aiRevoked: "المساعدة في تخطيط الوجبات متوقفة",
+    revokeAi: "إيقاف المساعدة في تخطيط الوجبات",
     processingRevoked: "أُلغي إذن معالجة بيانات التغذية",
     revokeProcessing: "إلغاء معالجة بيانات التغذية",
     age: "العمر",
@@ -492,12 +512,12 @@ export default defineMessages(
     scope_unknown: "يحتاج إلى توضيح",
     scope_general: "تدريب على العافية العامة",
     scope_specialist: "أحتاج إلى إرشاد غذائي متخصص",
-    timezone: "المنطقة الزمنية",
+    timezone: "المنطقة الزمنية لأيام وجباتك",
     notes: "تفضيلات عملية أو أسئلة",
     processingConsent:
       "أسمح لهذا المدرب وللمنصة بمعالجة ملف التغذية هذا لأغراض تدريبي.",
     aiConsent:
-      "أسمح بإرسال معلومات تغذيتي إلى خدمة الذكاء الاصطناعي المُعدّة لتدريب التغذية، ويمكنني إلغاء ذلك بشكل منفصل.",
+      "السماح لمساعد تخطيط الوجبات باستخدام تفضيلاتي الغذائية لاقتراح أسابيع وجبات. يمكنني إيقاف ذلك في أي وقت.",
     prepareSample: "تجهيز أسبوع تجريبي",
     saveHeldOut: "حفظ هذه الحالة المحجوزة",
     saveProfile: "حفظ ملف التغذية",
@@ -602,6 +622,23 @@ export default defineMessages(
     weightOptional: "الوزن بالكيلوغرام (اختياري)",
     helped: "ما الذي ساعدك أو أعاقك؟",
     saveCheckin: "حفظ المتابعة",
-    checkinLine: "{date} · الجوع {hunger} · الصعوبة {difficulty}",
+    checkinLine: "{date} · الجوع {hunger} من 5 · الصعوبة {difficulty} من 5",
+    noCooking: "لا تحتاج إلى طهي",
+    recipeFrom: "وصفة من {source}.",
+    src_coach: "مدربك",
+    src_trainer: "مدربك",
+    src_platform: "مكتبة الوصفات",
+    src_library: "مكتبة الوصفات",
+    src_platform_library: "مكتبة الوصفات",
+    src_default: "وصفات مدربك",
+    testData:
+      "بيانات اختبار (في بيئة التطوير فقط): أطعمة وقواعد مدرب افتراضية لتجربة التطبيق.",
+    kcalUnknown: "السعرات غير معروفة",
+    reasonMembership: "تأتي أسابيع الوجبات الجديدة مع اشتراك في التغذية.",
+    reasonOffline: "لا يوجد اتصال. يمكنك تجهيز أسبوع عند عودة الاتصال.",
+    reasonPaused: "تخطيط الوجبات متوقف لحسابك. يُرجى مراسلة مدربك.",
+    planStatus_archived: "أسبوع سابق",
+    ringEaten: "سُجّلت {kcal} سعرة",
+    ringOf: "من {kcal} سعرة مخطط لها · {date}",
   },
 );

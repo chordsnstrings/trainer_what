@@ -30,6 +30,8 @@ import membership from "./messages/membership";
 import voice from "./messages/voice";
 import nutrition from "./messages/nutrition";
 import capture from "./messages/capture";
+import chat from "./messages/chat";
+import plan from "./messages/plan";
 export const CATALOG = {
   nav,
   common,
@@ -58,6 +60,8 @@ export const CATALOG = {
   voice,
   nutrition,
   capture,
+  chat,
+  plan,
 } as const;
 
 export type NamespaceName = keyof typeof CATALOG;

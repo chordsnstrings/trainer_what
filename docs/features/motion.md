@@ -174,19 +174,49 @@ Stagger: 30 ms between siblings, at most 6 items (`MOTION.stagger`,
   and a table, and it has no bars or rings; the growing bars and the
   count-up are on Today (programme progress, today's calories, streak) and
   in the completion moment.
-- **A calorie ring.** Nutrition shows the day as a bar on Today; logging a
+- **A calorie ring on Today.** Today shows calories as a bar; logging a
   meal moves that bar from the value it showed last to the new one when the
-  member returns to Today, and new diary entries slide in. No new ring was
-  added.
-- **Join steps.** Joining is one short form (and the intake one form on
-  this branch), so the direction-aware slide is used for the account
-  choice that swaps the fields.
+  member returns to Today. The ring is in the nutrition diary (above).
+- **Join steps.** Joining is one short form, so the direction-aware slide
+  is used for the account choice that swaps the fields. The coaching
+  profile became a step flow with the member screens and now slides its
+  steps (above).
 - **Browser back gestures.** The in-app back button is verified to slide
   back; a system back gesture takes the same path (the direction comes from
   the addresses) but was not exercised by the check.
 - **A View Transition boundary inside the workspace.** Tried first; React
   never saw the page change there in this app (measured in the check), so
   the boundary sits at the page route, as the Next 16 guide recommends.
+
+## Member screens merged (29 September 2026)
+
+The member-screens track (docs/features/member-screens.md) replaced Today,
+the programme tab, chat, the coaching profile, membership, coaching
+context and settings with new components. The catalogue was applied to
+them with the same tokens and reduced-motion rules:
+
+- **d. First view**: a screen wrapper marked `data-stagger` (Today, the
+  programme, membership, coaching context, settings, the timeline) is
+  entered by `arrivalTargets`, so its blocks arrive 30 ms apart instead of
+  the whole screen as one block. Loading states are `Skeleton`s (Today's
+  focus card, the plan, the timeline, chat, coaching context, receipts,
+  galleries).
+- **g. Progress**: Today's programme tile ("Day 3 of 28") and calorie tile
+  carry a `Meter` that grows once and moves from the last value shown
+  (`today:programme`, `today:kcal`); the streak tile counts up once
+  (`today:streak`). The nutrition diary shows the latest day's recorded
+  calories against the plan as a `ProgressRing` that grows once, beside
+  diary entries that slide in (`useArrivals`).
+- **h. Chat**: `MemberChat` has the sending bubble, typing dots, new
+  messages sliding in and the `chat-send` scale on both send buttons.
+- **Intake steps** (new): Next slides the step in by 16 px from the inline
+  end, Back from the inline start (`inlineSign`), the progress segment just
+  reached grows by `scaleX` from its inline start, and saving draws the
+  check (`DrawnCheck`, emphasis). All through `playMotion`, so nothing
+  moves with reduced motion.
+- **e. Sheets**: every new sheet (change a session, stop renewal, book or
+  cancel, leave a coach, attachments) is the shared `BottomSheet`.
+- **f. Workout** is unchanged from this track.
 
 ## Checks run (29 September 2026, Node 24, local Chromium 141)
 

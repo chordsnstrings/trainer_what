@@ -1,8 +1,9 @@
 "use client";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
+import { StickyActionBar } from "./phone-ui";
+import { formatDate, humanize, recentDays } from "../lib/format";
 import { scaleCapturedPortion } from "../../../packages/domain/src/nutrition-completion";
-import { formatDate, zoneName } from "../lib/format";
 import { Rich, useErrorText, useLocale, useT } from "../lib/i18n/react";
 
 type Food = {
@@ -123,7 +124,10 @@ export function MealCapture() {
   const stream = useRef<MediaStream | null>(null),
     video = useRef<HTMLVideoElement>(null),
     timer = useRef<ReturnType<typeof setTimeout> | null>(null),
-    barcodeIntent = useRef<{ code: string; key: string } | null>(null);
+    barcodeIntent = useRef<{ code: string; key: string } | null>(null),
+    // Whether the member picked a method; until then an unavailable photo
+    // estimate opens on "Write it down" instead.
+    chosen = useRef(false);
   const timezone = nutrition?.profile?.data.profile.timezone ?? "Asia/Dubai";
   const t = useT("capture"),
     locale = useLocale(),
@@ -136,6 +140,7 @@ export function MealCapture() {
       api("/nutrition"),
     ]);
     setSettings(s);
+    if (!chosen.current && !s.photosEnabled) setMode("manual");
     setNutrition(n);
     setDate((d) => d || n.today);
   }
@@ -197,6 +202,7 @@ export function MealCapture() {
       return;
     }
     setDraft(d);
+    chosen.current = true;
     setEventKey(crypto.randomUUID());
     if (d.kind === "photo") {
       setItems(d.data.estimate.items);
@@ -410,15 +416,15 @@ export function MealCapture() {
     <div className="meal-capture nutrition">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">{t("eyebrow")}</p>
           <h1>{t("title")}</h1>
-          <p>{t("intro")}</p>
+          <p className="muted">{t("intro")}</p>
         </div>
-        <Link className="button secondary" href="/app/nutrition">
-          {t("back")}
-        </Link>
       </div>
-      <div className="capture-methods" aria-label={t("methods")}>
+      <div
+        className="capture-methods"
+        role="group"
+        aria-label={t("methods")}
+      >
         {(
           [
             ["photo", "01", t("method_photo"), t("method_photo_detail")],
@@ -432,6 +438,7 @@ export function MealCapture() {
             aria-pressed={mode === key}
             className={mode === key ? "selected" : ""}
             onClick={() => {
+              chosen.current = true;
               setMode(key);
               setDraft(null);
               setError("");
@@ -440,7 +447,13 @@ export function MealCapture() {
           >
             <span className="capture-method-number">{number}</span>
             <b>{title}</b>
-            <small>{desc}</small>
+            <small>
+              {settings &&
+              ((key === "photo" && !settings.photosEnabled) ||
+                (key === "barcode" && !settings.barcodeEnabled))
+                ? t("notAvailableYet")
+                : desc}
+            </small>
           </button>
         ))}
       </div>
@@ -496,10 +509,10 @@ export function MealCapture() {
             : t("working")}
         </p>
       )}
-      {settings?.photoConsent && (
+      {settings?.photoConsent && mode === "photo" && !draft && (
         <section className="card">
           <h2>{t("photoPermission")}</h2>
-          <p>{t("photoPermissionText")}</p>
+          <p className="muted">{t("photoPermissionText")}</p>
           <button
             className="button secondary"
             disabled={busy}
@@ -600,37 +613,55 @@ export function MealCapture() {
               <span>{t("photoConsent")}</span>
             </label>
             {!settings?.photosEnabled && settings && (
-              <p className="capture-connection">{t("photoWaiting")}</p>
+              <p className="capture-connection">
+                {t("photoWaiting")}{" "}
+                <button
+                  type="button"
+                  className="nutrition-text-button"
+                  onClick={() => {
+                    setMode("manual");
+                    setEventKey("");
+                  }}
+                >
+                  {t("writeInstead")}
+                </button>
+                .
+              </p>
             )}
             {settings?.photosEnabled && !settings.modelConsent && (
               <p className="capture-connection">{t("photoNeedsAi")}</p>
             )}
-            <button
-              className="button"
-              type="button"
-              disabled={
-                busy ||
-                !photo ||
-                !photoConsent ||
-                !permitted ||
-                !settings?.photosEnabled ||
-                !settings?.modelConsent
+            {/* The step's main action, in thumb reach. */}
+            <StickyActionBar
+              label={t("photoActions")}
+              note={
+                !photo
+                  ? t("addPhotoFirst")
+                  : !photoConsent
+                    ? t("tickToSend")
+                    : undefined
               }
-              onClick={() => void analyse()}
             >
-              {t("estimate")}{" "}
-              <span className="bidi-mirror" aria-hidden="true">
-                ↗
-              </span>
-            </button>
+              <button
+                className="button"
+                type="button"
+                disabled={
+                  busy ||
+                  !photo ||
+                  !photoConsent ||
+                  !permitted ||
+                  !settings?.photosEnabled ||
+                  !settings?.modelConsent
+                }
+                onClick={() => void analyse()}
+              >
+                {t("estimate")}
+              </button>
+            </StickyActionBar>
           </section>
           <aside className="card capture-aside">
             <span className="capture-overline">{t("inControl")}</span>
-            <h2>
-              {t("anEstimate")}
-              <br />
-              {t("thenEdit")}
-            </h2>
+            <h2>{t("estimateThenEdit")}</h2>
             <ol>
               <li>
                 <b>{t("step1")}</b>
@@ -707,29 +738,49 @@ export function MealCapture() {
               />
             </label>
             {settings && !settings.barcodeEnabled && (
-              <p className="capture-connection">{t("lookupWaiting")}</p>
+              <p className="capture-connection">
+                {t("lookupWaiting")}{" "}
+                <button
+                  type="button"
+                  className="nutrition-text-button"
+                  onClick={() => {
+                    setMode("manual");
+                    setEventKey("");
+                  }}
+                >
+                  {t("writeLabelInstead")}
+                </button>
+                .
+              </p>
             )}
-            <button
-              type="button"
-              className="button"
-              disabled={
-                busy || !permitted || !settings?.barcodeEnabled || !code.trim()
+            <StickyActionBar
+              label={t("productActions")}
+              note={
+                settings && !settings.barcodeEnabled
+                  ? t("lookupWaiting")
+                  : !code.trim()
+                    ? t("scanFirst")
+                    : undefined
               }
-              onClick={() => void findProduct()}
             >
-              {t("findProduct")}{" "}
-              <span className="bidi-mirror" aria-hidden="true">
-                ↗
-              </span>
-            </button>
+              <button
+                type="button"
+                className="button"
+                disabled={
+                  busy ||
+                  !permitted ||
+                  !settings?.barcodeEnabled ||
+                  !code.trim()
+                }
+                onClick={() => void findProduct()}
+              >
+                {t("findProduct")}
+              </button>
+            </StickyActionBar>
           </section>
           <aside className="card capture-aside">
             <span className="capture-overline">{t("labelFirst")}</span>
-            <h2>
-              {t("yourPackage")}
-              <br />
-              {t("yourPortion")}
-            </h2>
+            <h2>{t("packagePortion")}</h2>
             <p>{t("recordsVary")}</p>
             <p>
               <Rich
@@ -769,7 +820,7 @@ export function MealCapture() {
           </div>
           <h2>{t("usefulRecord")}</h2>
           <p>{t("approximate")}</p>
-          <form onSubmit={manual}>
+          <form id="manual-meal-form" onSubmit={manual}>
             <fieldset
               disabled={busy || !permitted}
               className="nutrition-fieldset"
@@ -785,15 +836,16 @@ export function MealCapture() {
                   />
                 </label>
                 <label className="field">
-                  <span>{t("dateIn", { zone: zoneName(timezone, locale) })}</span>
-                  <input
-                    name="date"
-                    type="date"
-                    defaultValue={date}
-                    key={date}
-                    max={nutrition?.today}
-                    required
-                  />
+                  <span>{t("whenAte")}</span>
+                  <select name="date" defaultValue={date} key={date} required>
+                    {recentDays(nutrition?.today ?? date, date, 7, locale).map(
+                      (d) => (
+                        <option key={d.value} value={d.value}>
+                          {d.label}
+                        </option>
+                      ),
+                    )}
+                  </select>
                 </label>
                 <label className="field">
                   <span>{t("portion")}</span>
@@ -824,15 +876,22 @@ export function MealCapture() {
                   placeholder={t("notesHint")}
                 />
               </label>
-              <button className="button" type="submit">
+            </fieldset>
+            <StickyActionBar label={t("mealActions")}>
+              <button
+                className="button"
+                type="submit"
+                form="manual-meal-form"
+                disabled={busy || !permitted}
+              >
                 {t("saveMeal")}
               </button>
-            </fieldset>
+            </StickyActionBar>
           </form>
         </section>
       )}
       {draft && (
-        <form onSubmit={confirm}>
+        <form id="meal-review-form" onSubmit={confirm}>
           <section className="card capture-main">
             <div className="capture-section-label">
               <span>
@@ -899,14 +958,12 @@ export function MealCapture() {
                   })}
                 </p>
                 <p>
-                  {t("per100", {
-                    kcal:
-                      draft.data.product.nutrientsPer100.kcal === null
-                        ? t("caloriesUnavailable")
-                        : t("kcal", {
-                            kcal: draft.data.product.nutrientsPer100.kcal,
-                          }),
-                  })}
+                  {draft.data.product.nutrientsPer100.kcal === null
+                    ? t("per100Missing")
+                    : t("per100Kcal", {
+                        kcal: draft.data.product.nutrientsPer100.kcal,
+                      })}{" "}
+                  {t("checkUnit")}
                 </p>
                 <details>
                   <summary>{t("sourceDetails")}</summary>
@@ -935,20 +992,32 @@ export function MealCapture() {
                   />
                 </label>
                 <label className="field">
-                  <span>{t("dateIn", { zone: zoneName(timezone, locale) })}</span>
-                  <input
-                    type="date"
+                  <span>{t("whenAte")}</span>
+                  <select
                     value={date}
                     onChange={(e) => setDate(e.target.value)}
-                    max={nutrition?.today}
                     required
-                  />
+                  >
+                    {recentDays(nutrition?.today ?? date, date, 7, locale).map((d) => (
+                      <option key={d.value} value={d.value}>
+                        {d.label}
+                      </option>
+                    ))}
+                  </select>
                 </label>
               </div>
               {items.map((item, i) => (
                 <div className="capture-food" key={i}>
                   <div className="capture-food-heading">
-                    <h3>{t("food", { number: i + 1 })}</h3>
+                    <h3>
+                      {draft.kind === "barcode" ? (
+                        t("howMuch")
+                      ) : item.name ? (
+                        <bdi>{item.name}</bdi>
+                      ) : (
+                        t("food", { number: i + 1 })
+                      )}
+                    </h3>
                     {draft.kind === "photo" && items.length > 1 && (
                       <button
                         type="button"
@@ -1076,7 +1145,7 @@ export function MealCapture() {
                               {f.name} ·{" "}
                               {t.dynamic(
                                 `prep_${f.preparation}`,
-                                f.preparation.replaceAll("_", " "),
+                                humanize(f.preparation),
                               )}
                             </option>
                           ))}
@@ -1161,14 +1230,20 @@ export function MealCapture() {
                 />
                 <span>{t("checked")}</span>
               </label>
-              <div className="capture-photo-actions">
+              <StickyActionBar
+                label={t("reviewActions")}
+                note={confirmation ? undefined : t("tickChecked")}
+              >
                 <button
                   className="button"
                   type="submit"
+                  form="meal-review-form"
                   disabled={!confirmation}
                 >
                   {t("confirmLog")}
                 </button>
+              </StickyActionBar>
+              <div className="capture-photo-actions">
                 <button
                   className="button secondary"
                   type="button"

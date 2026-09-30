@@ -4,29 +4,35 @@ import { useErrorText, useLocale, useT } from "../lib/i18n/react";
 import { translator, type Locale } from "../lib/i18n/core";
 import healthMessages from "../lib/i18n/messages/health";
 import { Skeleton } from "./phone-ui";
-import { formatDate, formatDateTime, formatNumber, formatTime } from "../lib/format";
+import { ACCOUNT_READ_TIMEOUT_MS, fetchWithin } from "./account-request";
+import { formatDate, formatTime, formatWhen, humanize } from "../lib/format";
 
 // Automatic Apple Health sync through the HealthKit companion app. The
 // companion app itself is separate native work; these screens let a member
 // pair it, see its status, disconnect it and delete what it synchronized.
 async function api(path: string, method = "GET", body?: unknown) {
-  const response = await fetch("/api/v1" + path, {
+  const init: RequestInit = {
     method,
     credentials: "same-origin",
     headers:
       body === undefined ? undefined : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
-  });
+  };
+  // A status read that does not answer ends in "Check again", never an
+  // endless "Loading sync status…" (account-request.ts fetchWithin).
+  const response =
+    method === "GET"
+      ? await fetchWithin("/api/v1" + path, init, ACCOUNT_READ_TIMEOUT_MS)
+      : await fetch("/api/v1" + path, init);
   const data = await response.json().catch(() => ({}));
   if (!response.ok)
     throw new Error(data.message ?? "The request could not be completed.");
   return data;
 }
+/** "Today, 14:05" or "29 Sep, 14:05" (lib/format.ts), never seconds. */
 const when = (value?: string | null, locale: Locale = "en") =>
   value
-    ? locale === "en"
-      ? new Date(value).toLocaleString()
-      : formatDateTime(value, { locale })
+    ? formatWhen(value, { locale })
     : translator(healthMessages, locale)("never");
 const rowStyle = { flexWrap: "wrap" as const, rowGap: 10 };
 const codeStyle = {
@@ -85,15 +91,25 @@ export function HealthKitSyncPanel({ role = "subscriber" }: { role?: string }) {
     [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false),
     [consent, setConsent] = useState(false),
-    [pairing, setPairing] = useState<Pairing | null>(null);
+    [pairing, setPairing] = useState<Pairing | null>(null),
+    [failed, setFailed] = useState(false);
   const t = useT("health"),
     toError = useErrorText();
   const refresh = useCallback(async () => {
     setStatus(await api("/healthkit/status"));
+    setFailed(false);
   }, []);
+  // A failed first read says so with a retry, never an endless "Loading".
+  const load = useCallback(
+    () =>
+      refresh().catch(() => {
+        setFailed(true);
+      }),
+    [refresh],
+  );
   useEffect(() => {
-    void refresh().catch((e) => setMessage(toError(e)));
-  }, [refresh, toError]);
+    void load();
+  }, [load]);
   const run = async (fn: () => Promise<unknown>, success: string) => {
     setBusy(true);
     setMessage("");
@@ -110,6 +126,8 @@ export function HealthKitSyncPanel({ role = "subscriber" }: { role?: string }) {
   return (
     <HealthKitSyncView
       status={status}
+      failed={failed}
+      onRetry={() => void load()}
       role={role}
       message={message}
       busy={busy}
@@ -155,6 +173,8 @@ export function HealthKitSyncPanel({ role = "subscriber" }: { role?: string }) {
 /** Presentational states of the sync panel; the panel above supplies data. */
 export function HealthKitSyncView({
   status,
+  failed = false,
+  onRetry,
   role,
   message,
   busy,
@@ -167,6 +187,9 @@ export function HealthKitSyncView({
   onDelete,
 }: {
   status: Status | null;
+  /** The status could not be read: show a retry, not "Loading". */
+  failed?: boolean;
+  onRetry?: () => void;
   role: string;
   message: string;
   busy: boolean;
@@ -192,7 +215,20 @@ export function HealthKitSyncView({
           {message}
         </p>
       )}
-      {!status ? (
+      {!status && failed ? (
+        <div role="alert">
+          <p>{t("statusFailed")}</p>
+          {onRetry && (
+            <button
+              type="button"
+              className="button secondary"
+              onClick={onRetry}
+            >
+              {t("checkAgain")}
+            </button>
+          )}
+        </div>
+      ) : !status ? (
         <Skeleton label={t("loading")} lines={2} />
       ) : !status.available ? (
         <p>
@@ -389,14 +425,13 @@ export type Day = {
 };
 const hours = (minutes: number) =>
   `${Math.floor(minutes / 60)} h ${Math.round(minutes % 60)} min`;
-const activityName = (value: string) =>
-  value.replaceAll("_", " ").replace(/^./, (c) => c.toUpperCase());
+const activityName = (value: string) => humanize(value);
 export function dayLine(d: Day, locale: Locale = "en") {
   if (locale === "en")
     return [
-      d.steps !== null && `${Math.round(d.steps).toLocaleString()} steps`,
+      d.steps !== null && `${Math.round(d.steps).toLocaleString("en")} steps`,
       d.activeEnergyKcal !== null &&
-        `${Math.round(d.activeEnergyKcal).toLocaleString()} kcal active`,
+        `${Math.round(d.activeEnergyKcal).toLocaleString("en")} kcal active`,
       d.sleepMinutes !== null && `${hours(d.sleepMinutes)} asleep`,
       ...d.workouts.map(
         (w) => `${activityName(w.activity)} ${Math.round(w.minutes)} min`,
@@ -474,13 +509,7 @@ export function HealthKitActivityList({
         <div className="list-row" key={d.day} style={rowStyle}>
           <div>
             <strong>
-              {locale === "en"
-                ? new Date(d.day + "T12:00:00").toLocaleDateString(undefined, {
-                    weekday: "short",
-                    day: "numeric",
-                    month: "short",
-                  })
-                : formatDate(d.day, { weekday: true, year: false, locale })}
+              {formatDate(d.day, { weekday: true, year: false, locale })}
             </strong>
             <p>{dayLine(d, locale) || t("pending")}</p>
           </div>

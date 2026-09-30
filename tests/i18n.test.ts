@@ -427,6 +427,6 @@ test("the same screens stay English for English members", () => {
   const html = renderToStaticMarkup(createElement(WeekView, { plan }));
   assert.match(html, /Your week of meals/);
   assert.match(html, /5 – 11 Oct 2026|5–11 Oct 2026/);
-  assert.match(html, /1 serving · approx\. 640 kcal/);
+  assert.match(html, /1 serving · about 640 kcal/);
   assert.doesNotMatch(html, /[⁦-⁩]/, "no isolates in English");
 });

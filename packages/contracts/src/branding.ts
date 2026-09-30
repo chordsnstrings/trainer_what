@@ -66,7 +66,7 @@ export const brandDesignSchema = z
     coverUrl: brandImageSchema.default(""),
     tagline: z.string().trim().max(100).default(""),
     welcome: z.string().trim().max(320).default(""),
-    programLabel: z.string().trim().min(2).max(40).default("My program"),
+    programLabel: z.string().trim().min(2).max(40).default("Programme"),
     coachBio: z.string().trim().max(1000).default(""),
     dashboardFocus: brandSectionSchema.default("program"),
     sectionOrder: z

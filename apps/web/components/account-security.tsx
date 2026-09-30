@@ -2,27 +2,38 @@
 import { useErrorText, useT } from "../lib/i18n/react";
 import { useEffect, useState } from "react";
 import { AuthPage, ReturnToSignIn } from "./auth-page";
-async function request(path: string, body?: unknown) {
-  const r = await fetch("/api/v1/auth/" + path, {
-    method: body ? "POST" : "GET",
-    headers: body ? { "Content-Type": "application/json" } : {},
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const data = await r.json();
-  if (!r.ok) throw new Error(data.message);
-  return data;
+import { accountRequest } from "./account-request";
+/**
+ * Reads have a time limit and a readable error (account-request.ts), so a
+ * failed read never shows made-up defaults or an endless "Checking…".
+ */
+function request(path: string, body?: unknown) {
+  return accountRequest(
+    "/auth/" + path,
+    body === undefined ? "GET" : "POST",
+    body,
+  );
 }
 export function AccountSecurity() {
   const [status, setStatus] = useState<any>(null),
     [secret, setSecret] = useState(""),
     [codes, setCodes] = useState<string[]>([]),
     [notice, setNotice] = useState(""),
+    [failed, setFailed] = useState(false),
     [busy, setBusy] = useState(false);
   const t = useT("account"),
     toError = useErrorText();
-  const load = () => request("security").then(setStatus);
+  const load = () =>
+    request("security").then((value) => {
+      setStatus(value);
+      setFailed(false);
+    });
+  const firstLoad = () =>
+    void load().catch(() => {
+      setFailed(true);
+    });
   useEffect(() => {
-    void load().catch((e) => setNotice(toError(e)));
+    firstLoad();
   }, []);
   async function submit(path: string, body: unknown) {
     setBusy(true);
@@ -68,7 +79,29 @@ export function AccountSecurity() {
           />
         </div>
       )}
-      <p>{status?.emailVerified ? t("emailVerified") : t("emailNeeded")}</p>
+      {!status && failed ? (
+        <div role="alert">
+          <p>{t("securityFailed")}</p>
+          <button
+            type="button"
+            className="button secondary"
+            onClick={() => {
+              setFailed(false);
+              firstLoad();
+            }}
+          >
+            {t("tryAgain")}
+          </button>
+        </div>
+      ) : (
+        <p>
+          {status
+            ? status.emailVerified
+              ? t("emailVerified")
+              : t("emailNeeded")
+            : t("emailChecking")}
+        </p>
+      )}
       {status && !status.emailVerified && (
         <button
           className="button secondary"
@@ -80,11 +113,15 @@ export function AccountSecurity() {
       )}
       <h3>{t("authenticator")}</h3>
       <p>
-        {status?.mfaEnabled
-          ? t("mfaEnabled")
-          : status?.mfaConfigured
-            ? t("mfaAdd")
-            : t("mfaWaiting")}
+        {!status
+          ? failed
+            ? t("mfaAfterCheck")
+            : t("checking")
+          : status.mfaEnabled
+            ? t("mfaEnabled")
+            : status?.mfaConfigured
+              ? t("mfaAdd")
+              : t("mfaWaiting")}
       </p>
       {status?.mfaConfigured &&
         status.hasPassword === false &&

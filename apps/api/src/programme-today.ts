@@ -141,7 +141,7 @@ async function plannedDays(
   to: string,
 ): Promise<PlannedDay[]> {
   const rows = await tx.query(
-    "SELECT id,status,data->>'date' AS date,left(data->>'label',160) AS label,(data->>'week')::int AS week,jsonb_array_length(coalesce(data->'program'->'exercises','[]'::jsonb)) AS exercises FROM records WHERE kind='planned_session' AND owner_user_id=$1 AND data->>'date' BETWEEN $2 AND $3 ORDER BY data->>'date',created_at LIMIT 800",
+    "SELECT id,status,data->>'date' AS date,left(data->>'label',160) AS label,(data->>'week')::int AS week,jsonb_array_length(coalesce(data->'program'->'exercises','[]'::jsonb)) AS exercises,data->>'programId' AS program_id,data->>'workoutId' AS workout_id FROM records WHERE kind='planned_session' AND owner_user_id=$1 AND data->>'date' BETWEEN $2 AND $3 ORDER BY data->>'date',created_at LIMIT 800",
     [userId, from, to],
   );
   return rows.map((r) => ({
@@ -151,7 +151,46 @@ async function plannedDays(
     status: r.status,
     week: r.week ?? undefined,
     exercises: Number(r.exercises ?? 0),
+    programId: r.program_id ?? null,
+    workoutId: r.workout_id ?? null,
   }));
+}
+
+/**
+ * The member's assigned programme when it has no training calendar at all
+ * (assigned before calendars existed): it is followed at the member's own
+ * pace, so the member app shows its sessions and a "Start workout" instead
+ * of "your coach is preparing your plan". A programme with a calendar is
+ * read from its planned sessions (`plannedDays`), never from here.
+ */
+async function selfPacedPlan(tx: Tx, userId: string) {
+  const [program] = await tx.query(
+    "SELECT p.id,p.created_at,left(p.data->>'title',160) AS title,p.data->'daysPerWeek' AS days_per_week,p.data->'weeks' AS weeks,p.data->'exercises' AS exercises,p.data->'sessions' AS sessions FROM records p WHERE p.kind='program' AND p.status='assigned' AND p.owner_user_id=$1 AND NOT EXISTS(SELECT 1 FROM records s WHERE s.kind='planned_session' AND s.owner_user_id=$1 AND s.data->>'programId'=p.id::text) ORDER BY p.created_at DESC,p.id DESC LIMIT 1",
+    [userId],
+  );
+  if (!program) return null;
+  const [done] = await tx.query(
+    "SELECT count(*)::int AS n FROM records WHERE kind='workout' AND status='completed' AND owner_user_id=$1 AND data->>'programId'=$2 AND updated_at>=now()-interval '7 days'",
+    [userId, program.id],
+  );
+  const count = (value: unknown) =>
+    Array.isArray(value) ? value.length : 0;
+  const sessions = Array.isArray(program.sessions)
+    ? program.sessions.slice(0, 7).map((s: any) => ({
+        label: typeof s?.label === "string" ? s.label.slice(0, 160) : null,
+        exercises: count(s?.exercises),
+      }))
+    : [{ label: program.title ?? null, exercises: count(program.exercises) }];
+  const perWeek = Number(program.days_per_week);
+  return {
+    programId: program.id as string,
+    title: (program.title as string | null) ?? null,
+    daysPerWeek: Number.isInteger(perWeek) && perWeek > 0 ? perWeek : null,
+    weeks: Number.isInteger(Number(program.weeks)) ? Number(program.weeks) : null,
+    sessions,
+    /** Completed workouts of this programme in the last seven days. */
+    completedThisWeek: Number(done?.n ?? 0),
+  };
 }
 
 async function todayNutrition(tx: Tx, userId: string) {
@@ -208,7 +247,20 @@ async function todayNutrition(tx: Tx, userId: string) {
   };
 }
 
-export type PlanState = "none" | "awaiting_coach" | "ready" | "ended";
+/**
+ * - `none`: no membership or complimentary access yet;
+ * - `awaiting_coach`: access, but no plan for this block yet;
+ * - `ready`: the block has planned sessions (a day without one is rest);
+ * - `self_paced`: an assigned programme with no calendar, followed at the
+ *   member's own pace (`plan` describes it);
+ * - `ended`: access ended or the programme is complete.
+ */
+export type PlanState =
+  | "none"
+  | "awaiting_coach"
+  | "ready"
+  | "self_paced"
+  | "ended";
 async function load(tx: Tx, userId: string, requestedZone?: unknown) {
   const access = await memberAccess(tx, userId);
   const timeZone = await memberTimeZone(tx, userId, requestedZone);
@@ -227,18 +279,34 @@ async function load(tx: Tx, userId: string, requestedZone?: unknown) {
   // waits for the coach's review) nothing is scheduled yet, and once access
   // has ended there is nothing to follow.
   let planState: PlanState = "none";
+  let plan: Awaited<ReturnType<typeof selfPacedPlan>> = null;
   if (source && position) {
     if (!source.accessActive || position.state === "complete")
       planState = "ended";
     else {
+      // A plan whose calendar starts after this block still counts: the
+      // days before it are not "waiting for your coach".
       const [planned] = await tx.query(
-        "SELECT 1 FROM records WHERE kind='planned_session' AND owner_user_id=$1 AND data->>'date' BETWEEN $2 AND $3 LIMIT 1",
+        "SELECT 1 FROM records WHERE kind='planned_session' AND owner_user_id=$1 AND ((data->>'date' BETWEEN $2 AND $3) OR (data->>'date'>$3 AND status='planned')) LIMIT 1",
         [userId, position.blockStartDate, position.blockEndDate],
       );
-      planState = planned ? "ready" : "awaiting_coach";
+      if (planned) planState = "ready";
+      else {
+        plan = await selfPacedPlan(tx, userId);
+        planState = plan ? "self_paced" : "awaiting_coach";
+      }
     }
   }
-  return { access, timeZone, source, position, planState };
+  return { access, timeZone, source, position, planState, plan };
+}
+
+/** Whether the member has answered the coaching profile questions. */
+async function intakeDone(tx: Tx, userId: string) {
+  const [row] = await tx.query(
+    "SELECT 1 FROM records WHERE kind='intake' AND owner_user_id=$1 LIMIT 1",
+    [userId],
+  );
+  return !!row;
 }
 
 export async function programmeToday(
@@ -249,11 +317,8 @@ export async function programmeToday(
   if (a.role !== "subscriber")
     throw fail(403, "SUBSCRIBER_REQUIRED", "Subscriber access required");
   return db.tenant(a, async (tx) => {
-    const { access, timeZone, source, position, planState } = await load(
-      tx,
-      a.userId,
-      requestedZone,
-    );
+    const { access, timeZone, source, position, planState, plan } =
+      await load(tx, a.userId, requestedZone);
     const today = dateIn(timeZone, new Date());
     const sessions = await plannedDays(
       tx,
@@ -311,9 +376,13 @@ export async function programmeToday(
             status: session.status,
             week: session.week ?? null,
             exercises: session.exercises ?? 0,
+            programId: session.programId ?? null,
+            workoutId: session.workoutId ?? null,
           }
         : null,
       planState,
+      plan,
+      intakeDone: await intakeDone(tx, a.userId),
       restDay: planState === "ready" && !session,
       nextProgramme: source?.queued ?? null,
       next: next
@@ -321,6 +390,7 @@ export async function programmeToday(
             id: next.id,
             date: next.date,
             label: next.label ?? null,
+            exercises: next.exercises ?? 0,
             inDays: Math.round(
               (Date.parse(next.date + "T12:00:00Z") -
                 Date.parse(today + "T12:00:00Z")) /
@@ -351,13 +421,13 @@ export async function programmeTimelineView(
   if (a.role !== "subscriber")
     throw fail(403, "SUBSCRIBER_REQUIRED", "Subscriber access required");
   return db.tenant(a, async (tx) => {
-    const { timeZone, source, position, planState } = await load(
+    const { timeZone, source, position, planState, plan } = await load(
       tx,
       a.userId,
       requestedZone,
     );
     if (!source || !position)
-      return { timeZone, programme: null, planState, days: [] };
+      return { timeZone, programme: null, planState, plan: null, days: [] };
     const sessions = await plannedDays(
       tx,
       a.userId,
@@ -373,6 +443,7 @@ export async function programmeTimelineView(
         lengthDays: position.of,
       },
       planState,
+      plan,
       // Without a plan for the block, its days are not rest days yet.
       days: programmeTimeline(position, sessions).map((d) =>
         planState !== "ready" && d.kind === "rest"

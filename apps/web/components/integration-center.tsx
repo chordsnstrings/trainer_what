@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { HealthKitSyncPanel } from "./healthkit-sync";
+import { painDescription } from "./pain-report";
 import {
   BottomSheet,
   FileInput,
@@ -21,7 +22,13 @@ import {
   VoiceCloneOperations,
 } from "./trainer-voice-clone";
 import { useErrorText, useLocale, useT } from "../lib/i18n/react";
-import { formatCountdown, formatDate, formatDateTime } from "../lib/format";
+import {
+  formatCountdown,
+  formatDate,
+  formatDateRange,
+  formatDateTime,
+  formatWhen,
+} from "../lib/format";
 
 async function api(path: string, method = "GET", body?: unknown) {
   const response = await fetch("/api/v1" + path, {
@@ -101,15 +108,17 @@ export function IntegrationCenter({
   return (
     <div className="stack">
       <div className="page-heading">
-        <p className="eyebrow">{t("eyebrow")}</p>
+        {trainer && <p className="eyebrow">{t("eyebrow")}</p>}
         <h1>
-          {path.includes("/voice")
-            ? "Your voice, with your permission."
-            : path.includes("/domains")
-              ? "Your coaching address."
-              : t("title")}
+          {!trainer
+            ? t("titleMember")
+            : path.includes("/voice")
+              ? "Your voice, with your permission."
+              : path.includes("/domains")
+                ? "Your coaching address."
+                : t("title")}
         </h1>
-        <p className="muted">{t("intro")}</p>
+        <p className="muted">{trainer ? t("intro") : t("introMember")}</p>
       </div>
       {trainer && (
         <nav className="tabs" aria-label="Integration sections">
@@ -240,7 +249,7 @@ function HealthConnections({
               title={provider === "whoop" ? "WHOOP" : "Amazfit / Zepp"}
             >
               <p className="muted">
-                {connection?.status
+                {connection
                   ? connectionStatus(connection.status)
                   : enabled
                     ? t("readyToConnect")
@@ -251,7 +260,7 @@ function HealthConnections({
               {connection?.lastSyncedAt && (
                 <p>
                   {t("lastSynced", {
-                    when: formatDateTime(connection.lastSyncedAt, { locale }),
+                    when: formatWhen(connection.lastSyncedAt, { locale }),
                   })}
                   {connection.stale ? t("stale") : ""}
                 </p>
@@ -259,6 +268,8 @@ function HealthConnections({
               {connection?.summary?.message && (
                 <p dir="auto">{connection.summary.message}</p>
               )}
+              {(enabled || connection || trainer) && (
+              <>
               <p>{t("usedFor")}</p>
               <label>
                 <input
@@ -301,6 +312,8 @@ function HealthConnections({
                   </p>
                 )}
               </form>
+              </>
+              )}
               {connection?.status === "active" && (
                 <button
                   disabled={action.busy}
@@ -361,12 +374,8 @@ function HealthConnections({
               })}
             </p>
             <p>
-              {formatDate(
+              {formatDateRange(
                 Math.min(...observations.map((r) => Date.parse(r.measuredAt))),
-                { locale },
-              )}{" "}
-              –{" "}
-              {formatDate(
                 Math.max(...observations.map((r) => Date.parse(r.measuredAt))),
                 { locale },
               )}
@@ -413,7 +422,7 @@ function HealthConnections({
                     observations: t("observations", {
                       count: Number(source.observations) || 0,
                     }),
-                    when: formatDateTime(source.latest_import, { locale }),
+                    when: formatWhen(source.latest_import, { locale }),
                   })}
                 </p>
               </div>
@@ -447,7 +456,7 @@ function HealthConnections({
                   observations: t("observations", {
                     count: Number(batch.observations) || 0,
                   }),
-                  when: formatDateTime(batch.imported_at, { locale }),
+                  when: formatWhen(batch.imported_at, { locale }),
                 })}
               </p>
             </div>
@@ -667,8 +676,9 @@ export function GuidedSession({ workoutId }: { workoutId: string }) {
     <div className="stack guided-session">
       <div className="page-heading">
         <h1 dir="auto">{data?.name ?? t("gTitle")}</h1>
-        <p dir="auto">
-          {locale === "en" ? (data?.warning ?? t("gWarning")) : t("gWarning")}
+        {/* One plain safety line; the voice state is shown once, below. */}
+        <p>
+          {t("gWarning")}
         </p>
       </div>
       <Notice value={action.message} />
@@ -695,10 +705,12 @@ export function GuidedSession({ workoutId }: { workoutId: string }) {
             )}
             {rest > 0 ? restText : t("gReady")}
           </p>
+          {/* Secondary controls; Next exercise is the sticky bar's one
+              primary action, so it is not repeated here. */}
           <div className="guided-controls">
             <button
               type="button"
-              className="button"
+              className="button secondary"
               disabled={paused}
               onClick={() => {
                 setRunning(false);
@@ -723,14 +735,6 @@ export function GuidedSession({ workoutId }: { workoutId: string }) {
               onClick={() => move(index - 1)}
             >
               {t("gPrevious")}
-            </button>
-            <button
-              type="button"
-              className="button secondary"
-              disabled={paused || last}
-              onClick={() => move(index + 1)}
-            >
-              {t("gNext")}
             </button>
           </div>
           {paused && (
@@ -856,7 +860,7 @@ export function GuidedSession({ workoutId }: { workoutId: string }) {
               type="submit"
               form="guided-pain-report"
               className="button"
-              disabled={action.busy || painText.trim().length < 3}
+              disabled={action.busy}
             >
               {t("stopNotify")}
             </button>
@@ -867,8 +871,8 @@ export function GuidedSession({ workoutId }: { workoutId: string }) {
           id="guided-pain-report"
           onSubmit={(e) => {
             e.preventDefault();
-            const description = painText.trim();
-            if (description.length < 3) return;
+            // Stopping never waits for a note (pain-report.ts).
+            const description = painDescription(painText);
             setPainOpen(false);
             setPainText("");
             stop(description);
@@ -881,8 +885,6 @@ export function GuidedSession({ workoutId }: { workoutId: string }) {
               name="description"
               value={painText}
               onChange={(e) => setPainText(e.target.value)}
-              required
-              minLength={3}
               maxLength={2000}
               rows={4}
               enterKeyHint="send"

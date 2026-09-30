@@ -47,7 +47,7 @@ export default defineMessages(
       "Get a generic update alert while the app is closed. Open your inbox to see the details.",
     checking: "Checking push notifications…",
     notConfigured:
-      "Push notifications have not been configured for this app. You can still remove saved devices below.",
+      "Phone and browser notifications are not switched on for this app yet. Your in-app inbox still shows every update.",
     insecure: "Open this app over HTTPS to enable browser push notifications.",
     iosInstall:
       "On iPhone or iPad, open the Share menu and choose Add to Home Screen. Open the installed app, sign in, then enable notifications here.",
@@ -66,15 +66,19 @@ export default defineMessages(
     reconnect: "Reconnect this browser",
     enable: "Enable push on this browser",
     clearSubscription: "Clear this browser subscription",
-    savedDevices: "Saved devices ({count}/{max})",
-    noDevices: "No devices are connected to your account.",
-    thisSession: " · This sign-in session",
-    connectionEnds: "Connection ends {date}",
+    savedDevices: "Devices that get notifications",
+    noDevices: "No devices get notifications yet.",
+    thisSession: " · This device",
+    connectionEnds: "Stays connected until {date}",
     removeDevice: "Remove {name}",
     removeDeviceHere: "Remove {name} from this browser",
     stopsWhen:
       "Push stops when you sign out, revoke this session, or the session expires. Enable it again after signing in. Removing another device disconnects it from this account.",
-    refresh: "Refresh push status",
+    refresh: "Check again",
+    devicesOf: {
+      one: "{n} of up to # device.",
+      other: "{n} of up to # devices.",
+    },
   },
   {
     errSignIn: "يجب تحديث تسجيل دخولك. يُرجى تسجيل الدخول مرة أخرى ثم إعادة المحاولة.",
@@ -120,7 +124,7 @@ export default defineMessages(
       "تنبيه عام بوجود تحديث حتى عندما يكون التطبيق مغلقًا. التفاصيل في صندوق الوارد.",
     checking: "جارٍ التحقق من الإشعارات…",
     notConfigured:
-      "لم تُعدّ إشعارات الدفع لهذا التطبيق بعد. ما زال بإمكانك إزالة الأجهزة المحفوظة أدناه.",
+      "إشعارات الهاتف والمتصفح غير مفعّلة لهذا التطبيق بعد، وما زال صندوق الإشعارات داخل التطبيق يعرض كل المستجدات.",
     insecure: "يلزم فتح هذا التطبيق عبر HTTPS لتفعيل إشعارات المتصفح.",
     iosInstall:
       "على iPhone أو iPad: قائمة المشاركة ثم «إضافة إلى الشاشة الرئيسية». بعدها يمكنك فتح التطبيق المثبّت وتسجيل الدخول وتفعيل الإشعارات من هنا.",
@@ -139,14 +143,22 @@ export default defineMessages(
     reconnect: "إعادة ربط هذا المتصفح",
     enable: "تفعيل الإشعارات في هذا المتصفح",
     clearSubscription: "مسح اشتراك هذا المتصفح",
-    savedDevices: "الأجهزة المحفوظة ({count}/{max})",
-    noDevices: "لا توجد أجهزة متصلة بحسابك.",
-    thisSession: " · جلسة تسجيل الدخول هذه",
-    connectionEnds: "ينتهي الاتصال في {date}",
+    savedDevices: "الأجهزة التي تصلها الإشعارات",
+    noDevices: "لا تصل الإشعارات إلى أي جهاز بعد.",
+    thisSession: " · هذا الجهاز",
+    connectionEnds: "يبقى متصلًا حتى {date}",
     removeDevice: "إزالة {name}",
     removeDeviceHere: "إزالة {name} من هذا المتصفح",
     stopsWhen:
       "تتوقف الإشعارات عند تسجيل الخروج أو إلغاء هذه الجلسة أو انتهائها، ويمكن تفعيلها مجددًا بعد تسجيل الدخول. إزالة جهاز آخر تفصله عن هذا الحساب.",
-    refresh: "تحديث حالة الإشعارات",
+    refresh: "التحقق مرة أخرى",
+    devicesOf: {
+      zero: "{n}.",
+      one: "{n} من جهاز واحد كحد أقصى.",
+      two: "{n} من جهازين كحد أقصى.",
+      few: "{n} من # أجهزة كحد أقصى.",
+      many: "{n} من # جهازًا كحد أقصى.",
+      other: "{n} من # جهاز كحد أقصى.",
+    },
   },
 );

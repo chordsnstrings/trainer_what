@@ -28,7 +28,7 @@ export default defineMessages(
     deleted: "Synced Apple Health data deleted.",
     title: "Automatic Apple Health sync",
     intro:
-      "Pair the companion iPhone app to send workouts, heart rate, heart-rate variability, resting heart rate, sleep, steps, active energy and body mass in the background. Data is used for display and deterministic coaching indicators only, never for AI prompts or advertising.",
+      "Pair the companion iPhone app to send workouts, heart rate, heart-rate variability, resting heart rate, sleep, steps, active energy and body mass in the background. Your readings are shown to you and your coach and used for simple coaching checks. The digital coach never sees them, and they are never used for advertising.",
     loading: "Loading sync status…",
     notAvailable: "Not available",
     notAvailableText: "Automatic Apple Health sync is not available yet.",
@@ -91,6 +91,8 @@ export default defineMessages(
     hrv: "HRV {n} ms",
     bodyMass: "{n} kg",
     hoursMinutes: "{h} h {m} min",
+    statusFailed: "Automatic sync status could not be checked just now.",
+    checkAgain: "Check again",
   },
   {
     never: "لم يحدث بعد",
@@ -118,7 +120,7 @@ export default defineMessages(
     deleted: "حُذفت بيانات Apple Health المتزامنة.",
     title: "المزامنة التلقائية مع Apple Health",
     intro:
-      "إقران تطبيق iPhone المرافق لإرسال التمارين ونبض القلب وتغيّر معدل النبض ونبض الراحة والنوم والخطوات والطاقة النشطة ووزن الجسم في الخلفية. تُستخدم البيانات للعرض ولمؤشرات تدريب ثابتة فقط، ولا تُستخدم أبدًا في مطالبات الذكاء الاصطناعي أو الإعلانات.",
+      "يمكنك ربط تطبيق iPhone المرافق لإرسال التمارين ونبض القلب وتغيّر معدل ضربات القلب ونبض الراحة والنوم والخطوات والطاقة النشطة ووزن الجسم في الخلفية. تظهر قراءاتك لك ولمدربك وتُستخدم في فحوصات تدريبية بسيطة. لا يراها المدرب الرقمي أبدًا، ولا تُستخدم للإعلانات إطلاقًا.",
     loading: "جارٍ تحميل حالة المزامنة…",
     notAvailable: "غير متاح",
     notAvailableText: "المزامنة التلقائية مع Apple Health غير متاحة بعد.",
@@ -201,5 +203,7 @@ export default defineMessages(
     hrv: "تغيّر النبض {n} مللي ث",
     bodyMass: "{n} كغ",
     hoursMinutes: "{h} س {m} د",
+    statusFailed: "تعذّر التحقق من حالة المزامنة التلقائية الآن.",
+    checkAgain: "التحقق مرة أخرى",
   },
 );

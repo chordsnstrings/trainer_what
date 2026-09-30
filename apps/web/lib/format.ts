@@ -211,8 +211,8 @@ export function formatDateTime(
 }
 
 const WHEN_WORDS = {
-  en: { today: "Today", yesterday: "Yesterday", comma: ", " },
-  ar: { today: "اليوم", yesterday: "أمس", comma: "، " },
+  en: { today: "Today", yesterday: "Yesterday", tomorrow: "Tomorrow", comma: ", " },
+  ar: { today: "اليوم", yesterday: "أمس", tomorrow: "غدًا", comma: "، " },
 } as const;
 
 /**
@@ -302,6 +302,28 @@ export function recentDays(
           ? `${words.today}${words.comma}${day}`
           : i === 1
             ? `${words.yesterday}${words.comma}${day}`
+            : day,
+    };
+  });
+}
+
+/**
+ * The next `days` calendar days from `today` as picker choices ("Today, Wed
+ * 30 Sep", "Tomorrow, Thu 1 Oct", "Fri 2 Oct"; Arabic "اليوم، …", "غدًا، …"),
+ * for choosing a future day without a date field.
+ */
+export function nextDays(today: string, days = 14, locale: Locale = "en") {
+  const words = WHEN_WORDS[locale];
+  return Array.from({ length: days }, (_, i) => {
+    const value = addCalendarDays(today, i);
+    const day = formatDate(value, { weekday: true, year: false, locale });
+    return {
+      value,
+      label:
+        i === 0
+          ? `${words.today}${words.comma}${day}`
+          : i === 1
+            ? `${words.tomorrow}${words.comma}${day}`
             : day,
     };
   });

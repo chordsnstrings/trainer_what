@@ -37,7 +37,7 @@ export default defineMessages(
     minutes: { one: "# minute", other: "# minutes" },
     kg: "{value} kg",
     requestFailed: "Something went wrong. Please try again.",
-    tooManyRequests: "Too many requests. Wait a moment, then retry.",
+    tooManyRequests: "Too many requests. Wait a moment, then try again.",
     offlineSaved: "Saved on this phone. It syncs when you are back online.",
     chooseFile: "Choose a file",
     noFileYet: "No file chosen yet.",

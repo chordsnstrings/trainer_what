@@ -1080,7 +1080,12 @@ const MEMBER_STATE = [
   "delivered",
   "with_trainer",
 ] as const;
-/** The subscriber's generated plan and its state. */
+/**
+ * The member's plan from their coach: its state while it is prepared, then
+ * its summary and the focus of each week. The sessions themselves are on
+ * the programme page and the timeline (member-program.tsx). In the
+ * member's language (docs/features/arabic.md).
+ */
 export function MemberPlan() {
   const [data, setData] = useState<any>();
   const tr = useT("training"),
@@ -1092,18 +1097,23 @@ export function MemberPlan() {
   }, []);
   if (!data || (!data.status && !data.program)) return null;
   const p = data.program;
+  const state = data.status?.state;
+  // Once delivered, the plan card below already says it is ready.
+  if (!p && state === "delivered") return null;
   return (
     <section className="card member-plan">
-      <h2 dir="auto">{p ? p.title : tr("yourPlan")}</h2>
-      {data.status && (
+      {!p && <h2>{tr("yourPlan")}</h2>}
+      {state && state !== "delivered" && (
         <p role="status">
           {tr(
-            `plan_${(MEMBER_STATE as readonly string[]).includes(data.status.state) ? (data.status.state as (typeof MEMBER_STATE)[number]) : "preparing"}`,
+            `plan_${(MEMBER_STATE as readonly string[]).includes(state) ? (state as (typeof MEMBER_STATE)[number]) : "preparing"}`,
           )}
         </p>
       )}
       {p && (
         <>
+          <p className="small-label">{tr("fromCoach")}</p>
+          <h2 dir="auto">{p.title}</h2>
           {p.summary && (
             <p className="muted" dir="auto">
               {p.summary}
@@ -1115,37 +1125,19 @@ export function MemberPlan() {
               count: p.programmeDays,
             })}
           </p>
-          <ol className="plan-weeks">
-            {p.weeks.map((w: any) => (
-              <li key={w.week}>
-                {tr("planWeek", { week: w.week, focus: w.focus })}
-                {w.deload ? tr("lighterWeek") : ""}
-              </li>
-            ))}
-          </ol>
-          <h3>{tr("comingUp")}</h3>
-          {!data.upcoming.length && (
-            <p className="muted">{tr("noSessionsLeft")}</p>
+          {p.weeks?.length > 0 && (
+            <details>
+              <summary>{tr("weekFocus")}</summary>
+              <ol className="plan-weeks">
+                {p.weeks.map((w: any) => (
+                  <li key={w.week}>
+                    {tr("planWeek", { week: w.week, focus: w.focus })}
+                    {w.deload ? tr("lighterWeek") : ""}
+                  </li>
+                ))}
+              </ol>
+            </details>
           )}
-          {data.upcoming.map((s: any) => (
-            <div key={s.id} className="plan-session">
-              <h4>
-                {tr("sessionHeading", {
-                  date: formatDate(s.date, { weekday: true, locale }),
-                  label: s.label,
-                  week: s.week,
-                })}
-              </h4>
-              <ExerciseRows
-                legend={s.label}
-                exercises={(s.exercises ?? []).map((e: any) => ({
-                  ...e,
-                  alternatives: (e.alternatives ?? []).map((a: any) => a.name ?? a),
-                }))}
-                names={[]}
-              />
-            </div>
-          ))}
         </>
       )}
     </section>

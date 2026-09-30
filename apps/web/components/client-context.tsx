@@ -87,21 +87,23 @@ export function ClientContext({
     setDraft((d) => ({ ...d, ...patch }));
   return (
     <section className="card">
-      <h2>{t("prefsTitle")}</h2>
-      <p>{t("prefsIntro")}</p>
+      <h2>{editable ? t("prefsTitleMember") : t("prefsTitle")}</h2>
+      <p>{editable ? t("prefsIntroMember") : t("prefsIntro")}</p>
       {error && (
         <p className="notice" role="alert">
           {error}
         </p>
       )}
       {notice && <p role="status">{notice}</p>}
-      <button
-        className="button secondary"
-        disabled={busy}
-        onClick={() => void load()}
-      >
-        {t("reload")}
-      </button>
+      {!editable && (
+        <button
+          className="button secondary"
+          disabled={busy}
+          onClick={() => void load()}
+        >
+          {t("reload")}
+        </button>
+      )}
       {saved && (
         <form
           onSubmit={(e) => {
@@ -304,7 +306,7 @@ export function ClientContext({
                     });
                   }}
                 >
-                  {t("addChange")}
+                  {editable ? t("addChangeMember") : t("addChange")}
                 </button>
                 <button
                   type="button"
@@ -322,10 +324,7 @@ export function ClientContext({
           <small>
             {saved.provenance.updatedAt
               ? t("updated", {
-                  when:
-                    locale === "en"
-                      ? new Date(saved.provenance.updatedAt).toLocaleString()
-                      : formatDateTime(saved.provenance.updatedAt, { locale }),
+                  when: formatDateTime(saved.provenance.updatedAt, { locale }),
                 })
               : t("none")}
             {!editable && " · Only the client can edit these preferences."}

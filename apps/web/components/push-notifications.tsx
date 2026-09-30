@@ -620,13 +620,15 @@ export function PushNotifications() {
       )}
       {settings && (
         <>
-          <h3>
-            {t("savedDevices", {
-              count: settings.devices.length,
-              max: settings.maxDevices,
-            })}
-          </h3>
-          {!settings.devices.length && (
+          <h3>{t("savedDevices")}</h3>
+          {settings.devices.length ? (
+            <p className="muted">
+              {t("devicesOf", {
+                count: settings.maxDevices,
+                n: settings.devices.length,
+              })}
+            </p>
+          ) : (
             <p className="muted">{t("noDevices")}</p>
           )}
           <ul style={{ listStyle: "none", padding: 0 }}>

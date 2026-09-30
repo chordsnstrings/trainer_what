@@ -6,7 +6,9 @@ import { rememberMemberLanguage } from "./document-direction";
 import { PREFERENCES_SAVED_EVENT } from "./appearance";
 import { Skeleton } from "./phone-ui";
 import { useErrorText, useLocale, useT } from "../lib/i18n/react";
-import { formatDateTime, timeZoneChoices } from "../lib/format";
+import { formatWhen, timeZoneChoices } from "../lib/format";
+import { translator, type Locale } from "../lib/i18n/core";
+import prefsMessages from "../lib/i18n/messages/prefs";
 
 const CATEGORIES = [
   "workout",
@@ -24,7 +26,23 @@ const CATEGORIES = [
   "safety",
   "support",
   "system",
+  "authenticators",
+  "boundaries",
+  "human_review",
+  "payout_fee",
+  "policy_review",
+  "server",
 ] as const;
+/** A notification category in words (never the stored key). */
+export function notificationCategory(key: string, locale: Locale = "en") {
+  const t = translator(prefsMessages, locale);
+  return (CATEGORIES as readonly string[]).includes(key)
+    ? t(`category_${key as (typeof CATEGORIES)[number]}`)
+    : t("category_other");
+}
+/** The English words, for callers that read the map. */
+export const NOTIFICATION_CATEGORIES: Record<string, string> =
+  Object.fromEntries(CATEGORIES.map((key) => [key, notificationCategory(key)]));
 async function api(path: string, method = "GET", body?: unknown) {
   const r = await fetch("/api/v1" + path, {
     method,
@@ -211,10 +229,7 @@ export function NotificationInbox() {
   const t = useT("prefs"),
     locale = useLocale(),
     toError = useErrorText();
-  const category = (key: string) =>
-    (CATEGORIES as readonly string[]).includes(key)
-      ? t(`category_${key as (typeof CATEGORIES)[number]}`)
-      : t("category_other");
+  const category = (key: string) => notificationCategory(key, locale);
   // Older pages continue after the last notification shown (a keyset
   // cursor), so a notice arriving meanwhile neither repeats nor hides one.
   async function load(before?: string) {
@@ -241,8 +256,8 @@ export function NotificationInbox() {
     <>
       <div className="page-heading">
         <div>
-          <p className="eyebrow">{t("keepInTouch")}</p>
           <h1>{t("yourNotifications")}</h1>
+          <p className="muted">{t("notificationsIntro")}</p>
         </div>
         <button
           className="button secondary"
@@ -264,22 +279,23 @@ export function NotificationInbox() {
       )}
       {!loading && !error && !rows.length && (
         <section className="card">
-          <p>{t("caughtUp")}</p>
+          <h2>{t("caughtUp")}</h2>
+          <p className="muted">{t("caughtUpText")}</p>
         </section>
       )}
       {rows.map((n) => (
         <article className="card" key={n.id}>
-          <small>
-            {category(n.category)} ·{" "}
-            {formatDateTime(n.created_at, { locale })}
-            {n.read_at ? t("read") : t("newNote")}
-          </small>
+          <p className="notification-meta">
+            <span>{category(n.category)}</span>
+            <span>{formatWhen(n.created_at, { locale })}</span>
+            {!n.read_at && <span className="badge green">{t("newBadge")}</span>}
+          </p>
           {/* Reviewed Arabic templates read right to left in any layout. */}
           <h2 dir="auto">{n.title}</h2>
           <p style={{ whiteSpace: "pre-wrap" }} dir="auto">
             {n.body}
           </p>
-          <div className="actions">
+          <div className="actions notification-actions">
             {n.href && (
               <Link className="button secondary" href={n.href}>
                 {t("open")}

@@ -8,33 +8,33 @@ import { defineMessages } from "../core";
 export default defineMessages(
   {
     loading: "Loading your session…",
-    eyebrow: "VOICE-LED SESSION",
+    eyebrow: "Voice-led session",
     fallbackTitle: "Your workout, guided",
-    aheadOn: "Get your trainer’s voice ready before {date}. ",
-    aheadDay: "Get your trainer’s voice ready before the day. ",
+    aheadOn: "Get your session ready before {date}. ",
+    aheadDay: "Get your session ready before the day. ",
     intro:
-      "Your trainer’s session plan, one step at a time. Say or tap “pain” at any moment and the session stops and your trainer is told.",
+      "Your coach’s session plan, one step at a time. Say or tap “pain” at any moment and the session stops and your coach is told.",
     started: "This session has started.",
     openRunner: "Open the voice-led session",
     notOpen: "This planned session is no longer open.",
     prepareTitle: "Prepare this session",
     staleText:
-      "Your trainer changed this workout. Prepare the session again so it follows the current plan.",
-    held: "Training is paused for your trainer’s review.",
+      "Your coach changed this workout. Prepare the session again so it follows the current plan.",
+    held: "Training is paused for your coach’s review.",
     voiceText:
-      "Your trainer’s approved voice will guide you through every exercise, set and rest. Audio is prepared ahead of time.",
-    consentVoice: "I want this session read in my trainer’s approved voice.",
+      "Your coach’s approved voice will guide you through every exercise, set and rest. Audio is prepared ahead of time.",
+    consentVoice: "I want this session read in my coach’s approved voice.",
     prepareVoice: "Prepare voice-led session",
     useText: "Use text guidance",
     prepareText: "Prepare text-guided session",
     startText: "Start text-guided session",
-    trainerVoice: "Your trainer’s voice",
+    trainerVoice: "Your coach’s voice",
     textSession: "Text-guided session",
     preparingAhead:
-      "Your trainer’s voice is being prepared. You can leave this page; it carries on in the background.",
+      "Your coach’s voice is being prepared. You can leave this page; it carries on in the background.",
     readyAhead:
       "Ready. Start the workout when you are, and the session will be waiting.",
-    switchVoice: "Switch to your trainer’s voice",
+    switchVoice: "Switch to your coach’s voice",
     startWithVoice: "Start this workout with the voice-led session",
     openLog: "Open the workout log",
     backCalendar: "Back to your training calendar",
@@ -44,55 +44,55 @@ export default defineMessages(
     badgeText: "Text",
     reason_MEMBERSHIP_REQUIRED: "An active membership is required.",
     reason_TRAINING_HELD:
-      "Training is paused for your trainer’s review. Resume after your trainer releases the hold.",
+      "Training is paused for your coach’s review. Resume after your coach releases the hold.",
     reason_VOICE_MEMBERSHIP:
-      "Your membership does not include your trainer’s voice. The text-guided session is included.",
+      "Your membership does not include your coach’s voice. The text-guided session is included.",
     reason_VOICE_CONTRACT:
-      "Trainer voice is not switched on for this platform yet.",
+      "Coach voice is not switched on for this platform yet.",
     reason_VOICE_NOT_VERIFIED:
-      "Your trainer’s voice is awaiting verification or permission.",
+      "Your coach’s voice is awaiting verification or permission.",
     reason_VOICE_BUDGET:
       "Today’s voice limit for this workspace has been reached. The text-guided session continues.",
     reason_PLAYBACK_CONSENT:
-      "Agree to hear your trainer’s approved voice to use the voice-led session.",
-    reason_VOICE_UNAVAILABLE: "Your trainer’s voice is no longer available.",
+      "Agree to hear your coach’s approved voice to use the voice-led session.",
+    reason_VOICE_UNAVAILABLE: "Your coach’s voice is no longer available.",
     reason_VOICE_SCRIPT_INVALID:
       "The spoken script no longer matches your workout. Prepare it again.",
     // Runner
     loadFailed:
-      "Trainer voice could not be loaded: {reason} The session continues with text.",
+      "Your coach’s voice could not be loaded: {reason} The session continues with text.",
     signedOut:
       "Your sign-in ended. Set logs stay on this device and sync after you sign in.",
     savedHere: "Saved on this device. {reason}",
     notAccepted: "A set log was not accepted. Review it on the workout log.",
     stopNow:
-      "Stop exercising. Your trainer is being told. If your symptoms are severe or urgent, get local medical help now.",
+      "Stop exercising. Your coach is being told. If your symptoms are severe or urgent, get local medical help now.",
     stopped:
-      "Session stopped and your trainer has been told. If your symptoms are severe or urgent, get local medical help now.",
-    painRefused: "{reason} Message your trainer about how you feel.",
+      "Session stopped and your coach has been told. If your symptoms are severe or urgent, get local medical help now.",
+    painRefused: "{reason} Message your coach about how you feel.",
     painOffline:
-      "You appear to be offline. Stop exercising and contact your trainer; get local medical help if symptoms are severe.",
+      "You appear to be offline. Stop exercising and contact your coach; get local medical help if symptoms are severe.",
     micUnavailable:
       "Spoken replies stopped: the microphone or on-device recognition is unavailable. Use the buttons.",
     micPermission:
       "Microphone permission is needed for spoken replies. Use the buttons.",
     agreeFirst: "Agree to transcription first.",
     voiceOff:
-      "Your trainer’s voice is off and its stored audio for you was removed. The session continues with text.",
+      "Your coach’s voice is off and its stored audio for you was removed. The session continues with text.",
     generating:
-      "Your trainer’s voice is being prepared. You can start now; lines that are not ready yet are shown as text.",
+      "Your coach’s voice is being prepared. You can start now; lines that are not ready yet are shown as text.",
     capped:
-      "Your trainer’s voice is paused for now. The rest of this session is shown as text.",
-    useApproved: "Use my trainer’s approved voice",
+      "Your coach’s voice is paused for now. The rest of this session is shown as text.",
+    useApproved: "Use my coach’s approved voice",
     unmute: "Unmute voice",
     mute: "Mute voice",
-    stopVoice: "Stop using my trainer’s voice",
+    stopVoice: "Stop using my coach’s voice",
     setOf: "Set {set} of {sets}",
     reps: { one: "# rep", other: "# reps" },
     lighter: "(lighter)",
     load: "{load} kg",
     changed:
-      "Your trainer changed this workout, so this session stopped. Sets you logged are saved. Prepare the session again to follow the current plan.",
+      "Your coach changed this workout, so this session stopped. Sets you logged are saved. Prepare the session again to follow the current plan.",
     prepareAgain: "Prepare again",
     startSession: "Start session",
     noMatch: "This session no longer matches your workout.",
@@ -121,7 +121,7 @@ export default defineMessages(
     },
     spokenReplies: "Spoken replies",
     spokenHelp:
-      "Say “done”, a number of reps, “too heavy”, “pause” or “pain”. While your trainer’s voice is speaking, replies are not heard: tap a button instead. The buttons always work.",
+      "Say “done”, a number of reps, “too heavy”, “pause” or “pain”. While your coach’s voice is speaking, replies are not heard: tap a button instead. The buttons always work.",
     listenDevice: "Listen on this device",
     theService: "the speech service",
     theProvider: "the provider",
@@ -150,16 +150,28 @@ export default defineMessages(
     status_cooldown: "Cooling down.",
     status_finished: "Session complete.",
     status_paused: "Paused.",
-    status_pain: "Stopped. Your trainer has been told.",
+    status_pain: "Stopped. Your coach has been told.",
     status_member: "Session ended.",
-    status_review: "Stopped for your trainer’s review.",
+    status_review: "Stopped for your coach’s review.",
+    eyebrowGuided: "Guided session",
+    vrHeld: "Training is paused until your coach has reviewed your report.",
+    vrMembership: "Guided sessions need an active membership.",
+    vrVoicePlan:
+      "Your plan does not include your coach's voice, so this session is guided in text.",
+    vrUnavailable:
+      "Your coach's voice is not available yet, so this session is guided in text. Everything else works the same.",
+    vrBudget:
+      "Your coach's voice is resting for today, so this session is guided in text.",
+    vrScript: "Your workout changed. Prepare the session again.",
+    vrConsent: "Tick the box to hear your coach's voice, or use text guidance.",
+    vrText: "This session is guided in text.",
   },
   {
     loading: "جارٍ تحميل جلستك…",
     eyebrow: "جلسة بتوجيه صوتي",
     fallbackTitle: "تمرينك بتوجيه",
-    aheadOn: "تجهيز صوت مدربك قبل {date}. ",
-    aheadDay: "تجهيز صوت مدربك قبل يوم الجلسة. ",
+    aheadOn: "يمكنك تجهيز جلستك قبل {date}. ",
+    aheadDay: "يمكنك تجهيز جلستك قبل يوم الجلسة. ",
     intro:
       "خطة جلسة مدربك خطوة بخطوة. عند قول «ألم» أو الضغط عليه في أي لحظة تتوقف الجلسة ويُبلَّغ مدربك.",
     started: "بدأت هذه الجلسة.",
@@ -306,5 +318,15 @@ export default defineMessages(
     status_pain: "توقفت الجلسة وأُبلغ مدربك.",
     status_member: "انتهت الجلسة.",
     status_review: "توقفت الجلسة لمراجعة مدربك.",
+    eyebrowGuided: "جلسة موجّهة",
+    vrHeld: "التدريب متوقف حتى يراجع مدربك بلاغك.",
+    vrMembership: "تتطلب الجلسات الموجّهة اشتراكًا نشطًا.",
+    vrVoicePlan: "لا تشمل باقتك صوت مدربك، لذا تُوجَّه هذه الجلسة نصيًا.",
+    vrUnavailable:
+      "صوت مدربك غير متاح بعد، لذا تُوجَّه هذه الجلسة نصيًا. وكل ما عدا ذلك يعمل كالمعتاد.",
+    vrBudget: "صوت مدربك في استراحة اليوم، لذا تُوجَّه هذه الجلسة نصيًا.",
+    vrScript: "تغيّر تمرينك. يُرجى تجهيز الجلسة مرة أخرى.",
+    vrConsent: "يُرجى تحديد المربع لسماع صوت مدربك، أو استخدام التوجيه النصي.",
+    vrText: "تُوجَّه هذه الجلسة نصيًا.",
   },
 );

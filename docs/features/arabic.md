@@ -27,7 +27,8 @@ stay English.
   `lib/i18n/catalog.ts` lists the namespaces (nav, common, shell, pwa, push,
   errors, auth, join, public, consent, site, offers, workout, today,
   profile, account, prefs, training, connect, health, support, bookings,
-  context, membership, voice, nutrition, capture). The type of the Arabic
+  context, membership, voice, nutrition, capture, and since the member
+  screens merge chat and plan). The type of the Arabic
   object is derived from the English one, so a missing Arabic key, or an
   Arabic plural without all six forms, fails the typecheck.
 - **Typed keys and values.** `useT("nutrition")` (client) or
@@ -149,6 +150,21 @@ Translated (English and Arabic in the catalogs):
 
 Not translated, and why:
 
+- Member screens rebuilt on `ui/member` and merged here
+  (docs/features/member-screens.md): Today (what to do now, status tiles,
+  the coach's note, safety pause), the programme tab (up next, the plan's
+  sessions and prescriptions such as "3 × 10 تكرارات · 16 كغ · راحة 90 ث",
+  coming up, the change/move/skip sheets with named days), the timeline by
+  week, coach chat (senders, prompts, composer, attachments sheet), the
+  coaching profile steps, membership (plan, renewal, stop-renewal sheet,
+  plans, discount code, unfinished checkout, errors with "what we could
+  not do"), coaching context, the not-found and workspace error screens,
+  profile and settings, support, notifications, bookings (book and cancel
+  sheets, missed-session rule), receipts and refunds, connections and
+  Apple Health status, the guided session, voice reasons, nutrition (week,
+  preparation line, recipe source, next-week card and reasons, test and
+  sample weeks, calorie ring) and log a meal (sticky actions, named days).
+
 - **Trainer-written content**: plans, exercise and meal names, recipes,
   coach notes and messages, website text, offers' names and descriptions.
   They are shown as written, isolated, with `dir="auto"` where they stand
@@ -262,10 +278,13 @@ Not translated, and why:
 - Arabic wording was written for this branch and has not had a native
   reviewer's pass; the catalog keeps English and Arabic side by side for
   that review.
-- The member-screens track (`ui-member`, not merged at the time of writing)
-  rewrites several of the same member components; merging it will conflict
-  with this branch, and any new wording it adds needs catalog entries
-  (`tests/i18n-hardcoded.test.ts` points at them).
+- The member-screens track is merged (29 September 2026): its new
+  components (`member-today`, `member-today-model`, `member-program`,
+  `member-chat`, `member-intake`, `member-membership`, `member-context`,
+  `member-states`) are whole files in `tests/i18n-hardcoded.test.ts`.
+  `bookings.tsx` is still shared with the coach's calendar and is not in
+  that check; its member wording is catalog text (checked by the Arabic
+  phone and RTL runs), the coach's lines stay English.
 
 ## Files
 

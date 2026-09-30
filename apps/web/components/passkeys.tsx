@@ -1,7 +1,7 @@
 "use client";
 import { useErrorText, useLocale, useT } from "../lib/i18n/react";
-import { formatDate, formatDateTime } from "../lib/format";
 import { useEffect, useState } from "react";
+import { formatDate, formatWhen } from "../lib/format";
 async function request(path: string, body?: unknown) {
   const r = await fetch("/api/v1/auth/passkeys" + path, {
     method: body ? "POST" : "GET",
@@ -229,7 +229,7 @@ export function PasskeySettings() {
             {t("added", { date: formatDate(row.created_at, { locale }) })}
             {row.last_used_at
               ? t("lastUsed", {
-                  when: formatDateTime(row.last_used_at, { locale }),
+                  when: formatWhen(row.last_used_at, { locale }),
                 })
               : ""}
             .

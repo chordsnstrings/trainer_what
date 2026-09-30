@@ -246,6 +246,7 @@ type Fake = {
   attrs: string[];
   children: Fake[];
   matches: (selector: string) => boolean;
+  hasAttribute: (name: string) => boolean;
   querySelector: (selector: string) => Fake | null;
 };
 function fake(name: string, classes: string[] = [], children: Fake[] = [], attrs: string[] = []): Fake {
@@ -254,6 +255,7 @@ function fake(name: string, classes: string[] = [], children: Fake[] = [], attrs
     classes,
     attrs,
     children,
+    hasAttribute: (attr) => attrs.includes(attr),
     matches: (selector) =>
       selector.split(",").some((part) => {
         const s = part.trim();
@@ -297,6 +299,16 @@ test("a first view arrives block by block, and nothing fixed ever moves with a b
   assert.deepEqual(
     arrivalTargets(fake("main", [], [card, toast]) as unknown as Element),
     [card],
+  );
+  // A screen wrapper marked data-stagger (Today, the programme, chat,
+  // settings) lets its blocks arrive one by one.
+  const focus = fake("section", ["today-focus"]);
+  const status = fake("ul", ["today-status"]);
+  assert.deepEqual(
+    arrivalTargets(
+      fake("main", [], [fake("div", ["member-today"], [heading, focus, status], ["data-stagger"])]) as unknown as Element,
+    ),
+    [heading, focus, status],
   );
   assert.match(FIXED_UI, /\.sticky-action-bar/);
   assert.match(FIXED_UI, /\[data-fixed-ui\]/);

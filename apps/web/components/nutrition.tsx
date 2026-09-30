@@ -1,13 +1,18 @@
 "use client";
 import { queuedLabel, queuedSummary } from "./pwa";
 import {
+  deviceTimeZone,
   formatDate,
   formatDateRange,
   formatDuration,
+  formatList,
   humanize,
+  nextDays,
+  timeZoneChoices,
 } from "../lib/format";
+import { type Locale } from "../lib/i18n/core";
 import { Rich, useErrorText, useLocale, useT } from "../lib/i18n/react";
-import { ScrollTabs, Skeleton, tabPanelProps } from "./phone-ui";
+import { ProgressRing, ScrollTabs, Skeleton, tabPanelProps } from "./phone-ui";
 import { useArrivals } from "./motion";
 import { Field } from "./field";
 import {
@@ -1679,7 +1684,8 @@ export function ProfileForm({
   mode?: "client" | "preview" | "scenario";
   onSubmit: (b: any) => Promise<any>;
 }) {
-  const t = useT("nutrition");
+  const t = useT("nutrition"),
+    locale = useLocale();
   return (
     <form
       onSubmit={(e) => {
@@ -1792,11 +1798,27 @@ export function ProfileForm({
           </select>
         </Field>
         <Field label={t("timezone")}>
-          <input
-            name="timezone"
-            defaultValue={initial?.timezone ?? "Asia/Dubai"}
-            required
-          />
+          {mode === "client" ? (
+            <select
+              name="timezone"
+              defaultValue={
+                initial?.timezone ?? deviceTimeZone() ?? "Asia/Dubai"
+              }
+              required
+            >
+              {timeZoneChoices(initial?.timezone, locale).map((zone) => (
+                <option key={zone.value} value={zone.value}>
+                  {zone.label}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              name="timezone"
+              defaultValue={initial?.timezone ?? "Asia/Dubai"}
+              required
+            />
+          )}
         </Field>
       </div>
       <Field label={t("notes")}>
@@ -1993,16 +2015,43 @@ function ScenarioForm({
   );
 }
 
+/** "Hob · 20 min", never "Hob preparation · 20 min · hob". */
+export function mealPreparation(
+  m: {
+    cookingName?: string;
+    minutes?: number;
+    equipment?: string[];
+  },
+  locale: Locale = "en",
+) {
+  const name = m.cookingName ?? "";
+  // Equipment already named by the preparation is not repeated.
+  const equipment = (m.equipment ?? []).filter(
+    (e) => !name.toLowerCase().includes(String(e).toLowerCase()),
+  );
+  return [
+    name,
+    m.minutes ? formatDuration(m.minutes, locale) : "",
+    locale === "en" ? equipment.join(", ") : formatList(equipment, locale),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
 export function WeekView({
   plan,
   onLog,
   onSwap,
+  testData = false,
 }: {
   plan: any;
   onLog?: (day: any, meal: any) => void;
   onSwap?: (day: any, meal: any) => void;
+  /** Development only: a made-up week may show its test description. */
+  testData?: boolean;
 }) {
   const view = plan.data.view;
+  const synthetic =
+    !!plan.data.synthetic || plan.data.origin === "synthetic_fixture";
   const [date, setDate] = useState(view.days[0]?.date);
   const day = view.days.find((d: any) => d.date === date) ?? view.days[0];
   const t = useT("nutrition"),
@@ -2012,11 +2061,13 @@ export function WeekView({
     <Card title={t("weekTitle")}>
       <div className="nutrition-week-heading">
         <p>{formatDateRange(view.weekStart, view.weekEnd, { locale })}</p>
-        <span className="badge">
-          {t("approxDay", { kcal: view.targetKcal })}
-        </span>
+        <p className="muted">{t("approxDay", { kcal: view.targetKcal })}</p>
       </div>
-      <p>{view.explanation}</p>
+      {/* A made-up week's description is test data: the page labels it
+          instead (development only). */}
+      {!synthetic && view.explanation && (
+        <p dir="auto">{view.explanation}</p>
+      )}
       <nav className="nutrition-days" aria-label={t("daysLabel")}>
         {view.days.map((d: any) => (
           <button
@@ -2032,7 +2083,9 @@ export function WeekView({
       {day && (
         <>
           <div className="nutrition-day-total">
-            <strong>{formatDate(day.date, { locale, weekday: true })}</strong>
+            <strong>
+              {formatDate(day.date, { weekday: "long", year: false, locale })}
+            </strong>
             <span>
               {t("dayTotals", {
                 kcal: day.totals.kcal,
@@ -2056,9 +2109,7 @@ export function WeekView({
                   })}
                 </p>
                 <p className="muted">
-                  {m.cookingName} · {formatDuration(m.minutes, locale)} ·{" "}
-                  {m.equipment.join(locale === "ar" ? "، " : ", ") ||
-                    t("noEquipment")}
+                  {mealPreparation(m, locale) || t("noCooking")}
                 </p>
                 <details>
                   <summary>{t("ingredientsTitle")}</summary>
@@ -2083,10 +2134,12 @@ export function WeekView({
                   </ol>
                   {m.storageNote && <p>{m.storageNote}</p>}
                   {m.batchKey && (
-                    <p>{t("batch", { batch: m.batchKey })}</p>
+                    <p>{t("batch")}</p>
                   )}
                   <p className="muted">
-                    {t("recipeSource", { source: m.source })}
+                    {t("recipeFrom", {
+                      source: t.dynamic(`src_${m.source}`, t("src_default")),
+                    })}
                   </p>
                 </details>
                 <div className="nutrition-actions">
@@ -2128,11 +2181,15 @@ export function NutritionSubscriber({
   userId,
   tenantId,
   coachView = false,
+  environment,
 }: {
   userId: string;
   tenantId: string;
   coachView?: boolean;
+  /** "development" shows test-data labels; members never see them otherwise. */
+  environment?: string;
 }) {
+  const testData = environment === "development";
   const r = useNutrition(
       coachView ? "/nutrition?userId=" + userId : "/nutrition",
     ),
@@ -2360,17 +2417,98 @@ export function NutritionSubscriber({
       slot: m.slot,
       deleted: false,
     });
+  // Preparing a meal week: shown first until there is a week, then after it.
+  const nextWeek = !coachView && (
+    <Card title={plan ? t("planNext") : t("firstWeek")}>
+      {!d.profile ? (
+        <p>
+          <Rich
+            t={t}
+            k="startWith"
+            tags={{
+              link: (text) => (
+                <button
+                  className="nutrition-text-button"
+                  onClick={() => setTab("profile")}
+                >
+                  {text}
+                </button>
+              ),
+            }}
+          />
+        </p>
+      ) : (
+        <form
+          className="nutrition-inline"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const f = new FormData(e.currentTarget);
+            void r.action(
+              () =>
+                api("/nutrition/generate", "POST", {
+                  requestKey: crypto.randomUUID(),
+                  weekStart: f.get("weekStart"),
+                }),
+              t("weekReady"),
+            );
+          }}
+        >
+          <Field label={t("weekStarts")}>
+            {/* The next two weeks as plain days, never a US-style date
+                field (lib/format.ts nextDays). */}
+            <select name="weekStart" defaultValue={d.today} required>
+              {nextDays(d.today, 14, locale).map((day) => (
+                <option key={day.value} value={day.value}>
+                  {day.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <button
+            className="button"
+            disabled={!permitted || !d.modelConsent || !d.ready}
+          >
+            {t("prepareWeek")}
+          </button>
+        </form>
+      )}
+      {/* One plain reason beside an unavailable button. */}
+      {d.profile && (!permitted || !d.modelConsent || !d.ready) && (
+        <p className="control-reason">
+          {!d.entitled
+            ? t("reasonMembership")
+            : offline
+              ? t("reasonOffline")
+              : !d.ready
+                ? t("notReady")
+                : !d.modelConsent
+                  ? t("enableAi")
+                  : t("reasonPaused")}
+        </p>
+      )}
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={cache}
+          onChange={(e) => {
+            setCache(e.target.checked);
+            if (!e.target.checked) localStorage.removeItem(key);
+          }}
+        />{" "}
+        {t("keepCopy")}
+      </label>
+    </Card>
+  );
   return (
     <div className="nutrition">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">{t("eyebrow")}</p>
           <h1>{t("title")}</h1>
-          <p>{t("intro")}</p>
+          <p className="muted">{t("intro")}</p>
         </div>
-        <span className="badge">
-          {d.entitled ? t("badgeEntitled") : t("badgeRequired")}
-        </span>
+        {!d.entitled && (
+          <span className="badge">{t("badgeRequired")}</span>
+        )}
       </div>
       {/* One row that scrolls sideways on phones instead of wrapping. */}
       <ScrollTabs
@@ -2413,6 +2551,7 @@ export function NutritionSubscriber({
             {rejected.map((entry) => (
               <li key={entry.item.eventKey}>
                 {formatDate(entry.item.date, {
+                  year: false,
                   locale,
                   fallback: entry.item.date,
                 })}{" "}
@@ -2491,88 +2630,27 @@ export function NutritionSubscriber({
         )}
         {tab === "today" && (
           <>
-            {!coachView && (
-              <Card title={plan ? t("planNext") : t("firstWeek")}>
-                {!d.profile ? (
-                  <p>
-                    <Rich
-                      t={t}
-                      k="startWith"
-                      tags={{
-                        link: (text) => (
-                          <button
-                            className="nutrition-text-button"
-                            onClick={() => setTab("profile")}
-                          >
-                            {text}
-                          </button>
-                        ),
-                      }}
-                    />
-                  </p>
-                ) : (
-                  <form
-                    className="nutrition-inline"
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      const f = new FormData(e.currentTarget);
-                      void r.action(
-                        () =>
-                          api("/nutrition/generate", "POST", {
-                            requestKey: crypto.randomUUID(),
-                            weekStart: f.get("weekStart"),
-                          }),
-                        t("weekReady"),
-                      );
-                    }}
-                  >
-                    <Field label={t("weekStarts")}>
-                      <input
-                        type="date"
-                        name="weekStart"
-                        min={d.today}
-                        defaultValue={d.today}
-                        required
-                      />
-                    </Field>
-                    <button
-                      className="button"
-                      disabled={!permitted || !d.modelConsent || !d.ready}
-                    >
-                      {t("prepareWeek")}
-                    </button>
-                  </form>
-                )}
-                {!d.ready && <p>{t("notReady")}</p>}
-                {d.profile && !d.modelConsent && <p>{t("enableAi")}</p>}
-                <label className="check">
-                  <input
-                    type="checkbox"
-                    checked={cache}
-                    onChange={(e) => {
-                      setCache(e.target.checked);
-                      if (!e.target.checked) localStorage.removeItem(key);
-                    }}
-                  />{" "}
-                  {t("keepCopy")}
-                </label>
-              </Card>
-            )}
+            {/* Without a week yet, preparing the first one comes first. */}
+            {!plan && nextWeek}
             {plan ? (
               <>
-                <Notice>
-                  {plan.data.synthetic ||
-                  plan.data.origin === "synthetic_fixture"
-                    ? t("synthetic")
-                    : plan.status === "delivered"
-                      ? t("qualified")
-                      : catalogRecheck
-                        ? t("recheck")
-                        : t("historical")}
-                </Notice>
+                {plan.data.synthetic ||
+                plan.data.origin === "synthetic_fixture" ? (
+                  // Test data is labelled only in development.
+                  testData ? (
+                    <Notice>{t("testData")}</Notice>
+                  ) : (
+                    <Notice>{t("synthetic")}</Notice>
+                  )
+                ) : plan.status === "delivered" ? null : (
+                  <Notice>
+                    {catalogRecheck ? t("recheck") : t("historical")}
+                  </Notice>
+                )}
                 <WeekView
                   key={plan.id}
                   plan={plan}
+                  testData={testData}
                   onLog={
                     !coachView &&
                     d.entitled &&
@@ -2610,6 +2688,8 @@ export function NutritionSubscriber({
                 <p>{t("mealsAppearText")}</p>
               </Card>
             )}
+            {/* This week's meals first; planning the next one follows. */}
+            {plan && nextWeek}
             {swap && options && (
               <Card title={t("chooseAlternative")}>
                 <form
@@ -2857,9 +2937,16 @@ export function NutritionSubscriber({
                     className={freshLogs.has(x.id) ? "motion-arrive" : undefined}
                   >
                     <summary>
-                      {formatDate(x.data.date, { locale, fallback: x.data.date })}{" "}
+                      {formatDate(x.data.date, {
+                        weekday: true,
+                        year: false,
+                        locale,
+                        fallback: x.data.date,
+                      })}{" "}
                       · <bdi>{x.data.name}</bdi> ·{" "}
-                      {t("kcal", { kcal: x.data.kcal ?? t("unknown") })}
+                      {x.data.kcal == null
+                        ? t("kcalUnknown")
+                        : t("kcal", { kcal: x.data.kcal })}
                     </summary>
                     <p>{x.data.notes}</p>
                     {!coachView && (
@@ -2980,11 +3067,13 @@ export function NutritionSubscriber({
                 <p key={x.id}>
                   {t("checkinLine", {
                     date: formatDate(x.data.date, {
+                      weekday: true,
+                      year: false,
                       locale,
                       fallback: x.data.date,
                     }),
-                    hunger: `${x.data.hunger}/5`,
-                    difficulty: `${x.data.difficulty}/5`,
+                    hunger: x.data.hunger,
+                    difficulty: x.data.difficulty,
                   })}
                 </p>
               ))}
@@ -4039,12 +4128,32 @@ function NutritionConsumed({
   useEffect(() => {
     void r.load().catch((e) => r.setError(r.toError(e)));
   }, [refreshKey]);
+  // The latest day's recorded calories against the plan, as a ring that
+  // grows to its value the first time it is seen (docs/features/motion.md
+  // "g"); the number beside it is the value itself.
+  const latest = r.data?.days?.at(-1);
+  const eaten = latest?.meals ? latest.totals?.kcal : null;
+  const planned = latest?.planned?.kcal;
   return (
     <Card title={t("trendsTitle")}>
       {r.error && <Notice>{r.error}</Notice>}
       {r.data && (
         <>
-          <p>{r.data.coverage}</p>
+          {typeof eaten === "number" && typeof planned === "number" && planned > 0 && (
+            <div className="nutrition-ring">
+              <ProgressRing value={eaten / planned} from={0} size={56} />
+              <p>
+                <strong>{t("ringEaten", { kcal: Math.round(eaten) })}</strong>
+                <span className="muted">
+                  {t("ringOf", {
+                    kcal: Math.round(planned),
+                    date: day(latest.date),
+                  })}
+                </span>
+              </p>
+            </div>
+          )}
+          <p dir="auto">{r.data.coverage}</p>
           <p>
             {t("trendsLine", {
               meals: t("recordedMeals", { count: r.data.loggedMeals ?? 0 }),

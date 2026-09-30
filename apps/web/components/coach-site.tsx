@@ -7,7 +7,7 @@ import { usePathname } from "next/navigation";
 import { TrainerTheme, CoachIdentity } from "./trainer-design";
 import { resolveBrandDesign } from "@trainer/contracts";
 import { AtSign, Mail, MessageCircle, PlayCircle } from "lucide-react";
-import { StickyActionBar } from "./phone-ui";
+import { Skeleton, StickyActionBar } from "./phone-ui";
 import { useInvalidShake } from "./motion";
 import { SubscriberFooter } from "./subscriber-footer";
 import { coachAppLinks } from "./app-routes";
@@ -247,9 +247,9 @@ export function GalleryStudio({ client = false }: { client?: boolean }) {
   const t = translator(siteMessages, client ? pageLocale : "en");
   async function load(offset = 0) {
     const d = await api(`/tenant/galleries?offset=${offset}`);
-    setLoaded(true);
     setGalleries((v) => (offset ? [...v, ...d.galleries] : d.galleries));
     setNext(d.nextOffset);
+    setLoaded(true);
     return d.galleries;
   }
   useEffect(() => {
@@ -289,7 +289,7 @@ export function GalleryStudio({ client = false }: { client?: boolean }) {
     <div className="site-workspace">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">{t("galleriesEyebrow")}</p>
+          {!client && <p className="eyebrow">{t("galleriesEyebrow")}</p>}
           <h1>{client ? t("clientGalleries") : "Photos & galleries."}</h1>
           <p className="muted">
             {client
@@ -323,10 +323,14 @@ export function GalleryStudio({ client = false }: { client?: boolean }) {
           <button disabled={busy}>Create gallery</button>
         </form>
       )}
+      {client && !loaded && !message && (
+        <Skeleton label={t("clientLoadingGalleries")} lines={3} />
+      )}
       {client && loaded && !galleries.length && (
-        <p className="muted" role="status">
-          {t("clientNoGalleries")}
-        </p>
+        <section className="card">
+          <h2>{t("clientNoPhotos")}</h2>
+          <p className="muted">{t("clientNoGalleries")}</p>
+        </section>
       )}
       <div className="gallery-list">
         {galleries.map((g) => (

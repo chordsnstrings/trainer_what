@@ -1,30 +1,37 @@
 "use client";
 import { useErrorText, useLocale, useT } from "../lib/i18n/react";
-import { formatDate, formatDateTime } from "../lib/format";
+import { formatDate, formatWhen } from "../lib/format";
 import { useEffect, useState } from "react";
 import { PasskeySettings } from "./passkeys";
 import { AuthPage, ReturnToSignIn } from "./auth-page";
-async function request(path: string, body?: unknown) {
-  const r = await fetch("/api/v1/auth/" + path, {
-    method: body ? "POST" : "GET",
-    headers: body ? { "Content-Type": "application/json" } : {},
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const value = await r.json();
-  if (!r.ok) throw new Error(value.message);
-  return value;
+import { accountRequest } from "./account-request";
+/** Reads have a time limit and a readable error (account-request.ts). */
+function request(path: string, body?: unknown) {
+  return accountRequest(
+    "/auth/" + path,
+    body === undefined ? "GET" : "POST",
+    body,
+  );
 }
 export function AccountExtras() {
   const [data, setData] = useState<any>(null),
     [codes, setCodes] = useState<string[]>([]),
     [message, setMessage] = useState(""),
+    [failed, setFailed] = useState(false),
     [busy, setBusy] = useState(false);
   const t = useT("account"),
     locale = useLocale(),
     toError = useErrorText();
-  const load = () => request("account").then(setData);
+  const load = () =>
+    request("account").then((value) => {
+      setData(value);
+      setFailed(false);
+    });
   useEffect(() => {
-    const refresh = () => void load().catch((e) => setMessage(toError(e)));
+    const refresh = () =>
+      void load().catch(() => {
+        setFailed(true);
+      });
     refresh();
     window.addEventListener("account-security-updated", refresh);
     return () =>
@@ -42,7 +49,13 @@ export function AccountExtras() {
       <h3>{t("recoveryCodes")}</h3>
       <p className="muted">{t("recoveryText")}</p>
       <p>
-        {t("codesAvailable", { count: data?.recoveryCodesRemaining ?? 0 })}
+        {!data
+          ? failed
+            ? t("codesFailed")
+            : t("codesChecking")
+          : data.mfaEnabled
+            ? t("codesLeft", { count: data.recoveryCodesRemaining ?? 0 })
+            : t("codesAfterMfa")}
       </p>
       {data?.mfaEnabled && (
         <form
@@ -96,19 +109,33 @@ export function AccountExtras() {
         </div>
       )}
       <h3>{t("sessions")}</h3>
+      {!data && !failed && <p className="muted">{t("sessionsChecking")}</p>}
+      {!data && failed && (
+        <div role="alert">
+          <p>{t("sessionsFailed")}</p>
+          <button
+            type="button"
+            className="button secondary"
+            onClick={() => {
+              setFailed(false);
+              void load().catch(() => setFailed(true));
+            }}
+          >
+            {t("tryAgain")}
+          </button>
+        </div>
+      )}
       {data?.sessions.map((s: any) => (
         <div className="card" key={s.id}>
           <strong>
-            <bdi>{s.workspace}</bdi>
-            {s.current ? t("thisSession") : ""}
+            {s.current ? t("thisDevice") : t("otherDevice")}
           </strong>
           <p>
-            {locale === "en"
-              ? `Last active ${new Date(s.last_seen_at).toLocaleString()} · expires ${new Date(s.expires_at).toLocaleDateString()}.`
-              : t("lastActive", {
-                  when: formatDateTime(s.last_seen_at, { locale }),
-                  date: formatDate(s.expires_at, { locale }),
-                })}
+            {t("lastActive", {
+              when: formatWhen(s.last_seen_at, { locale }),
+              date: formatDate(s.expires_at, { locale }),
+            })}
+            {s.workspace ? t("openedIn", { workspace: s.workspace }) : ""}.
           </p>
           <button
             className="button secondary"

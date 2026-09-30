@@ -130,9 +130,10 @@ export function rememberLeftCoach(
 
 /**
  * A follower ends their own membership with the current coach. The card
- * explains what happens; "Leave <coach>" opens an in-app bottom sheet to
- * confirm (with an optional note for the coach), never the browser's own
- * "Please check this box" tooltip.
+ * says what leaving means in one line; "Leave <coach>" opens an in-app
+ * bottom sheet with the full consequences, an optional note for the coach
+ * and the confirmation, never the browser's own "Please check this box"
+ * tooltip.
  */
 export function LeaveTrainer() {
   const [preview, setPreview] = useState<
@@ -197,7 +198,8 @@ export function LeaveTrainer() {
       )}
       {preview && !done && (
         <>
-          <Consequences preview={preview} follower />
+          {/* One line here; the full consequences are in the sheet. */}
+          <p className="muted">{t("leaveSummary", { name })}</p>
           <Blockers preview={preview} />
           <button
             type="button"
@@ -246,6 +248,7 @@ export function LeaveTrainer() {
               </>
             }
           >
+            <Consequences preview={preview} follower />
             <form
               id="leave-coach-form"
               onSubmit={(e: FormEvent<HTMLFormElement>) => {

@@ -433,7 +433,8 @@ try {
     .waitFor();
   await subscriber.getByText("Warm breakfast bowl", { exact: true }).waitFor();
   await subscriber
-    .getByText("Demonstration plan with synthetic food and coach data.", {
+    // Test data is labelled only in development (nutrition.tsx).
+    .getByText("Test data (development only)", {
       exact: false,
     })
     .waitFor();
@@ -480,7 +481,7 @@ try {
     .click();
   await subscriber
     .getByLabel(
-      "Keep a private copy of the latest plan on this device for up to 12 hours.",
+      "Keep a copy of this week on this phone for 12 hours, to use without a connection.",
     )
     .check();
   await subscriber.waitForFunction(() =>
@@ -515,7 +516,7 @@ try {
   await subscriber
     .getByRole("tab", { name: "Meal diary", exact: true })
     .click();
-  await subscriber.getByText(/1 meals across 1 days/).waitFor();
+  await subscriber.getByText(/1 meal across 1 day in the last 28 days/).waitFor();
   // An empty replay queue must still refresh the private reference copy.
   await subscriberContext.setOffline(true);
   await subscriber.reload({ waitUntil: "domcontentloaded" });
@@ -535,7 +536,7 @@ try {
   await subscriber
     .getByRole("tab", { name: "Meal diary", exact: true })
     .click();
-  await subscriber.getByText(/1 meals across 1 days/).waitFor();
+  await subscriber.getByText(/1 meal across 1 day in the last 28 days/).waitFor();
   const completionFlows = await checkCompletionFlows({
     coach: page,
     subscriber,

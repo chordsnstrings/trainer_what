@@ -70,9 +70,12 @@ export default defineMessages(
     returnHome: "Return home",
     actions: "{name} actions",
     galleriesEyebrow: "YOUR COACHING IN PICTURES",
-    clientGalleries: "Coach galleries.",
+    clientGalleries: "Coach galleries",
     clientGalleriesIntro: "A closer look at your coach’s practice.",
-    clientNoGalleries: "Your coach has not shared any galleries yet.",
+    clientNoGalleries:
+      "When your coach shares photos from their sessions and practice, they appear here.",
+    clientNoPhotos: "No photos yet",
+    clientLoadingGalleries: "Loading your coach's galleries…",
   },
   {
     loadingWebsite: "جارٍ تحميل موقعك…",
@@ -142,8 +145,10 @@ export default defineMessages(
     returnHome: "العودة إلى الرئيسية",
     actions: "إجراءات {name}",
     galleriesEyebrow: "تدريبك بالصور",
-    clientGalleries: "معارض المدرب.",
+    clientGalleries: "معارض المدرب",
     clientGalleriesIntro: "نظرة أقرب على أسلوب مدربك في التدريب.",
-    clientNoGalleries: "لم يشارك مدربك أي معارض بعد.",
+    clientNoGalleries: "عندما يشارك مدربك صورًا من جلساته وتدريبه، تظهر هنا.",
+    clientNoPhotos: "لا توجد صور بعد",
+    clientLoadingGalleries: "جارٍ تحميل معارض مدربك…",
   },
 );

@@ -152,16 +152,21 @@ const SKIP = `.skip-link, [hidden], script, style, template, ${FIXED_UI}`;
 /**
  * The blocks of a container that arrive one after another. A block holding
  * fixed UI is entered instead (its children arrive; the fixed piece keeps
- * its own entrance), so nothing fixed ever sits inside a moving box.
+ * its own entrance), so nothing fixed ever sits inside a moving box. A
+ * screen's own wrapper marked `data-stagger` (Today, the programme, chat,
+ * settings) is entered too, so its blocks arrive one by one rather than
+ * the whole screen as one.
  */
 export function arrivalTargets(container: Element, depth = 0): Element[] {
   const out: Element[] = [];
   for (const el of Array.from(container.children)) {
     if (el.matches(SKIP)) continue;
-    if (el.querySelector(FIXED_UI)) {
-      if (depth < 3) out.push(...arrivalTargets(el, depth + 1));
+    const fixed = !!el.querySelector(FIXED_UI);
+    if ((fixed || el.hasAttribute("data-stagger")) && depth < 3) {
+      out.push(...arrivalTargets(el, depth + 1));
       continue;
     }
+    if (fixed) continue;
     out.push(el);
   }
   return out;
