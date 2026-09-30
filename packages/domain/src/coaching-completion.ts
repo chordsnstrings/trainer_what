@@ -217,42 +217,45 @@ const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
  * Determiners and possessives an English term may be written with: "move my
  * session" also reads "move tomorrow's session", "move the Tuesday session"
  * and "move session". In the folded text a possessive is a word followed by
- * "s" ("tomorrow s"); at most two such words fill the place.
+ * "s" ("tomorrow s"); at most two such words fill the place. Only the
+ * member's own words fill it (my, our, the, this, a, next, a day or time),
+ * plus the term's own determiner: "move her session" and "move their
+ * session" are not a request about the member's session, and a contraction
+ * ("that's my session", "it's session day") is not a possessive.
  */
 const TERM_DETERMINERS = new Set(["my", "your", "the", "this", "that", "our", "his", "her", "their", "a", "an"]);
-const determinerSlot =
-  "(?:(?:my|your|the|this|that|these|those|our|his|her|their|a|an|next|today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|morning|evening|\\p{L}+ s) ){0,2}";
+const TIME_WORDS =
+  "today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|morning|afternoon|evening|night|week|weekend|day";
+const determinerSlot = (own: string) =>
+  `(?:(?:my|our|the|this|that|these|those|a|an|next|${escapeRegExp(own)}|${TIME_WORDS}|(?:${TIME_WORDS}|coach|trainer) s) ){0,2}`;
 /**
- * An English term word and its simple inflections: -s, -es, -ed, -ing, a
- * final e dropped (move: moves, moved, moving), a final consonant doubled
- * (skip: skipped, skipping) and y to ies/ied (carry: carries, carried).
- * Only the term word grows; the request word is never cut down, so "tired"
- * does not read "tires" and "band" does not read "bandana". A possessive "s"
- * may follow ("coach's"). Words under three letters and words with digits
- * match exactly.
+ * An English term word and its present-tense inflections: -s, -es, -ing, a
+ * final e dropped (move: moves, moving), a final consonant doubled (skip:
+ * skipping) and y to ies (carry: carries). The past tense is not a request:
+ * "I moved my session already" and "I skipped my session yesterday" report
+ * what happened and must not make a move or skip eligible, so -ed forms match
+ * only when the term itself is written that way. Only the term word grows;
+ * the request word is never cut down, so "tired" does not read "tires" and
+ * "band" does not read "bandana". A possessive "s" may follow ("coach's").
+ * Words under three letters and words with digits match exactly, and so does
+ * a one-word term (`inflect` false): "increasing" and "progresses" describe
+ * ("my tiredness is increasing"), they do not ask for a progression.
  */
-function englishWordPattern(word: string) {
+function englishWordPattern(word: string, inflect = true) {
+  if (!inflect) return escapeRegExp(word) + "(?: s)?";
   if (word.length < 3 || !/^\p{Script=Latin}+$/u.test(word)) return escapeRegExp(word);
-  const forms = new Set([word, word + "s", word + "es", word + "ed", word + "ing"]);
-  if (word.endsWith("e")) {
-    forms.add(word + "d");
-    forms.add(word.slice(0, -1) + "ing");
-  }
-  if (/[^aeiou]y$/.test(word)) {
-    forms.add(word.slice(0, -1) + "ies");
-    forms.add(word.slice(0, -1) + "ied");
-  }
-  if (/(?:^|[^aeiou])[aeiou][b-df-hj-np-tvz]$/.test(word)) {
-    forms.add(word + word.at(-1) + "ed");
-    forms.add(word + word.at(-1) + "ing");
-  }
+  const forms = new Set([word, word + "s", word + "es", word + "ing"]);
+  if (word.endsWith("e")) forms.add(word.slice(0, -1) + "ing");
+  if (/[^aeiou]y$/.test(word)) forms.add(word.slice(0, -1) + "ies");
+  if (/(?:^|[^aeiou])[aeiou][b-df-hj-np-tvz]$/.test(word)) forms.add(word + word.at(-1) + "ing");
   return "(?:" + [...forms].map(escapeRegExp).join("|") + ")(?: s)?";
 }
 /**
  * A request term as a whole-word pattern over coachingTermText(). English
- * words match at word level: simple inflections, a possessive "s", and any
- * determiner or possessive in place of the term's own ("my", "the"; see
- * englishWordPattern and determinerSlot). An Arabic word may carry an
+ * words match at word level: in a term of two or more words, present-tense
+ * inflections; a possessive "s"; and the member's own determiners or a day's
+ * possessive in place of the term's own ("my", "the"; see englishWordPattern
+ * and determinerSlot). A one-word English term matches exactly. An Arabic word may carry an
  * attached clitic in the request, and a term word's own article is optional
  * (the term "تأجيل الحصة" matches "تأجيل حصة الغد"). A term that folds to
  * empty text never matches anything.
@@ -265,13 +268,13 @@ function requestTermPattern(term: string) {
     const last = i === words.length - 1;
     // A determiner between two words of the term is a place, not a word.
     if (!last && i > 0 && TERM_DETERMINERS.has(word)) {
-      source += determinerSlot;
+      source += determinerSlot(word);
       return;
     }
     if (arabicLetter.test(word)) {
       const stem = word.startsWith("ال") && word.length >= 5 ? word.slice(2) : word;
       source += arabicClitic + escapeRegExp(stem);
-    } else source += englishWordPattern(word);
+    } else source += englishWordPattern(word, words.length > 1);
     if (!last) source += " ";
   });
   return new RegExp(source + "(?= )", "u");

@@ -98,13 +98,18 @@ chat that cut every model's score:
   "بال band", "لل session"). Checked for every English term against every non-Arabic trial
   message, and for glued examples (none of the 96 trial messages glues the two scripts).
 - `requestMatchesTerm()`: a term that folds to empty text never matches. English words match at
-  word level (N12, 30 September 2026): a term word also matches its simple inflections (-s, -es,
-  -ed, -ing, a dropped final e, a doubled final consonant, y to ies/ied) and a possessive "s", and a
-  determiner inside a term ("my", "the") is a place for up to two determiners, day words or
-  possessives, so "move my session" matches "Can I move tomorrow's session?" and "move the Tuesday
-  session". Only the term word grows: "tired" does not match "tires", "band" not "bandana", "move"
-  not "remove". Over the trial messages every earlier match still matches and the only new matches
-  are "move <day>'s session" for "move my session" (tests/fix-chat.test.ts). An Arabic word may carry an attached conjunction, preposition or
+  word level (N12, 30 September 2026): in a term of two or more words a term word also matches its
+  present-tense inflections (-s, -es, -ing, a dropped final e, a doubled final consonant, y to ies)
+  and a possessive "s", and a determiner inside a term ("my", "the") is a place for up to two of the
+  member's own determiners (my, our, the, this, a, next), day or time words or a day's possessive, or
+  the term's own determiner, so "move my session" matches "Can I move tomorrow's session?" and "move
+  the Tuesday session". Only the term word grows: "tired" does not match "tires", "band" not
+  "bandana", "move" not "remove". Safety review (30 September 2026): the past tense is a report, not a
+  request ("I moved my session already", "I skipped my session yesterday" match no -ed form); "move
+  her session" and "move their session" do not match "move my session"; a contraction is not a
+  possessive ("that's my session", "it's session day"); and a one-word term matches exactly ("my
+  tiredness is increasing" does not match "increase"). Over the trial messages every match of the
+  exact matcher still matches (tests/fix-chat.test.ts, tests/brain-check-safety-review.test.ts). An Arabic word may carry an attached conjunction, preposition or
   article in the request (و، ف، ب، ك، ل، ال، لل), and a term word's own article is optional, so
   "تأجيل الحصة" matches "وتأجيل الحصّة" and "تأجيل حصة الغد". Suffixes are not stripped: a trainer
   lists the forms clients write ("تأجيلها", "نأجل").

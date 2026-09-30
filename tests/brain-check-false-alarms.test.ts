@@ -336,15 +336,10 @@ test("request terms match at word level with possessives and simple inflections 
     ["Can I move tomorrow's session? My flight lands late.", "move my session"],
     ["Could I move the Tuesday session?", "move my session"],
     ["Can we move session to Friday?", "move my session"],
-    ["I moved my session already", "move my session"],
     ["Is moving my session ok?", "move my session"],
     ["Can you move my sessions this week?", "move my session"],
     ["I need to reschedule", "reschedule"],
-    ["Rescheduling tomorrow, sorry", "reschedule"],
-    ["I rescheduled my flight", "reschedule"],
     ["Can I skip tomorrow?", "skip"],
-    ["I skipped the run", "skip"],
-    ["I am skipping legs", "skip"],
     ["My coach's feedback was clear", "coach feedback"],
     ["I feel tired", "tired"],
   ];
@@ -358,6 +353,13 @@ test("request terms match at word level with possessives and simple inflections 
     ["Can I move tomorrow?", "move my session"],
     ["Move it", "move my session"],
     ["I skipper the boat", "skip"],
+    // Safety review: the past tense reports what happened, it is not a request.
+    ["I moved my session already", "move my session"],
+    ["I rescheduled my flight", "reschedule"],
+    ["I skipped the run", "skip"],
+    // A one-word term matches exactly: "increasing" describes, it does not ask.
+    ["Rescheduling tomorrow, sorry", "reschedule"],
+    ["I am skipping legs", "skip"],
   ];
   for (const [text, term] of misses) assert.equal(requestMatchesTerm(text, term), false, `${text} / ${term}`);
   // Arabic matching is unchanged.

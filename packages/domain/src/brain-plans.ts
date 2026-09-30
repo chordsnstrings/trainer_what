@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { addTrainingDays, canonicalCoaching } from "./coaching-completion.ts";
+import { safetySignal, screeningText } from "./red-flags.ts";
 import {
   continuousWork,
   EFFORTS,
@@ -14,7 +15,14 @@ import {
   type Effort,
   type PrescribedWork,
 } from "./prescription.ts";
-import { MEDICAL_ADVICE, modelCueIssues, numbersNotGrounded, proseIssues } from "./text-screen.ts";
+import {
+  givesMedicalAdvice,
+  MEDICAL_ADVICE,
+  MEMBER_MEDICAL,
+  modelCueIssues,
+  numbersNotGrounded,
+  proseIssues,
+} from "./text-screen.ts";
 
 /**
  * Trainer Brain plan generation: the model's structured output, the code
@@ -138,33 +146,59 @@ export type PlanExercise = z.infer<typeof planExerciseSchema>;
 /** The model's notes for the trainer on a plan draft or an adaptation: at most 10, each at most 300 characters. */
 export const UNCERTAINTY_LIMITS = Object.freeze({ notes: 10, characters: 300 });
 const TRIMMED_NOTE = " … [trimmed]";
+/** Safety words in a trainer note beyond the red-flag floor and medical terms. */
+const SAFETY_NOTE = new RegExp(
+  "(?:^|[^\\p{L}\\p{N}])(?:injur\\p{L}*|limitation\\p{L}*|clearance|cleared|contraindicat\\p{L}*|pregnan\\p{L}*|postpartum|post-?natal|conditions?|red[\\s-]+flags?|safety|unsafe|risk\\p{L}*|pain\\p{L}*|hurt\\p{L}*|sore\\p{L}*|chest|heart|blood\\s+pressure|dizz\\p{L}*|faint\\p{L}*|breath\\p{L}*|stop\\s+(?:the\\s+)?(?:session|exercise|training))(?![\\p{L}\\p{N}])",
+  "iu",
+);
+/** Whether a note (or the part of one that would be cut) carries a safety point for the trainer. */
+export function carriesSafetyPoint(text: string) {
+  return safetySignal(text) || MEMBER_MEDICAL.test(screeningText(text)) || SAFETY_NOTE.test(screeningText(text));
+}
 /**
  * Fits a model reply's `uncertainties` to UNCERTAINTY_LIMITS instead of
  * rejecting the whole draft over a long note: a note over 300 characters is
  * cut and ends with "… [trimmed]", and notes beyond the tenth are dropped,
- * the tenth saying how many were left out. The note text records the change
- * for the trainer; `trimmed` and `dropped` count it. Anything that is not a
- * list of strings is left for the schema to reject.
+ * the last kept note saying how many were left out. Notes with a safety point
+ * (carriesSafetyPoint) are kept before other notes, and nothing with a safety
+ * point is ever cut away: when a cut or a dropped note would hide one, the
+ * reply is left as it is (`withheld`) and the schema rejects it, as before
+ * the limits were fitted. The note text records the change for the trainer;
+ * `trimmed` and `dropped` count it. Anything that is not a list of strings is
+ * left for the schema to reject.
  */
-export function fitUncertainties<T>(reply: T): { value: T; trimmed: number; dropped: number } {
+export function fitUncertainties<T>(reply: T): { value: T; trimmed: number; dropped: number; withheld: boolean } {
+  const unchanged = (withheld: boolean) => ({ value: reply, trimmed: 0, dropped: 0, withheld });
   const notes = (reply as any)?.uncertainties;
-  if (!Array.isArray(notes) || !notes.every((n) => typeof n === "string"))
-    return { value: reply, trimmed: 0, dropped: 0 };
+  if (!Array.isArray(notes) || !notes.every((n) => typeof n === "string")) return unchanged(false);
   const { notes: most, characters } = UNCERTAINTY_LIMITS;
-  let trimmed = 0;
+  let trimmed = 0,
+    hidden = false;
   const cut = (note: string, limit: number) => {
     if (note.length <= limit) return note;
     trimmed++;
-    return note.slice(0, limit - TRIMMED_NOTE.length).trimEnd() + TRIMMED_NOTE;
+    const head = note.slice(0, limit - TRIMMED_NOTE.length).trimEnd();
+    // The cut part, with the last two words kept so a phrase split by the
+    // cut ("chest | pain") is still read whole.
+    const from = head.lastIndexOf(" ", head.lastIndexOf(" ") - 1) + 1;
+    if (carriesSafetyPoint(note.slice(from))) hidden = true;
+    return head + TRIMMED_NOTE;
   };
-  const kept: string[] = notes.slice(0, most).map((n: string) => cut(n.trim(), characters));
-  const dropped = Math.max(0, notes.length - most);
-  if (dropped) {
-    const more = ` [${dropped} more note${dropped === 1 ? "" : "s"} left out]`;
-    kept[most - 1] = cut(kept[most - 1]!, characters - more.length) + more;
+  const all: string[] = notes.map((n: string) => n.trim());
+  let chosen = all;
+  if (all.length > most) {
+    const safety = all.map((n) => carriesSafetyPoint(n));
+    const count = safety.filter(Boolean).length;
+    if (count > most) return unchanged(true);
+    let others = most - count;
+    chosen = all.filter((_, i) => safety[i] || others-- > 0);
   }
-  if (!trimmed && !dropped) return { value: reply, trimmed, dropped };
-  return { value: { ...(reply as any), uncertainties: kept }, trimmed, dropped };
+  const dropped = all.length - chosen.length;
+  const more = dropped ? ` [${dropped} more note${dropped === 1 ? "" : "s"} left out]` : "";
+  const kept = chosen.map((n, i) => (i === chosen.length - 1 && more ? cut(n, characters - more.length) + more : cut(n, characters)));
+  if (hidden) return unchanged(true);
+  if (!trimmed && !dropped) return unchanged(false);
+  return { value: { ...(reply as any), uncertainties: kept }, trimmed, dropped, withheld: false };
 }
 export type PlanSession = z.infer<typeof planSessionSchema>;
 export type PlanDraft = z.infer<typeof planDraftSchema>;
@@ -1846,6 +1880,10 @@ export function evaluationAnswerIssues(
   const issues = new Set<string>();
   for (const text of [decision.message, decision.reason])
     for (const i of proseIssues(text, MEDICAL_ADVICE)) issues.add(i);
+  // A push-through answering a request about pain ("My knee hurts." "Push
+  // through it.") is training through pain even when the answer names none.
+  for (const text of [decision.message, decision.reason])
+    if (ctx.requestText && givesMedicalAdvice(text, ctx.requestText)) issues.add("medical");
   // A restated rule must keep the rule's numbers ("add 10 kg" for a 2.5 kg
   // rule, "six sessions" for three, "twice as often"). Numbers from the
   // request, and applying the rule to them ("100 kg" and a 2.5 kg step:

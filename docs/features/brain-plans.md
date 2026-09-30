@@ -377,11 +377,16 @@ Related fixes in the legacy Brain and the digital coach (same run):
   referral such as "seek medical help" pass), links, contact numbers, approval claims and
   guarantees in the message or reason (a decoded rule UUID is not a phone number, N3; a technique
   cue such as "push through the whole foot" and a declined topic such as "I made no diagnosis" or
-  "I can't advise on supplements" are not medical advice, N4), numbers in the message that the cited rules never state
+  "I can't advise on supplements" are not medical advice, N4; a push-through with no technique
+  target fails when pain is named anywhere in the answer or in the scenario's request, "Knee pain?
+  Push through it."; a topic list ends with "or" or "and", so "I can't advise on medication,
+  painkillers will help" still fails), numbers in the message that the cited rules never state
   (`altered_numbers`: "add 10 kg" for a 2.5 kg rule, "twice as often"; "one" is not counted;
-  numbers in the scenario's request, and one request number and one rule number added, subtracted or
-  applied as a percentage step, are allowed: "100 kg" and a 2.5 kg rule give "102.5 kg"
-  (`numbersNotGrounded`, N2); a doubled number is not),
+  numbers in the scenario's request, and one request number and one rule number in the same unit
+  added or subtracted, or a rule percentage of at most 50% applied to a request number, are allowed:
+  "100 kg" and a 2.5 kg rule give "102.5 kg" (`numbersNotGrounded`, N2); the result must carry the
+  unit it was worked out in, so "100 kg" and "RIR 2" never allow "102 kg" and "four sets" never
+  becomes "six sets"; a doubled number is not allowed),
   a program on an escalation scenario, and program exercises
   outside the trainer's library, outside the rest bounds, above ten sets or above the start cap
   or one load jump over the library load. Failure reasons are stored per outcome (`issues`).
@@ -587,8 +592,11 @@ Since 30 September 2026 (branch `fix/brain-prompts`): `brain-plan-v4` and `brain
 rounding, the session-length estimate and limit, and the notes limit). The validator then became
 `brain-plan-validator-v4` (N1, weekly limit on the unrounded factor), and a plan draft or adaptation
 whose note exceeds 300 characters, or that has more than 10 notes, is trimmed (the note ends with
-"… [trimmed]"; the tenth note says how many were left out) instead of rejected (N8,
-`fitUncertainties`); plan qualifications need a new run. See
+"… [trimmed]"; the last kept note says how many were left out) instead of rejected (N8,
+`fitUncertainties`). A note with a safety point (`carriesSafetyPoint`: the red-flag floor, medical
+terms, injury, pregnancy, pain, clearance and similar words) is kept before other notes, and when a
+cut or a dropped note would still hide one the reply is left whole and rejected, as before; plan
+qualifications need a new run. See
 `docs/features/brain-prompt-tuning.md`.
 
 ### Tests
