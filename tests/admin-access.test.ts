@@ -35,7 +35,7 @@ test("host admin access lists, creates and resets without printing the password"
     await run("create", { ADMIN_ACCESS_EMAIL: second }, createPassword);
     const [made] = await db.system((tx) =>
       tx.query(
-        "SELECT u.*,m.role,t.name AS tenant_name FROM users u JOIN memberships m ON m.user_id=u.id JOIN tenants t ON t.id=m.tenant_id WHERE u.email=$1",
+        "SELECT u.*,m.role,m.tenant_id,t.name AS tenant_name FROM users u JOIN memberships m ON m.user_id=u.id JOIN tenants t ON t.id=m.tenant_id WHERE u.email=$1",
         [second.toLowerCase()],
       ),
     );
@@ -126,12 +126,19 @@ test("host admin access lists, creates and resets without printing the password"
       ],
     );
     assert.equal(audit[1].data.sessionsRevoked, 2);
-    const events = await db.system((tx) =>
-      tx.query(
-        "SELECT name FROM events WHERE subject_id IN ($1,$2) AND data->>'reason'=$3 ORDER BY name",
-        [made.id, existing.userId, HOST_RECOVERY],
-      ),
-    );
+    // Events are workspace data: read each through its own workspace scope,
+    // as the restricted runtime role requires.
+    const eventsIn = (tenantId: string, userId: string) =>
+      db.tenant({ tenantId, userId, role: "owner" }, (tx) =>
+        tx.query(
+          "SELECT name FROM events WHERE subject_id=$1 AND data->>'reason'=$2",
+          [userId, HOST_RECOVERY],
+        ),
+      );
+    const events = [
+      ...(await eventsIn(made.tenant_id, made.id)),
+      ...(await eventsIn(existing.tenantId, existing.userId)),
+    ].sort((a, b) => String(a.name).localeCompare(String(b.name)));
     assert.deepEqual(
       events.map((row) => row.name),
       ["platform.admin_recovered", "security.password_recovered"],
