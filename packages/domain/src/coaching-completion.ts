@@ -214,28 +214,67 @@ export function writtenInArabic(text: string) {
 const arabicClitic = "(?:[وف]?(?:[بك]?ال|لل|[بلك])?)";
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 /**
+ * Determiners and possessives an English term may be written with: "move my
+ * session" also reads "move tomorrow's session", "move the Tuesday session"
+ * and "move session". In the folded text a possessive is a word followed by
+ * "s" ("tomorrow s"); at most two such words fill the place.
+ */
+const TERM_DETERMINERS = new Set(["my", "your", "the", "this", "that", "our", "his", "her", "their", "a", "an"]);
+const determinerSlot =
+  "(?:(?:my|your|the|this|that|these|those|our|his|her|their|a|an|next|today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|morning|evening|\\p{L}+ s) ){0,2}";
+/**
+ * An English term word and its simple inflections: -s, -es, -ed, -ing, a
+ * final e dropped (move: moves, moved, moving), a final consonant doubled
+ * (skip: skipped, skipping) and y to ies/ied (carry: carries, carried).
+ * Only the term word grows; the request word is never cut down, so "tired"
+ * does not read "tires" and "band" does not read "bandana". A possessive "s"
+ * may follow ("coach's"). Words under three letters and words with digits
+ * match exactly.
+ */
+function englishWordPattern(word: string) {
+  if (word.length < 3 || !/^\p{Script=Latin}+$/u.test(word)) return escapeRegExp(word);
+  const forms = new Set([word, word + "s", word + "es", word + "ed", word + "ing"]);
+  if (word.endsWith("e")) {
+    forms.add(word + "d");
+    forms.add(word.slice(0, -1) + "ing");
+  }
+  if (/[^aeiou]y$/.test(word)) {
+    forms.add(word.slice(0, -1) + "ies");
+    forms.add(word.slice(0, -1) + "ied");
+  }
+  if (/(?:^|[^aeiou])[aeiou][b-df-hj-np-tvz]$/.test(word)) {
+    forms.add(word + word.at(-1) + "ed");
+    forms.add(word + word.at(-1) + "ing");
+  }
+  return "(?:" + [...forms].map(escapeRegExp).join("|") + ")(?: s)?";
+}
+/**
  * A request term as a whole-word pattern over coachingTermText(). English
- * words must match exactly. An Arabic word may carry an attached clitic in
- * the request, and a term word's own article is optional (the term "تأجيل
- * الحصة" matches "تأجيل حصة الغد"). A term that folds to empty text never
- * matches anything.
+ * words match at word level: simple inflections, a possessive "s", and any
+ * determiner or possessive in place of the term's own ("my", "the"; see
+ * englishWordPattern and determinerSlot). An Arabic word may carry an
+ * attached clitic in the request, and a term word's own article is optional
+ * (the term "تأجيل الحصة" matches "تأجيل حصة الغد"). A term that folds to
+ * empty text never matches anything.
  */
 function requestTermPattern(term: string) {
   const words = coachingTermText(term).split(" ").filter(Boolean);
   if (!words.length) return null;
-  return new RegExp(
-    " " +
-      words
-        .map((word) => {
-          if (!arabicLetter.test(word)) return escapeRegExp(word);
-          const stem =
-            word.startsWith("ال") && word.length >= 5 ? word.slice(2) : word;
-          return arabicClitic + escapeRegExp(stem);
-        })
-        .join(" ") +
-      "(?= )",
-    "u",
-  );
+  let source = " ";
+  words.forEach((word, i) => {
+    const last = i === words.length - 1;
+    // A determiner between two words of the term is a place, not a word.
+    if (!last && i > 0 && TERM_DETERMINERS.has(word)) {
+      source += determinerSlot;
+      return;
+    }
+    if (arabicLetter.test(word)) {
+      const stem = word.startsWith("ال") && word.length >= 5 ? word.slice(2) : word;
+      source += arabicClitic + escapeRegExp(stem);
+    } else source += englishWordPattern(word);
+    if (!last) source += " ";
+  });
+  return new RegExp(source + "(?= )", "u");
 }
 export function requestMatchesTerm(request: string, term: string) {
   const pattern = requestTermPattern(term);

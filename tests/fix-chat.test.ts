@@ -240,24 +240,33 @@ test("a term that folds to empty text never matches, and new actions cannot save
   );
 });
 
-test("English and code-switching trial messages are matched exactly as before", () => {
+test("English and code-switching trial messages match as before, plus possessive day sessions (N12)", () => {
+  // Every literal match still matches. Word-level matching (N12) adds only
+  // "move <day>'s session" for the term "move my session"; no other trial
+  // message and term pair changes.
   let compared = 0;
+  const added: string[] = [];
   for (const m of trialMembers)
-    for (const text of m.chats) {
+    for (const [i, text] of m.chats.entries()) {
       if (/\p{Script=Arabic}/u.test(text)) continue;
       for (const t of ["T1", "T2", "T3"] as const)
         for (const a of trialActions[t])
           for (const term of a.data.requestTerms as string[]) {
             if (/\p{Script=Arabic}/u.test(term)) continue;
             compared++;
-            assert.equal(
-              requestMatchesTerm(text, term),
-              legacyMatch(text, term),
-              `${m.key}: ${term}`,
-            );
+            const now = requestMatchesTerm(text, term),
+              was = legacyMatch(text, term);
+            if (was) assert.equal(now, true, `${m.key}: ${term}`);
+            else if (now) added.push(`${m.key}/chat${i + 1}: ${term}`);
           }
     }
   assert.ok(compared > 1000);
+  assert.deepEqual(
+    [...new Set(added)].sort(),
+    ["T1S04/chat2", "T1S05/chat1", "T2S02/chat3", "T2S07/chat3", "T3S03/chat2"].map(
+      (k) => `${k}: move my session`,
+    ),
+  );
   // Code-switching (T2S08): the English phrase still selects the action and
   // the member, who wrote mostly English, gets the trainer's reply.
   assert.deepEqual(eligible("T2S08", message("T2S08/chat1")), ["progress"]);

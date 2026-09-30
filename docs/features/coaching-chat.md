@@ -97,8 +97,14 @@ chat that cut every model's score:
   or preposition to the English word ("الـband", "بالband", "للـsession" read as "ال band",
   "بال band", "لل session"). Checked for every English term against every non-Arabic trial
   message, and for glued examples (none of the 96 trial messages glues the two scripts).
-- `requestMatchesTerm()`: a term that folds to empty text never matches. English words match
-  exactly (whole words, as before). An Arabic word may carry an attached conjunction, preposition or
+- `requestMatchesTerm()`: a term that folds to empty text never matches. English words match at
+  word level (N12, 30 September 2026): a term word also matches its simple inflections (-s, -es,
+  -ed, -ing, a dropped final e, a doubled final consonant, y to ies/ied) and a possessive "s", and a
+  determiner inside a term ("my", "the") is a place for up to two determiners, day words or
+  possessives, so "move my session" matches "Can I move tomorrow's session?" and "move the Tuesday
+  session". Only the term word grows: "tired" does not match "tires", "band" not "bandana", "move"
+  not "remove". Over the trial messages every earlier match still matches and the only new matches
+  are "move <day>'s session" for "move my session" (tests/fix-chat.test.ts). An Arabic word may carry an attached conjunction, preposition or
   article in the request (و، ف، ب، ك، ل، ال، لل), and a term word's own article is optional, so
   "تأجيل الحصة" matches "وتأجيل الحصّة" and "تأجيل حصة الغد". Suffixes are not stripped: a trainer
   lists the forms clients write ("تأجيلها", "نأجل").

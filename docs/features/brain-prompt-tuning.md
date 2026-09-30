@@ -81,8 +81,11 @@ versions stay `coach-decision-v2`, `coach-action-selector-v4`, `brain-plan-v4` a
 
 ## Not done here
 
-- Rule compile (P11, shorter fields) was not changed: it was proposed only together with a longer
-  compile budget (N7), which is not part of this branch, and it risks losing detail in captured rules.
+- Rule compile (P11, shorter fields) was not changed: it risks losing detail in captured rules. The
+  app side of N7 was done afterwards on this branch: short source references in `compileTrainerRules`
+  (`rule-compile-v2`) and per-model-family time allowances (`MODEL_FAMILY_TIMEOUT_MS` in
+  `packages/providers/src/model-accounting.ts`: 30 s by default for rule compile and meal photo,
+  90 s and 60 s for the Seed family).
 - A code check for session order on moves (N11) was not added. The only generic check the facts
   allow is "a moved session never borders another planned session". In the trial it would stop all
   four development tasks that expect an automatic move (members training three or four days a week),

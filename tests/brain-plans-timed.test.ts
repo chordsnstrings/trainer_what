@@ -32,6 +32,7 @@ import {
   sessionMinutes,
   validateAdaptedWeek,
   validatePlan,
+  ROUNDING_UNIT,
   type ExpandedExercise,
   type PlanBounds,
   type PlanDraft,
@@ -346,10 +347,10 @@ test("the session-length estimate and note limits the plan prompts state are the
   assert.equal(notes.safeParse(["x".repeat(301)]).success, false);
 });
 
-test("versions changed with the contract: plan prompt v4, adaptation prompt v3, validator v3", () => {
+test("versions changed with the contract: plan prompt v4, adaptation prompt v3, validator v4 (N1)", () => {
   assert.equal(planPromptVersion, "brain-plan-v4");
   assert.equal(planAdaptationPromptVersion, "brain-plan-adapt-v3");
-  assert.equal(planValidatorVersion, "brain-plan-validator-v3");
+  assert.equal(planValidatorVersion, "brain-plan-validator-v4");
 });
 
 test("an exercise is prescribed by exactly one of reps, a duration or a distance; rest 0 only for one continuous bout", () => {
@@ -2442,4 +2443,91 @@ test("review regression (Opus T2S03, trial T3 template): walks, intervals and ho
     ),
     v.warnings.join("\n"),
   );
+});
+
+// ---------------------------------------------------------------------------
+// N1 (model trial, 30 September 2026): the weekly limit is checked on the
+// unrounded volume factor. Rounding (whole sets, 5 s per round) made factor
+// steps inside the limit fail: 1.05 -> 1.1 on 30 s holds is 30 -> 35 s, and
+// 1.1 -> 1.2 on three sets is 3 -> 4 sets.
+
+/** Short holds in one session and three-set strength work in another. */
+const roundingPlan = (factors: number[]): PlanDraft =>
+  planDraftSchema.parse({
+    ...runWalkPlan(),
+    sessions: [
+      {
+        key: "A",
+        label: "Core and conditioning",
+        weekday: 1,
+        exercises: [
+          ex("Plank", { sets: 3, durationSeconds: 30, rir: 2, restSeconds: 45 }),
+          ex("Jump Rope", { sets: 3, durationSeconds: 30, rir: 2, restSeconds: 45 }),
+          ex("Low-Impact Step Jacks", { sets: 3, durationSeconds: 30, rir: 2, restSeconds: 45 }),
+        ],
+      },
+      {
+        key: "B",
+        label: "Strength",
+        weekday: 3,
+        exercises: [
+          ex("Goblet Squat", { sets: 3, reps: 12, loadKg: 10, rir: 2, restSeconds: 60 }),
+          ex("Push-Up", { sets: 3, reps: 8, rir: 2, restSeconds: 60 }),
+          ex("Glute Bridge", { sets: 3, reps: 12, rir: 2, restSeconds: 60 }),
+        ],
+      },
+    ],
+    weeks: weeks(factors),
+  });
+const rises = (draft: PlanDraft) => validatePlan(draft, ctx).errors.filter((e) => /rises from/.test(e));
+
+test("a volume factor step inside the weekly limit passes after rounding (N1)", () => {
+  // 1.05 -> 1.1 (+4.8%): the holds round from 30 s to 35 s (weekly 4 min 30 s
+  // -> 5 min 15 s). 1.1 -> 1.2 (+9.1%): three sets round to four (9 -> 12).
+  const draft = roundingPlan([1.05, 1.1, 1.2, 0.7]);
+  const [, w2, w3] = expandPlan(draft);
+  assert.equal(w2!.sessions[0]!.exercises[0]!.durationSeconds, 35);
+  assert.equal(w3!.sessions[1]!.exercises[0]!.sets, 4);
+  assert.deepEqual(rises(draft), []);
+});
+
+test("a volume factor step over the weekly limit still fails (N1)", () => {
+  // 1.0 -> 1.2 is +20% before rounding.
+  const errors = rises(roundingPlan([1, 1.2, 1.2, 0.7]));
+  assert.ok(errors.some((e) => /^Week 2: weekly volume rises from 9 to 12 sets/.test(e)), errors.join("\n"));
+  assert.ok(errors.some((e) => /^Week 2: weekly timed work rises/.test(e)), errors.join("\n"));
+  // The trial's run-walk plan with a +15% step still fails.
+  assert.ok(rises(runWalkPlan([1, 1.15, 1.15, 0.7])).length > 0);
+});
+
+test("a rounded rise never exceeds the limit by more than one rounding unit per exercise (N1)", () => {
+  const pct = T3_BOUNDS.maxWeeklyVolumeIncreasePct;
+  let checked = 0;
+  for (let f = 0.6; f <= 1.45; f += 0.05)
+    for (const step of [1, 1.03, 1.05, 1.08, 1.09]) {
+      const first = Math.round(f * 100) / 100,
+        second = Math.min(1.6, Math.floor(first * step * 1000) / 1000);
+      const draft = roundingPlan([first, second, second, 0.7]);
+      if (rises(draft).length) continue;
+      checked++;
+      const [a, b] = expandPlan(draft);
+      a!.sessions.forEach((s, si) =>
+        s.exercises.forEach((e, ei) => {
+          const n = b!.sessions[si]!.exercises[ei]!;
+          if (e.durationSeconds !== undefined) {
+            const was = e.sets * e.durationSeconds,
+              now = n.sets * n.durationSeconds!;
+            assert.ok(
+              now - was <= Math.max(30, Math.floor((was * pct) / 100)) + ROUNDING_UNIT.seconds * e.sets,
+              `${first} -> ${second}: ${e.name} ${was} -> ${now}`,
+            );
+          } else
+            assert.ok(
+              n.sets - e.sets <= Math.max(1, Math.floor((e.sets * pct) / 100)) + ROUNDING_UNIT.sets,
+              `${first} -> ${second}: ${e.name} ${e.sets} -> ${n.sets}`,
+            );
+        }),
+      );
+    }
+  assert.ok(checked > 50, `checked ${checked}`);
 });

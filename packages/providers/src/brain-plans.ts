@@ -5,6 +5,7 @@ import {
 } from "../../domain/src/coaching-completion.ts";
 import {
   adaptationProposalSchema,
+  fitUncertainties,
   normalizeTerm,
   planAdaptationPromptVersion,
   planConfidenceVersion,
@@ -415,7 +416,9 @@ export async function generateTrainingPlan(
     budget.timeoutMs,
   );
   const reply = decodeReply(refs, unwrapReply(content, "sessions"), "plan", ["uncertainties"]);
-  const parsed = reply.errors.length ? null : planDraftSchema.safeParse(reply.value);
+  // A long note (references are expanded to full identifiers when decoded)
+  // is trimmed, not a reason to reject the draft.
+  const parsed = reply.errors.length ? null : planDraftSchema.safeParse(fitUncertainties(reply.value).value);
   // Member-facing wording never carries an identifier.
   const leaked = parsed?.success
     ? [
@@ -463,7 +466,7 @@ export async function proposePlanAdaptation(
   });
   const { content, usage } = await complete(planAdaptationSystem(), refs, 3000, accounting);
   const reply = decodeReply(refs, unwrapReply(content, "changes"), "proposal", ["reason", "uncertainties"]);
-  const parsed = reply.errors.length ? null : adaptationProposalSchema.safeParse(reply.value);
+  const parsed = reply.errors.length ? null : adaptationProposalSchema.safeParse(fitUncertainties(reply.value).value);
   const errors = reply.errors.length
     ? reply.errors
     : !parsed!.success

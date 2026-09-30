@@ -124,18 +124,87 @@ export const APPROVAL = word(
 export const GUARANTEE = word(
   "100\\s*%|guarantee\\p{L}*|no\\s+need\\s+to\\s+(?:check|ask|tell|consult|involve)|(?:do\\s+not|don't|dont|never)\\s+(?:need\\s+to\\s+)?(?:check|ask|tell|consult|involve)\\s+(?:with\\s+)?(?:your\\s+|the\\s+)?(?:coach|trainer)|(?:i\\s+am|i'm)\\s+(?:completely\\s+|absolutely\\s+)?(?:certain|sure)|definitely\\s+will|cannot\\s+fail|can't\\s+fail",
 );
-/**
- * Advice only a clinician gives: medicines, doses, diagnoses and treatment.
- * Narrower than MEDICAL, so a safe referral ("stop and seek medical help",
- * "see a doctor") in an escalation or a safety rule still passes.
- */
-export const MEDICAL_ADVICE = word(
-  "diagnos\\p{L}*|medicines?|medications?|doses?|dosage|ibuprofen|paracetamol|acetaminophen|aspirin|painkillers?|pills?|supplements?|anti-?inflammator\\p{L}*|salbutamol|inhalers?|puffs?|milligrams?|\\d+\\s*mg|injections?|cures?|push\\s+through|through\\s+the\\s+(?:pain|discomfort)|ignore\\s+(?:the\\s+|your\\s+|any\\s+)?(?:pain|ache|symptoms?|dizz\\p{L}*|chest)|no\\s+pain\\s*,?\\s*no\\s+gain|tough\\s+it\\s+out|shake\\s+it\\s+off|(?:is|are)\\s+(?:usually|probably|likely|just)\\s+(?:exercise-?induced\\s+)?(?:asthma|tendin\\p{L}*|arthrit\\p{L}*|a\\s+strain|nothing|normal)",
+/** Anything with a `test(text)` method: a RegExp or a screen built from several. */
+export type TextTest = { test(text: string): boolean };
+/** Clinician-only terms: medicines, doses, diagnoses, treatment, training through symptoms. */
+const MEDICAL_ADVICE_TERMS = word(
+  "diagnos\\p{L}*|medicines?|medications?|doses?|dosage|ibuprofen|paracetamol|acetaminophen|aspirin|painkillers?|pills?|supplements?|anti-?inflammator\\p{L}*|salbutamol|inhalers?|puffs?|milligrams?|\\d+\\s*mg|injections?|cures?|through\\s+the\\s+(?:pain|discomfort)|ignore\\s+(?:the\\s+|your\\s+|any\\s+)?(?:pain|ache|symptoms?|dizz\\p{L}*|chest)|no\\s+pain\\s*,?\\s*no\\s+gain|tough\\s+it\\s+out|shake\\s+it\\s+off|(?:is|are)\\s+(?:usually|probably|likely|just)\\s+(?:exercise-?induced\\s+)?(?:asthma|tendin\\p{L}*|arthrit\\p{L}*|a\\s+strain|nothing|normal)",
 );
+/**
+ * "Push through" is a technique cue ("push through the whole foot", "push
+ * through your heels") unless its sentence is about pain or a symptom ("push
+ * through the pain", "if it hurts, push through it").
+ */
+const PUSH_THROUGH = word("push(?:es|ing)?\\s+through");
+const PAIN_CONTEXT = word(
+  "pain\\p{L}*|discomfort|hurts?|hurting|aches?|aching|sore\\p{L}*|injur\\p{L}*|twinges?|niggles?|sharp|symptoms?|dizz\\p{L}*|numb\\p{L}*|tingl\\p{L}*|swell\\p{L}*|swollen",
+);
+/**
+ * Wording that names a clinician-only topic only to decline it or to say it
+ * is absent: "I made no diagnosis", "I can't advise on supplements or
+ * medication", "supplements are outside what I can advise on", "no diagnosis
+ * was given", "never give supplement advice", "don't push through the pain",
+ * "never ignore chest pain". Only
+ * the generic topic words are covered, so a named medicine ("I can't advise
+ * on ibuprofen") and everything else in the sentence are still screened.
+ */
+const TOPIC = "(?:diagnos\\p{L}*|medicines?|medications?|doses?|dosage|supplements?|painkillers?|pills?|injections?)";
+const TOPICS = `(?:medical\\s+)?${TOPIC}(?:\\s*(?:,|/|\\bor\\b|\\band\\b)\\s*(?:any\\s+|a\\s+|other\\s+)?${TOPIC})*(?:\\s+(?:advice|questions?))?`;
+// The subject may be carried over: "I made no diagnosis and can't advise on supplements".
+const CANNOT =
+  "(?:(?:i|we)(?:\\s+am|'m|\\s+are|'re)?|and)\\s+(?:can't|cannot|can\\s+not|won't|will\\s+not|not\\s+able\\s+to|unable\\s+to|not\\s+allowed\\s+to|not\\s+qualified\\s+to|not\\s+in\\s+a\\s+position\\s+to)";
+const DECLINE_VERB = "(?:advise|comment|speak|help|recommend|suggest|prescribe|give|offer|provide|make)";
+const NEGATED = "(?:don't|dont|do\\s+not|never|shouldn't|should\\s+not|no\\s+need\\s+to)";
+const DISCLAIMER = new RegExp(
+  B +
+    "(?:" +
+    // "I made no diagnosis", "we gave no supplement advice"
+    `(?:i|we)(?:\\s+have|'ve)?\\s+(?:made|make|gave|give|given|offered|offer)\\s+no\\s+${TOPICS}` +
+    // "I can't advise on supplements", "I won't diagnose", "I'm unable to give you medication advice"
+    `|${CANNOT}\\s+(?:${TOPICS}|${DECLINE_VERB}(?:\\s+(?:on|about|regarding|with|for|you|any|a|an|the|your|specific|medical|advice|guidance))*\\s+${TOPICS})` +
+    // "Supplements are outside what I can advise on", "medication questions are beyond my role"
+    `|${TOPICS}\\s+(?:is|are)\\s+(?:outside|beyond)\\s+(?:what\\s+(?:i|we)\\s+can|my\\s+(?:scope|role|remit)|our\\s+(?:scope|role|remit))` +
+    // "No diagnosis or medication advice was given"
+    `|no\\s+${TOPICS}(?:\\s+(?:was|were|has\\s+been|have\\s+been|is|are))?\\s+(?:made|given|offered|included|provided)` +
+    // "This is not a diagnosis"
+    "|(?:this|that|it)(?:\\s+is\\s+not|\\s+isn't|'s\\s+not)\\s+(?:a\\s+)?diagnos\\p{L}*" +
+    // A rule against advice: "Never give supplement or medication advice"
+    `|${NEGATED}\\s+(?:give|offer|provide|recommend|suggest|prescribe)(?:\\s+(?:any|a|an|the|you|your|specific))*\\s+${TOPICS}` +
+    // "Don't push through the pain", "never ignore chest pain"
+    `|${NEGATED}\\s+(?:(?:just|try\\s+to|ever|simply)\\s+)?(?:push(?:es|ing)?\\s+through(?:\\s+(?:it|this|that|(?:the|your|any)\\s+(?:pain|discomfort|ache)))?|(?:train|work|keep\\s+going|carry\\s+on)\\s+through\\s+the\\s+(?:pain|discomfort)|ignore\\s+(?:the\\s+|your\\s+|any\\s+)?(?:pain|ache|symptoms?|dizz\\p{L}*|chest(?:\\s+pain)?))` +
+    ")" +
+    E,
+  "giu",
+);
+/**
+ * Advice only a clinician gives: medicines, doses, diagnoses and treatment,
+ * or training through pain. Narrower than MEDICAL, so a safe referral ("stop
+ * and seek medical help", "see a doctor") in an escalation or a safety rule
+ * still passes, and so do a technique cue ("push through the whole foot") and
+ * a declined topic ("I made no diagnosis", "I can't advise on supplements").
+ * Screened sentence by sentence: anything else in a sentence that declines a
+ * topic is still screened.
+ */
+export function givesMedicalAdvice(text: string) {
+  const folded = screeningText(String(text ?? ""));
+  for (const sentence of folded.split(/[.!?;:\n]+/)) {
+    const rest = sentence.replace(DISCLAIMER, " ");
+    if (MEDICAL_ADVICE_TERMS.test(rest)) return true;
+    if (PUSH_THROUGH.test(rest) && PAIN_CONTEXT.test(sentence)) return true;
+  }
+  return false;
+}
+export const MEDICAL_ADVICE: TextTest = { test: givesMedicalAdvice };
 const ISO_DATE = /\d{4}-\d{2}-\d{2}(?:T[\d:.]+Z?)?/g;
+/**
+ * A record identifier (UUID) in model text, typically a rule id decoded from a
+ * short reference. Its digit runs are not a phone number. At least one hex
+ * letter is required, so a digits-only string in UUID shape is still screened.
+ */
+const UUID = /(?<![\p{L}\p{N}-])(?=[0-9a-f-]*[a-f])[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![\p{L}\p{N}-])/giu;
 /** A phone number: nine or more digits in one run of digits, spaces, dots, dashes and brackets. */
 export function hasContactNumber(text: string) {
-  const value = String(text ?? "").replace(ISO_DATE, " ");
+  const value = String(text ?? "").replace(ISO_DATE, " ").replace(UUID, " ");
   for (const m of value.matchAll(/\+?\(?\d[\d\s().-]{7,}\d/g))
     if ((m[0].match(/\d/g) ?? []).length >= 9) return true;
   return false;
@@ -146,7 +215,7 @@ export type ProseIssue = "link" | "medical" | "approval_claim" | "contact" | "gu
  * focus or session label). Red-flag terms are not screened here: "stop and
  * message your coach for sharp joint pain" is a safe instruction.
  */
-export function proseIssues(text: string, medical: RegExp = MEMBER_MEDICAL): ProseIssue[] {
+export function proseIssues(text: string, medical: TextTest = MEMBER_MEDICAL): ProseIssue[] {
   const value = String(text ?? "");
   const folded = screeningText(value);
   const issues: ProseIssue[] = [];
@@ -221,3 +290,28 @@ export const numbersNotIn = (text: string, source: string) => {
   const allowed = statedNumbers(source);
   return [...statedNumbers(text)].filter((n) => !allowed.has(n));
 };
+/**
+ * Numbers in `text` that are not grounded in its source (the cited rules) or
+ * the request it answers: stated in either, or a simple result of one request
+ * number and one rule number (their sum or difference, or the request number
+ * stepped up or down by the rule number as a percentage). "100 kg" and a
+ * 2.5 kg rule allow 102.5 and 97.5; "80 kg" and a 5% rule allow 84 and 76;
+ * "five weeks" and a 12-week rule allow 7. A number doubled ("six sessions"
+ * for three) is not a simple result, and any other new number is returned.
+ */
+export function numbersNotGrounded(text: string, source: string, request: string) {
+  const rule = statedNumbers(source),
+    asked = statedNumbers(request);
+  const key = (n: number) => String(Math.round(n * 1000) / 1000);
+  const allowed = new Set([...rule, ...asked]);
+  for (const r of asked)
+    for (const q of rule) {
+      const a = Number(r),
+        b = Number(q);
+      if (!Number.isFinite(a) || !Number.isFinite(b)) continue;
+      const results = [a - b, b - a, a * (1 + b / 100), a * (1 - b / 100)];
+      if (a !== b) results.push(a + b);
+      for (const v of results) if (v > 0) allowed.add(key(v));
+    }
+  return [...statedNumbers(text)].filter((n) => !allowed.has(n) && !allowed.has(key(Number(n))));
+}

@@ -1607,6 +1607,7 @@ export async function buildApp(
         citedText: cited
           .map((r) => [r.data.title, r.data.condition, r.data.directive].join(". "))
           .join(" "),
+        requestText: String(c.data.prompt ?? ""),
       });
       outcomes.push({
         scenarioId: c.id,

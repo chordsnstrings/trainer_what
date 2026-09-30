@@ -66,6 +66,35 @@ const tokens = (value: unknown): number | null =>
     ? value
     : null;
 
+/** Model calls whose time allowance does not grow with a size-based budget. */
+export type TimedModelTask = "rule_compile" | "meal_photo";
+/** The time allowed for these calls with the current models. */
+export const MODEL_CALL_TIMEOUT_MS: Readonly<Record<TimedModelTask, number>> = Object.freeze({
+  rule_compile: 30000,
+  meal_photo: 30000,
+});
+/**
+ * Slower model families and the time they need for these calls, matched on
+ * the configured model name as a whole word. ModelArk Seed 2.0 Pro needed
+ * 46 to 56 s to compile rules and 37 s for a meal photo in the model trial
+ * (30 September 2026), so both allowances leave room over that.
+ */
+export const MODEL_FAMILY_TIMEOUT_MS: ReadonlyArray<{
+  family: string;
+  pattern: RegExp;
+  timeoutMs: Readonly<Partial<Record<TimedModelTask, number>>>;
+}> = Object.freeze([
+  {
+    family: "seed",
+    pattern: /(?:^|[^a-z0-9])seed(?:[^a-z0-9]|$)/i,
+    timeoutMs: Object.freeze({ rule_compile: 90000, meal_photo: 60000 }),
+  },
+]);
+/** The time allowed for one `task` call to `model`: its family's allowance, else the default. */
+export function modelCallTimeoutMs(task: TimedModelTask, model: string | null | undefined) {
+  const family = MODEL_FAMILY_TIMEOUT_MS.find((f) => f.pattern.test(String(model ?? "")));
+  return family?.timeoutMs[task] ?? MODEL_CALL_TIMEOUT_MS[task];
+}
 // Accounting is mandatory and starts immediately before sending, after local validation.
 // Response accounting finishes before any model-authored content is parsed or persisted.
 export async function modelCompletion(

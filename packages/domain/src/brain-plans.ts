@@ -14,7 +14,7 @@ import {
   type Effort,
   type PrescribedWork,
 } from "./prescription.ts";
-import { MEDICAL_ADVICE, modelCueIssues, numbersNotIn, proseIssues } from "./text-screen.ts";
+import { MEDICAL_ADVICE, modelCueIssues, numbersNotGrounded, proseIssues } from "./text-screen.ts";
 
 /**
  * Trainer Brain plan generation: the model's structured output, the code
@@ -43,7 +43,10 @@ export const planPromptVersion = "brain-plan-v4";
 export const planAdaptationPromptVersion = "brain-plan-adapt-v3";
 // v3: time and distance prescriptions, rest 0 only for one continuous bout,
 // weekly and per-exercise timed-work and distance progression caps.
-export const planValidatorVersion = "brain-plan-validator-v3";
+// v4 (N1, 30 September 2026): within a draft the weekly limit is checked on
+// the unrounded volume factor; the rounded rise may exceed it by at most one
+// rounding unit per exercise (one set, 5 s or 10 m per round).
+export const planValidatorVersion = "brain-plan-validator-v4";
 export const planConfidenceVersion = "brain-plan-confidence-v1";
 export const planRouteVersion = "brain-plan-route-v2";
 
@@ -132,6 +135,37 @@ export const planDraftSchema = z
   })
   .strict();
 export type PlanExercise = z.infer<typeof planExerciseSchema>;
+/** The model's notes for the trainer on a plan draft or an adaptation: at most 10, each at most 300 characters. */
+export const UNCERTAINTY_LIMITS = Object.freeze({ notes: 10, characters: 300 });
+const TRIMMED_NOTE = " … [trimmed]";
+/**
+ * Fits a model reply's `uncertainties` to UNCERTAINTY_LIMITS instead of
+ * rejecting the whole draft over a long note: a note over 300 characters is
+ * cut and ends with "… [trimmed]", and notes beyond the tenth are dropped,
+ * the tenth saying how many were left out. The note text records the change
+ * for the trainer; `trimmed` and `dropped` count it. Anything that is not a
+ * list of strings is left for the schema to reject.
+ */
+export function fitUncertainties<T>(reply: T): { value: T; trimmed: number; dropped: number } {
+  const notes = (reply as any)?.uncertainties;
+  if (!Array.isArray(notes) || !notes.every((n) => typeof n === "string"))
+    return { value: reply, trimmed: 0, dropped: 0 };
+  const { notes: most, characters } = UNCERTAINTY_LIMITS;
+  let trimmed = 0;
+  const cut = (note: string, limit: number) => {
+    if (note.length <= limit) return note;
+    trimmed++;
+    return note.slice(0, limit - TRIMMED_NOTE.length).trimEnd() + TRIMMED_NOTE;
+  };
+  const kept: string[] = notes.slice(0, most).map((n: string) => cut(n.trim(), characters));
+  const dropped = Math.max(0, notes.length - most);
+  if (dropped) {
+    const more = ` [${dropped} more note${dropped === 1 ? "" : "s"} left out]`;
+    kept[most - 1] = cut(kept[most - 1]!, characters - more.length) + more;
+  }
+  if (!trimmed && !dropped) return { value: reply, trimmed, dropped };
+  return { value: { ...(reply as any), uncertainties: kept }, trimmed, dropped };
+}
 export type PlanSession = z.infer<typeof planSessionSchema>;
 export type PlanDraft = z.infer<typeof planDraftSchema>;
 
@@ -434,11 +468,17 @@ export function workFields(e: {
     ...(e.effort && (EFFORTS as readonly string[]).includes(e.effort) ? { effort: e.effort as Effort } : {}),
   };
 }
-/** A week's volume factor on timed work (to 5 s) and distance (to 10 m); an unscaled week keeps the exact value. */
-const scaledSeconds = (v: number, f: number) =>
-  f === 1 ? v : Math.min(WORK_LIMITS.maxDurationSeconds, Math.max(5, Math.round((v * f) / 5) * 5));
-const scaledMeters = (v: number, f: number) =>
-  f === 1 ? v : Math.min(WORK_LIMITS.maxDistanceMeters, Math.max(10, Math.round((v * f) / 10) * 10));
+/** Rounding steps of a scaled week: whole sets, 5 s of timed work and 10 m of distance per round. */
+export const ROUNDING_UNIT = Object.freeze({ sets: 1, seconds: 5, meters: 10 });
+/**
+ * A week's volume factor on timed work (to 5 s) and distance (to 10 m); an
+ * unscaled week keeps the exact value. `exact` skips the rounding (the
+ * progression limit is checked on the unrounded factor).
+ */
+const scaledSeconds = (v: number, f: number, exact = false) =>
+  f === 1 ? v : Math.min(WORK_LIMITS.maxDurationSeconds, Math.max(5, exact ? v * f : Math.round((v * f) / 5) * 5));
+const scaledMeters = (v: number, f: number, exact = false) =>
+  f === 1 ? v : Math.min(WORK_LIMITS.maxDistanceMeters, Math.max(10, exact ? v * f : Math.round((v * f) / 10) * 10));
 export type ExpandedSession = {
   key: string;
   label: string;
@@ -456,8 +496,11 @@ const halfKg = (v: number) => Math.round(v * 2) / 2;
  * A week of the draft. The week's volume factor scales the sets of rep work
  * and the work of each round of timed or distance work (its duration or
  * distance; the number of rounds stays); the load factor scales loads.
+ * `unrounded` keeps fractional sets, seconds and metres: what the factor
+ * asks for before rounding, used only to check the weekly progression limit.
  */
-export function expandPlan(draft: PlanDraft): ExpandedWeek[] {
+export function expandPlan(draft: PlanDraft, options: { unrounded?: boolean } = {}): ExpandedWeek[] {
+  const exact = options.unrounded === true;
   return draft.weeks.map((w) => ({
     week: w.week,
     focus: w.focus,
@@ -470,10 +513,15 @@ export function expandPlan(draft: PlanDraft): ExpandedWeek[] {
         const measure = workMeasure(e);
         return {
           name: e.name,
-          sets: measure === "reps" ? Math.max(1, Math.round(e.sets * w.volumeFactor)) : e.sets,
+          sets:
+            measure === "reps"
+              ? exact
+                ? e.sets * w.volumeFactor
+                : Math.max(1, Math.round(e.sets * w.volumeFactor))
+              : e.sets,
           ...workFields(e),
-          ...(measure === "time" ? { durationSeconds: scaledSeconds(e.durationSeconds!, w.volumeFactor) } : {}),
-          ...(measure === "distance" ? { distanceMeters: scaledMeters(e.distanceMeters!, w.volumeFactor) } : {}),
+          ...(measure === "time" ? { durationSeconds: scaledSeconds(e.durationSeconds!, w.volumeFactor, exact) } : {}),
+          ...(measure === "distance" ? { distanceMeters: scaledMeters(e.distanceMeters!, w.volumeFactor, exact) } : {}),
           loadKg: halfKg(e.loadKg * w.loadFactor),
           rir: Math.min(5, Math.max(0, e.rir + w.rirDelta)),
           restSeconds: e.restSeconds,
@@ -639,49 +687,89 @@ function checkSessions(
       );
   }
 }
+type TransitionSessions = Array<{ key: string; exercises: ExpandedExercise[] }>;
+/**
+ * The weekly progression limit between two weeks. Within a draft the weeks
+ * come from volume factors that the plan rounds (whole sets, 5 s and 10 m per
+ * round), so `unrounded` carries both weeks before rounding (parallel to
+ * `previous` and `next`): the limit is checked on those, and the rounded rise
+ * may exceed the limit by at most one rounding unit per exercise (one set, or
+ * 5 s or 10 m per round). Without `unrounded` (an adapted week the model
+ * wrote out) the rounded values are checked as they are.
+ */
 function checkTransition(
-  previous: Array<{ key: string; exercises: ExpandedExercise[] }>,
-  next: Array<{ key: string; exercises: ExpandedExercise[] }>,
+  previous: TransitionSessions,
+  next: TransitionSessions,
   ctx: PlanCheckContext,
   where: string,
   result: PlanValidation,
+  unrounded?: { previous: TransitionSessions; next: TransitionSessions },
 ) {
+  const pct = ctx.bounds.maxWeeklyVolumeIncreasePct;
+  // The allowed rise from `value` (at least `minimum`): whole units on
+  // rounded values, exact on unrounded ones.
+  const cap = (value: number, minimum: number, exact = false) =>
+    Math.max(minimum, exact ? (value * pct) / 100 : Math.floor((value * pct) / 100));
+  /** Whether a rise from `was` to `now` breaks the limit; `slack` is one rounding unit per exercise. */
+  const tooMuch = (
+    was: number,
+    now: number,
+    minimum: number,
+    exact: [number, number] | undefined,
+    slack: number,
+  ) =>
+    exact
+      ? exact[1] - exact[0] > cap(exact[0], minimum, true) + 1e-9 || now - was > cap(was, minimum) + slack
+      : now - was > cap(was, minimum);
+  const exercises = (sessions: TransitionSessions) => sessions.flatMap((s) => s.exercises);
+  const nextExercises = exercises(next);
   const before = volume(previous),
     after = volume(next);
-  const allowed = Math.max(
-    1,
-    Math.floor((before * ctx.bounds.maxWeeklyVolumeIncreasePct) / 100),
-  );
-  if (before > 0 && after - before > allowed)
-    result.errors.push(
-      `${where}: weekly volume rises from ${before} to ${after} sets (limit +${ctx.bounds.maxWeeklyVolumeIncreasePct}%)`,
-    );
+  if (
+    before > 0 &&
+    tooMuch(
+      before,
+      after,
+      1,
+      unrounded && [volume(unrounded.previous), volume(unrounded.next)],
+      nextExercises.filter((e) => workMeasure(e) === "reps").length * ROUNDING_UNIT.sets,
+    )
+  )
+    result.errors.push(`${where}: weekly volume rises from ${before} to ${after} sets (limit +${pct}%)`);
   // Timed and distance work rise under the same weekly limit, by total time
   // or distance for the week and for each exercise (at least 30 s or 100 m).
-  const pct = ctx.bounds.maxWeeklyVolumeIncreasePct;
-  const step = (value: number, minimum: number) => Math.max(minimum, Math.floor((value * pct) / 100));
-  for (const [measure, total, minimum, format, noun] of [
-    ["time", timedWork, MIN_WORK_STEP.seconds, formatDuration, "timed work"],
-    ["distance", distanceWork, MIN_WORK_STEP.meters, formatDistance, "distance"],
+  for (const [measure, total, minimum, unit, format, noun] of [
+    ["time", timedWork, MIN_WORK_STEP.seconds, ROUNDING_UNIT.seconds, formatDuration, "timed work"],
+    ["distance", distanceWork, MIN_WORK_STEP.meters, ROUNDING_UNIT.meters, formatDistance, "distance"],
   ] as const) {
+    const amount = (e: ExpandedExercise) => (measure === "time" ? totalSeconds(e) : totalMeters(e));
     const was = total(previous),
       now = total(next);
-    if (was > 0 && now - was > step(was, minimum))
+    const weekSlack = nextExercises.reduce((n, e) => n + (workMeasure(e) === measure ? unit * e.sets : 0), 0);
+    if (was > 0 && tooMuch(was, now, minimum, unrounded && [total(unrounded.previous), total(unrounded.next)], weekSlack))
       result.errors.push(`${where}: weekly ${noun} rises from ${format(was)} to ${format(now)} (limit +${pct}%)`);
-    const most = new Map<string, number>();
-    for (const s of previous)
-      for (const e of s.exercises)
+    const most = (sessions: TransitionSessions) => {
+      const out = new Map<string, number>();
+      for (const e of exercises(sessions))
         if (workMeasure(e) === measure) {
           const key = normalizeTerm(e.name);
-          most.set(key, Math.max(most.get(key) ?? 0, measure === "time" ? totalSeconds(e) : totalMeters(e)));
+          out.set(key, Math.max(out.get(key) ?? 0, amount(e)));
         }
-    for (const s of next)
-      for (const e of s.exercises) {
-        const p = workMeasure(e) === measure ? most.get(normalizeTerm(e.name)) : undefined;
-        const value = measure === "time" ? totalSeconds(e) : totalMeters(e);
-        if (p !== undefined && value - p > step(p, minimum))
-          result.errors.push(`${where}: ${e.name} rises from ${format(p)} to ${format(value)} (limit +${pct}%)`);
-      }
+      return out;
+    };
+    const mostBefore = most(previous),
+      mostBeforeExact = unrounded && most(unrounded.previous),
+      nextExact = unrounded && exercises(unrounded.next);
+    nextExercises.forEach((e, i) => {
+      const key = normalizeTerm(e.name);
+      const p = workMeasure(e) === measure ? mostBefore.get(key) : undefined;
+      if (p === undefined) return;
+      const value = amount(e);
+      const exact: [number, number] | undefined =
+        mostBeforeExact && nextExact ? [mostBeforeExact.get(key) ?? p, amount(nextExact[i]!)] : undefined;
+      if (tooMuch(p, value, minimum, exact, unit * e.sets))
+        result.errors.push(`${where}: ${e.name} rises from ${format(p)} to ${format(value)} (limit +${pct}%)`);
+    });
   }
   // A faster pace is harder work: each exercise's speed rises by at most the
   // same weekly limit (always at least 5 s/km faster).
@@ -962,9 +1050,13 @@ export function validatePlan(
     if (ctx.trainerText?.has(issue.text.trim()))
       result.warnings.push(issue.message.replace("cannot be shown to", "may not suit"));
     else result.errors.push(issue.message);
-  const expanded = expandPlan(draft);
+  const expanded = expandPlan(draft),
+    unrounded = expandPlan(draft, { unrounded: true });
   let reference = ctx.previousWeek?.length ? ctx.previousWeek : null;
-  for (const week of expanded) {
+  // The member's logged previous week is already exact; a draft week is
+  // compared on its unrounded factor (checkTransition).
+  let referenceUnrounded = reference;
+  for (const [i, week] of expanded.entries()) {
     const where = `Week ${week.week}`;
     checkSessions(week.sessions, ctx, where, result);
     recordVolume(result, week.sessions);
@@ -972,8 +1064,15 @@ export function validatePlan(
     // the member's history, the library load or the start cap.
     if (week.week === 1)
       checkStartLoads(week.sessions, names(reference ?? []), ctx, where, result);
-    if (reference) checkTransition(reference, week.sessions, ctx, where, result);
-    if (!week.deload) reference = week.sessions;
+    if (reference)
+      checkTransition(reference, week.sessions, ctx, where, result, {
+        previous: referenceUnrounded!,
+        next: unrounded[i]!.sessions,
+      });
+    if (!week.deload) {
+      reference = week.sessions;
+      referenceUnrounded = unrounded[i]!.sessions;
+    }
   }
   result.warnings.push(...positionCautions(ctx.profile, draft.sessions), ...oneRepTimedWarnings(draft.sessions));
   return finish(
@@ -1740,14 +1839,21 @@ export function evaluationAnswerIssues(
     programExpected: boolean;
     /** Title, condition and directive of the rules the answer cites. */
     citedText?: string;
+    /** The scenario's request: its numbers, and simple results of one of them and a rule number, may be restated. */
+    requestText?: string;
   },
 ) {
   const issues = new Set<string>();
   for (const text of [decision.message, decision.reason])
     for (const i of proseIssues(text, MEDICAL_ADVICE)) issues.add(i);
   // A restated rule must keep the rule's numbers ("add 10 kg" for a 2.5 kg
-  // rule, "six sessions" for three, "twice as often").
-  if (ctx.citedText !== undefined && numbersNotIn(decision.message, ctx.citedText).length)
+  // rule, "six sessions" for three, "twice as often"). Numbers from the
+  // request, and applying the rule to them ("100 kg" and a 2.5 kg step:
+  // "102.5 kg"), are not altered (numbersNotGrounded).
+  if (
+    ctx.citedText !== undefined &&
+    numbersNotGrounded(decision.message, ctx.citedText, ctx.requestText ?? "").length
+  )
     issues.add("altered_numbers");
   const program = decision.program;
   if (program) {
