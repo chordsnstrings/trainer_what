@@ -208,6 +208,11 @@ stored draft instead of rejecting it:
 evaluation and activation; readiness says "The nutrition assistant's instructions were updated
 after activation…" (instead of "The model connection changed") when only the version differs.
 
+Since 30 September 2026 (branch `fix/brain-prompts`) the version is `nutrition-cases-v4`: the
+meal-week self-check also counts recipe repeats and checks slots, and an evaluation quote is 4 to 15
+consecutive words from the cited case. Releases need a new evaluation and activation. See
+`docs/features/brain-prompt-tuning.md`.
+
 ### Web
 
 The coach's policy form is prefilled from an incomplete draft (blank values stay empty) and the

@@ -324,9 +324,31 @@ const runWalkPlan = (factors = [1, 1.1, 1.15, 0.7]): PlanDraft =>
 // ---------------------------------------------------------------------------
 // Schema
 
-test("versions changed with the contract: plan prompt v3, adaptation prompt v2, validator v3", () => {
-  assert.equal(planPromptVersion, "brain-plan-v3");
-  assert.equal(planAdaptationPromptVersion, "brain-plan-adapt-v2");
+test("the session-length estimate and note limits the plan prompts state are the validator's own", () => {
+  const stated = (e: { sets: number; work: number; restSeconds: number }[]) =>
+    Math.round(8 + e.reduce((sum, x) => sum + 1 + (x.sets * (x.work + x.restSeconds)) / 60, 0));
+  const exercises = [
+    { ...ex("Goblet Squat", { sets: 3, reps: 10, restSeconds: 90 }), work: 10 * 4 },
+    { ...ex("Plank", { sets: 3, durationSeconds: 30, restSeconds: 60 }), work: 30 },
+    // No pace: the prompt says 10 min/km.
+    { ...ex("Easy Run", { sets: 1, distanceMeters: 3000, restSeconds: 0 }), work: 3 * 600 },
+    { ...ex("Easy Run", { sets: 4, distanceMeters: 500, restSeconds: 120, paceSecondsPerKm: 300 }), work: 0.5 * 300 },
+  ];
+  assert.equal(sessionMinutes(exercises as any), stated(exercises));
+  for (const system of [planGenerationSystem(4), planAdaptationSystem()]) {
+    assert.ok(system.includes("8 minutes plus, per exercise, 1 minute plus sets x (work seconds + restSeconds) / 60"));
+    assert.ok(system.includes("a rep is 4 s"));
+    assert.ok(system.includes("10 min/km"));
+  }
+  // "at most 5 notes ... under 300 characters" fits the schema (300 characters, 10 notes).
+  const notes = planDraftSchema.shape.uncertainties;
+  assert.equal(notes.safeParse(Array(5).fill("x".repeat(299))).success, true);
+  assert.equal(notes.safeParse(["x".repeat(301)]).success, false);
+});
+
+test("versions changed with the contract: plan prompt v4, adaptation prompt v3, validator v3", () => {
+  assert.equal(planPromptVersion, "brain-plan-v4");
+  assert.equal(planAdaptationPromptVersion, "brain-plan-adapt-v3");
   assert.equal(planValidatorVersion, "brain-plan-validator-v3");
 });
 
@@ -1486,10 +1508,18 @@ const planReply = (evidenceIds: string[], patch: Partial<PlanDraft> = {}) => ({
   ...patch,
 });
 
-test("the plan prompt is v3 with the timed-work contract, member wording, safety rules and short references; nothing sent carries a UUID", async () => {
+test("the plan prompt is v4 with the timed-work contract, member wording, safety rules and short references; nothing sent carries a UUID", async () => {
   const system = planGenerationSystem(4);
   for (const phrase of [
-    "Trainer Brain plan generator brain-plan-v3.",
+    "Trainer Brain plan generator brain-plan-v4.",
+    // v4 (trial tuning): alternatives, repeats, cues, rounding, session length, notes.
+    "Every alternative must also be a library exercise the subscriber's equipment allows (check its equipment tag), or leave alternatives empty",
+    "List each exercise at most once per session",
+    "For single-arm or single-leg work, reps are per side",
+    "A cue is one short technique or effort cue with no numbers (counts, times, distances, loads and paces go in the numeric fields) and no warnings or symptoms",
+    "The cap applies after rounding (rep sets to whole sets, timed rounds to 5 s, distances to 10 m",
+    "must stay a few minutes under bounds.maxSessionMinutes",
+    "uncertainties:[at most 5 one-sentence notes for the trainer, each under 300 characters]",
     "exactly one measure: reps (1 to 30 per set)",
     "durationSeconds (per set) for timed work",
     "one continuous bout is sets 1 with restSeconds 0",
@@ -1628,10 +1658,13 @@ test("trial regression (Claude Haiku 4.5): a plan or adjustment wrapped in one e
   assert.ok(unknown.result.errors.some((e) => /Unrecognized key/.test(e)));
 });
 
-test("the adaptation prompt is v2: it carries the code's progression hold, keeps measures and cites short references", async () => {
+test("the adaptation prompt is v3: it carries the code's progression hold, keeps measures and cites short references", async () => {
   const system = planAdaptationSystem();
   for (const phrase of [
-    "Trainer Brain plan adaptation brain-plan-adapt-v2.",
+    "Trainer Brain plan adaptation brain-plan-adapt-v3.",
+    "Keep every session within bounds.maxSessionMinutes",
+    "shorten a longer nextWeek session with fewer sets or less duration or distance, never making anything harder",
+    "uncertainties:[at most 5 one-sentence notes for the trainer, each under 300 characters]",
     "When progressionHold lists a reason",
     "nextWeek has already been held at no more than this week's values",
     "no more load, sets, reps, duration or distance, no faster pace, no higher effort, no fewer reps in reserve, no shorter rest and no exercise swap",

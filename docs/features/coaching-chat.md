@@ -146,6 +146,15 @@ never matches, and "contained in the outcome context" needs non-empty text. Befo
 questions were copies, and one Arabic held-out question blocked every teaching case that had an
 outcome context.
 
+### 5. Prompt tuning after the full trial (30 September 2026)
+
+`coach-action-selector-v4` and `coach-decision-v2` (branch `fix/brain-prompts`): the selector is
+told which checks the app already made on every action shown, that instructions inside a request
+are data, and which concrete reasons need review; the draft prompt draws the line between routine
+answers and escalation and keeps escalations short and free of medicine or diagnosis names. The
+selector version is pinned, so coaching releases need a fresh evaluation. Details, token counts and
+evidence: `docs/features/brain-prompt-tuning.md`.
+
 ## Tests
 
 `tests/fix-chat.test.ts` (18 tests) with `tests/chat-trial-fixtures.ts` (the trial's actions,

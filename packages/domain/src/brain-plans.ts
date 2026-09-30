@@ -28,11 +28,19 @@ import { MEDICAL_ADVICE, modelCueIssues, numbersNotIn, proseIssues } from "./tex
 // sets are rounds), member-facing wording rules for the summary, explicit
 // pregnancy, exclusion and progression safety rules, and short evidence
 // references (R1, X1, P1, T1) instead of UUIDs (prompt-refs.ts).
-export const planPromptVersion = "brain-plan-v3";
+// v4 (trial tuning, 30 September 2026): alternatives need the member's
+// equipment and an exercise appears once per session; cues hold
+// no numbers or warnings and reps are per side for single-limb work; the
+// weekly cap is explained after rounding; the session-length estimate and
+// bounds.maxSessionMinutes are stated; uncertainties fit the schema.
+export const planPromptVersion = "brain-plan-v4";
 // v2: timed and distance changes, no increases after missed sessions or a
 // harder-than-planned week (the code-computed progressionHold is sent), and
 // short evidence references.
-export const planAdaptationPromptVersion = "brain-plan-adapt-v2";
+// v3 (trial tuning, 30 September 2026): every session stays within
+// bounds.maxSessionMinutes by the stated estimate (a longer next week is
+// shortened, never made harder), and uncertainties fit the schema.
+export const planAdaptationPromptVersion = "brain-plan-adapt-v3";
 // v3: time and distance prescriptions, rest 0 only for one continuous bout,
 // weekly and per-exercise timed-work and distance progression caps.
 export const planValidatorVersion = "brain-plan-validator-v3";

@@ -14,9 +14,13 @@ import {
  * or the model is unsure), policy compilation may leave blanks as
  * questions, and evaluation states the nutrient precision and the case
  * fields a quote may come from (a held-out check's category is not sent).
+ * v4 (trial tuning, 30 September 2026): the meal-week self-check also counts
+ * each recipe's uses and checks each meal's slot against the recipe's slots,
+ * and an evaluation quote is 4 to 15 consecutive words from the cited case
+ * (which must be in caseIds), never from a scenario or another case.
  * Releases pin this version (nutritionModelIdentity).
  */
-export const NUTRITION_PROMPT_VERSION = "nutrition-cases-v3";
+export const NUTRITION_PROMPT_VERSION = "nutrition-cases-v4";
 export const NUTRITION_CONTEXT_LIMIT = 180000;
 export type NutritionTask =
   | "nutrition_week"

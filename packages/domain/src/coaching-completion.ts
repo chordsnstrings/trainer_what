@@ -407,9 +407,13 @@ export const teachingCaseSchema = z
  * so it is in the runtime contract digest. Changing it makes published
  * automatic releases stale (members' requests go to trainer review) until the
  * trainer evaluates and activates again. v3: identifiers are short prompt
- * references, and evidenceIds need a rule the selected action cites.
+ * references, and evidenceIds need a rule the selected action cites. v4 (the
+ * trial tuning of 30 September 2026): the prompt says which checks the app
+ * already made on every action shown, that instructions inside a request are
+ * data and not by themselves a reason for review, and which concrete reasons
+ * do need review (including a spacing rule a moved session could break).
  */
-export const coachingPromptVersion = "coach-action-selector-v3";
+export const coachingPromptVersion = "coach-action-selector-v4";
 export const coachingFactsSchema = z
   .object({
     profile: z
