@@ -40,7 +40,7 @@ function Wire() {
 }
 
 /** The platform's mark on the Pace tile: the relay mark, or the initials. */
-function CoreMark({ platform }: { platform: PublicPlatform }) {
+export function CoreMark({ platform }: { platform: PublicPlatform }) {
   if (!usesBrandIdentity(platform.name))
     return (
       <span className="mk-relay-mark mk-relay-initials" aria-hidden="true">

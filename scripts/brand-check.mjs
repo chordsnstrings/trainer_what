@@ -109,6 +109,24 @@ async function visit(page, path) {
   await page.goto(base + path, { waitUntil: "load" });
   await settle(page);
 }
+/**
+ * Marketing pages reveal their lower sections as they scroll into view
+ * (components/marketing/motion.tsx): scroll through once so the contrast
+ * pass reads every section, and report any that never appeared.
+ */
+async function revealAll(page) {
+  return page.evaluate(async () => {
+    if (!document.querySelector(".mk")) return 0;
+    const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+    for (let y = 0; y <= document.documentElement.scrollHeight; y += Math.max(200, innerHeight - 100)) {
+      scrollTo(0, y);
+      await pause(80);
+    }
+    scrollTo(0, 0);
+    await pause(700);
+    return document.querySelectorAll("[data-mk-reveal='pending']").length;
+  });
+}
 async function signIn(page, email) {
   await visit(page, "/login");
   await page.waitForFunction(() => {
@@ -699,6 +717,8 @@ try {
         const label = `${scheme} ${viewport.name} ${route}`;
         await screen(label, async () => {
           await visit(page, route);
+          const waiting = await revealAll(page);
+          if (waiting) fail(label, `${waiting} section(s) never revealed after a scroll-through`);
           assertPlatform(label, await measure(page), scheme, true);
           await shot(page, label);
         });

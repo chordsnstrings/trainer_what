@@ -16,6 +16,22 @@
      footer): content starts at the same edge everywhere. */
   --mk-max: var(--ty-layout-max);
   --mk-gutter: 48px;
+  /* Motion tokens, defined once (the same values as the subscriber app's
+     motion pass): press and tiny state changes, hover and small fades,
+     standard enters, larger enters and reveals, and emphasis only. The
+     spring is for success states alone (tests/marketing-motion-sitewide.test.ts
+     holds the list). Only transform, opacity, SVG stroke-dashoffset and a
+     disclosure's grid rows move; the motion block near the end of this
+     file holds the rest. */
+  --mk-dur-press: 80ms;
+  --mk-dur-fast: 140ms;
+  --mk-dur-base: 200ms;
+  --mk-dur-slow: 280ms;
+  --mk-dur-emphasis: 420ms;
+  --mk-ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --mk-ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --mk-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --mk-ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
 }
 @media (max-width: 1150px) {
   .mk,
@@ -56,10 +72,12 @@
   font-size: 15px;
   font-weight: 600;
 }
-.button.mk-cta:hover:not(:disabled),
-.mk-econ .mk-address .button:hover,
-#claim .mk-address .button:hover {
-  background: color-mix(in srgb, var(--lime) 85%, var(--ink));
+@media (hover: hover) {
+  .button.mk-cta:hover:not(:disabled),
+  .mk-econ .mk-address .button:hover,
+  #claim .mk-address .button:hover {
+    background: color-mix(in srgb, var(--lime) 85%, var(--ink));
+  }
 }
 .mk-header .button.mk-cta {
   font-size: 14px;
@@ -70,10 +88,6 @@
   color: var(--ink);
   font-size: 14px;
   font-weight: 600;
-}
-.text-link.mk-link:hover {
-  text-decoration: underline;
-  text-underline-offset: 3px;
 }
 @media (max-width: 760px) {
   /* A 44px tap area for text links on phones. */
@@ -144,19 +158,15 @@
 a.mk-nav-top {
   cursor: pointer;
 }
-/* Hover underlines; the current page (or the group holding it) is
-   semibold with a 2px ink underline. */
-.mk-nav a:hover {
-  text-decoration: underline;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 6px;
+/* Hover underlines (a bar that slides in from the inline start; the motion
+   block below); the current page (or the group holding it) is semibold
+   with the same bar at 2px, static. */
+.mk-nav-top {
+  position: relative;
 }
 .mk-nav a.mk-nav-top[aria-current="page"],
 .mk-nav-top.mk-nav-current {
   font-weight: 600;
-  text-decoration: underline;
-  text-decoration-thickness: 2px;
-  text-underline-offset: 6px;
 }
 .mk-nav-group {
   position: relative;
@@ -176,16 +186,19 @@ a.mk-nav-top {
   box-shadow: var(--mk-shadow);
   opacity: 0;
   pointer-events: none;
-  transform: translateY(4px);
+  translate: 0 4px;
+  /* Closing is quicker than opening. */
   transition:
-    opacity 0.15s,
-    transform 0.15s;
+    opacity var(--mk-dur-press) var(--mk-ease-in),
+    translate var(--mk-dur-press) var(--mk-ease-in);
 }
 .mk-nav-group:hover > .mk-dropdown,
 .mk-nav-group:focus-within > .mk-dropdown {
   opacity: 1;
   pointer-events: auto;
-  transform: translateY(0);
+  translate: 0 0;
+  transition-duration: var(--mk-dur-fast);
+  transition-timing-function: var(--mk-ease-out);
 }
 .mk-dropdown a {
   display: block;
@@ -194,10 +207,13 @@ a.mk-nav-top {
   font-size: 13px;
   color: var(--ink);
 }
-.mk-dropdown a:hover,
 .mk-dropdown a:focus-visible {
   background: var(--mint);
-  text-decoration: none;
+}
+@media (hover: hover) {
+  .mk-dropdown a:hover {
+    background: var(--mint);
+  }
 }
 .mk-dropdown a[aria-current="page"] {
   font-weight: 600;
@@ -283,10 +299,6 @@ a.mk-nav-top {
   content: "/";
   margin-inline-end: 6px;
   color: var(--muted);
-}
-.mk-breadcrumbs a:hover {
-  text-decoration: underline;
-  text-underline-offset: 3px;
 }
 .mk-page-head {
   padding-block: 16px 40px;
@@ -473,8 +485,11 @@ a.mk-nav-top {
   font-weight: 600;
   font-size: 15px;
 }
+/* The answer's 18px bottom spacing sits inside it (a block after its
+   text, in the disclosure motion below), so a closing answer folds to
+   nothing. */
 .mk-faq p {
-  margin-block: 0 18px;
+  margin: 0;
   color: var(--ink);
   line-height: 1.7;
 }
@@ -499,8 +514,10 @@ a.mk-nav-top {
   font-size: 13px;
   background: var(--white);
 }
-.mk-related a:hover {
-  border-color: var(--green);
+@media (hover: hover) {
+  .mk-related a:hover {
+    border-color: var(--green);
+  }
 }
 .mk-updated {
   margin-block-start: 28px;
@@ -525,10 +542,11 @@ a.mk-nav-top {
   padding: 20px;
   font-size: 13px;
   line-height: 1.55;
-  transition: border-color 0.15s;
 }
-.mk-tile:hover {
-  border-color: var(--green);
+@media (hover: hover) {
+  .mk-tile:hover {
+    border-color: var(--green);
+  }
 }
 .mk-tile-head {
   display: flex;
@@ -961,11 +979,24 @@ a.mk-nav-top {
 }
 /* Pace only on step 02, behind the ink mark. */
 .mk-relay-mark {
+  position: relative;
+  isolation: isolate;
   background: var(--lime);
   color: var(--on-lime);
-  box-shadow: 0 0 0 14px transparent;
   /* Latin artwork: the mark never mirrors. */
   direction: ltr;
+}
+/* The core tile's one-off pulse: a Pace ring behind the mark widens and
+   fades (the motion block below); the mark itself never scales. */
+.mk-relay-mark::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--lime);
+  opacity: 0;
+  pointer-events: none;
 }
 .mk-relay-mark svg {
   inline-size: 75%;
@@ -1214,10 +1245,11 @@ a.mk-nav-top {
   padding: 20px;
   color: var(--ink);
   text-decoration: none;
-  transition: border-color 0.15s;
 }
-.mk-icon-tile:hover {
-  border-color: var(--ink);
+@media (hover: hover) {
+  .mk-icon-tile:hover {
+    border-color: var(--ink);
+  }
 }
 .mk-icon-square {
   display: inline-grid;
@@ -1476,8 +1508,10 @@ a.mk-nav-top {
   font-size: 15px;
   font-weight: 600;
 }
-.mk-closing .button:hover:not(:disabled) {
-  background: var(--green-hover);
+@media (hover: hover) {
+  .mk-closing .button:hover:not(:disabled) {
+    background: var(--green-hover);
+  }
 }
 .mk-closing .text-link {
   color: var(--on-lime);
@@ -1485,10 +1519,12 @@ a.mk-nav-top {
   font-weight: 600;
 }
 
-/* The relay's one-off motion (2.6 s, never repeated). All three cards and
-   their text show from the first paint; only the wires, the travelling
-   dot, the core tile's pulse and the row ticks move. Keyframes hold only
-   the starting state; the base styles above are the end state. */
+/* The relay's one-off motion (it ends at about 2.5 s and never repeats).
+   All three cards and their text show from the first paint; only the
+   wires, the travelling dot, the ring behind the core tile's mark and the
+   row ticks move, on the motion tokens (the choreography's delays are
+   times, not durations). Keyframes hold only the starting state; the base
+   styles above are the end state. */
 @media (prefers-reduced-motion: no-preference) {
   @keyframes mk-draw {
     from {
@@ -1501,9 +1537,14 @@ a.mk-nav-top {
       translate: 0 0;
     }
   }
-  @keyframes mk-pulse {
+  @keyframes mk-ring {
     from {
-      box-shadow: 0 0 0 0 color-mix(in srgb, var(--lime) 80%, transparent);
+      opacity: 0.6;
+      scale: 1;
+    }
+    to {
+      opacity: 0;
+      scale: 1.5;
     }
   }
   @keyframes mk-tick {
@@ -1514,35 +1555,37 @@ a.mk-nav-top {
   }
   .mk-relay-line,
   .mk-relay-dot,
-  .mk-relay-mark,
   .mk-relay-rows svg {
     animation-fill-mode: both;
-    animation-timing-function: ease-out;
     animation-iteration-count: 1;
   }
   .mk-relay-line {
     animation-name: mk-draw;
-    animation-duration: 450ms;
+    animation-duration: var(--mk-dur-emphasis);
+    animation-timing-function: var(--mk-ease-out);
     animation-delay: 0.4s;
   }
   .mk-relay-dot {
     animation-name: mk-travel;
-    animation-duration: 450ms;
+    animation-duration: var(--mk-dur-emphasis);
+    animation-timing-function: var(--mk-ease-in-out);
     animation-delay: 0.4s;
-    animation-timing-function: ease-in;
   }
   .mk-relay-core .mk-relay-line,
   .mk-relay-core .mk-relay-dot {
     animation-delay: 1.5s;
   }
-  .mk-relay-mark {
-    animation-name: mk-pulse;
-    animation-duration: 700ms;
-    animation-delay: 0.85s;
+  /* The hero relay's mark only: the journey's laptop bar
+     (components/marketing/journey.tsx) shows the same mark, which never
+     pulses on its own. */
+  .mk .mk-relay .mk-relay-mark::after {
+    animation: mk-ring var(--mk-dur-emphasis) var(--mk-ease-out) 0.85s 1;
   }
+  /* Success ticks: the spring. */
   .mk-relay-rows svg {
     animation-name: mk-tick;
-    animation-duration: 250ms;
+    animation-duration: var(--mk-dur-slow);
+    animation-timing-function: var(--mk-ease-spring);
     animation-delay: 1.95s;
   }
   .mk-relay-rows li:nth-child(2) svg {
@@ -1730,10 +1773,6 @@ a.mk-nav-top {
   display: grid;
   gap: 8px;
   font-size: 13px;
-}
-.mk-footer-map a:hover {
-  text-decoration: underline;
-  text-underline-offset: 3px;
 }
 .mk-footer-note {
   grid-column: 1 / -1;
@@ -2094,8 +2133,10 @@ a.mk-nav-top {
   border-radius: var(--radius);
   padding: 16px;
 }
-.mk-included a:hover {
-  border-color: var(--ink);
+@media (hover: hover) {
+  .mk-included a:hover {
+    border-color: var(--ink);
+  }
 }
 .mk-included strong {
   font-family: var(--ty-font-display);
@@ -2117,5 +2158,500 @@ a.mk-nav-top {
   .mk-matrix,
   .mk-screens {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Motion (29 September 2026 microanimation pass). The home relay's rules
+   hold on every page: every word is real HTML and visible from the first
+   paint; motion is decorative, short and plays once; reduced motion removes
+   it (the reduced-motion block at the end of this section, and globals.css
+   for elements). Only transform, opacity, SVG stroke-dashoffset and a
+   disclosure's grid rows move, on the tokens at the top of this file.
+   Colour changes (tints, borders, the focus ring) are instant, and hover
+   effects exist only where the pointer can hover. Anything that waits to
+   be revealed needs .mk-motion on the page root, which
+   components/marketing/motion.tsx adds once it runs, so without JavaScript
+   nothing is hidden. tests/marketing-motion-sitewide.test.ts audits this file. */
+
+/* Buttons: a press on every device, the lift where the pointer hovers
+   (globals.css), and the trailing arrow nudges forward (it mirrors in right
+   to left). The colour change on hover is instant. The journey player's
+   control buttons (app/marketing-journey.css) press the same way. */
+:is(.mk, .mk-header) .button {
+  transition:
+    transform var(--mk-dur-fast) var(--mk-ease-out),
+    scale var(--mk-dur-fast) var(--mk-ease-out);
+}
+@media (hover: none) {
+  /* No stuck lift after a tap. */
+  :is(.mk, .mk-header) .button:hover:not(:disabled) {
+    transform: none;
+  }
+}
+.mk-mobile-menu > summary,
+.mk-footer .mk-footer-prefs,
+.mk .mk-walk-btn {
+  transition: scale var(--mk-dur-fast) var(--mk-ease-out);
+}
+/* The menu's press and the disclosures' unfold are the tap feedback; the
+   browser's own tap flash (blue in Chrome) is off, as for buttons and
+   links (globals.css). */
+:is(.mk, .mk-header, .mk-footer) summary {
+  -webkit-tap-highlight-color: transparent;
+}
+.mk-footer .mk-footer-prefs {
+  display: inline-block;
+}
+:is(.mk, .mk-header) .button:active:not(:disabled),
+.mk-mobile-menu > summary:active,
+.mk-footer .mk-footer-prefs:active,
+.mk .mk-walk-btn:active:not([aria-disabled="true"]) {
+  scale: 0.97;
+  transition-duration: var(--mk-dur-press);
+  transition-timing-function: var(--mk-ease-in);
+}
+:is(.mk, .mk-header) :is(.button, .text-link.mk-link, .mk-related a) > .lucide-arrow-right {
+  transition: translate var(--mk-dur-base) var(--mk-ease-out);
+}
+@media (hover: hover) {
+  :is(.mk, .mk-header) :is(.button, .text-link.mk-link, .mk-related a):hover > .lucide-arrow-right {
+    translate: calc(3px * var(--inline-sign, 1)) 0;
+  }
+}
+
+/* Single-line links: a 1px ink bar slides in from the inline start on
+   hover and shows at once on keyboard focus; the current page in the
+   header keeps it at 2px. Links inside sentences keep their underline and
+   do not move. */
+:is(.mk, .mk-header, .mk-footer) :is(.text-link.mk-link, .mk-signin, .mk-breadcrumbs a, .mk-footer-map a) {
+  position: relative;
+  text-decoration: none;
+}
+.mk-header .mk-nav-top::after,
+:is(.mk, .mk-header, .mk-footer) :is(.text-link.mk-link, .mk-signin, .mk-breadcrumbs a, .mk-footer-map a)::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  inset-block-end: -2px;
+  block-size: 1px;
+  background: currentColor;
+  scale: 0 1;
+  transform-origin: calc(50% - 50% * var(--inline-sign, 1)) 50%;
+  transition: scale var(--mk-dur-base) var(--mk-ease-out);
+  pointer-events: none;
+}
+/* The arrow link is a 44px tap target on phones: the bar stays under its
+   words. */
+:is(.mk, .mk-header) .text-link.mk-link::after {
+  inset-block-end: calc(50% - 0.75em);
+}
+.mk-header .mk-nav-top::after {
+  inset-block-end: 3px;
+}
+.mk-header .mk-nav a.mk-nav-top[aria-current="page"]::after,
+.mk-header .mk-nav-top.mk-nav-current::after {
+  block-size: 2px;
+  scale: 1 1;
+}
+.mk-header a.mk-nav-top:focus-visible::after,
+:is(.mk, .mk-header, .mk-footer) :is(.text-link.mk-link, .mk-signin, .mk-breadcrumbs a, .mk-footer-map a):focus-visible::after {
+  scale: 1 1;
+  transition: none;
+}
+@media (hover: hover) {
+  .mk-header a.mk-nav-top:hover::after,
+  :is(.mk, .mk-header, .mk-footer) :is(.text-link.mk-link, .mk-signin, .mk-breadcrumbs a, .mk-footer-map a):hover::after {
+    scale: 1 1;
+  }
+}
+
+/* Header: its shadow fades in over the first 48px of scrolling (a
+   scroll-driven animation, no script; browsers without scroll timelines
+   keep the flat header). A group's chevron turns while its menu is open. */
+.mk-header::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  box-shadow: var(--mk-shadow);
+  opacity: 0;
+  pointer-events: none;
+}
+@supports (animation-timeline: scroll()) {
+  @media (prefers-reduced-motion: no-preference) {
+    @keyframes mk-header-shadow {
+      to {
+        opacity: 1;
+      }
+    }
+    .mk-header::after {
+      animation: mk-header-shadow linear both;
+      animation-timeline: scroll(root block);
+      animation-range: 0 48px;
+    }
+  }
+}
+.mk-nav-group .lucide-chevron-down {
+  transition: rotate var(--mk-dur-base) var(--mk-ease-out);
+}
+.mk-nav-group:focus-within .lucide-chevron-down {
+  rotate: 180deg;
+}
+@media (hover: hover) {
+  .mk-nav-group:hover .lucide-chevron-down {
+    rotate: 180deg;
+  }
+}
+
+/* Link cards lift 2px with a soft shadow where the pointer hovers (the
+   border tint is instant) and press on every device; the icon on a home
+   tile rises with its card. Static cards never move on hover. */
+.mk :is(.mk-tile, .mk-icon-tile, .mk-included a) {
+  position: relative;
+  transition:
+    translate var(--mk-dur-base) var(--mk-ease-out),
+    scale var(--mk-dur-fast) var(--mk-ease-out);
+}
+.mk :is(.mk-tile, .mk-icon-tile, .mk-included a)::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  box-shadow: var(--mk-shadow);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--mk-dur-base) var(--mk-ease-out);
+}
+.mk-icon-square svg {
+  transition: translate var(--mk-dur-base) var(--mk-ease-out);
+}
+.mk :is(.mk-tile, .mk-icon-tile, .mk-included a):active {
+  scale: 0.99;
+  transition-duration: var(--mk-dur-press);
+  transition-timing-function: var(--mk-ease-in);
+}
+@media (hover: hover) {
+  .mk :is(.mk-tile, .mk-icon-tile, .mk-included a):hover {
+    translate: 0 -2px;
+  }
+  .mk :is(.mk-tile, .mk-icon-tile, .mk-included a):hover::after {
+    opacity: 1;
+  }
+  .mk-icon-tile:hover .mk-icon-square svg {
+    translate: 0 -2px;
+  }
+  /* Link pills and table rows: instant tints, no movement. */
+  .mk-matrix-index a:hover {
+    border-color: var(--ink);
+  }
+  .mk .mk-table tbody tr:hover > td {
+    background: var(--mk-band);
+  }
+}
+
+/* Section reveal (components/marketing/motion.tsx). A unit wholly below the
+   first screen when the page loads waits ("pending") and rises 12px into
+   place once as it enters the view; the items of a grid follow 40ms apart
+   (at most 240ms), the /features screens 80ms apart. The hero, the page
+   heading, the relay, the journey player (its stage has its own chapter
+   motion), anything on the first screen and any unit taller than one and
+   a half screens never wait. Every rule keys on an attribute
+   or class of the element it moves, so marking and revealing restyle only
+   those elements. */
+:is(.mk-cards, .mk-tiles, .mk-icon-tiles, .mk-steps, .mk-checklist, .mk-anchors, .mk-band-pills, .mk-screens) > :nth-child(2) {
+  --mk-stagger: 40ms;
+}
+:is(.mk-cards, .mk-tiles, .mk-icon-tiles, .mk-steps, .mk-checklist, .mk-anchors, .mk-band-pills, .mk-screens) > :nth-child(3) {
+  --mk-stagger: 80ms;
+}
+:is(.mk-cards, .mk-tiles, .mk-icon-tiles, .mk-steps, .mk-checklist, .mk-anchors, .mk-band-pills, .mk-screens) > :nth-child(4) {
+  --mk-stagger: 120ms;
+}
+:is(.mk-cards, .mk-tiles, .mk-icon-tiles, .mk-steps, .mk-checklist, .mk-anchors, .mk-band-pills, .mk-screens) > :nth-child(5) {
+  --mk-stagger: 160ms;
+}
+:is(.mk-cards, .mk-tiles, .mk-icon-tiles, .mk-steps, .mk-checklist, .mk-anchors, .mk-band-pills, .mk-screens) > :nth-child(6) {
+  --mk-stagger: 200ms;
+}
+:is(.mk-cards, .mk-tiles, .mk-icon-tiles, .mk-steps, .mk-checklist, .mk-anchors, .mk-band-pills, .mk-screens) > :nth-child(n + 7) {
+  --mk-stagger: 240ms;
+}
+.mk-screens > :nth-child(2) {
+  --mk-stagger: 80ms;
+}
+.mk-screens > :nth-child(3) {
+  --mk-stagger: 160ms;
+}
+.mk-screens > :nth-child(n + 4) {
+  --mk-stagger: 240ms;
+}
+/* Two measures keep a reveal cheap to draw (measured with the CPU throttled
+   4x, scripts/marketing-motion-sitewide-check.mjs). A waiting unit is at
+   0.001 opacity, not 0: it looks the same, but Chromium skips painting
+   content at 0 opacity, so the reveal would repaint the whole unit at
+   once; at 0.001 it is painted with the page and the reveal only fades it.
+   A revealed unit keeps `translate: 0 0` (it does not move), so the end of
+   the rise does not tear down its layer and repaint it a second time. */
+.mk-motion [data-mk-reveal="pending"] {
+  opacity: 0.001;
+  translate: 0 12px;
+}
+.mk-motion [data-mk-reveal="in"] {
+  translate: 0 0;
+  transition:
+    opacity var(--mk-dur-slow) var(--mk-ease-out),
+    translate var(--mk-dur-slow) var(--mk-ease-out);
+}
+/* The items of those grids carry their own mark (data-mk-item), so a
+   reveal restyles only the items, never a whole section. Once their rise
+   is over they are "done": the stagger no longer applies, so a link card
+   lifts on hover with its own timing. */
+.mk-motion [data-mk-item="pending"] {
+  opacity: 0.001;
+  translate: 0 8px;
+}
+.mk-motion :is([data-mk-item="in"], [data-mk-item="done"]) {
+  translate: 0 0;
+}
+.mk-motion [data-mk-item="in"] {
+  transition:
+    opacity var(--mk-dur-slow) var(--mk-ease-out) var(--mk-stagger, 0ms),
+    translate var(--mk-dur-slow) var(--mk-ease-out) var(--mk-stagger, 0ms);
+}
+/* The ticks inside the /features screens pop once the screens are in. */
+.mk-motion [data-mk-reveal="pending"] :is(.mk-sets svg, .mk-screen-note svg, .mk-queue-item.done .badge svg) {
+  opacity: 0;
+  scale: 0.4;
+}
+.mk-motion [data-mk-reveal="in"] :is(.mk-sets svg, .mk-screen-note svg, .mk-queue-item.done .badge svg) {
+  transition:
+    opacity var(--mk-dur-fast) var(--mk-ease-out) 520ms,
+    scale var(--mk-dur-slow) var(--mk-ease-spring) 520ms;
+}
+
+/* You stay in charge (home), once, as the band is revealed: the message
+   card rises, then your AI's card; the confidence meter fills from the
+   inline start (its width never changes); the lanes follow 80ms apart,
+   "Applied automatically" pops and the safety lane stamps. About 1.1 s. */
+.mk-meter > span {
+  transform-origin: calc(50% - 50% * var(--inline-sign, 1)) 50%;
+}
+.mk-motion [data-mk-reveal="pending"] :is(.mk-flow-msg, .mk-flow-brain) {
+  opacity: 0;
+  translate: 0 12px;
+}
+.mk-motion [data-mk-reveal="pending"] .mk-meter > span {
+  scale: 0 1;
+}
+.mk-motion [data-mk-reveal="pending"] .mk-lane {
+  opacity: 0;
+  translate: 0 8px;
+}
+.mk-motion [data-mk-reveal="pending"] .mk-lane-auto {
+  translate: 0 0;
+  scale: 0.6;
+}
+.mk-motion [data-mk-reveal="pending"] .mk-lane-safety {
+  translate: 0 0;
+  scale: 1.15;
+}
+.mk-motion [data-mk-reveal="in"] :is(.mk-flow-msg, .mk-flow-brain) {
+  transition:
+    opacity var(--mk-dur-slow) var(--mk-ease-out),
+    translate var(--mk-dur-slow) var(--mk-ease-out);
+}
+.mk-motion [data-mk-reveal="in"] .mk-flow-brain {
+  transition-delay: 140ms;
+}
+.mk-motion [data-mk-reveal="in"] .mk-meter > span {
+  transition: scale var(--mk-dur-emphasis) var(--mk-ease-out) 320ms;
+}
+.mk-motion [data-mk-reveal="in"] .mk-lane {
+  transition:
+    opacity var(--mk-dur-fast) var(--mk-ease-out) 720ms,
+    translate var(--mk-dur-slow) var(--mk-ease-out) 720ms;
+}
+.mk-motion [data-mk-reveal="in"] .mk-lane-auto {
+  transition:
+    opacity var(--mk-dur-fast) var(--mk-ease-out) 640ms,
+    scale var(--mk-dur-slow) var(--mk-ease-spring) 640ms;
+}
+.mk-motion [data-mk-reveal="in"] .mk-lane-safety {
+  transition:
+    opacity var(--mk-dur-fast) var(--mk-ease-out) 800ms,
+    scale var(--mk-dur-slow) var(--mk-ease-out) 800ms;
+}
+
+/* Disclosures (FAQs, the calculators' assumptions and optional numbers):
+   a chevron at the inline end turns as the answer opens. A FAQ answer
+   also unfolds (its grid row, where the browser can style the details
+   content; elsewhere the height changes at once) and fades in. */
+.mk :is(.mk-faq, .mk-assumptions, .mk-optional) > summary {
+  position: relative;
+  display: block;
+  list-style: none;
+  /* The chevron sits in the space the native marker took (about 1.06em),
+     so a question wraps exactly as it did before. */
+  padding-inline-end: 1.06em;
+}
+.mk :is(.mk-faq, .mk-assumptions, .mk-optional) > summary::-webkit-details-marker {
+  display: none;
+}
+.mk :is(.mk-faq, .mk-assumptions, .mk-optional) > summary::after {
+  content: "";
+  position: absolute;
+  inset-inline-end: 4px;
+  inset-block-start: calc(50% - 4px);
+  inline-size: 7px;
+  block-size: 7px;
+  border-block-end: 1.5px solid currentColor;
+  border-inline-end: 1.5px solid currentColor;
+  translate: 0 -2px;
+  rotate: calc(45deg * var(--inline-sign, 1));
+  transition:
+    rotate var(--mk-dur-base) var(--mk-ease-out),
+    translate var(--mk-dur-base) var(--mk-ease-out);
+}
+.mk :is(.mk-faq, .mk-assumptions, .mk-optional)[open] > summary::after {
+  translate: 0 2px;
+  rotate: calc(225deg * var(--inline-sign, 1));
+}
+/* The answer's bottom spacing, inside it: a closed answer folds to 0. */
+.mk .mk-faq > p::after {
+  content: "";
+  display: block;
+  block-size: 18px;
+}
+.mk .mk-faq > p,
+.mk :is(.mk-assumptions, .mk-optional) > :not(summary) {
+  transition: opacity var(--mk-dur-base) var(--mk-ease-out);
+}
+.mk .mk-faq:not([open]) > p,
+.mk :is(.mk-assumptions, .mk-optional):not([open]) > :not(summary) {
+  opacity: 0;
+}
+@supports selector(::details-content) {
+  .mk .mk-faq::details-content {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition:
+      grid-template-rows var(--mk-dur-slow) var(--mk-ease-out),
+      content-visibility var(--mk-dur-slow) allow-discrete;
+  }
+  .mk .mk-faq[open]::details-content {
+    grid-template-rows: 1fr;
+  }
+  .mk .mk-faq > p {
+    min-block-size: 0;
+    overflow: hidden;
+  }
+}
+
+/* /demo: the chosen decision rises into place, and its label follows
+   80ms later: the two automatic outcomes pop (success), the hand-offs
+   stamp. Only after a visitor picks a tab; the first shows at once. The
+   early-access confirmation rises. */
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes mk-drop {
+    from {
+      opacity: 0;
+      translate: 0 -8px;
+    }
+  }
+  @keyframes mk-rise {
+    from {
+      opacity: 0;
+      translate: 0 6px;
+    }
+  }
+  @keyframes mk-rise-short {
+    from {
+      opacity: 0;
+      translate: 0 4px;
+    }
+  }
+  @keyframes mk-pop {
+    from {
+      opacity: 0;
+      scale: 0.6;
+    }
+  }
+  @keyframes mk-stamp {
+    from {
+      opacity: 0;
+      scale: 1.15;
+    }
+  }
+  .mk-demo[data-mk-played] > .mk-demo-panel:not([hidden]) {
+    animation: mk-rise var(--mk-dur-base) var(--mk-ease-out);
+  }
+  .mk-demo[data-mk-played] > .mk-demo-panel:not([hidden]) > .badge {
+    animation: mk-stamp var(--mk-dur-slow) var(--mk-ease-out) 80ms both;
+  }
+  .mk-demo[data-mk-played] > .mk-demo-panel:not([hidden]) > .badge[data-mk-success] {
+    animation: mk-pop var(--mk-dur-slow) var(--mk-ease-spring) 80ms both;
+  }
+  .mk-early-done {
+    animation: mk-rise var(--mk-dur-slow) var(--mk-ease-out);
+  }
+  /* The phone menu drops in and its items rise 30ms apart; it closes at
+     once. */
+  .mk-mobile-menu[open] > .mk-mobile-panel {
+    animation: mk-drop var(--mk-dur-base) var(--mk-ease-out);
+  }
+  .mk-mobile-menu[open] > .mk-mobile-panel > * {
+    animation: mk-rise-short var(--mk-dur-fast) var(--mk-ease-out) both;
+  }
+  .mk-mobile-menu[open] > .mk-mobile-panel > :nth-child(2) {
+    animation-delay: 30ms;
+  }
+  .mk-mobile-menu[open] > .mk-mobile-panel > :nth-child(3) {
+    animation-delay: 60ms;
+  }
+  .mk-mobile-menu[open] > .mk-mobile-panel > :nth-child(4) {
+    animation-delay: 90ms;
+  }
+  .mk-mobile-menu[open] > .mk-mobile-panel > :nth-child(5) {
+    animation-delay: 120ms;
+  }
+  .mk-mobile-menu[open] > .mk-mobile-panel > :nth-child(6) {
+    animation-delay: 150ms;
+  }
+  .mk-mobile-menu[open] > .mk-mobile-panel > :nth-child(n + 7) {
+    animation-delay: 180ms;
+  }
+}
+
+/* Reduced motion: everything is instant and in place. globals.css stops
+   every element's transitions and animations; its `*` does not reach
+   pseudo-elements or the details content box, so they stop here. Lifts,
+   presses and nudges do not move at all, and nothing waits for a reveal
+   (the script does not mark any under reduced motion; this covers a
+   preference changed on an open page). The calculators' settle checks the
+   preference itself (motion.tsx). */
+@media (prefers-reduced-motion: reduce) {
+  :is(.mk, .mk-header, .mk-footer)::after,
+  :is(.mk, .mk-header, .mk-footer) ::before,
+  :is(.mk, .mk-header, .mk-footer) ::after {
+    transition: none !important;
+    animation: none !important;
+  }
+  :is(.mk, .mk-header, .mk-footer) :is(.button, .mk-tile, .mk-icon-tile, .mk-included a, .mk-icon-square svg, .lucide-arrow-right, summary, .mk-footer-prefs, .mk-walk-btn) {
+    translate: 0 0 !important;
+    scale: none !important;
+  }
+  .mk-motion [data-mk-reveal="pending"],
+  .mk-motion [data-mk-item="pending"],
+  .mk-motion [data-mk-reveal="pending"] :is(.mk-flow-msg, .mk-flow-brain, .mk-lane, .mk-meter > span, .mk-sets svg, .mk-screen-note svg, .mk-queue-item.done .badge svg) {
+    opacity: 1 !important;
+    translate: 0 0 !important;
+    scale: none !important;
+  }
+}
+@supports selector(::details-content) {
+  @media (prefers-reduced-motion: reduce) {
+    :is(.mk, .mk-header, .mk-footer) ::details-content {
+      transition: none !important;
+    }
   }
 }

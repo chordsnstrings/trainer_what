@@ -470,7 +470,11 @@ test("design tokens are the supplied palette and meet the contrast checks in lig
   assert.match(cta[2], /font-size:\s*15px;/);
   assert.match(cta[2], /font-weight:\s*600;/);
   assert.ok(contrast(light("--ink"), light("--white")) >= 3);
-  const hover = marketing.match(/\n\.button\.mk-cta:hover:not\(:disabled\)[^{]*\{\s*background:\s*([^;]+);/);
+  // The hover tint applies where the pointer can hover (the motion pass
+  // keeps every hover effect inside @media (hover: hover)).
+  const hover = marketing.match(
+    /\n@media \(hover: hover\) \{\s*\.button\.mk-cta:hover:not\(:disabled\)[^{]*\{\s*background:\s*([^;]+);/,
+  );
   assert.ok(hover, "the primary action hover rule");
   const hovered = resolver(root, { "--hover": hover[1].trim() });
   assert.ok(contrast(hovered("--on-lime"), hovered("--hover")) >= 4.5, "hover contrast");
