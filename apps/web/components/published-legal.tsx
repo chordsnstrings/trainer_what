@@ -1,73 +1,195 @@
 "use client";
 import { useEffect, useState } from "react";
+import { ChevronLeft } from "lucide-react";
+import { useLocale, useT } from "../lib/i18n/react";
+import { formatDate } from "../lib/format";
+import type { Locale } from "../lib/i18n/core";
+
+type LegalKey = "terms" | "privacy" | "ai-disclosure";
+/** The document names people know (not internal keys). */
+export const LEGAL_TITLES: Record<LegalKey, string> = {
+  terms: "Terms of service",
+  privacy: "Privacy policy",
+  "ai-disclosure": "Digital coaching disclosure",
+};
+/** "29 Sept 2026" (Arabic "29 سبتمبر 2026"): a date, never a time with seconds. */
+export function legalDate(value: string | null | undefined, locale: Locale = "en") {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return locale === "en"
+    ? date.toLocaleDateString("en-GB", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      })
+    : formatDate(date, { locale });
+}
+
+/**
+ * A published platform document (terms, privacy policy, digital coaching
+ * disclosure) as a readable phone page: 16 px gutters, a styled way home,
+ * 16 px body text. When the platform has not published the document yet the
+ * page says so plainly, and joining forms do not ask anyone to accept it
+ * (components/legal-acceptance.tsx).
+ */
 export function PublishedLegal({
   documentKey,
+  platformName,
+  fromApp = false,
 }: {
-  documentKey: "terms" | "privacy" | "ai-disclosure";
+  documentKey: LegalKey;
+  platformName?: string;
+  /**
+   * Opened from the member app (?from=app) or inside the installed app: the
+   * way back leads into the app, which has no browser back button.
+   */
+  fromApp?: boolean;
 }) {
   const [version, setVersion] = useState(""),
     [data, setData] = useState<any>(null),
-    [error, setError] = useState("");
+    [state, setState] = useState<"loading" | "ready" | "unpublished" | "failed">(
+      "loading",
+    ),
+    [attempt, setAttempt] = useState(0);
+  const t = useT("public"),
+    common = useT("common"),
+    locale = useLocale();
   useEffect(() => setVersion(""), [documentKey]);
   useEffect(() => {
     let active = true;
     setData(null);
-    setError("");
+    setState("loading");
     void fetch(
       `/api/v1/public/documents/${documentKey}${version ? `?version=${version}` : ""}`,
     )
       .then(async (r) => {
-        const result = await r.json();
-        if (!r.ok) throw new Error(result.message ?? "Document unavailable.");
-        if (active) setData(result);
+        const result = await r.json().catch(() => ({}));
+        if (!active) return;
+        if (r.ok) {
+          setData(result);
+          setState("ready");
+        } else
+          setState(
+            result.code === "LEGAL_NOT_PUBLISHED" ? "unpublished" : "failed",
+          );
       })
-      .catch((e) => {
-        if (active) setError(e.message);
+      .catch(() => {
+        if (active) setState("failed");
       });
     return () => {
       active = false;
     };
-  }, [documentKey, version]);
+  }, [documentKey, version, attempt]);
+  const title = t(
+    documentKey === "terms"
+      ? "termsTitle"
+      : documentKey === "privacy"
+        ? "privacyTitle"
+        : "aiTitle",
+  );
+  // "Terms of service" reads as plural.
+  const plural = documentKey === "terms";
+  const document = locale === "en" ? title.toLowerCase() : title;
+  // The platform writes its documents; an Arabic page keeps the product's
+  // title and says the text itself is the platform's English.
+  const english = locale !== "en" && !/[\u0600-\u06FF]/.test(data?.document.content ?? "");
   return (
-    <main className="public-page">
-      <a href="/">Home</a>
-      <article className="card">
-        <p className="eyebrow">PLATFORM DOCUMENT</p>
-        <h1>
-          {data?.document.title ??
-            {
-              terms: "Terms",
-              privacy: "Privacy",
-              "ai-disclosure": "AI disclosure",
-            }[documentKey]}
+    <main className="legal-page" id="main">
+      {fromApp ? (
+        <a
+          className="legal-home legal-back-to-app"
+          href="/app"
+          onClick={(event) => {
+            // Straight back to the screen the member came from, when it was
+            // the app on this address.
+            const referrer = window.document.referrer;
+            const from = referrer ? new URL(referrer) : null;
+            if (
+              from?.origin === location.origin &&
+              /^\/app(\/|$)/.test(from.pathname) &&
+              history.length > 1
+            ) {
+              event.preventDefault();
+              history.back();
+            }
+          }}
+        >
+          <ChevronLeft size={18} aria-hidden="true" className="bidi-mirror" />
+          {t("backToApp")}
+        </a>
+      ) : (
+        <a className="legal-home" href="/">
+          <ChevronLeft size={18} aria-hidden="true" className="bidi-mirror" />
+          {t("home")}
+        </a>
+      )}
+      <article className="legal-document" aria-labelledby="legal-title">
+        <h1 id="legal-title">
+          {locale === "en" ? (data?.document.title ?? title) : title}
         </h1>
-        {error ? (
-          <p className="notice" role="status">
-            {error}
+        {state === "unpublished" ? (
+          <div className="legal-state" role="status">
+            <h2>{t("notPublished")}</h2>
+            <p>
+              {platformName
+                ? t(plural ? "stillApprovingForMany" : "stillApprovingFor", {
+                    document,
+                    platform: platformName,
+                  })
+                : t(plural ? "stillApprovingMany" : "stillApproving", {
+                    document,
+                  })}
+            </p>
+            <p className="muted">
+              {t(plural ? "nobodyAskedMany" : "nobodyAsked")}
+            </p>
+          </div>
+        ) : state === "failed" ? (
+          <div className="legal-state" role="alert">
+            <p>{t("loadFailed")}</p>
+            <button
+              type="button"
+              className="button secondary"
+              onClick={() => setAttempt((n) => n + 1)}
+            >
+              {common("tryAgain")}
+            </button>
+          </div>
+        ) : state === "loading" || !data ? (
+          <p className="muted" role="status">
+            {common("loading")}
           </p>
-        ) : !data ? (
-          <p role="status">Loading approved document…</p>
         ) : (
           <>
-            <label className="field">
-              <span>Published version</span>
-              <select
-                value={version || String(data.document.version)}
-                onChange={(e) => setVersion(e.target.value)}
-              >
-                {data.versions.map((v: any) => (
-                  <option value={v.version} key={v.version}>
-                    Version {v.version} · effective{" "}
-                    {new Date(v.effective_at).toLocaleDateString()}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <p className="muted">
-              Version {data.document.version} · effective{" "}
-              {new Date(data.document.effective_at).toLocaleString()}
+            <p className="legal-meta muted">
+              {t("versionMeta", {
+                version: data.document.version,
+                date: legalDate(data.document.effective_at, locale),
+              })}
             </p>
-            <div style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+            {english && (
+              <p className="legal-meta muted">{t("documentLanguageNote")}</p>
+            )}
+            {data.versions.length > 1 && (
+              <label className="field legal-versions">
+                <span>{t("earlierVersions")}</span>
+                <select
+                  value={version || String(data.document.version)}
+                  onChange={(e) => setVersion(e.target.value)}
+                >
+                  {data.versions.map((v: any) => (
+                    <option value={v.version} key={v.version}>
+                      {t("versionOption", {
+                        version: v.version,
+                        date: legalDate(v.effective_at, locale),
+                      })}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <div className="legal-body" dir="auto">
               {data.document.content}
             </div>
           </>

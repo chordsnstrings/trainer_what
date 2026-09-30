@@ -582,11 +582,14 @@ the page.
    followers worth?").
 
 The optional-analytics prompt (`components/acquisition.tsx`) on marketing
-pages is a slim bottom bar (one sentence, "Allow analytics", "No thanks",
-"Details"; 58 px tall at 1440 px) that opens only after the visitor
-scrolls, so the first screen is never covered. The footer's "Analytics
-preferences" button opens the full panel; pages with that footer show no
-floating preferences button. Other pages keep the full panel as before.
+pages is a slim bottom bar that opens only after the visitor scrolls, so
+the first screen is never covered. Since 29 September 2026 (branch
+`ui/consent`, `docs/features/analytics-consent.md`) it has two equal 48 px
+choices, a 48 px Close and a privacy policy link (65 px tall at 1440 px),
+it reserves its own space, and any answer (allow, No thanks or Close) ends
+it for good: no floating analytics control on any page, after a reload too.
+The footer's "Analytics preferences" button opens the preferences sheet.
+Coach websites, sign-in and the member app use the same bar at once.
 
 Measurements: see "Review fixes" below.
 
@@ -657,7 +660,8 @@ entity sentence).
   analytics notice in its default state) at 1440×900 (hero bottom, three
   relay cards in one row with aligned titles, nothing covered by the
   notice, one left edge for header, hero, bands, closing and footer, the
-  bar after a scroll at most 64 px, visible words, H2 count, one H1) and
+  bar after a scroll at most 72 px (64 px before the 48 px choices of
+  29 September 2026), visible words, H2 count, one H1) and
   390×844 (H1, primary action and all three relay titles on the first
   screen, one compact row, nothing covered, one left edge); inner
   marketing pages start at the header logo's edge; reduced motion (no
@@ -669,7 +673,9 @@ entity sentence).
 - `scripts/browser-completion-check.mjs` (`npm run test:browser`): on `/`
   no analytics prompt before a scroll, then the bar; "No thanks" sets no
   identifier and does not return; the footer's "Analytics preferences"
-  opens the full panel for opt-in, the readback and withdrawal.
+  opens the preferences sheet for opt-in, the readback and withdrawal
+  (since 29 September 2026 also: nothing floats after an answer, and the
+  phone checks in `docs/features/analytics-consent.md`).
 
 ### Review fixes (28 September 2026, second pass)
 

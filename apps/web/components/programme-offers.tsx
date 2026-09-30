@@ -2,6 +2,10 @@
 import { useEffect, useState } from "react";
 import { money, paymentBreakdown } from "@trainer/domain";
 import { Field } from "./field";
+import { translator, type Locale } from "../lib/i18n/core";
+import offersMessages from "../lib/i18n/messages/offers";
+import { formatMoney } from "../lib/format";
+import { useLocale } from "../lib/i18n/react";
 
 /**
  * Offer terms and the trainer's offer form (docs/features/programme.md): the
@@ -11,7 +15,8 @@ import { Field } from "./field";
  */
 type Row = { id: string; status: string; data: any };
 
-export function offerTermsText(data: any) {
+export function offerTermsText(data: any, locale: Locale = "en") {
+  if (locale !== "en") return localTerms(data, locale);
   const upfront = data?.billing === "upfront";
   const days = typeof data?.programmeDays === "number" ? data.programmeDays : null;
   return {
@@ -31,13 +36,39 @@ export function offerTermsText(data: any) {
           : null,
   };
 }
+/** The same terms from the catalog (Arabic plural forms for the days). */
+function localTerms(data: any, locale: Locale) {
+  const t = translator(offersMessages, locale);
+  const upfront = data?.billing === "upfront";
+  const days = typeof data?.programmeDays === "number" ? data.programmeDays : null;
+  const price = formatMoney(data?.priceMinor ?? 0, locale);
+  return {
+    price: upfront
+      ? t("priceFor", { price, count: days ?? 0 })
+      : t("perMonth", { price }),
+    length: upfront
+      ? t("onePayment", { count: days ?? 0 })
+      : days
+        ? t("renewsBlocks", { count: days })
+        : t("renewsRolling"),
+    voice:
+      data?.premiumVoice === true || data?.voiceIncluded === true
+        ? t("voiceIncluded")
+        : data?.voiceAddOnMinor
+          ? t("voiceAddOn", {
+              price: formatMoney(data.voiceAddOnMinor, locale),
+            })
+          : null,
+  };
+}
 
 /** Price, length and voice terms of an offer, for members and the trainer. */
 export function OfferTerms({ data }: { data: any }) {
-  const t = offerTermsText(data);
+  const locale = useLocale();
+  const t = offerTermsText(data, locale);
   return (
     <div className="offer-terms">
-      <strong dir="ltr">{t.price}</strong>
+      <strong dir={locale === "en" ? "ltr" : undefined}>{t.price}</strong>
       <span className="muted">{t.length}</span>
       {t.voice && <span>{t.voice}</span>}
     </div>

@@ -258,7 +258,15 @@ Plan:
   workspace
   navigation against the right edge with the content column beside it
   (1440px) or off canvas on the right when closed and opening from the right
-  edge (390px), and mirrored public and coach website headers. Results go to
+  edge (390px), and mirrored public and coach website headers. Follower
+  screens use the phone-first member shell (docs/features/phone-first.md):
+  its side navigation must sit against the right edge at 1440px, a bottom
+  tab bar with one `aria-current` tab must show at 390px (no drawer), and a
+  sub-page's back chevron must mirror; `/app/more` is checked too. Since the
+  Arabic catalogs (docs/features/arabic.md) a follower screen also fails when
+  a navigation label, the top bar title or the main heading is not Arabic,
+  and the language step finds the settings controls in either language.
+  Results go to
   `test-results/rtl-check.json`. `RTL_CHECK_ONLY=sources,public,trainer,
   follower` limits a local run.
 
@@ -429,13 +437,15 @@ All after the last source change unless stated.
 
 ## Remaining limits
 
-- Copy is not translated; English text inside a right-to-left layout keeps
-  its own reading order and is aligned to the right. Standalone English
-  dates and times formatted with `toLocaleString()` outside a sentence can
-  show their parts reordered in right to left. `time` elements keep their
-  own order, and emails, phone numbers, IBANs and finance balances are
-  isolated. Other ad-hoc numbers are not yet. Translating the copy should switch date/number
-  formatting to the `ar` locale at the same time.
+- Subscriber copy is now translated (docs/features/arabic.md): member app,
+  coach website chrome, joining, sign-in, legal frame and suspended pages
+  use the Arabic catalogs, and their dates, numbers, prices, ranges and
+  names are formatted in `ar-AE` (Latin digits) and isolated. The trainer
+  workspace and operator screens are still English inside a right-to-left
+  layout when a coach chooses Arabic: English text keeps its own reading
+  order, and standalone dates formatted with `toLocaleString()` there can
+  show their parts reordered. Trainer-written content and server-generated
+  sentences stay as written (with `dir="auto"`).
 - `?lang=` applies on a full page load (links that change language should be
   plain anchors); a client-side navigation to a `?lang=` URL sets the cookie
   but keeps the current direction until the next load.

@@ -1,6 +1,22 @@
 import type { NextConfig } from "next";
+/**
+ * One id per build: the build id and the release the service worker is
+ * versioned by (`/sw.js?v=<release>`, docs/features/pwa.md). APP_RELEASE
+ * (for example a commit) makes it readable; the build time keeps every
+ * build distinct. It is baked into the bundle at build time.
+ */
+// Next evaluates this file again in its build workers; they inherit the
+// value the first evaluation put in the environment, so it is one per build.
+const release = (process.env.NEXT_PUBLIC_APP_RELEASE ||= [
+  (process.env.APP_RELEASE ?? "").replace(/[^A-Za-z0-9._-]/g, "").slice(0, 40),
+  Date.now().toString(36),
+]
+  .filter(Boolean)
+  .join("-"));
 const config: NextConfig = {
   transpilePackages: ["@trainer/domain", "@trainer/contracts"],
+  generateBuildId: async () => release,
+  env: { NEXT_PUBLIC_APP_RELEASE: release },
   experimental: {
     // API calls are forwarded by proxy.ts. Next's default forwarding timeout
     // (30 s) cut interactive model requests that are allowed longer: a meal

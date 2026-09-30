@@ -20,14 +20,19 @@
   overflow-wrap: anywhere;
 }
 .voice-clock {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   margin-block: 0;
   font-size: 3rem;
   font-variant-numeric: tabular-nums;
   line-height: 1;
 }
+.voice-clock .progress-ring {
+  color: var(--brand-link, var(--ink));
+}
 .voice-prompt {
   margin-block: 0;
-  min-block-size: 3em;
   font-size: 1.05rem;
   overflow-wrap: anywhere;
 }
@@ -47,6 +52,27 @@
   border-color: var(--error);
   color: var(--on-status);
   font-weight: 700;
+}
+/* The guided session's stop control: a danger outline, never a filled
+   primary next to the step's own action. */
+.guided-stop {
+  background: var(--error-bg);
+  border-color: var(--error-line);
+  color: var(--error);
+}
+/* In the bottom action bar the pain control is a clear danger outline next
+   to the one primary action (Done), never a second filled primary. */
+.sticky-action-bar .voice-pain {
+  background: var(--error-bg);
+  border-color: var(--error-line);
+  color: var(--error);
+  gap: 8px;
+}
+/* Done, the one primary action, keeps the larger share of the bar. */
+.sticky-action-buttons > .voice-done,
+.sticky-action-buttons > .voice-start,
+.sticky-action-buttons > .voice-prepare {
+  flex-basis: 45%;
 }
 .voice-pain:focus-visible,
 .voice-commands .button:focus-visible {
@@ -99,9 +125,4 @@
   gap: 6px;
   overflow-wrap: anywhere;
 }
-@media (prefers-reduced-motion: reduce) {
-  .voice-session * {
-    transition: none;
-    animation: none;
-  }
-}
+/* Motion (the rest ring, cues, the listening ring) is in app/motion.css. */

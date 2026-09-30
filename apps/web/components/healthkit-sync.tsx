@@ -1,24 +1,39 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
+import { useErrorText, useLocale, useT } from "../lib/i18n/react";
+import { translator, type Locale } from "../lib/i18n/core";
+import healthMessages from "../lib/i18n/messages/health";
+import { Skeleton } from "./phone-ui";
+import { ACCOUNT_READ_TIMEOUT_MS, fetchWithin } from "./account-request";
+import { formatDate, formatTime, formatWhen, humanize } from "../lib/format";
 
 // Automatic Apple Health sync through the HealthKit companion app. The
 // companion app itself is separate native work; these screens let a member
 // pair it, see its status, disconnect it and delete what it synchronized.
 async function api(path: string, method = "GET", body?: unknown) {
-  const response = await fetch("/api/v1" + path, {
+  const init: RequestInit = {
     method,
     credentials: "same-origin",
     headers:
       body === undefined ? undefined : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
-  });
+  };
+  // A status read that does not answer ends in "Check again", never an
+  // endless "Loading sync status…" (account-request.ts fetchWithin).
+  const response =
+    method === "GET"
+      ? await fetchWithin("/api/v1" + path, init, ACCOUNT_READ_TIMEOUT_MS)
+      : await fetch("/api/v1" + path, init);
   const data = await response.json().catch(() => ({}));
   if (!response.ok)
     throw new Error(data.message ?? "The request could not be completed.");
   return data;
 }
-const when = (value?: string | null) =>
-  value ? new Date(value).toLocaleString() : "Never";
+/** "Today, 14:05" or "29 Sep, 14:05" (lib/format.ts), never seconds. */
+const when = (value?: string | null, locale: Locale = "en") =>
+  value
+    ? formatWhen(value, { locale })
+    : translator(healthMessages, locale)("never");
 const rowStyle = { flexWrap: "wrap" as const, rowGap: 10 };
 const codeStyle = {
   fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
@@ -62,23 +77,13 @@ export type Status = {
   pendingCodeExpiresAt: string | null;
   server: string;
 };
-const reasons: Record<string, string> = {
-  member: "Disconnected by you",
-  device: "Disconnected from the app",
-  consent: "Wearable permission withdrawn",
-  source_revoked: "Apple Health use revoked",
-  membership_ended: "Membership ended",
-};
-const errors: Record<string, string> = {
-  HEALTHKIT_POLICY: "Paused: your coach has turned automatic sync off.",
-  HEALTHKIT_CLIENTS_ONLY: "Paused: only client accounts can sync.",
-  CONSENT_REQUIRED: "Paused: permission was withdrawn.",
-  MEMBERSHIP_ENDED: "Paused: membership is not active.",
-  DAILY_QUOTA: "Paused until tomorrow: daily upload allowance reached.",
-  HEALTHKIT_SYNC_DISABLED: "Paused: sync is turned off for the platform.",
-  IMPORT_REVIEW_PENDING: "Paused: health imports await platform approval.",
-  APPLE_IMPORTS_DISABLED: "Paused: Apple Health imports are disabled.",
-};
+type HealthKey = keyof typeof healthMessages.en;
+const reasonKey = (reason: string) =>
+  `reason_${reason}` in healthMessages.en
+    ? (`reason_${reason}` as HealthKey)
+    : null;
+const errorKey = (code: string) =>
+  `error_${code}` in healthMessages.en ? (`error_${code}` as HealthKey) : null;
 
 type Pairing = { code: string; expiresAt: string; server: string };
 export function HealthKitSyncPanel({ role = "subscriber" }: { role?: string }) {
@@ -86,13 +91,25 @@ export function HealthKitSyncPanel({ role = "subscriber" }: { role?: string }) {
     [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false),
     [consent, setConsent] = useState(false),
-    [pairing, setPairing] = useState<Pairing | null>(null);
+    [pairing, setPairing] = useState<Pairing | null>(null),
+    [failed, setFailed] = useState(false);
+  const t = useT("health"),
+    toError = useErrorText();
   const refresh = useCallback(async () => {
     setStatus(await api("/healthkit/status"));
+    setFailed(false);
   }, []);
+  // A failed first read says so with a retry, never an endless "Loading".
+  const load = useCallback(
+    () =>
+      refresh().catch(() => {
+        setFailed(true);
+      }),
+    [refresh],
+  );
   useEffect(() => {
-    void refresh().catch((e) => setMessage(e.message));
-  }, [refresh]);
+    void load();
+  }, [load]);
   const run = async (fn: () => Promise<unknown>, success: string) => {
     setBusy(true);
     setMessage("");
@@ -101,7 +118,7 @@ export function HealthKitSyncPanel({ role = "subscriber" }: { role?: string }) {
       await refresh();
       setMessage(success);
     } catch (e) {
-      setMessage(e instanceof Error ? e.message : "Please try again.");
+      setMessage(e instanceof Error ? toError(e) : t("tryAgain"));
     } finally {
       setBusy(false);
     }
@@ -109,6 +126,8 @@ export function HealthKitSyncPanel({ role = "subscriber" }: { role?: string }) {
   return (
     <HealthKitSyncView
       status={status}
+      failed={failed}
+      onRetry={() => void load()}
       role={role}
       message={message}
       busy={busy}
@@ -121,34 +140,30 @@ export function HealthKitSyncPanel({ role = "subscriber" }: { role?: string }) {
             await api("/healthkit/pairing-codes", "POST", { consent: true }),
           );
           setConsent(false);
-        }, "Pairing code created. It works once, for 10 minutes.")
+        }, t("codeCreated"))
       }
       onCancel={() =>
         void run(async () => {
           await api("/healthkit/pairing-codes/cancel", "POST", {});
           setPairing(null);
-        }, "Pairing code cancelled.")
+        }, t("codeCancelled"))
       }
       onDisconnect={(d) => {
         if (
-          window.confirm(
-            `Disconnect ${d.name}? It will stop sending Apple Health data.`,
-          )
+          window.confirm(t("disconnectConfirm", { name: d.name }))
         )
           void run(
             () => api(`/healthkit/devices/${d.id}/revoke`, "POST", {}),
-            "Device disconnected. Synced data stays until you delete it or revoke its use.",
+            t("disconnected"),
           );
       }}
       onDelete={() => {
         if (
-          window.confirm(
-            "Delete all Apple Health data synced from your devices? This cannot be undone. Exported files you imported yourself are not affected.",
-          )
+          window.confirm(t("deleteConfirm"))
         )
           void run(
             () => api("/healthkit/data/delete", "POST", { confirm: true }),
-            "Synced Apple Health data deleted.",
+            t("deleted"),
           );
       }}
     />
@@ -158,6 +173,8 @@ export function HealthKitSyncPanel({ role = "subscriber" }: { role?: string }) {
 /** Presentational states of the sync panel; the panel above supplies data. */
 export function HealthKitSyncView({
   status,
+  failed = false,
+  onRetry,
   role,
   message,
   busy,
@@ -170,6 +187,9 @@ export function HealthKitSyncView({
   onDelete,
 }: {
   status: Status | null;
+  /** The status could not be read: show a retry, not "Loading". */
+  failed?: boolean;
+  onRetry?: () => void;
   role: string;
   message: string;
   busy: boolean;
@@ -184,25 +204,39 @@ export function HealthKitSyncView({
   const active = status?.devices.filter((d) => d.status === "active") ?? [];
   const past = status?.devices.filter((d) => d.status !== "active") ?? [];
   const full = active.length >= 5;
+  const t = useT("health"),
+    locale = useLocale();
   return (
     <section className="card" aria-labelledby="healthkit-sync-title">
-      <h2 id="healthkit-sync-title">Automatic Apple Health sync</h2>
-      <p className="muted">
-        Pair the companion iPhone app to send workouts, heart rate, heart-rate
-        variability, resting heart rate, sleep, steps, active energy and body
-        mass in the background. Data is used for display and deterministic
-        coaching indicators only, never for AI prompts or advertising.
-      </p>
+      <h2 id="healthkit-sync-title">{t("title")}</h2>
+      <p className="muted">{t("intro")}</p>
       {message && (
         <p role="status" className="notice">
           {message}
         </p>
       )}
-      {!status ? (
-        <p className="muted">Loading sync status…</p>
+      {!status && failed ? (
+        <div role="alert">
+          <p>{t("statusFailed")}</p>
+          {onRetry && (
+            <button
+              type="button"
+              className="button secondary"
+              onClick={onRetry}
+            >
+              {t("checkAgain")}
+            </button>
+          )}
+        </div>
+      ) : !status ? (
+        <Skeleton label={t("loading")} lines={2} />
       ) : !status.available ? (
         <p>
-          <span className="badge amber">Not available</span> {status.message}
+          <span className="badge amber">{t("notAvailable")}</span>{" "}
+          {/* Members read one plain line, never the platform's status. */}
+          {role === "subscriber" || locale !== "en"
+            ? t("notAvailableText")
+            : status.message}
         </p>
       ) : role === "owner" && !status.coachAllowsSync ? (
         <p>
@@ -213,24 +247,21 @@ export function HealthKitSyncView({
         </p>
       ) : role === "owner" || status.canPair === false ? (
         <p>
-          <span className="badge">For clients</span>{" "}
+          <span className="badge">{t("forClients")}</span>{" "}
           {role === "owner"
             ? "Automatic sync is on for your clients. Each client pairs their own iPhone from their Connections page; team accounts do not pair devices."
-            : "Automatic Apple Health sync is for clients of this workspace. Team accounts do not pair devices."}
+            : t("clientsOnly")}
         </p>
       ) : !status.coachAllowsSync ? (
         <p>
-          <span className="badge amber">Not enabled</span> Your coach has not
-          enabled automatic Apple Health sync.
-          {status.coachAllowsImports === false
-            ? ""
-            : " You can still import an Apple Health export file."}
+          <span className="badge amber">{t("notEnabled")}</span>{" "}
+          {t("coachOff")}
+          {status.coachAllowsImports === false ? "" : t("stillImport")}
         </p>
       ) : status.wearablePermissionWithdrawn ? (
         <p>
-          <span className="badge amber">Permission withdrawn</span> You withdrew
-          wearable permission. Grant it again in your privacy settings before
-          connecting Apple Health.
+          <span className="badge amber">{t("withdrawn")}</span>{" "}
+          {t("withdrawnText")}
         </p>
       ) : (
         <div>
@@ -240,8 +271,7 @@ export function HealthKitSyncView({
               checked={consent}
               onChange={(e) => onConsent(e.target.checked)}
             />{" "}
-            I allow this coaching workspace to receive my Apple Health data from
-            paired devices until I disconnect them or revoke Apple Health use.
+            {t("allow")}
           </label>
           <div className="button-row">
             <button
@@ -250,7 +280,7 @@ export function HealthKitSyncView({
               disabled={busy || !consent || full}
               onClick={onCreate}
             >
-              Create pairing code
+              {t("createCode")}
             </button>
             {(pairing || status.pendingCodeExpiresAt) && (
               <button
@@ -259,29 +289,39 @@ export function HealthKitSyncView({
                 disabled={busy}
                 onClick={onCancel}
               >
-                Cancel code
+                {t("cancelCode")}
               </button>
             )}
           </div>
           {full && (
-            <p className="muted">
-              Five devices are connected. Disconnect one to pair another.
-            </p>
+            <p className="muted">{t("full")}</p>
           )}
           {pairing && (
             <div aria-live="polite">
-              <p className="small-label">PAIRING CODE</p>
-              <p style={codeStyle}>
+              <p className="small-label">{t("pairingCode")}</p>
+              <p style={codeStyle} dir="ltr">
                 <strong>{pairing.code}</strong>
               </p>
               <p>
-                In the companion app, enter the server address{" "}
-                <code style={{ overflowWrap: "anywhere" }}>
-                  {pairing.server}
-                </code>{" "}
-                and this code before{" "}
-                {new Date(pairing.expiresAt).toLocaleTimeString()}. Never share
-                it; anyone with the code can add a device to your account.
+                {(() => {
+                  const [before, after] = t
+                    .template("pairingHelp")
+                    .split("<server></server>");
+                  const fill = (text: string) =>
+                    text.replace(
+                      "{time}",
+                      formatTime(pairing.expiresAt, { locale }),
+                    );
+                  return (
+                    <>
+                      {fill(before)}
+                      <code style={{ overflowWrap: "anywhere" }}>
+                        {pairing.server}
+                      </code>
+                      {fill(after ?? "")}
+                    </>
+                  );
+                })()}
               </p>
             </div>
           )}
@@ -289,38 +329,49 @@ export function HealthKitSyncView({
       )}
       {status && (active.length > 0 || past.length > 0) && (
         <div>
-          <h3>Paired devices</h3>
+          <h3>{t("pairedDevices")}</h3>
           {[...active, ...past].map((d) => (
             <div className="list-row" key={d.id} style={rowStyle}>
               <div>
-                <strong>{d.name}</strong>{" "}
+                <strong>
+                  <bdi>{d.name}</bdi>
+                </strong>{" "}
                 <span
                   className={"badge" + (d.status === "active" ? " green" : "")}
                 >
-                  {d.status === "active" ? "Connected" : "Disconnected"}
+                  {d.status === "active" ? t("connected") : t("disconnectedBadge")}
                 </span>
                 <p>
-                  Paired {when(d.pairedAt)} · Last sync {when(d.lastSyncAt)} ·{" "}
-                  {d.samplesReceived.toLocaleString()} entries
+                  {t("deviceLine", {
+                    paired: when(d.pairedAt, locale),
+                    last: when(d.lastSyncAt, locale),
+                    entries: t("entries", { count: d.samplesReceived }),
+                  })}
                 </p>
                 {d.status === "active" && d.lastErrorCode && (
                   <p className="muted">
-                    {errors[d.lastErrorCode] ?? "The last upload was refused."}
+                    {t(
+                      (errorKey(d.lastErrorCode) ?? "uploadRefused") as "uploadRefused",
+                    )}
                   </p>
                 )}
-                {d.status !== "active" && d.revokedReason && (
-                  <p className="muted">{reasons[d.revokedReason]}</p>
-                )}
+                {d.status !== "active" &&
+                  d.revokedReason &&
+                  reasonKey(d.revokedReason) && (
+                    <p className="muted">
+                      {t(reasonKey(d.revokedReason) as "reason_member")}
+                    </p>
+                  )}
               </div>
               {d.status === "active" && (
                 <button
                   type="button"
                   className="button secondary"
                   disabled={busy}
-                  aria-label={`Disconnect ${d.name}`}
+                  aria-label={t("disconnectName", { name: d.name })}
                   onClick={() => onDisconnect(d)}
                 >
-                  Disconnect
+                  {t("disconnect")}
                 </button>
               )}
             </div>
@@ -330,21 +381,23 @@ export function HealthKitSyncView({
       {status && status.synced.days > 0 && (
         <div className="list-row" style={rowStyle}>
           <div>
-            <strong>Synced data</strong>
+            <strong>{t("syncedData")}</strong>
             <p>
-              {status.synced.days} days · {status.synced.observations} derived
-              observations · Updated {when(status.synced.last_sync_at)}
+              {t("syncedLine", {
+                days: t("days", { count: status.synced.days }),
+                observations: t("derived", {
+                  count: status.synced.observations,
+                }),
+                when: when(status.synced.last_sync_at, locale),
+              })}
             </p>
             {(status.synced.restrictedDays ?? 0) > 0 && (
               <p className="muted">
                 {status.synced.restrictedDays === status.synced.days
-                  ? "All synced days are"
-                  : status.synced.restrictedDays === 1
-                    ? "1 of these days is"
-                    : `${status.synced.restrictedDays} of these days are`}{" "}
-                kept for display only because Apple Health use or wearable
-                permission was revoked. They are no longer used for coaching
-                indicators. Delete them here at any time.
+                  ? t("allRestricted")
+                  : t("someRestricted", {
+                      count: status.synced.restrictedDays ?? 0,
+                    })}
               </p>
             )}
           </div>
@@ -354,7 +407,7 @@ export function HealthKitSyncView({
             disabled={busy}
             onClick={onDelete}
           >
-            Delete synced data
+            {t("deleteSynced")}
           </button>
         </div>
       )}
@@ -375,21 +428,46 @@ export type Day = {
 };
 const hours = (minutes: number) =>
   `${Math.floor(minutes / 60)} h ${Math.round(minutes % 60)} min`;
-const activityName = (value: string) =>
-  value.replaceAll("_", " ").replace(/^./, (c) => c.toUpperCase());
-export function dayLine(d: Day) {
+const activityName = (value: string) => humanize(value);
+export function dayLine(d: Day, locale: Locale = "en") {
+  if (locale === "en")
+    return [
+      d.steps !== null && `${Math.round(d.steps).toLocaleString("en")} steps`,
+      d.activeEnergyKcal !== null &&
+        `${Math.round(d.activeEnergyKcal).toLocaleString("en")} kcal active`,
+      d.sleepMinutes !== null && `${hours(d.sleepMinutes)} asleep`,
+      ...d.workouts.map(
+        (w) => `${activityName(w.activity)} ${Math.round(w.minutes)} min`,
+      ),
+      d.restingHeartRate !== null &&
+        `resting heart rate ${Math.round(d.restingHeartRate)} bpm`,
+      d.hrvMs !== null && `HRV ${d.hrvMs} ms`,
+      d.bodyMassKg !== null && `${d.bodyMassKg} kg`,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  const t = translator(healthMessages, locale);
   return [
-    d.steps !== null && `${Math.round(d.steps).toLocaleString()} steps`,
+    d.steps !== null && t("steps", { count: Math.round(d.steps) }),
     d.activeEnergyKcal !== null &&
-      `${Math.round(d.activeEnergyKcal).toLocaleString()} kcal active`,
-    d.sleepMinutes !== null && `${hours(d.sleepMinutes)} asleep`,
-    ...d.workouts.map(
-      (w) => `${activityName(w.activity)} ${Math.round(w.minutes)} min`,
+      t("kcalActive", { n: Math.round(d.activeEnergyKcal) }),
+    d.sleepMinutes !== null &&
+      t("asleep", {
+        time: t("hoursMinutes", {
+          h: Math.floor(d.sleepMinutes / 60),
+          m: Math.round(d.sleepMinutes % 60),
+        }),
+      }),
+    ...d.workouts.map((w) =>
+      t("workoutMinutes", {
+        activity: activityName(w.activity),
+        n: Math.round(w.minutes),
+      }),
     ),
     d.restingHeartRate !== null &&
-      `resting heart rate ${Math.round(d.restingHeartRate)} bpm`,
-    d.hrvMs !== null && `HRV ${d.hrvMs} ms`,
-    d.bodyMassKg !== null && `${d.bodyMassKg} kg`,
+      t("restingHr", { n: Math.round(d.restingHeartRate) }),
+    d.hrvMs !== null && t("hrv", { n: d.hrvMs }),
+    d.bodyMassKg !== null && t("bodyMass", { n: d.bodyMassKg }),
   ]
     .filter(Boolean)
     .join(" · ");
@@ -420,24 +498,23 @@ export function HealthKitActivityList({
   lastSyncAt,
   notice,
 }: ActivityData) {
+  const t = useT("health"),
+    locale = useLocale();
   if (!days.length) return null;
   return (
     <section className="card" aria-labelledby="healthkit-activity-title">
-      <h2 id="healthkit-activity-title">Activity from Apple Health</h2>
+      <h2 id="healthkit-activity-title">{t("activityTitle")}</h2>
       <p className="muted">
-        {notice} Last synced {when(lastSyncAt)}.
+        {locale === "en" && notice ? `${notice} ` : ""}
+        {t("lastSynced", { when: when(lastSyncAt, locale) })}
       </p>
       {days.map((d) => (
         <div className="list-row" key={d.day} style={rowStyle}>
           <div>
             <strong>
-              {new Date(d.day + "T12:00:00").toLocaleDateString(undefined, {
-                weekday: "short",
-                day: "numeric",
-                month: "short",
-              })}
+              {formatDate(d.day, { weekday: true, year: false, locale })}
             </strong>
-            <p>{dayLine(d) || "Measurements recorded; totals pending."}</p>
+            <p>{dayLine(d, locale) || t("pending")}</p>
           </div>
         </div>
       ))}

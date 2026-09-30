@@ -1,5 +1,8 @@
 "use client";
+import { formatDate, formatMoney, humanize } from "../lib/format";
+import { useErrorText, useLocale, useT } from "../lib/i18n/react";
 import { useEffect, useState } from "react";
+import { LoadingOrRetry } from "./phone-ui";
 import { money } from "@trainer/domain";
 /** "July 2026" for a YYYY-MM month. */
 const monthName = (period: string) =>
@@ -19,13 +22,18 @@ async function request(url: string, body?: unknown) {
     throw new Error(data.message ?? "Request could not be completed");
   return data;
 }
-export function BillingHistory() {
+/** Receipts, refund requests and renewal confirmation for a member. */
+export function BillingHistory({ active = false }: { active?: boolean }) {
   const [data, setData] = useState<any>(null),
     [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false);
+  const t = useT("membership"),
+    locale = useLocale(),
+    toError = useErrorText();
   const refresh = () => request("/membership/billing").then(setData);
   useEffect(() => {
-    void refresh().catch((e) => setMessage(e.message));
+    void refresh().catch((e) => setMessage(toError(e)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   async function act(url: string, body: unknown) {
     setBusy(true);
@@ -33,48 +41,58 @@ export function BillingHistory() {
     try {
       await request(url, body);
       await refresh();
-      setMessage("Billing updated.");
+      setMessage(t("billingUpdated"));
     } catch (e) {
-      setMessage((e as Error).message);
+      setMessage(toError(e));
     } finally {
       setBusy(false);
     }
   }
+  const price = (minor: number | string) => formatMoney(minor, locale);
+  const date = (value: string) => formatDate(value, { locale, fallback: "—" });
   return (
     <section className="card">
-      <h2>Invoices and refunds</h2>
-      <p className="muted">
-        Download available receipts or choose an eligible charge to request a
-        refund.
-      </p>
+      <h2>{t("billingTitle")}</h2>
+      <p className="muted">{t("billingText")}</p>
       {message && (
         <p role="status" className="notice">
           {message}
         </p>
       )}
-      {!data && !message && <p>Loading billing history…</p>}
+      {!data && !message && (
+        <LoadingOrRetry
+          label={t("loadingBilling")}
+          onRetry={() => void refresh().catch((e) => setMessage(toError(e)))}
+        />
+      )}
       {data && (
         <>
           {data.transitions.length > 0 && (
             <div className="notice">
-              <p>A renewal change is awaiting provider confirmation.</p>
+              <p>{t("renewalAwaiting")}</p>
               <button
                 className="button secondary"
                 disabled={busy}
                 onClick={() => void act("/membership/renewal/reconcile", {})}
               >
-                Check renewal status
+                {t("checkRenewal")}
               </button>
             </div>
           )}
-          {!data.invoices.length && <p>No invoices yet.</p>}
+          {!data.invoices.length && (
+            <p className="muted">
+              {active ? t("receiptsAppear") : t("noPayments")}
+            </p>
+          )}
           {data.invoices.map((r: any) => (
             <article className="list-row" key={r.id}>
               <div>
-                <strong>{r.data.number ?? r.data.invoiceId}</strong>
+                <strong>
+                  <bdi>{r.data.number ?? r.data.invoiceId}</bdi>
+                </strong>
                 <p>
-                  {new Date(r.data.issuedAt).toLocaleDateString()} ·{" "}
-                  {money(r.data.amountPaid)} · {r.status}
+                  {date(r.data.issuedAt)} · {price(r.data.amountPaid)} ·{" "}
+                  {t.dynamic(`invoice_${r.status}`, humanize(r.status))}
                 </p>
               </div>
               <div>
@@ -85,12 +103,12 @@ export function BillingHistory() {
                     rel="noreferrer"
                     className="button secondary"
                   >
-                    View invoice
+                    {t("viewInvoice")}
                   </a>
                 )}{" "}
                 {r.data.pdfUrl && (
                   <a href={r.data.pdfUrl} target="_blank" rel="noreferrer">
-                    Download PDF
+                    {t("downloadPdf")}
                   </a>
                 )}
               </div>
@@ -107,22 +125,21 @@ export function BillingHistory() {
                 });
               }}
             >
-              <h3>Request a refund</h3>
+              <h3>{t("requestRefund")}</h3>
               <label className="field">
-                <span>Payment</span>
+                <span>{t("payment")}</span>
                 <select required name="chargeId">
                   {data.charges
                     .filter((c: any) => c.eligible)
                     .map((c: any) => (
                       <option key={c.id} value={c.chargeId}>
-                        {new Date(c.chargedAt).toLocaleDateString()} —{" "}
-                        {money(c.remainingMinor)}
+                        {date(c.chargedAt)} — {price(c.remainingMinor)}
                       </option>
                     ))}
                 </select>
               </label>
               <label className="field">
-                <span>Reason</span>
+                <span>{t("reason")}</span>
                 <textarea
                   name="reason"
                   minLength={5}
@@ -131,21 +148,23 @@ export function BillingHistory() {
                 />
               </label>
               <button className="button" disabled={busy}>
-                Send refund request
+                {t("sendRefund")}
               </button>
             </form>
           )}
           {data.requests.length > 0 && (
             <>
-              <h3>Your refund requests</h3>
+              <h3>{t("yourRefunds")}</h3>
               {data.requests.map((r: any) => (
                 <article className="list-row" key={r.id}>
                   <div>
-                    <strong>{money(r.data.amountMinor)}</strong>
+                    <strong>{price(r.data.amountMinor)}</strong>
                     <p>{r.data.reason}</p>
                     {r.data.decisionReason && <p>{r.data.decisionReason}</p>}
                   </div>
-                  <span className="badge">{r.status}</span>
+                  <span className="badge">
+                    {t.dynamic(`refund_${r.status}`, humanize(r.status))}
+                  </span>
                 </article>
               ))}
             </>

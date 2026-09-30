@@ -74,7 +74,7 @@
 .nutrition-option {
   border: 1px solid var(--line);
   border-radius: 12px;
-  padding: 18px;
+  padding: 12px;
   margin: 18px 0;
   min-width: 0;
 }
@@ -82,13 +82,16 @@
   padding: 0 8px;
   font-weight: 600;
 }
+/* Phone first: two columns with the button on its own row; from 641 px
+   name, amount and button share one row. */
 .nutrition-ingredient {
   display: grid;
-  grid-template-columns: 2fr 1fr auto;
+  grid-template-columns: 1fr 1fr;
   gap: 12px;
   align-items: center;
 }
 .nutrition-ingredient .button {
+  grid-column: 1/-1;
   margin-top: 7px;
 }
 .nutrition-week-heading,
@@ -118,7 +121,7 @@
   border-radius: 10px;
   background: var(--white);
   color: var(--ink);
-  font-size: 0.8rem;
+  font-size: 14px;
 }
 .nutrition-days button span {
   display: block;
@@ -136,7 +139,7 @@
   gap: 16px;
 }
 .nutrition-meal {
-  padding: 22px;
+  padding: 16px;
   border: 1px solid var(--line);
   border-radius: 12px;
   min-width: 0;
@@ -199,26 +202,23 @@
 .nutrition p {
   overflow-wrap: anywhere;
 }
-@media (max-width: 640px) {
+.nutrition .page-heading {
+  align-items: start;
+}
+@media (min-width: 641px) {
   .nutrition-ingredient {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 2fr 1fr auto;
   }
   .nutrition-ingredient .button {
-    grid-column: 1/-1;
-  }
-  .nutrition-days {
-    gap: 3px;
-  }
-  .nutrition-days button {
-    font-size: 0.69rem;
+    grid-column: auto;
   }
   .nutrition-option {
-    padding: 12px;
+    padding: 18px;
   }
   .nutrition-meal {
-    padding: 17px;
+    padding: 22px;
   }
   .nutrition .page-heading {
-    align-items: start;
+    align-items: center;
   }
 }

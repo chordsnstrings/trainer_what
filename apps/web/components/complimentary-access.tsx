@@ -1,4 +1,6 @@
 "use client";
+import { formatDate } from "../lib/format";
+import { useLocale, useT } from "../lib/i18n/react";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 
@@ -19,14 +21,9 @@ async function api(path: string, method = "GET", body?: unknown) {
     });
   return data;
 }
+/** "29 Sep 2026" (lib/format.ts). */
 const day = (value?: string | null) =>
-  value
-    ? new Date(value).toLocaleDateString(undefined, {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-      })
-    : "—";
+  value ? formatDate(value) : "—";
 const tierName = (tier: string) =>
   tier === "workout_nutrition" ? "Workout + nutrition" : "Workout";
 const until = (g: any) =>
@@ -276,6 +273,8 @@ export function ComplimentaryAccessManager({ role }: { role: string }) {
 /** The follower's plan screen: complimentary access, if any. */
 export function MemberAccessCard() {
   const [data, setData] = useState<any>(null);
+  const t = useT("membership"),
+    locale = useLocale();
   useEffect(() => {
     api("/membership/access").then(setData, () => setData(null));
   }, []);
@@ -286,23 +285,24 @@ export function MemberAccessCard() {
       className="card member-access"
       aria-labelledby="member-access-title"
     >
-      <p className="eyebrow">COMPLIMENTARY ACCESS</p>
-      <h2 id="member-access-title">Your coach has given you access</h2>
+      <p className="eyebrow">{t("accessEyebrow")}</p>
+      <h2 id="member-access-title">{t("accessTitle")}</h2>
       <p>
-        <span className="badge green">{tierName(grant.tier)}</span>{" "}
+        <span className="badge green">
+          {grant.tier === "workout_nutrition"
+            ? t("workoutNutrition")
+            : t("workout")}
+        </span>{" "}
         {grant.endsAt
-          ? `Included until ${day(grant.endsAt)}.`
-          : "Included until your coach ends it."}
+          ? t("includedUntil", {
+              date: formatDate(grant.endsAt, { locale, fallback: "—" }),
+            })
+          : t("includedOpen")}
       </p>
       {grant.includesNutrition && !grant.nutritionAvailable && (
-        <p className="muted">
-          Nutrition coaching opens when it is available on this platform.
-        </p>
+        <p className="muted">{t("nutritionLater")}</p>
       )}
-      <p className="muted">
-        No payment is needed for this access. You can still choose a paid plan
-        below at any time.
-      </p>
+      <p className="muted">{t("noPayment")}</p>
     </section>
   );
 }

@@ -2,11 +2,14 @@ import Workspace from "../../components/workspace";
 import { CoachWebsite } from "../../components/coach-site";
 import { notFound, permanentRedirect, redirect } from "next/navigation";
 import { cache } from "react";
+import { MemberPageTransition } from "../../components/member-shell";
 import type { Metadata, Viewport } from "next";
 import {
   documentLanguage,
+  memberColorScheme,
   publicWebsite as website,
 } from "../../components/public-website";
+import { themeColorsFor, type ColorSchemeChoice } from "../../color-scheme";
 import {
   BRAND_COLORS,
   DIRECTORY_PATH,
@@ -15,6 +18,7 @@ import {
   marketingMetadata,
   marketingPage,
   marketingRedirect,
+  brandDarkPalette,
   resolveBrandDesign,
 } from "@trainer/contracts";
 import { MarketingSite } from "../../components/marketing/site";
@@ -65,8 +69,10 @@ const directory = cache(async (query: string): Promise<DirectoryResult> => {
     throw new Error("The coach directory is temporarily unavailable.");
   return response.json();
 });
-// Sign-in, sign-up, recovery and joining pages the workspace renders as
-// `public platform-ui` on the platform address (components/workspace.tsx).
+// Sign-in, sign-up and recovery pages the workspace renders as
+// `public platform-ui` on the platform address (components/public-pages.tsx).
+// Joining pages (/join-coach/<name>, /join/<link>) are not listed: they are
+// the coach's from the first paint and follow the member's appearance.
 const PUBLIC_AUTH_PATHS = [
   "/login",
   "/signup",
@@ -81,8 +87,6 @@ const PUBLIC_AUTH_PREFIXES = [
   "/account-recovery/",
   "/reset-password/",
   "/verify-email/",
-  "/join-coach/",
-  "/join/",
 ];
 /** Public platform pages, which are always light (docs/features/brand.md). */
 function isPublicPlatformRoute(route: string) {
@@ -94,12 +98,19 @@ function isPublicPlatformRoute(route: string) {
     PUBLIC_AUTH_PREFIXES.some((prefix) => route.startsWith(prefix))
   );
 }
+/** The `color-scheme` meta for a subscriber surface following `choice`. */
+function colorSchemeMeta(choice: ColorSchemeChoice) {
+  return choice === "system" ? "light dark" : choice;
+}
 /**
  * A coach website, and any page on a trainer's own address, takes the coach's
- * own browser colour (Design Studio primary, as in its public manifest). The
- * public platform pages (marketing, directory, sign-in) are always light, so
- * their browser colour is white in every device scheme. The workspace keeps
- * the root layout's paper and ink pair.
+ * own browser colour (Design Studio primary, as in its public manifest) in
+ * light and the dark top bar colour in dark, following the member's
+ * appearance choice on this device (docs/features/dark-mode.md). The public
+ * platform pages (marketing, directory, sign-in) are always light, so their
+ * browser colour is white in every device scheme. The trainer workspace
+ * keeps the root layout's paper and ink pair; the member app sets its
+ * coach's colours once signed in (components/appearance.tsx).
  */
 export async function generateViewport({
   params,
@@ -107,16 +118,38 @@ export async function generateViewport({
   params: Promise<{ path?: string[] }>;
 }): Promise<Viewport> {
   const { path = [] } = await params;
+  const scheme = await memberColorScheme();
+  // The member app draws under the notch and home indicator and pads its top
+  // bar, tab bar and sticky action bars with env(safe-area-inset-*)
+  // (app/phone-first.css), which matters most once it is installed.
+  const member: Viewport =
+    path[0] === "app"
+      ? { viewportFit: "cover", colorScheme: colorSchemeMeta(scheme) }
+      : {};
+  // A coach's join page names its coach; an invitation's coach is known once
+  // it loads (components/public-pages.tsx sets the browser colour then).
   const slug =
-    path[0] === "coach" ? path[1] : (await requestOrigin()).coachSlug;
+    path[0] === "coach"
+      ? path[1]
+      : ((await requestOrigin()).coachSlug ??
+        (path[0] === "join-coach" ? path[1] : null));
   if (!slug)
     return isPublicPlatformRoute("/" + path.join("/"))
       ? { themeColor: BRAND_COLORS.white, colorScheme: "light" }
-      : {};
+      : path[0] === "join"
+        ? { colorScheme: colorSchemeMeta(scheme) }
+        : member;
   const data = await website(slug);
   return data
-    ? { themeColor: resolveBrandDesign(data.tenant.theme).primary }
-    : {};
+    ? {
+        themeColor: themeColorsFor(scheme, {
+          light: resolveBrandDesign(data.tenant.theme).primary,
+          dark: brandDarkPalette(data.tenant.theme).themeColor,
+        }),
+        colorScheme: colorSchemeMeta(scheme),
+        ...member,
+      }
+    : member;
 }
 export async function generateMetadata({
   params,
@@ -181,7 +214,7 @@ export async function generateMetadata({
             description: `Personal coaching with ${data.tenant.name}.`,
             icons: {
               icon: `/api/v1/public/sites/${data.tenant.slug}/icon/192`,
-              apple: `/api/v1/public/sites/${data.tenant.slug}/icon/192`,
+              apple: `/api/v1/public/sites/${data.tenant.slug}/icon/180`,
             },
           }
         : { description: null }),
@@ -218,7 +251,7 @@ export async function generateMetadata({
     manifest: `/api/v1/public/sites/${data.tenant.slug}/manifest.webmanifest`,
     icons: {
       icon: `/api/v1/public/sites/${data.tenant.slug}/icon/192`,
-      apple: `/api/v1/public/sites/${data.tenant.slug}/icon/192`,
+      apple: `/api/v1/public/sites/${data.tenant.slug}/icon/180`,
     },
   };
 }
@@ -257,8 +290,16 @@ export default async function Page({
     if (!data) notFound();
     // Links to /coaches (the marketing header, trainers' settings) stay
     // useful while the Super admin has the directory closed.
-    if (data === "closed") return <CoachDirectoryClosed />;
-    return <CoachDirectory data={data} platformName={data.platformName} />;
+    // Subscriber chrome follows the document language (?lang= or the device).
+    const { lang } = await documentLanguage();
+    if (data === "closed") return <CoachDirectoryClosed locale={lang} />;
+    return (
+      <CoachDirectory
+        data={data}
+        platformName={data.platformName}
+        locale={lang}
+      />
+    );
   }
   if (path[0] === "coach" && path[1]) {
     const data = await website(path[1]);
@@ -288,6 +329,7 @@ export default async function Page({
         initialData={data}
         path={path.slice(2).join("/")}
         language={lang}
+        colorScheme={await memberColorScheme()}
       />
     );
   }
@@ -297,6 +339,22 @@ export default async function Page({
   }
   const platform = await publicPlatform();
   const { coachSlug } = await requestOrigin();
+  // Member pages move between each other with a View Transition
+  // (docs/features/motion.md "c"); the boundary sits around the workspace.
+  if (path[0] === "app")
+    return (
+      <MemberPageTransition>
+        <Workspace
+          platform={{
+            name: platform.name,
+            initials: platform.initials,
+            registrationOpen: platform.registrationOpen,
+          }}
+          coachSlug={coachSlug}
+          colorScheme={await memberColorScheme()}
+        />
+      </MemberPageTransition>
+    );
   return (
     <Workspace
       platform={{
@@ -305,6 +363,7 @@ export default async function Page({
         registrationOpen: platform.registrationOpen,
       }}
       coachSlug={coachSlug}
+      colorScheme={await memberColorScheme()}
     />
   );
 }

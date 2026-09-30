@@ -1,0 +1,803 @@
+/* Motion for subscriber surfaces: the member app, the coach website,
+   joining and sign-in pages (docs/features/motion.md). Imported once, by the
+   root layout. The marketing site keeps its own motion (marketing.css) and
+   the trainer workspace its own (globals.css).
+
+   Rules (tests/motion-css.test.ts keeps them):
+   - Every animation and transition sits inside
+     @media (prefers-reduced-motion: no-preference) and uses the tokens
+     below; with reduced motion the app is the same, only still.
+   - The member's own "Reduce motion" choice (data-reduce-motion="on" on
+     <html>) stops the same things (the first block below).
+   - Only transform (translate, scale, rotate) and opacity move, plus
+     stroke-dashoffset for drawn SVG checks and rings and grid-template-rows
+     for a disclosure's height. Never width, height, top, left or margin; a
+     press's tint changes at once.
+   - Horizontal movement multiplies by --inline-sign, so it mirrors right to
+     left (forward is toward the inline end in both directions).
+   - Hover effects only inside @media (hover: hover).
+   - No loops except live states: the skeleton shimmer, the refresh bar,
+     typing dots and the listening ring.
+   Logical properties only (tests/logical-css). */
+
+:root {
+  --motion-instant: 80ms;
+  --motion-fast: 140ms;
+  --motion-base: 200ms;
+  --motion-slow: 280ms;
+  --motion-emphasis: 420ms;
+  --motion-progress: 640ms;
+  --motion-loop-typing: 1200ms;
+  --motion-loop-shimmer: 1400ms;
+  --motion-loop-breathe: 4000ms;
+  --motion-stagger: 30ms;
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+  --motion-distance-xs: 4px;
+  --motion-distance-sm: 8px;
+  --motion-distance-md: 16px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Reduce motion (the member's choice, or the device's)                */
+/* ------------------------------------------------------------------ */
+/* "Reduce motion" in Profile and settings > Display preferences sets
+   data-reduce-motion="on" on <html> (a device cookie, so the first paint
+   has it). Everything stops, pseudo-elements and View Transitions too. */
+:root[data-reduce-motion="on"] *,
+:root[data-reduce-motion="on"] *::before,
+:root[data-reduce-motion="on"] *::after,
+:root[data-reduce-motion="on"] *::backdrop {
+  animation: none !important;
+  transition: none !important;
+  scroll-behavior: auto !important;
+}
+:root[data-reduce-motion="on"]::view-transition-group(*),
+:root[data-reduce-motion="on"]::view-transition-old(*),
+:root[data-reduce-motion="on"]::view-transition-new(*) {
+  animation: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Static parts of animated pieces (nothing moves here)                 */
+/* ------------------------------------------------------------------ */
+/* Screen transitions: the frame is captured on its own and stays still
+   while the page content moves (see "Screen transitions" below). */
+.member-shell .member-topbar {
+  view-transition-name: member-topbar;
+}
+.member-shell .member-tabbar {
+  view-transition-name: member-tabbar;
+}
+.member-shell .member-sidenav {
+  view-transition-name: member-sidenav;
+}
+.member-shell .sticky-action-bar {
+  view-transition-name: member-action-bar;
+}
+/* React collapses the transition layer to 0 x 0 (it drops the root's
+   snapshot) while it keeps inset: 0. In a right-to-left page that box is
+   over-constrained, so the browser keeps its right edge and puts it at the
+   right side of the screen; every snapshot is laid out from the layer's
+   top-left corner (physical, as the browser places them), and the whole
+   screen went blank for each Arabic page change. Pinning the layer to the
+   left keeps the snapshots where the page is, in both directions. */
+::view-transition {
+  right: auto;
+}
+/* The analytics bar lives in the root layout, outside the page: without a
+   name of its own it would vanish for a whole transition (React drops the
+   root's snapshot). */
+.consent-bar[data-audience="people"] {
+  view-transition-name: member-consent;
+}
+/* Bars grow from their inline start (left to right: 0%; right to left:
+   100%). The fill is drawn at its value; motion scales it from 0. */
+.motion-meter-fill {
+  transform-origin: calc(50% - 50% * var(--inline-sign, 1)) 50%;
+}
+/* Touch screens never keep the old hover lift after a tap. */
+:is(.member-shell, .public:not(.mk), .coach-website, .bottom-sheet)
+  .button:hover:not(:disabled) {
+  transform: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* ---------------------------------------------------------------- */
+  /* a. Press feedback                                                 */
+  /* ---------------------------------------------------------------- */
+  /* Buttons, card links, tabs and list rows dip to 97 % with a tint the
+     moment they are pressed (--motion-instant) and come back on release
+     (--motion-fast). The tint is an inset shade of the text colour and
+     changes at once; only the scale moves. */
+  :is(.member-shell, .public:not(.mk), .coach-website, .bottom-sheet)
+    :is(
+      .button,
+      .icon-button,
+      .stepper-button,
+      .text-button,
+      .more-link,
+      .card-link,
+      a.card,
+      .scroll-tab,
+      .join-choice-card,
+      .appearance-option
+    ),
+  :where(.member-shell .member-content) button:not([class]),
+  .consent-bar[data-audience="people"] :is(.consent-choice, .consent-close),
+  .member-tab,
+  .member-back,
+  .file-input-button {
+    transition: transform var(--motion-fast) var(--ease-out);
+    -webkit-tap-highlight-color: transparent;
+  }
+  :is(.member-shell, .public:not(.mk), .coach-website, .bottom-sheet)
+    :is(
+      .button,
+      .icon-button,
+      .stepper-button,
+      .text-button,
+      .more-link,
+      .card-link,
+      a.card,
+      .scroll-tab,
+      .join-choice-card,
+      .appearance-option
+    ):active:not(:disabled):not([aria-disabled="true"]),
+  :where(.member-shell .member-content)
+    button:not([class]):active:not(:disabled),
+  .consent-bar[data-audience="people"]
+    :is(.consent-choice, .consent-close):active:not(:disabled),
+  .member-tab:active,
+  .member-back:active,
+  .file-input-control:active .file-input-button {
+    transform: scale(0.97);
+    box-shadow: inset 0 0 0 999px
+      color-mix(in srgb, currentColor 10%, transparent);
+    transition-duration: var(--motion-instant);
+  }
+  /* A tab's pill shows faintly under the finger. */
+  .member-tab:active .member-tab-icon::before {
+    opacity: 0.5;
+  }
+  .member-tab[aria-current="page"]:active .member-tab-icon::before {
+    opacity: 1;
+  }
+  /* Card-sized targets get a lighter tint (5 %), never a grey slab. */
+  :is(.member-shell, .public:not(.mk), .coach-website, .bottom-sheet)
+    :is(.join-choice-card, a.card, .more-link, .appearance-option):active:not(
+      :disabled
+    ):not([aria-disabled="true"]) {
+    box-shadow: inset 0 0 0 999px
+      color-mix(in srgb, currentColor 5%, transparent);
+  }
+  /* Text links and plain nav links answer a press with an instant tint
+     (no scale): the coach website's sections, "More about", Sign in,
+     Today's secondary link and Sign out. */
+  .coach-website :is(.site-nav a, .site-more),
+  :is(.member-shell, .public:not(.mk), .coach-website) .text-link,
+  .member-shell :is(.today-secondary, .member-signout) {
+    -webkit-tap-highlight-color: transparent;
+  }
+  .coach-website :is(.site-nav a, .site-more):active,
+  :is(.member-shell, .public:not(.mk), .coach-website) .text-link:active,
+  .member-shell :is(.today-secondary, .member-signout):active {
+    opacity: 0.6;
+  }
+  .member-tab:active,
+  .member-back:active {
+    box-shadow: none;
+  }
+  /* The More row's chevron nudges toward where the row leads. */
+  .more-chevron {
+    transition: translate var(--motion-fast) var(--ease-out);
+  }
+  .more-link:active .more-chevron {
+    translate: calc(var(--motion-distance-xs) * var(--inline-sign, 1)) 0;
+    transition-duration: var(--motion-instant);
+  }
+  .member-topbar-me .avatar {
+    transition: transform var(--motion-fast) var(--ease-out);
+  }
+  .member-topbar-me:active .avatar {
+    transform: scale(0.94);
+    transition-duration: var(--motion-instant);
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* b. Tab bar, top bar, side navigation                              */
+  /* ---------------------------------------------------------------- */
+  /* The pill slides from the tab you left (member-shell.tsx measures both
+     tabs and plays it, so it mirrors by itself); the new tab's icon pops
+     1 -> 1.08 -> 1; the unread badge pops when the count rises. */
+  .member-tab.is-arriving[aria-current="page"] .member-tab-icon > svg {
+    animation: motion-icon-pop var(--motion-slow) var(--ease-out);
+  }
+  .member-badge.is-new {
+    animation: motion-badge-pop var(--motion-slow) var(--ease-spring);
+  }
+  /* A new page's title comes in from the inline end; the back button fades
+     in when it first appears. */
+  /* The title follows the page: in from the inline end on a sub-page,
+     from the inline start on Back, and only a fade between tabs. */
+  .member-topbar-title,
+  .member-topbar-coach {
+    --motion-title-shift: 0px;
+    animation: motion-title-in var(--motion-base) var(--ease-out);
+  }
+  :root[data-vt="nav-forward"] :is(.member-topbar-title, .member-topbar-coach) {
+    --motion-title-shift: var(--motion-distance-sm);
+  }
+  :root[data-vt="nav-back"] :is(.member-topbar-title, .member-topbar-coach) {
+    --motion-title-shift: calc(var(--motion-distance-sm) * -1);
+  }
+  .member-back.is-arriving {
+    animation: motion-fade-in var(--motion-base) var(--ease-out);
+  }
+  /* Refreshing in place: the segment breathes (a live state). The shell
+     sets data-refreshing only once a refresh has run for MOTION.refreshDelay
+     (400 ms, member-shell.tsx), so a quick refresh (every page change)
+     shows nothing and a slow one then says so. */
+  .member-topbar[data-refreshing]::after {
+    animation:
+      motion-fade-in var(--motion-fast) var(--ease-out),
+      motion-refresh var(--motion-loop-shimmer) var(--ease-in-out) infinite
+        alternate;
+  }
+  /* Skeletons already say "loading": no second indicator above them. */
+  .member-shell:has(.member-page .skeleton) .member-topbar[data-refreshing]::after {
+    display: none;
+  }
+  /* The offline pill drops in from the top bar; "Back online" fades out. */
+  .member-offline {
+    animation: motion-drop-in var(--motion-base) var(--ease-out);
+  }
+  .member-offline.is-back-online.is-leaving {
+    animation: motion-fade-out var(--motion-base) var(--ease-in) forwards;
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* c. Screen transitions (React <ViewTransition> in member-shell.tsx) */
+  /* ---------------------------------------------------------------- */
+  /* Taps reach the live page during a transition. */
+  ::view-transition {
+    pointer-events: none;
+  }
+  /* The frame (top bar, tab bar, side navigation, action bar, analytics
+     bar) holds still: no group animation, no crossfade; the page content
+     moves underneath it. */
+  :root[data-vt^="nav-"]::view-transition-group(root),
+  :root[data-vt^="nav-"]::view-transition-old(root),
+  :root[data-vt^="nav-"]::view-transition-new(root),
+  :root[data-vt^="nav-"]::view-transition-group(member-topbar),
+  :root[data-vt^="nav-"]::view-transition-old(member-topbar),
+  :root[data-vt^="nav-"]::view-transition-new(member-topbar),
+  :root[data-vt^="nav-"]::view-transition-group(member-tabbar),
+  :root[data-vt^="nav-"]::view-transition-old(member-tabbar),
+  :root[data-vt^="nav-"]::view-transition-new(member-tabbar),
+  :root[data-vt^="nav-"]::view-transition-group(member-sidenav),
+  :root[data-vt^="nav-"]::view-transition-old(member-sidenav),
+  :root[data-vt^="nav-"]::view-transition-new(member-sidenav),
+  :root[data-vt^="nav-"]::view-transition-group(member-action-bar),
+  :root[data-vt^="nav-"]::view-transition-old(member-action-bar),
+  :root[data-vt^="nav-"]::view-transition-new(member-action-bar),
+  :root[data-vt^="nav-"]::view-transition-group(member-consent),
+  :root[data-vt^="nav-"]::view-transition-old(member-consent),
+  :root[data-vt^="nav-"]::view-transition-new(member-consent) {
+    animation: none;
+  }
+  /* The frame paints above the page. React names the entering page after
+     the bars were captured, and a later name paints on top, so the new
+     page's snapshot (opaque, full screen) covered the bars while it faded
+     in: the top bar and the tab bar blinked out for the whole transition
+     (motion-check.mjs "frame holds still"). */
+  :root[data-vt^="nav-"]::view-transition-group(member-topbar),
+  :root[data-vt^="nav-"]::view-transition-group(member-tabbar),
+  :root[data-vt^="nav-"]::view-transition-group(member-sidenav),
+  :root[data-vt^="nav-"]::view-transition-group(member-action-bar),
+  :root[data-vt^="nav-"]::view-transition-group(member-consent) {
+    z-index: 1;
+  }
+  /* When both pages have the bar, only the new one shows: it is live (its
+     title and tab pill move in place), and the old picture behind a
+     translucent bar would show through as a ghost. */
+  :root[data-vt^="nav-"]::view-transition-old(member-topbar),
+  :root[data-vt^="nav-"]::view-transition-old(member-tabbar),
+  :root[data-vt^="nav-"]::view-transition-old(member-sidenav),
+  :root[data-vt^="nav-"]::view-transition-old(member-action-bar),
+  :root[data-vt^="nav-"]::view-transition-old(member-consent) {
+    opacity: 0;
+  }
+  /* A bar only one of the two pages has (an action bar, an answered
+     analytics bar) fades with the page instead of hanging over it. */
+  :root[data-vt^="nav-"]::view-transition-old(member-topbar):only-child,
+  :root[data-vt^="nav-"]::view-transition-old(member-tabbar):only-child,
+  :root[data-vt^="nav-"]::view-transition-old(member-sidenav):only-child,
+  :root[data-vt^="nav-"]::view-transition-old(member-action-bar):only-child,
+  :root[data-vt^="nav-"]::view-transition-old(member-consent):only-child {
+    opacity: 1;
+    animation: motion-fade-out var(--motion-fast) var(--ease-in) both;
+  }
+  :root[data-vt^="nav-"]::view-transition-new(member-topbar):only-child,
+  :root[data-vt^="nav-"]::view-transition-new(member-tabbar):only-child,
+  :root[data-vt^="nav-"]::view-transition-new(member-sidenav):only-child,
+  :root[data-vt^="nav-"]::view-transition-new(member-action-bar):only-child,
+  :root[data-vt^="nav-"]::view-transition-new(member-consent):only-child {
+    animation: motion-fade-in var(--motion-fast) var(--ease-out) both;
+  }
+
+  /* Another tab (or a page beside this one): a quick crossfade. */
+  ::view-transition-old(.member-page) {
+    animation: motion-fade-out var(--motion-fast) var(--ease-in) both;
+  }
+  ::view-transition-new(.member-page) {
+    animation: motion-fade-in var(--motion-fast) var(--ease-out) both;
+  }
+  /* Opening a sub-page: it slides 16 px in from the inline end with a
+     fade while the page it came from leaves toward the inline start. Back
+     reverses both. (--motion-shift is toward the inline end; the keyframes
+     multiply it by --inline-sign.) */
+  :root[data-vt="nav-forward"]::view-transition-old(.member-page) {
+    --motion-shift: calc(var(--motion-distance-md) * -1);
+    animation: motion-slide-out var(--motion-fast) var(--ease-in) both;
+  }
+  :root[data-vt="nav-forward"]::view-transition-new(.member-page) {
+    --motion-shift: var(--motion-distance-md);
+    animation: motion-slide-in var(--motion-base) var(--ease-out) both;
+  }
+  :root[data-vt="nav-back"]::view-transition-old(.member-page) {
+    --motion-shift: var(--motion-distance-md);
+    animation: motion-slide-out var(--motion-fast) var(--ease-in) both;
+  }
+  :root[data-vt="nav-back"]::view-transition-new(.member-page) {
+    --motion-shift: calc(var(--motion-distance-md) * -1);
+    animation: motion-slide-in var(--motion-base) var(--ease-out) both;
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* m. Theme switch (appearance.tsx, only when the member changes it)  */
+  /* ---------------------------------------------------------------- */
+  :root[data-vt="theme"]::view-transition-group(*) {
+    animation: none;
+  }
+  :root[data-vt="theme"]::view-transition-old(*) {
+    animation: motion-fade-out var(--motion-base) var(--ease-in-out) both;
+  }
+  :root[data-vt="theme"]::view-transition-new(*) {
+    animation: motion-fade-in var(--motion-base) var(--ease-in-out) both;
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* d. Loading: skeletons                                             */
+  /* ---------------------------------------------------------------- */
+  .skeleton-line::after {
+    animation: motion-shimmer var(--motion-loop-shimmer) var(--ease-in-out)
+      infinite;
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* e. Sheets, the sticky action bar, toasts                          */
+  /* ---------------------------------------------------------------- */
+  .sticky-action-bar {
+    animation: motion-bar-in var(--motion-slow) var(--ease-out);
+  }
+  .bottom-sheet[open] {
+    animation: motion-sheet-up var(--motion-slow) var(--ease-out);
+  }
+  .bottom-sheet[open]::backdrop {
+    animation: motion-fade-in var(--motion-slow) var(--ease-out);
+  }
+  .bottom-sheet[open][data-closing] {
+    animation: motion-sheet-down var(--motion-base) var(--ease-in) forwards;
+  }
+  .bottom-sheet[open][data-closing]::backdrop {
+    animation: motion-fade-out var(--motion-base) var(--ease-in) forwards;
+  }
+  .consent-sheet[open] {
+    animation: motion-rise-in var(--motion-base) var(--ease-out);
+  }
+  .member-toast,
+  .app-update-toast {
+    animation: motion-toast-in var(--motion-base) var(--ease-out);
+  }
+  .member-toast.is-leaving,
+  .app-update-toast.is-leaving {
+    animation: motion-toast-out var(--motion-fast) var(--ease-in) forwards;
+  }
+  /* Tabs inside a screen: the underline grows from the tab's centre. */
+  .scroll-tabs [role="tab"]::after {
+    transition: transform var(--motion-base) var(--ease-out);
+  }
+  /* Notices arrive instead of popping into place; errors fade in. */
+  :is(.member-shell, .public:not(.mk), .coach-website, .bottom-sheet)
+    :is(.notice, .control-reason[role="status"]) {
+    animation: motion-drop-in var(--motion-base) var(--ease-out);
+  }
+  :is(.member-shell, .public:not(.mk), .coach-website, .bottom-sheet)
+    :is(.notice.error, [role="alert"], .field-error, .voice-issue) {
+    animation: motion-fade-in var(--motion-base) var(--ease-out);
+  }
+  .responsive-table-cue,
+  .file-input-status {
+    animation: motion-fade-in var(--motion-base) var(--ease-out);
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* f. Workout                                                        */
+  /* ---------------------------------------------------------------- */
+  /* A set just logged: the row glows once and its check draws. */
+  .member-shell .set-row.just-logged {
+    position: relative;
+    isolation: isolate;
+  }
+  .member-shell .set-row.just-logged::before {
+    content: "";
+    position: absolute;
+    inset-block: 4px;
+    inset-inline: -8px;
+    z-index: -1;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--success, #2f7a4f) 14%, transparent);
+    opacity: 0;
+    animation: motion-glow var(--motion-emphasis) var(--ease-out);
+  }
+  .set-row.just-logged .set-logged {
+    animation: motion-fade-in var(--motion-base) var(--ease-out);
+  }
+  .set-row.just-logged .drawn-check-path,
+  .drawn-check.is-drawing .drawn-check-path {
+    animation: motion-draw var(--motion-base) var(--ease-out) both;
+  }
+  .drawn-check.is-drawing.is-emphasis .drawn-check-path {
+    animation-duration: var(--motion-emphasis);
+  }
+  /* The rest ring counts down by its stroke, one tick at a time. */
+  .progress-ring-value.is-ticking {
+    transition: stroke-dashoffset var(--motion-base) linear;
+  }
+  /* The completion moment, 420 ms in all (the motion limit): the card rises
+     in while its ring fills (ProgressRing immediate, --motion-slow), then
+     the check draws quickly once the ring is full, and the streak counts
+     up. */
+  .workout-complete .drawn-check.is-drawing.is-emphasis .drawn-check-path {
+    animation-duration: var(--motion-fast);
+    animation-delay: var(--motion-slow);
+  }
+  /* A list item that arrived while the list was open (useArrivals). */
+  .motion-arrive {
+    animation: motion-rise-in var(--motion-base) var(--ease-out);
+  }
+  .workout-complete.is-new {
+    animation: motion-rise-in var(--motion-base) var(--ease-out);
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* h. Chat                                                           */
+  /* ---------------------------------------------------------------- */
+  .chat-message.is-new {
+    animation: motion-rise-in var(--motion-base) var(--ease-out);
+  }
+  .chat-message {
+    transition: opacity var(--motion-fast) var(--ease-out);
+  }
+  .chat-typing-dot {
+    animation: motion-typing var(--motion-loop-typing) var(--ease-in-out)
+      infinite;
+  }
+  .chat-typing-dot:nth-child(2) {
+    animation-delay: calc(var(--motion-loop-typing) / 6);
+  }
+  .chat-typing-dot:nth-child(3) {
+    animation-delay: calc(var(--motion-loop-typing) / 3);
+  }
+  .chat-typing {
+    animation: motion-fade-in var(--motion-base) var(--ease-out);
+  }
+  .chat-send {
+    transition: transform var(--motion-fast) var(--ease-out);
+  }
+  .chat-send:disabled {
+    transform: scale(0.94);
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* i. Form controls                                                  */
+  /* ---------------------------------------------------------------- */
+  /* A box or radio you just chose answers with a small pop (boxes already
+     chosen when a page opens stay still). */
+  :is(.member-shell, .public:not(.mk), .coach-website, .bottom-sheet)
+    input:is([type="checkbox"], [type="radio"]):checked:focus {
+    animation: motion-check-pop var(--motion-fast) var(--ease-out);
+  }
+  /* A disclosure opens to its height (one block inside: grid rows 0fr to
+     1fr on its content) and its chevron turns. */
+  .member-shell details:has(> summary:first-child + :last-child)::details-content {
+    transition:
+      grid-template-rows var(--motion-base) var(--ease-out),
+      content-visibility var(--motion-base) allow-discrete;
+  }
+  .member-shell details[open] > :not(summary) {
+    animation: motion-fade-in var(--motion-base) var(--ease-out);
+  }
+  .member-shell summary::after {
+    transition: transform var(--motion-base) var(--ease-out);
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* j. The analytics bar, the install card                            */
+  /* ---------------------------------------------------------------- */
+  /* Subscriber pages only: the marketing site's bar keeps its own. */
+  .consent-bar[data-audience="people"] {
+    animation: motion-bar-in var(--motion-slow) var(--ease-out);
+  }
+  /* After an answer the bar fades where it is (no slide across the page
+     text or the sticky action), then leaves the page. */
+  .consent-bar[data-audience="people"].is-leaving {
+    animation: motion-fade-out var(--motion-fast) var(--ease-in) forwards;
+  }
+  .install-card.is-new {
+    animation: motion-rise-in var(--motion-base) var(--ease-out);
+  }
+  .install-card.is-leaving {
+    animation: motion-sink-out var(--motion-base) var(--ease-in) forwards;
+  }
+
+  /* g. Progress: bars grow by scaleX and rings by stroke-dashoffset, both
+     played by motion.ts (useMeterMotion, ProgressRing) the first time they
+     are seen; numbers count up once (CountUp). Nothing here. */
+
+  /* ---------------------------------------------------------------- */
+  /* k. Voice and guided sessions                                      */
+  /* ---------------------------------------------------------------- */
+  .listening-ring-pulse {
+    animation: motion-breathe var(--motion-loop-breathe) var(--ease-in-out)
+      infinite;
+  }
+  .voice-cue.is-new,
+  .guided-cue.is-new {
+    animation: motion-fade-in var(--motion-base) var(--ease-out);
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* l. Coach website and joining                                      */
+  /* ---------------------------------------------------------------- */
+  .site-hero:not([data-seen]) > * {
+    animation: motion-rise-in var(--motion-slow) var(--ease-out) backwards;
+  }
+  .site-hero:not([data-seen]) > :nth-child(2) {
+    animation-delay: var(--motion-stagger);
+  }
+  .site-hero:not([data-seen]) > :nth-child(3) {
+    animation-delay: calc(var(--motion-stagger) * 2);
+  }
+  .site-hero:not([data-seen]) > :nth-child(n + 4) {
+    animation-delay: calc(var(--motion-stagger) * 3);
+  }
+}
+
+/* Hover devices only: membership cards and the website's cards lift. */
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .coach-website :is(.site-plans > li, .site-gallery) {
+    transition: transform var(--motion-base) var(--ease-out);
+  }
+  .coach-website :is(.site-plans > li, .site-gallery):hover {
+    transform: translateY(calc(var(--motion-distance-xs) * -1));
+  }
+}
+
+/* From 1024 px: the side navigation's current item pops its icon. */
+@media (min-width: 1024px) and (prefers-reduced-motion: no-preference) {
+  .member-sidenav nav a svg {
+    transition: transform var(--motion-fast) var(--ease-out);
+  }
+  .member-sidenav nav a:active svg {
+    transform: scale(0.9);
+    transition-duration: var(--motion-instant);
+  }
+  .member-sidenav nav a.active.is-arriving svg {
+    animation: motion-icon-pop var(--motion-slow) var(--ease-out);
+  }
+}
+/* From 768 px a sheet is a centred dialog: it rises and scales in. */
+@media (min-width: 768px) and (prefers-reduced-motion: no-preference) {
+  .bottom-sheet[open] {
+    animation-name: motion-dialog-in;
+  }
+  .bottom-sheet[open][data-closing] {
+    animation-name: motion-dialog-out;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Keyframes (transform, opacity and stroke-dashoffset only)            */
+/* ------------------------------------------------------------------ */
+@keyframes motion-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes motion-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes motion-drop-in {
+  from {
+    opacity: 0;
+    transform: translateY(calc(var(--motion-distance-xs) * -1));
+  }
+}
+@keyframes motion-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--motion-distance-sm));
+  }
+}
+@keyframes motion-sink-out {
+  to {
+    opacity: 0;
+    transform: translateY(var(--motion-distance-sm));
+  }
+}
+@keyframes motion-title-in {
+  from {
+    opacity: 0;
+    transform: translateX(calc(var(--motion-title-shift, 0px) * var(--inline-sign, 1)));
+  }
+}
+/* --motion-shift is a distance toward the inline end (negative: toward the
+   inline start); the sign makes it mirror right to left. */
+@keyframes motion-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(calc(var(--motion-shift, 0px) * var(--inline-sign, 1)));
+  }
+}
+@keyframes motion-slide-out {
+  to {
+    opacity: 0;
+    transform: translateX(calc(var(--motion-shift, 0px) * var(--inline-sign, 1)));
+  }
+}
+@keyframes motion-icon-pop {
+  0% {
+    transform: none;
+  }
+  45% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: none;
+  }
+}
+@keyframes motion-badge-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+  100% {
+    transform: none;
+  }
+}
+@keyframes motion-refresh {
+  from {
+    transform: scaleX(0.3);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+@keyframes motion-shimmer {
+  from {
+    transform: translateX(calc(-100% * var(--inline-sign, 1)));
+  }
+  to {
+    transform: translateX(calc(100% * var(--inline-sign, 1)));
+  }
+}
+@keyframes motion-bar-in {
+  from {
+    opacity: 0.4;
+    transform: translateY(100%);
+  }
+}
+/* Fully below the screen, its shadow and the home-indicator inset too, so
+   no edge of a closed or closing sheet peeks out under the tab bar. */
+@keyframes motion-sheet-up {
+  from {
+    transform: translateY(calc(100% + 48px + env(safe-area-inset-bottom, 0px)));
+  }
+}
+@keyframes motion-sheet-down {
+  to {
+    transform: translateY(calc(100% + 48px + env(safe-area-inset-bottom, 0px)));
+  }
+}
+@keyframes motion-dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--motion-distance-md)) scale(0.97);
+  }
+}
+@keyframes motion-dialog-out {
+  to {
+    opacity: 0;
+    transform: translateY(var(--motion-distance-md)) scale(0.97);
+  }
+}
+@keyframes motion-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--motion-distance-md));
+  }
+}
+@keyframes motion-toast-out {
+  to {
+    opacity: 0;
+    transform: translateY(var(--motion-distance-sm));
+  }
+}
+@keyframes motion-check-pop {
+  0% {
+    transform: scale(0.8);
+  }
+  60% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: none;
+  }
+}
+@keyframes motion-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes motion-glow {
+  0%,
+  30% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes motion-typing {
+  0%,
+  60%,
+  100% {
+    opacity: 0.35;
+    transform: none;
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(calc(var(--motion-distance-xs) * -1));
+  }
+}
+@keyframes motion-breathe {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(0.92);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+}

@@ -1,5 +1,7 @@
 "use client";
+import { useErrorText, useLocale, useT } from "../lib/i18n/react";
 import { useEffect, useState } from "react";
+import { formatDate, formatWhen } from "../lib/format";
 async function request(path: string, body?: unknown) {
   const r = await fetch("/api/v1/auth/passkeys" + path, {
     method: body ? "POST" : "GET",
@@ -71,7 +73,10 @@ function supported() {
     !("PublicKeyCredential" in globalThis) ||
     !navigator.credentials
   )
-    throw new Error("Passkeys need a supported browser on HTTPS or localhost.");
+    throw Object.assign(
+      new Error("Passkeys need a supported browser on HTTPS or localhost."),
+      { code: "PASSKEY_UNSUPPORTED" },
+    );
 }
 const destination = (r: any) =>
   r.platformRole && r.platformRole !== "none"
@@ -82,6 +87,8 @@ const destination = (r: any) =>
 export function PasskeyLoginButton() {
   const [busy, setBusy] = useState(false),
     [message, setMessage] = useState("");
+  const t = useT("auth"),
+    toError = useErrorText();
   return (
     <div>
       <button
@@ -97,7 +104,10 @@ export function PasskeyLoginButton() {
               credential = await navigator.credentials.get({
                 publicKey: authentication(c.options),
               });
-            if (!credential) throw new Error("No passkey was selected.");
+            if (!credential)
+              throw Object.assign(new Error("No passkey was selected."), {
+                code: "PASSKEY_NONE",
+              });
             const r = await request("/authenticate/verify", {
               challengeId: c.challengeId,
               response: responseJSON(credential as PublicKeyCredential),
@@ -106,15 +116,15 @@ export function PasskeyLoginButton() {
           } catch (e) {
             setMessage(
               (e as Error).name === "NotAllowedError"
-                ? "Passkey selection was canceled or timed out."
-                : (e as Error).message,
+                ? t("passkeyCancelled")
+                : toError(e),
             );
           } finally {
             setBusy(false);
           }
         }}
       >
-        Sign in with a passkey
+        {t("passkeySignIn")}
       </button>
       {message && (
         <p className="notice" role="status">
@@ -128,18 +138,17 @@ export function PasskeySettings() {
   const [rows, setRows] = useState<any[]>([]),
     [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false);
+  const t = useT("account"),
+    locale = useLocale(),
+    toError = useErrorText();
   const load = () => request("").then(setRows);
   useEffect(() => {
-    void load().catch((e) => setMessage(e.message));
+    void load().catch((e) => setMessage(toError(e)));
   }, []);
   return (
     <section>
-      <h3>Passkeys</h3>
-      <p className="muted">
-        Use your device’s fingerprint, face recognition or security key. A
-        passkey is registered to this website address. Keep another sign-in
-        method for a lost device.
-      </p>
+      <h3>{t("passkeys")}</h3>
+      <p className="muted">{t("passkeysText")}</p>
       {message && (
         <p className="notice" role="status">
           {message}
@@ -161,18 +170,18 @@ export function PasskeySettings() {
               credential = await navigator.credentials.create({
                 publicKey: creation(c.options),
               });
-            if (!credential) throw new Error("No passkey was created.");
+            if (!credential) throw new Error(t("noPasskeyCreated"));
             await request("/register/verify", {
               challengeId: c.challengeId,
               response: responseJSON(credential as PublicKeyCredential),
             });
             await load();
-            setMessage("Passkey added.");
+            setMessage(t("passkeyAdded"));
           } catch (e) {
             setMessage(
               (e as Error).name === "NotAllowedError"
-                ? "Passkey setup was canceled or timed out."
-                : (e as Error).message,
+                ? t("passkeyCanceled")
+                : toError(e),
             );
           } finally {
             setBusy(false);
@@ -180,17 +189,17 @@ export function PasskeySettings() {
         }}
       >
         <label className="field">
-          <span>Device name</span>
+          <span>{t("deviceName")}</span>
           <input
             name="label"
             minLength={2}
             maxLength={80}
             required
-            placeholder="My phone"
+            placeholder={t("deviceExample")}
           />
         </label>
         <label className="field">
-          <span>Current password</span>
+          <span>{t("currentPassword")}</span>
           <input
             name="password"
             type="password"
@@ -199,7 +208,7 @@ export function PasskeySettings() {
           />
         </label>
         <label className="field">
-          <span>Authenticator code, if enabled</span>
+          <span>{t("codeIfEnabled")}</span>
           <input
             name="code"
             inputMode="numeric"
@@ -208,18 +217,20 @@ export function PasskeySettings() {
           />
         </label>
         <button className="button secondary" disabled={busy}>
-          Add a passkey
+          {t("addPasskey")}
         </button>
       </form>
       {rows.map((row) => (
         <details key={row.id}>
           <summary>
-            {row.label} · {row.rp_id}
+            <bdi>{row.label}</bdi> · <span dir="ltr">{row.rp_id}</span>
           </summary>
           <p>
-            Added {new Date(row.created_at).toLocaleDateString()}
+            {t("added", { date: formatDate(row.created_at, { locale }) })}
             {row.last_used_at
-              ? " · last used " + new Date(row.last_used_at).toLocaleString()
+              ? t("lastUsed", {
+                  when: formatWhen(row.last_used_at, { locale }),
+                })
               : ""}
             .
           </p>
@@ -233,16 +244,16 @@ export function PasskeySettings() {
                   password: f.get("password"),
                 });
                 await load();
-                setMessage("Passkey revoked and other sessions signed out.");
+                setMessage(t("passkeyRevoked"));
               } catch (e) {
-                setMessage((e as Error).message);
+                setMessage(toError(e));
               } finally {
                 setBusy(false);
               }
             }}
           >
             <label className="field">
-              <span>Current password to remove this passkey</span>
+              <span>{t("passwordToRemove")}</span>
               <input
                 name="password"
                 type="password"
@@ -251,7 +262,7 @@ export function PasskeySettings() {
               />
             </label>
             <button className="button secondary" disabled={busy}>
-              Revoke passkey
+              {t("revokePasskey")}
             </button>
           </form>
         </details>

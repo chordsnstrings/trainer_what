@@ -81,7 +81,7 @@ import {
   workspaceLock,
 } from "./privacy-lifecycle.ts";
 import { privacyHooks } from "./privacy-hooks.ts";
-import { legalAcceptanceVersion } from "./legal.ts";
+import { legalAcceptanceVersion, registerLegalStatus } from "./legal.ts";
 import { registerAdminOperations } from "./admin-operations.ts";
 import { screenForSafety } from "./safety-policy.ts";
 import { registerMessaging } from "./messaging-admin.ts";
@@ -97,7 +97,7 @@ import { registerHostOperations, TLS_ASK_PATH } from "./host-operations.ts";
 import type { PlatformDnsDeps } from "./platform-dns.ts";
 import { registerAcquisition, recordSignupAcquisition } from "./acquisition.ts";
 import { registerFinanceBilling } from "./finance-billing.ts";
-import { hasMemberAccess } from "./entitlements.ts";
+import { hasMemberAccess, hasNutritionAccess } from "./entitlements.ts";
 import {
   announceFollowerJoined,
   completeInvitationAcceptance,
@@ -672,6 +672,7 @@ export async function buildApp(
   registerInfrastructureActions(app, db, identity);
   registerBookingPayments(app, db);
   registerAdminOperations(app, db, identity);
+  registerLegalStatus(app, db);
   registerMessaging(app, db, identity);
   registerSupportPreview(app, db, identity);
   registerWorkspacePages(app, db, identity);
@@ -813,7 +814,9 @@ export async function buildApp(
     async (req, reply) => {
       const b = z
         .object({
-          name: z.string().min(2).max(100),
+          // An existing account joins with its own password; only a new
+          // account needs a name (as on /invitations/accept).
+          name: z.string().trim().min(2).max(100).optional(),
           email: z.email().transform((x) => x.toLowerCase()),
           password: z.string().min(12).max(128),
           coachSlug: z.string().max(40),
@@ -894,6 +897,12 @@ export async function buildApp(
         if (existing) await assertSignInAllowed(tx, existing.id);
         if (existing) await assertMayRejoin(tx, tenant.id, existing.id);
         const uid = existing?.id ?? randomUUID();
+        if (!existing && !b.name)
+          throw fail(
+            400,
+            "NAME_REQUIRED",
+            "Enter your name to create your account",
+          );
         if (!existing)
           await tx.query(
             "INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,$3,$4)",
@@ -1058,6 +1067,11 @@ export async function buildApp(
         records,
         integrations: integrationStatus(),
         ...collections,
+        // The member app's bottom tabs: Nutrition takes a tab only when this
+        // member's coaching includes it; Progress takes the slot otherwise.
+        ...(a.role === "subscriber"
+          ? { memberApp: { nutrition: await hasNutritionAccess(tx, a.userId) } }
+          : {}),
       };
     });
   });

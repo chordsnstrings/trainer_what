@@ -7,6 +7,14 @@ import {
   type ReactNode,
 } from "react";
 import { HealthKitSyncPanel } from "./healthkit-sync";
+import { painDescription } from "./pain-report";
+import {
+  BottomSheet,
+  FileInput,
+  ProgressRing,
+  Skeleton,
+  StickyActionBar,
+} from "./phone-ui";
 import { VoiceSessionStyle } from "./voice-session-style";
 import { WebAddressCenter } from "./web-address";
 import { WebAddressOperations } from "./web-address-operations";
@@ -14,6 +22,14 @@ import {
   TrainerVoiceClone,
   VoiceCloneOperations,
 } from "./trainer-voice-clone";
+import { useErrorText, useLocale, useT } from "../lib/i18n/react";
+import {
+  formatCountdown,
+  formatDate,
+  formatDateRange,
+  formatDateTime,
+  formatWhen,
+} from "../lib/format";
 
 async function api(path: string, method = "GET", body?: unknown) {
   const response = await fetch("/api/v1" + path, {
@@ -28,7 +44,13 @@ async function api(path: string, method = "GET", body?: unknown) {
     throw new Error(data.message ?? "The request could not be completed.");
   return data;
 }
-function Panel({ title, children }: { title: string; children: ReactNode }) {
+function Panel({
+  title,
+  children,
+}: {
+  title: ReactNode;
+  children: ReactNode;
+}) {
   return (
     <section className="card">
       <h2>{title}</h2>
@@ -46,15 +68,17 @@ function Notice({ value }: { value: string }) {
 function useAction(refresh: () => Promise<unknown>) {
   const [busy, setBusy] = useState(false),
     [message, setMessage] = useState("");
-  const run = async (fn: () => Promise<unknown>, success = "Saved") => {
+  const t = useT("connect"),
+    toError = useErrorText();
+  const run = async (fn: () => Promise<unknown>, success?: string) => {
     setBusy(true);
     setMessage("");
     try {
       await fn();
       await refresh();
-      setMessage(success);
+      setMessage(success ?? t("saved"));
     } catch (e) {
-      setMessage(e instanceof Error ? e.message : "Please try again.");
+      setMessage(e instanceof Error ? toError(e) : t("tryAgain"));
     } finally {
       setBusy(false);
     }
@@ -79,22 +103,23 @@ export function IntegrationCenter({
   integrations?: any[];
 }) {
   const trainer = role === "owner";
+  const t = useT("connect");
   if (path.includes("/guided/"))
     return <GuidedSession workoutId={path.split("/").at(-1) ?? ""} />;
   return (
     <div className="stack">
       <div className="page-heading">
-        <p className="eyebrow">CONNECTIONS</p>
+        {trainer && <p className="eyebrow">{t("eyebrow")}</p>}
         <h1>
-          {path.includes("/voice")
-            ? "Your voice, with your permission."
-            : path.includes("/domains")
-              ? "Your coaching address."
-              : "Connections you control."}
+          {!trainer
+            ? t("titleMember")
+            : path.includes("/voice")
+              ? "Your voice, with your permission."
+              : path.includes("/domains")
+                ? "Your coaching address."
+                : t("title")}
         </h1>
-        <p className="muted">
-          Choose what you share and see the status of each connection.
-        </p>
+        <p className="muted">{trainer ? t("intro") : t("introMember")}</p>
       </div>
       {trainer && (
         <nav className="tabs" aria-label="Integration sections">
@@ -123,9 +148,10 @@ export function IntegrationCenter({
 
 /** Shown when the coach's wearable policy is "No wearable imports". */
 export function ImportRefusedNotice({ trainer }: { trainer: boolean }) {
+  const t = useT("connect");
   return (
     <p>
-      <span className="badge amber">Not accepted</span>{" "}
+      <span className="badge amber">{t("notAccepted")}</span>{" "}
       {trainer ? (
         <>
           Your coaching data policy is “No wearable imports”. Change your{" "}
@@ -133,11 +159,17 @@ export function ImportRefusedNotice({ trainer }: { trainer: boolean }) {
           Apple Health exports.
         </>
       ) : (
-        "Your coach does not accept health imports, so an Apple Health export cannot be imported."
+        t("coachRefuses")
       )}
     </p>
   );
 }
+
+const DEVICE_PROVIDERS = ["whoop", "zepp"] as const;
+const DEVICE_NAMES: Record<(typeof DEVICE_PROVIDERS)[number], string> = {
+  whoop: "WHOOP",
+  zepp: "Amazfit / Zepp",
+};
 
 function HealthConnections({
   integrations,
@@ -150,6 +182,20 @@ function HealthConnections({
     [observations, setObservations] = useState<any[]>([]),
     [consent, setConsent] = useState(false),
     [fileName, setFileName] = useState("");
+  const t = useT("connect"),
+    locale = useLocale(),
+    toError = useErrorText();
+  const connectionStatus = (status: string) =>
+    [
+      "active",
+      "pending",
+      "error",
+      "revoked",
+      "revocation_pending",
+      "expired",
+    ].includes(status)
+      ? t(`status_${status}` as "status_active")
+      : status.replaceAll("_", " ");
   // The coach's policy "No wearable imports" refuses export imports.
   const importsRefused = data.coachAllowsImports === false;
   const refresh = useCallback(
@@ -158,22 +204,20 @@ function HealthConnections({
     ),
     action = useAction(refresh);
   useEffect(() => {
-    void refresh().catch((e) => action.setMessage(e.message));
+    void refresh().catch((e) => action.setMessage(toError(e)));
   }, [refresh]);
   const readFile = async (file: File) => {
     setObservations([]);
     setConsent(false);
     setFileName(file.name);
     if (file.size > 15 * 1024 * 1024)
-      throw new Error("Choose an Apple Health export under 15 MB.");
+      throw new Error(t("tooLarge"));
     const content = await file.text();
     if (/<!DOCTYPE|<!ENTITY/i.test(content))
-      throw new Error(
-        "Exports with document entities are not accepted. Export a fresh Apple Health file.",
-      );
+      throw new Error(t("entities"));
     const xml = new DOMParser().parseFromString(content, "text/xml");
     if (xml.querySelector("parsererror"))
-      throw new Error("This file is not valid Apple Health XML.");
+      throw new Error(t("invalidXml"));
     const rows = Array.from(xml.querySelectorAll("Record"))
       .filter((n) => n.getAttribute("value")?.trim())
       .map((n) => ({
@@ -190,21 +234,32 @@ function HealthConnections({
       )
       .map((r) => ({ ...r, measuredAt: new Date(r.measuredAt).toISOString() }));
     if (!rows.length)
-      throw new Error("No numeric health observations were found.");
+      throw new Error(t("noNumbers"));
     if (rows.length > 2000)
-      throw new Error(
-        "Select an export with at most 2,000 numeric observations. Nothing has been imported.",
-      );
+      throw new Error(t("tooMany"));
     setObservations(rows);
-    action.setMessage(
-      "Review the export and give permission before importing.",
-    );
+    action.setMessage(t("reviewFirst"));
   };
+  const comingDevices = DEVICE_PROVIDERS.filter((provider) => {
+    const setting = integrations.find((i) => i.id === provider);
+    return (
+      !(setting?.configured && setting?.approved) &&
+      !data.connections.some((c: any) => c.provider === provider)
+    );
+  }).map((provider) => DEVICE_NAMES[provider]);
   return (
     <>
       <Notice value={action.message} />
+      {/* Members see only devices they can connect; the rest is one line. */}
+      {!trainer && comingDevices.length > 0 && (
+        <p className="muted">
+          {t("moreDevices", { devices: comingDevices.join(", ") })}
+        </p>
+      )}
       <div className="integration-grid">
-        {["whoop", "zepp"].map((provider) => {
+        {DEVICE_PROVIDERS.filter(
+          (provider) => trainer || !comingDevices.includes(DEVICE_NAMES[provider]),
+        ).map((provider) => {
           const setting = integrations.find((i) => i.id === provider),
             connection = data.connections.find(
               (c: any) => c.provider === provider,
@@ -213,28 +268,31 @@ function HealthConnections({
           return (
             <Panel
               key={provider}
-              title={provider === "whoop" ? "WHOOP" : "Amazfit / Zepp"}
+              title={DEVICE_NAMES[provider]}
             >
               <p className="muted">
-                {connection?.status ??
-                  (enabled
-                    ? "Ready to connect"
-                    : "Awaiting provider setup and approval")}
+                {connection
+                  ? connectionStatus(connection.status)
+                  : enabled
+                    ? t("readyToConnect")
+                    : trainer
+                      ? "Awaiting provider setup and approval"
+                      : t("notAvailable")}
               </p>
               {connection?.lastSyncedAt && (
                 <p>
-                  Last synchronized{" "}
-                  {new Date(connection.lastSyncedAt).toLocaleString()}
-                  {connection.stale ? " · Stale data" : ""}
+                  {t("lastSynced", {
+                    when: formatWhen(connection.lastSyncedAt, { locale }),
+                  })}
+                  {connection.stale ? t("stale") : ""}
                 </p>
               )}
               {connection?.summary?.message && (
-                <p>{connection.summary.message}</p>
+                <p dir="auto">{connection.summary.message}</p>
               )}
-              <p>
-                Used to display health observations and calculate deterministic
-                coaching indicators. Excluded from AI prompts and advertising.
-              </p>
+              {(enabled || connection || trainer) && (
+              <>
+              <p>{t("usedFor")}</p>
               <label>
                 <input
                   type="checkbox"
@@ -242,8 +300,7 @@ function HealthConnections({
                   form={`${provider}-form`}
                   required
                 />{" "}
-                I allow this coaching workspace to import and use the approved
-                observations.
+                {t("allowImport")}
               </label>
               <form
                 id={`${provider}-form`}
@@ -256,7 +313,7 @@ function HealthConnections({
                       { consent: true },
                     );
                     window.location.assign(r.url);
-                  }, "Opening provider authorization…");
+                  }, t("opening"));
                 }}
               >
                 <button
@@ -267,20 +324,29 @@ function HealthConnections({
                     connection?.status === "revocation_pending"
                   }
                 >
-                  {connection ? "Reconnect" : "Connect"}
+                  {connection ? t("reconnect") : t("connect")}
                 </button>
+                {!enabled && (
+                  <p className="control-reason">
+                    {trainer
+                      ? "This provider is waiting for platform setup and approval."
+                      : t("cannotConnect")}
+                  </p>
+                )}
               </form>
+              </>
+              )}
               {connection?.status === "active" && (
                 <button
                   disabled={action.busy}
                   onClick={() =>
                     void action.run(
                       () => api(`/integrations/${provider}/sync`, "POST", {}),
-                      "Observations synchronized",
+                      t("synced"),
                     )
                   }
                 >
-                  Sync now
+                  {t("syncNow")}
                 </button>
               )}
               {connection &&
@@ -293,51 +359,48 @@ function HealthConnections({
                       void action.run(
                         () =>
                           api(`/integrations/${provider}/revoke`, "POST", {}),
-                        "Local access stopped; provider revocation queued",
+                        t("revokedQueued"),
                       )
                     }
                   >
-                    Revoke connection
+                    {t("revoke")}
                   </button>
                 )}
             </Panel>
           );
         })}
       </div>
-      <Panel title="Import Apple Health">
-        <p>
-          Choose export.xml, review the coverage and give explicit permission.
-          Supported numeric observations retain their source, unit and
-          measurement time.
-        </p>
+      <Panel title={t("importAppleHealth")}>
+        <p>{t("importText")}</p>
         {importsRefused && <ImportRefusedNotice trainer={trainer} />}
-        <input
-          type="file"
-          accept=".xml"
-          aria-label="Apple Health export XML"
+        <FileInput
+          label={t("exportLabel")}
+          hint={t("exportHint")}
+          buttonLabel={t("chooseExport")}
+          accept=".xml,text/xml,application/xml"
           disabled={action.busy || importsRefused}
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file)
-              void readFile(file).catch((error) =>
-                action.setMessage(error.message),
-              );
-          }}
+          disabledReason={importsRefused ? t("importsOff") : undefined}
+          onFiles={([file]) =>
+            void readFile(file).catch((error) =>
+              action.setMessage(error.message),
+            )
+          }
         />
         {observations.length > 0 && !importsRefused && (
           <div>
             <p>
-              {fileName} · {observations.length.toLocaleString()} observations ·{" "}
-              {new Set(observations.map((r) => r.type)).size} categories
+              {t("fileSummary", {
+                file: fileName,
+                observations: t("observations", { count: observations.length }),
+                count: new Set(observations.map((r) => r.type)).size,
+              })}
             </p>
             <p>
-              {new Date(
+              {formatDateRange(
                 Math.min(...observations.map((r) => Date.parse(r.measuredAt))),
-              ).toLocaleDateString()}{" "}
-              –{" "}
-              {new Date(
                 Math.max(...observations.map((r) => Date.parse(r.measuredAt))),
-              ).toLocaleDateString()}
+                { locale },
+              )}
             </p>
             <label>
               <input
@@ -345,9 +408,7 @@ function HealthConnections({
                 checked={consent}
                 onChange={(e) => setConsent(e.target.checked)}
               />{" "}
-              I allow this workspace to import these observations for display
-              and deterministic coaching indicators. They will not be used for
-              model prompts or advertising.
+              {t("allowReviewed")}
             </label>
             <button
               disabled={action.busy || !consent}
@@ -360,15 +421,15 @@ function HealthConnections({
                   });
                   setObservations([]);
                   setConsent(false);
-                }, "Health export imported")
+                }, t("imported"))
               }
             >
-              Import reviewed observations
+              {t("importReviewed")}
             </button>
           </div>
         )}
       </Panel>
-      <Panel title="Imported sources">
+      <Panel title={t("importedSources")}>
         {data.imports.length ? (
           data.imports.map((source: any) => (
             <div className="list-row" key={source.source}>
@@ -379,8 +440,12 @@ function HealthConnections({
                     : source.source}
                 </strong>
                 <p>
-                  {source.observations} observations · Last updated{" "}
-                  {new Date(source.latest_import).toLocaleString()}
+                  {t("lastUpdated", {
+                    observations: t("observations", {
+                      count: Number(source.observations) || 0,
+                    }),
+                    when: formatWhen(source.latest_import, { locale }),
+                  })}
                 </p>
               </div>
               <button
@@ -389,28 +454,32 @@ function HealthConnections({
                   void action.run(
                     () =>
                       api(`/integrations/${source.source}/revoke`, "POST", {}),
-                    "Source use revoked",
+                    t("sourceRevoked"),
                   )
                 }
               >
-                Revoke use
+                {t("revokeUse")}
               </button>
             </div>
           ))
         ) : (
-          <p className="muted">No active imported observations.</p>
+          <p className="muted">{t("noImports")}</p>
         )}
         {(data.importHistory ?? []).map((batch: any) => (
           <div className="list-row" key={batch.id}>
             <div>
               <strong>
                 {batch.source === "apple_health"
-                  ? "Apple Health export"
-                  : "Manual import"}
+                  ? t("appleExport")
+                  : t("manualImport")}
               </strong>
               <p>
-                {batch.observations} observations · Imported{" "}
-                {new Date(batch.imported_at).toLocaleString()}
+                {t("importedOn", {
+                  observations: t("observations", {
+                    count: Number(batch.observations) || 0,
+                  }),
+                  when: formatWhen(batch.imported_at, { locale }),
+                })}
               </p>
             </div>
             <button
@@ -418,19 +487,15 @@ function HealthConnections({
               onClick={() =>
                 void action.run(
                   () => api(`/wearables/${batch.id}`, "DELETE"),
-                  "Import deleted",
+                  t("importDeleted"),
                 )
               }
             >
-              Delete import
+              {t("deleteImport")}
             </button>
           </div>
         ))}
-        <p className="muted">
-          Revoking stops further use. Deleting an import removes its
-          observations. Request an export or full deletion from your privacy
-          settings.
-        </p>
+        <p className="muted">{t("revokeHelp")}</p>
       </Panel>
     </>
   );
@@ -577,7 +642,12 @@ export function GuidedSession({ workoutId }: { workoutId: string }) {
     [running, setRunning] = useState(false),
     [audioUrl, setAudioUrl] = useState<string | null>(null),
     [voiceConsent, setVoiceConsent] = useState(false),
-    [paused, setPaused] = useState(false);
+    [paused, setPaused] = useState(false),
+    [painOpen, setPainOpen] = useState(false),
+    [painText, setPainText] = useState("");
+  const t = useT("workout"),
+    locale = useLocale(),
+    toError = useErrorText();
   const player = useRef<HTMLAudioElement>(null);
   const refresh = useCallback(
       async () => setData(await api(`/guided/${workoutId}`)),
@@ -587,7 +657,7 @@ export function GuidedSession({ workoutId }: { workoutId: string }) {
   useEffect(() => {
     const read = () =>
       void refresh().catch((e) => {
-        action.setMessage(e.message);
+        action.setMessage(toError(e));
         setPaused(true);
         setRunning(false);
         player.current?.pause();
@@ -607,67 +677,106 @@ export function GuidedSession({ workoutId }: { workoutId: string }) {
     return () => clearInterval(timer);
   }, [running, paused]);
   const segment = data?.segments?.[index];
+  const last = !!data && index >= data.segments.length - 1;
+  const move = (to: number) => {
+    setIndex(to);
+    setRunning(false);
+    setRest(0);
+    setAudioUrl(null);
+  };
+  const stop = (description: string) => {
+    setPaused(true);
+    setRunning(false);
+    player.current?.pause();
+    void action.run(
+      () => api(`/workouts/${workoutId}/pain`, "POST", { description }),
+      t("gPausedNotified"),
+    );
+  };
+  const restText = rest > 0 ? t("rest", { time: formatCountdown(rest, locale) }) : "";
   return (
-    <div className="stack">
+    <div className="stack guided-session">
       <div className="page-heading">
-        <h1>{data?.name ?? "Guided workout"}</h1>
+        <h1 dir="auto">{data?.name ?? t("gTitle")}</h1>
+        {/* One plain safety line; the voice state is shown once, below. */}
         <p>
-          {data?.warning ??
-            "Follow your assigned workout and stop if you experience pain or dizziness."}
+          {t("gWarning")}
         </p>
       </div>
       <Notice value={action.message} />
+      {/* The step card is on its way: never a page with only the stop card. */}
+      {!data && !action.message && (
+        <section className="card">
+          <Skeleton label={t("gLoading")} lines={4} block />
+        </section>
+      )}
       {segment && (
         <Panel
-          title={`${index + 1} of ${data.segments.length} · ${segment.name}`}
+          title={
+            <>
+              {t("gOf", { n: index + 1, total: data.segments.length })} ·{" "}
+              <bdi>{segment.name}</bdi>
+            </>
+          }
         >
-          <p>{segment.text}</p>
-          <p className="metric-value" aria-live="polite">
-            {rest > 0
-              ? `${Math.floor(rest / 60)}:${String(rest % 60).padStart(2, "0")}`
-              : "Ready"}
+          {/* Each exercise's cue fades in when it changes. */}
+          <p dir="auto" className="guided-cue is-new" key={index}>
+            {segment.text}
           </p>
-          <button
-            disabled={paused}
-            onClick={() => {
-              setRunning(false);
-              setRest(segment.restSeconds);
-              setTimeout(() => setRunning(true), 0);
-            }}
-          >
-            Start rest timer
-          </button>
-          <button
-            onClick={() => setRunning(!running)}
-            disabled={paused || rest <= 0}
-          >
-            {running ? "Pause timer" : "Resume timer"}
-          </button>
-          <div className="button-row">
+          <p className="guided-timer" role="timer" aria-live="polite">
+            {rest > 0 && segment.restSeconds > 0 && (
+              <ProgressRing
+                value={rest / segment.restSeconds}
+                size={28}
+                ticking
+              />
+            )}
+            {rest > 0 ? restText : t("gReady")}
+          </p>
+          {/* Secondary controls; Next exercise is the sticky bar's one
+              primary action, so it is not repeated here. */}
+          <div className="guided-controls">
             <button
-              disabled={paused || index === 0}
+              type="button"
+              className="button secondary"
+              disabled={paused}
               onClick={() => {
-                setIndex(index - 1);
                 setRunning(false);
-                setRest(0);
-                setAudioUrl(null);
+                setRest(segment.restSeconds);
+                setTimeout(() => setRunning(true), 0);
               }}
             >
-              Previous exercise
+              {t("gStartRest")}
             </button>
-            <button
-              disabled={paused || index >= data.segments.length - 1}
-              onClick={() => {
-                setIndex(index + 1);
-                setRunning(false);
-                setRest(0);
-                setAudioUrl(null);
-              }}
-            >
-              Next exercise
-            </button>
+            {/* Shown only when they apply (a rest is counting, an earlier
+                exercise exists), never as look-alike disabled boxes. */}
+            {rest > 0 && (
+              <button
+                type="button"
+                className="button secondary"
+                onClick={() => setRunning(!running)}
+                disabled={paused}
+              >
+                {running ? t("gPause") : t("gResume")}
+              </button>
+            )}
+            {index > 0 && (
+              <button
+                type="button"
+                className="button secondary"
+                disabled={paused}
+                onClick={() => move(index - 1)}
+              >
+                {t("gPrevious")}
+              </button>
+            )}
           </div>
-          <hr />
+          {paused && (
+            <p className="control-reason">
+              {t("gPaused")}
+            </p>
+          )}
+          <div className="divider" />
           {data.audioAvailable ? (
             <>
               <label>
@@ -676,10 +785,11 @@ export function GuidedSession({ workoutId }: { workoutId: string }) {
                   checked={voiceConsent}
                   onChange={(e) => setVoiceConsent(e.target.checked)}
                 />{" "}
-                I want this workout instruction read in my trainer's approved
-                voice.
+                {t("gVoiceConsent")}
               </label>
               <button
+                type="button"
+                className="button secondary"
                 disabled={action.busy || paused || !voiceConsent}
                 onClick={() =>
                   void action.run(async () => {
@@ -690,66 +800,135 @@ export function GuidedSession({ workoutId }: { workoutId: string }) {
                     setAudioUrl(r.audioUrl);
                     if (!r.audioUrl)
                       throw new Error(
-                        r.message ??
-                          "Audio is awaiting review. Written instructions remain available.",
+                        locale === "en"
+                          ? (r.message ?? t("gAudioReview"))
+                          : t("gAudioReview"),
                       );
-                  }, "Trainer voice is ready")
+                  }, t("gVoiceReady"))
                 }
               >
-                Prepare trainer voice
+                {t("gPrepareVoice")}
               </button>
+              {!voiceConsent && (
+                <p className="control-reason">{t("gTickVoice")}</p>
+              )}
               {audioUrl && (
                 <audio ref={player} controls src={audioUrl} preload="none" />
               )}
             </>
           ) : (
-            <p className="muted">
-              Written guidance is included. Trainer voice requires verified
-              enrollment and a membership with premium voice access.
-            </p>
+            <p className="muted">{t("gWritten")}</p>
           )}
         </Panel>
       )}
-      <Panel title="Stop or report a problem">
+      <Panel title={t("gStopTitle")}>
+        <p>{t("gStopText")}</p>
+        <div className="guided-controls">
+          {/* A danger control, not a second primary: the step's own action
+              (Next exercise, in the bottom bar) stays the one primary. */}
+          <button
+            type="button"
+            className="button secondary guided-stop"
+            disabled={action.busy}
+            onClick={() => setPainOpen(true)}
+          >
+            {t("stopNotify")}
+          </button>
+          <button
+            type="button"
+            className="button secondary"
+            disabled={paused}
+            onClick={() => {
+              setPaused(true);
+              setRunning(false);
+              player.current?.pause();
+            }}
+          >
+            {t("gPauseGuide")}
+          </button>
+          <a className="button secondary" href={`/app/workouts/${workoutId}`}>
+            {t("gOpenLog")}
+          </a>
+        </div>
+      </Panel>
+      <StickyActionBar
+        label={t("gActions")}
+        note={rest > 0 ? restText : undefined}
+      >
         <button
-          onClick={() => {
-            setPaused(true);
-            setRunning(false);
-            player.current?.pause();
-          }}
+          type="button"
+          className="button secondary"
+          disabled={action.busy}
+          onClick={() => setPainOpen(true)}
         >
-          Pause this guide
+          {t("reportPain")}
         </button>
-        <a className="text-link" href={`/app/workouts/${workoutId}`}>
-          Open workout logging
-        </a>
+        {last || !segment ? (
+          <a className="button" href={`/app/workouts/${workoutId}`}>
+            {t("gLogSets")}
+          </a>
+        ) : (
+          <button
+            type="button"
+            className="button"
+            disabled={paused}
+            onClick={() => move(index + 1)}
+          >
+            {t("gNext")}
+          </button>
+        )}
+      </StickyActionBar>
+      <BottomSheet
+        open={painOpen}
+        onClose={() => setPainOpen(false)}
+        title={t("painTitle")}
+        description={t("painDescription")}
+        footer={
+          <>
+            <button
+              type="button"
+              className="button secondary"
+              onClick={() => setPainOpen(false)}
+            >
+              {t("cancel")}
+            </button>
+            <button
+              type="submit"
+              form="guided-pain-report"
+              className="button"
+              disabled={action.busy}
+            >
+              {t("stopNotify")}
+            </button>
+          </>
+        }
+      >
         <form
+          id="guided-pain-report"
           onSubmit={(e) => {
             e.preventDefault();
-            const description = new FormData(e.currentTarget).get(
-              "description",
-            );
-            setPaused(true);
-            setRunning(false);
-            player.current?.pause();
-            void action.run(
-              () => api(`/workouts/${workoutId}/pain`, "POST", { description }),
-              "Workout paused and your coach notified",
-            );
+            // Stopping never waits for a note (pain-report.ts).
+            const description = painDescription(painText);
+            setPainOpen(false);
+            setPainText("");
+            stop(description);
           }}
         >
-          <label>
-            Pain or a safety concern
+          <label className="field">
+            <span>{t("gConcern")}</span>
+            {/* No autofocus: the keyboard would cover the stop action. */}
             <textarea
               name="description"
-              required
-              minLength={3}
+              value={painText}
+              onChange={(e) => setPainText(e.target.value)}
               maxLength={2000}
+              rows={4}
+              enterKeyHint="send"
+              placeholder={t("gExample")}
             />
           </label>
-          <button disabled={action.busy}>Stop workout and notify coach</button>
         </form>
-      </Panel>
+      </BottomSheet>
     </div>
   );
 }

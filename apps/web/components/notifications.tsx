@@ -3,6 +3,47 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { parseLanguage } from "../document-language";
 import { rememberMemberLanguage } from "./document-direction";
+import { PREFERENCES_SAVED_EVENT } from "./appearance";
+import { LoadingOrRetry } from "./phone-ui";
+import { RefreshCw } from "lucide-react";
+import { useErrorText, useLocale, useT } from "../lib/i18n/react";
+import { formatWhen, timeZoneChoices } from "../lib/format";
+import { translator, type Locale } from "../lib/i18n/core";
+import prefsMessages from "../lib/i18n/messages/prefs";
+
+const CATEGORIES = [
+  "workout",
+  "workouts",
+  "booking",
+  "bookings",
+  "message",
+  "messages",
+  "coaching",
+  "nutrition",
+  "billing",
+  "membership",
+  "account",
+  "security",
+  "safety",
+  "support",
+  "system",
+  "authenticators",
+  "boundaries",
+  "human_review",
+  "payout_fee",
+  "policy_review",
+  "server",
+] as const;
+/** A notification category in words (never the stored key). */
+export function notificationCategory(key: string, locale: Locale = "en") {
+  const t = translator(prefsMessages, locale);
+  return (CATEGORIES as readonly string[]).includes(key)
+    ? t(`category_${key as (typeof CATEGORIES)[number]}`)
+    : t("category_other");
+}
+/** The English words, for callers that read the map. */
+export const NOTIFICATION_CATEGORIES: Record<string, string> =
+  Object.fromEntries(CATEGORIES.map((key) => [key, notificationCategory(key)]));
 async function api(path: string, method = "GET", body?: unknown) {
   const r = await fetch("/api/v1" + path, {
     method,
@@ -19,18 +60,34 @@ export function NotificationPreferences() {
   const [value, setValue] = useState<any>(null),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
+  const t = useT("prefs"),
+    locale = useLocale(),
+    toError = useErrorText();
   useEffect(() => {
     void api("/notifications/preferences")
       .then(setValue)
-      .catch((e) => setError(e.message));
+      .catch((e) => setError(toError(e)));
+    // Display preferences saves the appearance on its own: take its newer
+    // version and value, keeping any unsaved change made here.
+    const saved = (event: Event) => {
+      const next = (event as CustomEvent).detail;
+      setValue((v: any) =>
+        v
+          ? {
+              ...v,
+              version: next.version,
+              data: { ...v.data, theme: next.data?.theme },
+            }
+          : v,
+      );
+    };
+    window.addEventListener(PREFERENCES_SAVED_EVENT, saved);
+    return () => window.removeEventListener(PREFERENCES_SAVED_EVENT, saved);
   }, []);
   return (
     <section className="card">
-      <h2>Notifications</h2>
-      <p className="muted">
-        Choose your reminders and quiet hours. Account security and urgent
-        safety alerts remain enabled.
-      </p>
+      <h2>{t("notifications")}</h2>
+      <p className="muted">{t("notificationsText")}</p>
       {error && (
         <p className="notice" role="status">
           {error}
@@ -52,23 +109,32 @@ export function NotificationPreferences() {
               // The saved language also sets the workspace direction.
               const language = parseLanguage(saved.data?.language);
               if (language) rememberMemberLanguage(language);
-              setError("Preferences saved.");
+              // Said in the language just chosen (the page switches with it).
+              setError(
+                language === "ar"
+                  ? "تم حفظ التفضيلات."
+                  : language === "en"
+                    ? "Preferences saved."
+                    : t("preferencesSaved"),
+              );
             } catch (e) {
-              setError((e as Error).message);
+              setError(toError(e));
             } finally {
               setBusy(false);
             }
           }}
         >
-          {[
-            ["email", "Email reminders"],
-            ["bookings", "Booking notifications"],
-            ["workouts", "Workout reminders"],
-            ...(value.options?.inquiries
-              ? [["inquiries", "Website inquiry alerts by email and device"]]
-              : []),
-            ["marketing", "Optional product news"],
-          ].map(([key, label]) => (
+          {(
+            [
+              "email",
+              "bookings",
+              "workouts",
+              ...(value.options?.inquiries ? ["inquiries"] : []),
+              "marketing",
+            ] as Array<
+              "email" | "bookings" | "workouts" | "inquiries" | "marketing"
+            >
+          ).map((key) => [key, t(key)] as const).map(([key, label]) => (
             <label className="check-field" key={key}>
               <input
                 type="checkbox"
@@ -84,7 +150,7 @@ export function NotificationPreferences() {
             </label>
           ))}
           <label className="field">
-            <span>Message language</span>
+            <span>{t("language")}</span>
             <select
               value={value.data.language ?? "en"}
               onChange={(e) =>
@@ -94,19 +160,19 @@ export function NotificationPreferences() {
                 })
               }
             >
-              <option value="en">English</option>
+              <option value="en" lang="en">
+                {t("english")}
+              </option>
               <option value="ar" lang="ar">
-                العربية (Arabic)
+                {t("arabic")}
               </option>
             </select>
           </label>
-          <small>
-            Messages use reviewed Arabic wording where it is published and
-            English otherwise. Arabic also arranges the app from right to left.
-          </small>
+          <small>{t("languageHelp")}</small>
           <label className="field">
-            <span>Time zone</span>
-            <input
+            <span>{t("timeZone")}</span>
+            {/* People pick a place and its zone name, never a raw zone id. */}
+            <select
               value={value.data.timezone}
               required
               onChange={(e) =>
@@ -115,32 +181,46 @@ export function NotificationPreferences() {
                   data: { ...value.data, timezone: e.target.value },
                 })
               }
-            />
+            >
+              {timeZoneChoices(value.data.timezone, locale).map((zone) => (
+                <option key={zone.value} value={zone.value}>
+                  {zone.label}
+                </option>
+              ))}
+            </select>
           </label>
-          {[
-            ["quietStart", "Quiet hours start"],
-            ["quietEnd", "Quiet hours end"],
-          ].map(([key, label]) => (
+          {(
+            [
+              ["quietStart", t("quietStart")],
+              ["quietEnd", t("quietEnd")],
+            ] as const
+          ).map(([key, label]) => (
             <label className="field" key={key}>
               <span>{label}</span>
-              <input
-                type="time"
-                value={`${String(Math.floor(value.data[key] / 60)).padStart(2, "0")}:${String(value.data[key] % 60).padStart(2, "0")}`}
+              {/* 24-hour times, like the rest of the app (a native time
+                  field follows the phone's 12-hour setting). */}
+              <select
+                value={value.data[key]}
                 required
-                onChange={(e) => {
-                  const [h, m] = e.target.value.split(":").map(Number);
+                onChange={(e) =>
                   setValue({
                     ...value,
-                    data: { ...value.data, [key]: h * 60 + m },
-                  });
-                }}
-              />
+                    data: { ...value.data, [key]: Number(e.target.value) },
+                  })
+                }
+              >
+                {quietTimes(value.data[key]).map((minutes) => (
+                  <option key={minutes} value={minutes}>
+                    {clock(minutes)}
+                  </option>
+                ))}
+              </select>
             </label>
           ))}
-          <small>Set both times alike to disable quiet hours.</small>
+          <small>{t("quietHelp")}</small>
           <p>
             <button className="button" disabled={busy}>
-              Save preferences
+              {t("savePreferences")}
             </button>
           </p>
         </form>
@@ -148,11 +228,26 @@ export function NotificationPreferences() {
     </section>
   );
 }
+/** "22:00": minutes after midnight as a 24-hour time. */
+const clock = (minutes: number) =>
+  `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+/** Every half hour, plus the saved time when it is not on the half hour. */
+function quietTimes(current: number) {
+  const times = Array.from({ length: 48 }, (_, i) => i * 30);
+  return times.includes(current)
+    ? times
+    : [...times, current].sort((a, b) => a - b);
+}
+
 export function NotificationInbox() {
   const [rows, setRows] = useState<any[]>([]),
     [more, setMore] = useState(false),
     [loading, setLoading] = useState(true),
     [error, setError] = useState("");
+  const t = useT("prefs"),
+    locale = useLocale(),
+    toError = useErrorText();
+  const category = (key: string) => notificationCategory(key, locale);
   // Older pages continue after the last notification shown (a keyset
   // cursor), so a notice arriving meanwhile neither repeats nor hides one.
   async function load(before?: string) {
@@ -173,21 +268,27 @@ export function NotificationInbox() {
     }
   }
   useEffect(() => {
-    void load().catch((e) => setError(e.message));
+    void load().catch((e) => setError(toError(e)));
   }, []);
   return (
     <>
       <div className="page-heading">
         <div>
-          <p className="eyebrow">KEEP IN TOUCH</p>
-          <h1>Your notifications.</h1>
+          <h1>{t("yourNotifications")}</h1>
+          <p className="muted">{t("notificationsIntro")}</p>
         </div>
+        {/* A small control: the notifications are the page, not Refresh. */}
         <button
-          className="button secondary"
-          disabled={loading}
-          onClick={() => void load().catch((e) => setError(e.message))}
+          type="button"
+          className="icon-button notifications-refresh"
+          aria-label={t("refresh")}
+          title={t("refresh")}
+          aria-busy={loading || undefined}
+          onClick={() => {
+            if (!loading) void load().catch((e) => setError(toError(e)));
+          }}
         >
-          Refresh
+          <RefreshCw size={20} aria-hidden="true" />
         </button>
       </div>
       {error && (
@@ -195,27 +296,36 @@ export function NotificationInbox() {
           {error}
         </p>
       )}
-      {loading && <p role="status">Loading notifications…</p>}
+      {loading && (
+        <section className="card">
+          <LoadingOrRetry
+            label={t("loadingNotifications")}
+            onRetry={() => void load().catch((e) => setError(toError(e)))}
+          />
+        </section>
+      )}
       {!loading && !error && !rows.length && (
         <section className="card">
-          <p>You’re all caught up.</p>
+          <h2>{t("caughtUp")}</h2>
+          <p className="muted">{t("caughtUpText")}</p>
         </section>
       )}
       {rows.map((n) => (
         <article className="card" key={n.id}>
-          <small>
-            {n.category} · {new Date(n.created_at).toLocaleString()}
-            {n.read_at ? " · Read" : " · New"}
-          </small>
+          <p className="notification-meta">
+            <span>{category(n.category)}</span>
+            <span>{formatWhen(n.created_at, { locale })}</span>
+            {!n.read_at && <span className="badge green">{t("newBadge")}</span>}
+          </p>
           {/* Reviewed Arabic templates read right to left in any layout. */}
           <h2 dir="auto">{n.title}</h2>
           <p style={{ whiteSpace: "pre-wrap" }} dir="auto">
             {n.body}
           </p>
-          <div className="actions">
+          <div className="actions notification-actions">
             {n.href && (
               <Link className="button secondary" href={n.href}>
-                Open
+                {t("open")}
               </Link>
             )}
             {!n.read_at && (
@@ -232,11 +342,11 @@ export function NotificationInbox() {
                       ),
                     );
                   } catch (e) {
-                    setError((e as Error).message);
+                    setError(toError(e));
                   }
                 }}
               >
-                Mark read
+                {t("markRead")}
               </button>
             )}
           </div>
@@ -248,11 +358,11 @@ export function NotificationInbox() {
           disabled={loading}
           onClick={() =>
             void load(rows[rows.length - 1]?.id).catch((e) =>
-              setError(e.message),
+              setError(toError(e)),
             )
           }
         >
-          Load earlier notifications
+          {t("loadEarlier")}
         </button>
       )}
     </>

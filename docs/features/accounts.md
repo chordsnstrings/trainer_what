@@ -32,6 +32,15 @@ Web: `AccountSettings` (`apps/web/components/account-settings.tsx`) is mounted
 in Settings (`/trainer/settings`, `/app/profile`) and on
 `/admin/account-security`.
 
+Reads never stay loading (29 September 2026, `docs/features/member-screens.md`):
+`accountRequest` ends a read after 15 seconds with a plain message, and
+`AccountSettings`, `AccountSecurity` and `AccountExtras` show "Checking…" while
+reading and a plain error with **Try again** when a read fails, instead of an
+endless "Loading your account…" or made-up defaults ("verification needed",
+"0 recovery codes available"). Signed-in sessions read "This device" or
+"Another device or browser" with `Today, 14:05` times; on a member's
+`/app/profile` sign-in security is folded into one section.
+
 - **Display name**: `PATCH /api/v1/account/profile` `{name}` (2 to 100 plain
   characters). Audited as `account.name_changed` in the current workspace with
   `{fields:["name"]}`; the value itself is never written to the audit.
@@ -196,7 +205,17 @@ Web: `SocialSignIn` buttons on `/login`, `/join-coach/<slug>` and
 
 - **Leave a trainer** (`LeaveTrainer` in `/app/profile`):
   `GET /api/v1/membership/leave` previews; `POST /api/v1/membership/leave`
-  `{confirm:true, reason?}`.
+  `{confirm:true, reason?}`. "Leave <coach>" opens an in-app bottom sheet
+  (what happens, an optional note for the coach, "Stay with <coach>" or
+  "Leave <coach>") instead of a required checkbox. With another coach the
+  app opens it; otherwise the member lands on `/login?left=1`, which
+  confirms "You left <coach>" (read once from this tab's
+  `sessionStorage`), says whether renewal was cancelled and offers Find a
+  coach.
+- **Signing in with an ended or missing membership** (`MEMBERSHIP_ENDED`,
+  `NO_MEMBERSHIP`, including from Apple or Google) shows a neutral panel
+  with next steps (rejoin the coach on a coach's address, or find a coach),
+  not a red error.
 
 Shared exit behaviour (`apps/api/src/membership-exit.ts`):
 

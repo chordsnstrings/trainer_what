@@ -1,7 +1,7 @@
 "use client";
 import { Field } from "./field";
 import { TeamControls } from "./team-controls";
-import { CoachSwitcher, FollowerInvitations, InvitationJoin } from "./joining";
+import { CoachSwitcher, FollowerInvitations } from "./joining";
 import {
   AdminComplimentaryAccess,
   ComplimentaryAccessManager,
@@ -41,15 +41,13 @@ import {
   TrainingProgress,
   WorkoutTools,
 } from "./training-workspace";
-import { PublishedLegal } from "./published-legal";
 import { Onboarding } from "./onboarding";
 import { NutritionCoach, NutritionSubscriber } from "./nutrition";
 import { ClientTwin } from "./client-twin";
 import { SourceCompilation } from "./source-compilation";
 import { InfrastructureObserver } from "./infrastructure-observer";
 import { HostOperations } from "./host-operations";
-import { MarketingFooter } from "./marketing/frame";
-import { PublicHeader } from "./public-header";
+import { Public } from "./public-pages";
 import { PlatformLogo } from "./brand-logo";
 import {
   FollowerEstimate,
@@ -62,32 +60,64 @@ import { FinanceOperations } from "./finance-operations";
 import { PlatformCostControls } from "./platform-costs";
 import { Bookings } from "./bookings";
 import { Support } from "./support";
-import { AccountSecurity, AccountRecovery } from "./account-security";
-import { AccountExtras, MagicAccess } from "./account-completion";
+import { AccountSecurity } from "./account-security";
+import { AccountExtras } from "./account-completion";
 import { AccountSettings } from "./account-settings";
-import { EmailChangeConfirm, RecoveryLinkReset } from "./account-links";
-import { SocialSignIn, SocialSignInVerify } from "./social-sign-in";
+import { AnalyticsSetting } from "./acquisition";
 import { OperatorRecovery } from "./operator-recovery";
-import { FollowerRemoval, FormerFollowers } from "./membership-exit";
-import { PasskeyLoginButton } from "./passkeys";
+import {
+  FollowerRemoval,
+  FormerFollowers,
+  LeaveTrainer,
+} from "./membership-exit";
 import { GalleryStudio, WebsiteStudio, CoachWebsite } from "./coach-site";
 import { MemberAppManifest } from "./member-app-install";
+import { MemberShell, MoreScreen } from "./member-shell";
+import {
+  BottomSheet,
+  DrawnCheck,
+  NumberStepper,
+  ProgressRing,
+  StickyActionBar,
+  Toast,
+} from "./phone-ui";
+import { haptic, prefersReducedMotion } from "./motion";
 import { MemberLanguage } from "./document-direction";
+import { Rich, useErrorText, useLocale, useT } from "../lib/i18n/react";
+import {
+  formatCountdown,
+  formatDate,
+  formatMoney,
+  formatSetsReps,
+  humanize,
+} from "../lib/format";
+import {
+  DisplayPreferences,
+  MemberAppearance,
+  useColorScheme,
+} from "./appearance";
+import type { ColorSchemeChoice } from "../color-scheme";
 import { DirectoryListingSettings } from "./directory-listing";
 import { PlatformSettings } from "./platform-settings";
 import { ProviderSandboxBanner } from "./provider-sandbox-banner";
 import { MealCapture } from "./meal-capture";
-import { ProgrammeToday, ProgrammeTimeline } from "./programme-today";
+import { ProgrammeTimeline, WorkoutComplete } from "./programme-today";
+import { MemberToday } from "./member-today";
+import { MemberProgram } from "./member-program";
+import { MemberCoachingContext } from "./member-context";
+import { MemberChat } from "./member-chat";
+import { MemberIntake } from "./member-intake";
+import { MemberMembership } from "./member-membership";
+import { MemberNotFound, WorkspaceUnavailable } from "./member-states";
+import { painDescription } from "./pain-report";
+import { isMemberRoute } from "./member-nav";
 import { UpfrontMembership, VoiceAddOnCard } from "./programme-membership";
 import { OfferForm, OfferTerms, OfferVoicePrice } from "./programme-offers";
 import {
   TrainerDesign,
   TrainerTheme,
   CoachIdentity,
-  CoachCover,
-  CoachWelcome,
-  CoachStory,
-  ClientHomeSections,
+
 } from "./trainer-design";
 import {
   BRAND_COPY,
@@ -123,6 +153,24 @@ import {
   type ExtraPages,
 } from "./workspace-paging";
 import { GovernanceLinks } from "./governance-shared";
+import {
+  OFFLINE_STATE_KEY,
+  QUEUED_LABEL,
+  cacheNames,
+  clearPersonalCaches,
+  installKeys,
+  queuedLabel,
+  queuedSummary,
+  unsavedMark,
+} from "./pwa";
+import {
+  AppUpdateToast,
+  InstallAppRow,
+  InstallCard,
+  OfflineScreen,
+  PushPrompt,
+  useAppServiceWorker,
+} from "./pwa-ui";
 import {
   clearLocalData,
   discardRejected,
@@ -268,7 +316,7 @@ const nav = [
 ] as const;
 const subNav = [
   ["Today", "/app", LayoutDashboard],
-  ["My program", "/app/program", Layers],
+  ["Programme", "/app/program", Layers],
   ["Programme timeline", "/app/timeline", Layers],
   ["Nutrition", "/app/nutrition", Activity],
   ["Log a meal", "/app/nutrition/log", Camera],
@@ -394,11 +442,17 @@ function Badge({
 function Card({
   children,
   className = "",
+  id,
 }: {
   children: ReactNode;
   className?: string;
+  id?: string;
 }) {
-  return <section className={"card " + className}>{children}</section>;
+  return (
+    <section className={"card " + className} id={id}>
+      {children}
+    </section>
+  );
 }
 function Heading({
   eyebrow,
@@ -484,6 +538,7 @@ function WorkspaceSwitcher({
                 ),
               leave: () =>
                 api("/auth/workspace", "POST", { tenantId: next.tenantId }),
+              afterLeave: clearPersonalCaches,
             });
             if (!left) {
               setBusy(false);
@@ -516,6 +571,7 @@ function PlainShell({
   children: ReactNode;
   className?: string;
   theme?: unknown;
+  colorScheme?: ColorSchemeChoice;
 }) {
   return <div className={className}>{children}</div>;
 }
@@ -531,17 +587,54 @@ const defaultPlatform: WorkspacePlatform = {
   initials: appInitials(DEFAULT_PLATFORM_NAME),
   registrationOpen: true,
 };
+/**
+ * A member's last workspace state, kept in this tab's memory. Next renders
+ * this page afresh for every path, so without it each tap on a tab would
+ * blank the member app behind the full-screen loader while the bootstrap
+ * reloads. The next member page instead opens at once on this state (the
+ * top bar shows the refresh) and updates when the bootstrap answers.
+ * Members only (the trainer workspace is unchanged); set only by `load`,
+ * which runs in the browser; cleared on sign-out, 401 and suspension.
+ */
+let memberStateCache: State | null = null;
+
 export default function Workspace({
   platform = defaultPlatform,
   coachSlug = null,
+  colorScheme,
 }: {
   platform?: WorkspacePlatform;
   /** Set on a trainer's own domain or subdomain (x-trainer-site-slug). */
   coachSlug?: string | null;
+  /** The member's appearance mirrored on this device (the server's cookie). */
+  colorScheme?: ColorSchemeChoice;
 }) {
   const path = usePathname(),
     router = useRouter();
-  const [state, setState] = useState<State | null>(null),
+  // Subscriber surfaces follow the member's Light, Dark or System choice
+  // (components/appearance.tsx); the trainer workspace keeps the device's.
+  const scheme = useColorScheme(colorScheme);
+  // Subscriber text follows the document language (lib/i18n/react.tsx).
+  const locale = useLocale(),
+    shellT = useT("shell"),
+    common = useT("common"),
+    toError = useErrorText();
+  // The member app's first-load, unavailable and suspended screens come
+  // before the coach's brand is known: they follow the choice with the
+  // neutral dark palette (app/appearance.css).
+  const memberScreen = (screen: ReactNode) =>
+    path === "/app" || path.startsWith("/app/") ? (
+      <div className="member-neutral" data-color-scheme={scheme}>
+        {screen}
+      </div>
+    ) : (
+      screen
+    );
+  const [state, setState] = useState<State | null>(() =>
+      path.startsWith("/app") && memberStateCache?.user.role === "subscriber"
+        ? memberStateCache
+        : null,
+    ),
     [error, setError] = useState(""),
     [bootstrapError, setBootstrapError] = useState(""),
     [success, setSuccess] = useState(""),
@@ -550,11 +643,20 @@ export default function Workspace({
     [mobile, setMobile] = useState(false),
     [online, setOnline] = useState(true),
     [suspended, setSuspended] = useState(false),
+    // No connection and nothing saved on this phone to show instead.
+    [offlineScreen, setOfflineScreen] = useState<number | null | false>(
+      false,
+    ),
     // Pages loaded beyond the bootstrap's first page. Cleared whenever the
     // bootstrap reloads, so a changed row is never shown from an old page.
     [extra, setExtra] = useState<ExtraPages>({}),
     [moreLoading, setMoreLoading] = useState("");
   const generation = useRef(0);
+  // The state on screen, for a failed refresh to keep (see `load`).
+  const shownState = useRef(state);
+  shownState.current = state;
+  // This release's service worker; members choose when a new one reloads.
+  const serviceWorker = useAppServiceWorker(path.startsWith("/app"));
   const shown = useMemo(
     () => (state ? mergePages(state, extra) : null),
     [state, extra],
@@ -577,16 +679,20 @@ export default function Workspace({
   const load = useCallback(async () => {
     try {
       const next = await api("/bootstrap");
+      memberStateCache = next.user.role === "subscriber" ? next : null;
       generation.current++;
       setExtra({});
       setState(next);
       setSuspended(false);
       setBootstrapError("");
+      setOfflineScreen(false);
       if (next.user.role === "subscriber")
         localStorage.setItem(
-          "trainer:offline",
+          OFFLINE_STATE_KEY,
           JSON.stringify({
             expires: Date.now() + 12 * 3600000,
+            // When this phone last had the member's data (offline screen).
+            savedAt: Date.now(),
             state: {
               ...next,
               records: next.records.filter((r: any) =>
@@ -601,6 +707,7 @@ export default function Workspace({
     } catch (e) {
       if ((e as any).code === "WORKSPACE_SUSPENDED") {
         // A platform suspension: show its status instead of the workspace.
+        memberStateCache = null;
         setState(null);
         setBootstrapError("");
         setSuspended(true);
@@ -610,35 +717,58 @@ export default function Workspace({
         // Unsynced set logs and diary entries stay scoped to their member and
         // replay after that person signs in again; caches are removed.
         clearLocalData(localStorage, { keepQueues: true });
+        void clearPersonalCaches();
+        memberStateCache = null;
         setState(null);
         setBootstrapError("");
         if (!publicPath) router.replace("/login");
         return;
       }
-      const cached = localStorage.getItem("trainer:offline");
-      if (!navigator.onLine && cached) {
+      const cached = localStorage.getItem(OFFLINE_STATE_KEY);
+      // No connection: a failed fetch, not an answer from the server.
+      const noConnection = !navigator.onLine || e instanceof TypeError;
+      if (
+        !navigator.onLine &&
+        path.startsWith("/app") &&
+        shownState.current?.user.role === "subscriber"
+      ) {
+        // Offline, a member keeps what is on screen; the top bar says
+        // "Offline". (Online, a failed refresh says so below.)
+        setBootstrapError("");
+        setOfflineScreen(false);
+        return;
+      }
+      if (noConnection && cached) {
         try {
           const offline = JSON.parse(cached);
           if (offline.expires > Date.now()) {
             setState(offline.state);
             setBootstrapError("");
+            setOfflineScreen(false);
             return;
           }
         } catch {
-          localStorage.removeItem("trainer:offline");
+          localStorage.removeItem(OFFLINE_STATE_KEY);
         }
       }
+      if (noConnection && !publicPath && path.startsWith("/app")) {
+        // Offline is not a server error: say so, and what still works.
+        let savedAt: number | null = null;
+        try {
+          savedAt = cached ? (JSON.parse(cached).savedAt ?? null) : null;
+        } catch {}
+        setBootstrapError("");
+        setOfflineScreen(savedAt);
+        return;
+      }
       if (!publicPath) {
-        setBootstrapError(
-          (e as any).status === 429
-            ? "Too many requests. Wait a moment, then retry."
-            : "Your workspace could not be refreshed. Please try again.",
-        );
+        // A key; shown in the member's language below.
+        setBootstrapError((e as any).status === 429 ? "429" : "failed");
       }
     } finally {
       setLoading(false);
     }
-  }, [publicPath, router]);
+  }, [publicPath, router, path]);
   useEffect(() => {
     setError("");
     setBootstrapError("");
@@ -650,8 +780,6 @@ export default function Workspace({
     } else setLoading(false);
   }, [path, publicPath, load]);
   useEffect(() => {
-    if ("serviceWorker" in navigator)
-      void navigator.serviceWorker.register("/sw.js").catch(() => {});
     const update = () => setOnline(navigator.onLine);
     update();
     window.addEventListener("online", update);
@@ -661,17 +789,23 @@ export default function Workspace({
       window.removeEventListener("offline", update);
     };
   }, []);
-  const action = async (fn: () => Promise<any>, message = "Saved") => {
+  const bootstrapText =
+    bootstrapError === "429"
+      ? common("tooManyRequests")
+      : bootstrapError
+        ? shellT("refreshFailed")
+        : "";
+  const action = async (fn: () => Promise<any>, message?: string) => {
     setBusy(true);
     setError("");
     setSuccess("");
     try {
       const result = await fn();
-      setSuccess(message);
+      setSuccess(message ?? common("saved"));
       await load();
       return result;
     } catch (e) {
-      setError((e as Error).message);
+      setError(toError(e));
       return null;
     } finally {
       setBusy(false);
@@ -683,6 +817,7 @@ export default function Workspace({
         path={path}
         platform={platform}
         coachSlug={coachSlug}
+        colorScheme={scheme}
         onAuthenticated={async () => {
           await load();
           const s = await api("/bootstrap").catch(async (e) => {
@@ -704,49 +839,52 @@ export default function Workspace({
       />
     );
   if (suspended)
-    return (
+    return memberScreen(
       <WorkspaceSuspended
         onSignOut={async () => {
           await api("/auth/logout", "POST", {});
           clearLocalData(localStorage, { keepQueues: true });
+          await clearPersonalCaches();
           router.push("/login");
         }}
       />
     );
-  if (!loading && !state && bootstrapError)
-    return (
-      <main className="loading-screen" style={{ padding: 24 }}>
-        <section
-          className="card"
-          style={{ width: "min(100%, 480px)", textAlign: "center" }}
-        >
-          <AlertCircle size={29} aria-hidden="true" />
-          <h1 style={{ fontSize: 27, marginTop: 20 }}>
-            Your workspace is temporarily unavailable.
-          </h1>
-          <p className="muted" role="alert">
-            {bootstrapError}
-          </p>
-          <button
-            className="button"
-            type="button"
-            onClick={() => {
-              setLoading(true);
-              void load();
-            }}
-          >
-            Retry <RefreshCw size={15} />
-          </button>
-        </section>
-      </main>
+  if (!loading && !state && offlineScreen !== false)
+    return memberScreen(
+      <OfflineScreen
+        savedAt={offlineScreen}
+        onRetry={() => {
+          setLoading(true);
+          void load();
+        }}
+      />
     );
-  if (loading || !state)
-    return (
+  if (!loading && !state && bootstrapError)
+    return memberScreen(
+      <WorkspaceUnavailable
+        message={bootstrapText}
+        busy={loading}
+        onRetry={() => {
+          setLoading(true);
+          void load();
+        }}
+        onSignOut={async () => {
+          await api("/auth/logout", "POST", {}).catch(() => {});
+          clearLocalData(localStorage, { keepQueues: true });
+          memberStateCache = null;
+          router.push("/login");
+        }}
+      />
+    );
+  // A member keeps the app frame while a page refreshes (the top bar shows
+  // the refresh); the full-screen loader is only for the first load.
+  if (!state || (loading && state.user.role !== "subscriber"))
+    return memberScreen(
       <main className="loading-screen">
         {/* Neutral: a member app may carry its trainer's brand, which is
             not known until the workspace has loaded. */}
         <div className="loading-indicator" aria-hidden="true" />
-        <p>Opening your workspace…</p>
+        <p>{shellT("loadingWorkspace")}</p>
       </main>
     );
   const subscriber = state.user.role === "subscriber";
@@ -788,7 +926,7 @@ export default function Workspace({
             appendRelated(appendPage(current, key, page), page.related),
           );
       } catch (e) {
-        setError((e as Error).message);
+        setError(toError(e));
       } finally {
         setMoreLoading("");
       }
@@ -814,151 +952,40 @@ export default function Workspace({
     onSaved: load,
     more,
   };
-  // Subscribers see their trainer's Design Studio brand; trainers, their
-  // team and operators work in the platform's own identity (light and dark).
-  const Shell = subscriber ? TrainerTheme : PlainShell;
+  // Subscribers see their trainer's Design Studio brand in the phone-first
+  // member shell (member-shell.tsx); trainers, their team and operators work
+  // in the platform's own identity (light and dark).
   const platformName = state.platform?.name || DEFAULT_PLATFORM_NAME;
-  return (
-    <Shell
-      className={subscriber ? "workspace" : "workspace platform-ui"}
-      theme={state.tenant.theme}
-    >
-      <MemberLanguage member={`${state.user.tenantId}:${state.user.userId}`} />
-      {!path.startsWith("/admin") && (
-        <MemberAppManifest tenantId={state.tenant.id} role={state.user.role} />
-      )}
-      <aside className={"sidebar " + (mobile ? "is-open" : "")}>
-        <Link href={subscriber ? "/app" : "/trainer"} className="wordmark">
-          {subscriber ? (
-            <CoachIdentity
-              name={state.tenant.name}
-              theme={state.tenant.theme}
-              compact
-            />
-          ) : (
-            <PlatformLogo name={platformName} />
-          )}
-        </Link>
-        <button
-          className="mobile-close icon-button"
-          onClick={() => setMobile(false)}
-          aria-label="Close navigation"
-        >
-          <X />
-        </button>
-        <div className="workspace-label">
-          <span className="avatar">{state.tenant.name.slice(0, 1)}</span>
-          <div>
-            <strong>{state.tenant.name}</strong>
-            <span>
-              {subscriber ? "Your coaching space" : "Your coaching business"}
-            </span>
-          </div>
-        </div>
-        <WorkspaceSwitcher
-          current={state.user.tenantId}
-          userId={state.user.userId}
-        />
-        <nav aria-label="Main navigation">
-          {items.map(([label, url, Icon]) => (
-            <Link
-              key={url}
-              className={url === activeNavUrl ? "active" : ""}
-              href={url}
-            >
-              <Icon size={18} />
-              {subscriber && url === "/app/program"
-                ? resolveBrandDesign(state.tenant.theme).programLabel
-                : label}
-              {label === "Exceptions" &&
-                openExceptionCount(state, records) > 0 && (
-                  <span className="nav-count">
-                    {openExceptionCount(state, records)}
-                  </span>
-                )}
-            </Link>
-          ))}
-          {state.user.platformRole !== "none" && (
-            <Link href="/admin" className={path === "/admin" ? "active" : ""}>
-              <Shield size={18} />
-              Platform admin
-            </Link>
-          )}
-          {state.user.platformRole === "admin" && (
-            <Link
-              href="/admin/settings"
-              className={`platform-settings-link ${path.startsWith("/admin/settings") || path.startsWith("/admin/integrations") ? "active" : ""}`}
-            >
-              <Settings size={16} />
-              Settings & API connections
-            </Link>
-          )}
-        </nav>
-        <div className="sidebar-bottom">
-          <div className="small-label">BUILT AROUND YOU</div>
-          <p>
-            Your methods.
-            <br />
-            Your brand. Your business.
-          </p>
-          <button
-            className="text-button"
-            onClick={async () => {
-              const { tenantId, userId } = state.user;
-              const left = await leaveSession(localStorage, tenantId, userId, {
-                online: navigator.onLine,
-                post: (p, b, h) => api(p, "POST", b, h),
-                confirm: (unsynced) =>
-                  window.confirm(
-                    `${unsynced} workout or meal ${unsynced === 1 ? "entry has" : "entries have"} not synced. ${unsynced === 1 ? "It stays" : "They stay"} on this device and will sync after you sign in here again. Sign out anyway?`,
-                  ),
-                leave: () => api("/auth/logout", "POST", {}),
-              });
-              if (left) router.push("/login");
-            }}
-          >
-            <LogOut size={15} /> Sign out
-          </button>
-        </div>
-      </aside>
-      <main className="main">
-        <header className="topbar">
-          <div className="topbar-left">
-            <button
-              className="mobile-menu icon-button"
-              onClick={() => setMobile(true)}
-              aria-label="Open navigation"
-            >
-              <Menu />
-            </button>
-            <span className="muted">Workspace</span>
-            <ChevronRight size={14} />
-            <strong>{topTitle}</strong>
-          </div>
-          <div className="topbar-right">
-            {subscriber && (
-              <CoachSwitcher
-                current={state.user.tenantId}
-                userId={state.user.userId}
-                variant="compact"
-              />
-            )}
-            <span className="connection-dot" />
-            <span>
-              {state.tenant.published ? "Published" : "Private workspace"}
-            </span>
-            <span className="avatar small">{firstName[0]}</span>
-          </div>
-        </header>
-        <div className="content">
+  const signOut = async () => {
+    const { tenantId, userId } = state.user;
+    const left = await leaveSession(localStorage, tenantId, userId, {
+      online: navigator.onLine,
+      post: (p, b, h) => api(p, "POST", b, h),
+      confirm: (unsynced) =>
+        window.confirm(shellT("signOutUnsynced", { count: unsynced })),
+      leave: () => api("/auth/logout", "POST", {}),
+      afterLeave: clearPersonalCaches,
+    });
+    if (left) {
+      memberStateCache = null;
+      router.push("/login");
+    }
+  };
+  const memberNav = {
+    programLabel: resolveBrandDesign(state.tenant.theme).programLabel,
+    nutrition: !!(state as any).memberApp?.nutrition,
+    locale,
+  };
+  const notices = (
+    <>
           <ProviderSandboxBanner mode={state.providerSandbox} />
-          {state.environment === "development" && (
+          {!subscriber && state.environment === "development" && (
             <div className="dev-banner">
               Development environment · payment connections are gated · demo
               records, when seeded, are synthetic
             </div>
           )}
-          {!online && (
+          {!online && !subscriber && (
             <div className="notice">
               You’re offline. Workout logs are kept on this device until they
               can sync.
@@ -968,7 +995,10 @@ export default function Workspace({
             <div className="notice error" role="alert">
               <AlertCircle size={17} />
               {error}
-              <button onClick={() => setError("")} aria-label="Dismiss error">
+              <button
+                onClick={() => setError("")}
+                aria-label={common("dismissError")}
+              >
                 <X size={15} />
               </button>
             </div>
@@ -977,24 +1007,38 @@ export default function Workspace({
             <div className="notice error" role="alert">
               <AlertCircle size={17} />
               <span>
-                {bootstrapError} Your last loaded workspace is still shown.
+                {bootstrapText} {shellT("lastLoadedShown")}
               </span>
               <button
                 type="button"
                 disabled={loading}
                 onClick={() => void load()}
               >
-                Retry <RefreshCw size={14} />
+                {common("retry")} <RefreshCw size={14} />
               </button>
             </div>
           )}
-          {success && (
+          {/* Members get a toast above the bottom bars instead (MemberShell). */}
+          {success && !subscriber && (
             <div className="notice success" role="status">
               <Check size={17} />
               {success}
             </div>
           )}
-          {path === "/trainer/notifications" ||
+    </>
+  );
+  const page =
+    subscriber && path.startsWith("/app") && !isMemberRoute(path) ? (
+      <MemberNotFound />
+    ) : path === "/app/more" && subscriber ? (
+      <MoreScreen
+        nav={memberNav}
+        coachName={state.tenant.name}
+        tenantId={state.user.tenantId}
+        userId={state.user.userId}
+        onSignOut={() => void signOut()}
+      />
+    ) : path === "/trainer/notifications" ||
           path === "/app/notifications" ? (
             <NotificationInbox />
           ) : path === "/admin/account-security" ? (
@@ -1133,6 +1177,7 @@ export default function Workspace({
             <NutritionSubscriber
               userId={state.user.userId}
               tenantId={state.user.tenantId}
+              environment={state.environment}
             />
           ) : path === "/trainer/galleries" ||
             path === "/trainer/website" ||
@@ -1174,12 +1219,14 @@ export default function Workspace({
                 records={records("support")}
                 action={action}
                 busy={busy}
+                userId={state.user.userId}
+                member={subscriber}
               />
               <LoadMore
                 more={more}
                 collection="records"
                 kind="support"
-                label="Load older support conversations"
+                label={shellT("loadOlderSupport")}
               />
             </>
           ) : /^\/trainer\/brain\/(teaching|actions|checks|autonomy)$/.test(
@@ -1195,7 +1242,7 @@ export default function Workspace({
           ) : path.includes("/subscribers") ? (
             <Members {...props} />
           ) : path === "/app/twin" ? (
-            <ClientTwin userId={state.user.userId} subscriber />
+            <MemberCoachingContext userId={state.user.userId} />
           ) : path.startsWith("/app/guided/") ? (
             <GuidedSession workoutId={path.split("/")[3]} />
           ) : path.startsWith("/app/voice-session/") ? (
@@ -1207,13 +1254,46 @@ export default function Workspace({
               userId={state.user.userId}
             />
           ) : path.includes("/program") ? (
-            <TrainingPrograms state={state} />
+            subscriber ? (
+              <MemberProgram
+                state={view}
+                programLabel={memberNav.programLabel}
+              />
+            ) : (
+              <TrainingPrograms state={state} />
+            )
           ) : path.includes("/workouts") ? (
             <Workout {...props} />
           ) : path.includes("/messages") || path.includes("/chat") ? (
-            <CoachingMessages state={state} />
+            subscriber ? (
+              <>
+                {/* A coach's reply is the moment to offer notifications. */}
+                {records("message").some((m) =>
+                  ["trainer", "digital_qualified", "digital_reviewed"].includes(
+                    m.data?.author,
+                  ),
+                ) && (
+                  <PushPrompt
+                    coachName={state.tenant.name}
+                    askedKey={
+                      installKeys(state.user.tenantId, state.user.userId)
+                        .pushAsked
+                    }
+                  />
+                )}
+                <MemberChat state={view} />
+              </>
+            ) : (
+              <CoachingMessages state={state} />
+            )
           ) : path.includes("/exceptions") ? (
             <Exceptions {...props} />
+          ) : subscriber && path === "/app/membership" ? (
+            <MemberMembership
+              state={view}
+              offers={records("product")}
+              onChanged={load}
+            />
           ) : path.includes("/finance") ||
             path.includes("/payout") ||
             path.includes("/membership") ||
@@ -1241,22 +1321,194 @@ export default function Workspace({
               {state.user.role === "owner" && <RetentionPanel />}
             </>
           ) : path === "/app/timeline" ? (
-            <ProgrammeTimeline />
+            <ProgrammeTimeline programLabel={memberNav.programLabel} />
           ) : path === "/app/progress" ? (
             <TrainingProgress state={state} />
           ) : path.includes("/analytics") || path.includes("/progress") ? (
             <Analytics {...props} />
+          ) : subscriber ? (
+            <MemberToday
+              state={view}
+              programLabel={memberNav.programLabel}
+              nutrition={memberNav.nutrition}
+            />
           ) : (
-            <>
-              {subscriber && (
-                <CoachSwitcher
-                  current={state.user.tenantId}
-                  userId={state.user.userId}
-                />
-              )}
-              <Overview {...props} />
-            </>
+            <Overview {...props} />
+          );
+  if (subscriber)
+    return (
+      <TrainerTheme
+        className="workspace member-shell"
+        theme={state.tenant.theme}
+        colorScheme={scheme}
+      >
+        <AppUpdateToast
+          path={path}
+          waiting={serviceWorker.waiting}
+          release={serviceWorker.release}
+          onReload={serviceWorker.reload}
+        />
+        <MemberLanguage member={`${state.user.tenantId}:${state.user.userId}`} />
+        <MemberAppearance
+          member={`${state.user.tenantId}:${state.user.userId}`}
+          theme={state.tenant.theme}
+          choice={scheme}
+        />
+        <MemberAppManifest tenantId={state.tenant.id} role={state.user.role} />
+        <MemberShell
+          path={path}
+          tenant={state.tenant}
+          user={state.user}
+          nav={memberNav}
+          messages={records("message")}
+          workoutTitle={
+            path.startsWith("/app/workouts/")
+              ? records("workout").find((w) => w.id === path.split("/")[3])
+                  ?.data?.program?.title
+              : null
+          }
+          supportEmail={state.platform?.supportEmail}
+          refreshing={loading}
+          offline={!online}
+          toast={
+            success ? (
+              <Toast key={success} onDone={() => setSuccess("")}>
+                {success}
+              </Toast>
+            ) : null
+          }
+          onSignOut={() => void signOut()}
+          footerNote={
+            // Development builds only (the API reports "production" under
+            // strict security); never between a chat thread and its composer.
+            state.environment === "development" &&
+            !path.startsWith("/app/chat") ? (
+              <p className="member-dev-note">{shellT("devNote")}</p>
+            ) : null
+          }
+        >
+          {notices}
+          {page}
+        </MemberShell>
+      </TrainerTheme>
+    );
+  return (
+    <PlainShell className="workspace platform-ui">
+      <MemberLanguage member={`${state.user.tenantId}:${state.user.userId}`} />
+      {!path.startsWith("/admin") && (
+        <MemberAppManifest tenantId={state.tenant.id} role={state.user.role} />
+      )}
+      <aside className={"sidebar " + (mobile ? "is-open" : "")}>
+        <Link href={subscriber ? "/app" : "/trainer"} className="wordmark">
+          {subscriber ? (
+            <CoachIdentity
+              name={state.tenant.name}
+              theme={state.tenant.theme}
+              compact
+            />
+          ) : (
+            <PlatformLogo name={platformName} />
           )}
+        </Link>
+        <button
+          className="mobile-close icon-button"
+          onClick={() => setMobile(false)}
+          aria-label="Close navigation"
+        >
+          <X />
+        </button>
+        <div className="workspace-label">
+          <span className="avatar">{state.tenant.name.slice(0, 1)}</span>
+          <div>
+            <strong>{state.tenant.name}</strong>
+            <span>
+              {subscriber ? "Your coaching space" : "Your coaching business"}
+            </span>
+          </div>
+        </div>
+        <WorkspaceSwitcher
+          current={state.user.tenantId}
+          userId={state.user.userId}
+        />
+        <nav aria-label="Main navigation">
+          {items.map(([label, url, Icon]) => (
+            <Link
+              key={url}
+              className={url === activeNavUrl ? "active" : ""}
+              href={url}
+            >
+              <Icon size={18} />
+              {subscriber && url === "/app/program"
+                ? resolveBrandDesign(state.tenant.theme).programLabel
+                : label}
+              {label === "Exceptions" &&
+                openExceptionCount(state, records) > 0 && (
+                  <span className="nav-count">
+                    {openExceptionCount(state, records)}
+                  </span>
+                )}
+            </Link>
+          ))}
+          {state.user.platformRole !== "none" && (
+            <Link href="/admin" className={path === "/admin" ? "active" : ""}>
+              <Shield size={18} />
+              Platform admin
+            </Link>
+          )}
+          {state.user.platformRole === "admin" && (
+            <Link
+              href="/admin/settings"
+              className={`platform-settings-link ${path.startsWith("/admin/settings") || path.startsWith("/admin/integrations") ? "active" : ""}`}
+            >
+              <Settings size={16} />
+              Settings & API connections
+            </Link>
+          )}
+        </nav>
+        <div className="sidebar-bottom">
+          <div className="small-label">BUILT AROUND YOU</div>
+          <p>
+            Your methods.
+            <br />
+            Your brand. Your business.
+          </p>
+          <button className="text-button" onClick={() => void signOut()}>
+            <LogOut size={15} /> Sign out
+          </button>
+        </div>
+      </aside>
+      <main className="main">
+        <header className="topbar">
+          <div className="topbar-left">
+            <button
+              className="mobile-menu icon-button"
+              onClick={() => setMobile(true)}
+              aria-label="Open navigation"
+            >
+              <Menu />
+            </button>
+            <span className="muted">Workspace</span>
+            <ChevronRight size={14} />
+            <strong>{topTitle}</strong>
+          </div>
+          <div className="topbar-right">
+            {subscriber && (
+              <CoachSwitcher
+                current={state.user.tenantId}
+                userId={state.user.userId}
+                variant="compact"
+              />
+            )}
+            <span className="connection-dot" />
+            <span>
+              {state.tenant.published ? "Published" : "Private workspace"}
+            </span>
+            <span className="avatar small">{firstName[0]}</span>
+          </div>
+        </header>
+        <div className="content">
+          {notices}
+          {page}
         </div>
         <footer className="workspace-footer">
           <span>
@@ -1273,7 +1525,7 @@ export default function Workspace({
           <Link href="/privacy">Privacy & your data</Link>
         </footer>
       </main>
-    </Shell>
+    </PlainShell>
   );
 }
 /** A follower's name, read from the server when outside the first page. */
@@ -1330,6 +1582,10 @@ const openExceptionCount = (state: State, records: ViewProps["records"]) =>
 
 function Overview({ state, records }: ViewProps) {
   const sub = state.user.role === "subscriber";
+  // Members read their Today in their language; the trainer view is unchanged.
+  const t = useT("today"),
+    workoutT = useT("workout"),
+    locale = useLocale();
   const rules = records("rule").filter((x) => x.status === "confirmed"),
     exceptions = urgentFirst(
       records("exception").filter((x) => x.status === "open"),
@@ -1360,15 +1616,28 @@ function Overview({ state, records }: ViewProps) {
   return (
     <>
       <Heading
-        eyebrow={new Intl.DateTimeFormat("en-AE", {
-          weekday: "long",
-          month: "long",
-          day: "numeric",
-        }).format(new Date())}
-        title={`Good to see you, ${state.user.name.split(" ")[0]}.`}
+        eyebrow={
+          sub
+            ? formatDate(new Date(), {
+                weekday: "long",
+                year: false,
+                longMonth: true,
+                locale,
+              })
+            : new Intl.DateTimeFormat("en-AE", {
+                weekday: "long",
+                month: "long",
+                day: "numeric",
+              }).format(new Date())
+        }
+        title={
+          sub
+            ? t("greeting", { name: state.user.name.split(" ")[0] })
+            : `Good to see you, ${state.user.name.split(" ")[0]}.`
+        }
         detail={
           sub
-            ? "One workout. A little progress. Your next step is here."
+            ? t("subtitle")
             : "A clear view of your people, your coaching and your business."
         }
         action={
@@ -1376,18 +1645,12 @@ function Overview({ state, records }: ViewProps) {
             className="button secondary"
             href={sub ? "/app/program" : "/trainer/brand"}
           >
-            {sub ? "View my program" : "Edit storefront"}
+            {sub ? t("viewProgram") : "Edit storefront"}
             <ArrowUpRight size={16} />
           </Link>
         }
       />
-      {sub && (
-        <>
-          <ProgrammeToday />
-          <CoachWelcome name={state.tenant.name} theme={state.tenant.theme} />
-          <ClientHomeSections theme={state.tenant.theme} />
-        </>
-      )}
+
       {state.user.role === "owner" && (
         <section className="card" aria-labelledby="growth-nudge-h">
           <h2 id="growth-nudge-h">What could your followers be worth?</h2>
@@ -1405,24 +1668,24 @@ function Overview({ state, records }: ViewProps) {
         {(sub
           ? [
               [
-                "Completed workouts",
+                t("statCompleted"),
                 total(
                   state,
                   "completedWorkouts",
                   workouts.filter((w) => w.status === "completed").length,
                 ),
-                "Every session counts",
+                t("statCompletedNote"),
               ],
               [
-                "Sets recorded",
+                t("statSets"),
                 total(state, "sets", state.sets.length),
-                "Your actual training log",
+                t("statSetsNote"),
               ],
-              ["My programs", programCount, "Created by your trainer"],
+              [t("statPrograms"), programCount, t("statProgramsNote")],
               [
-                "Coach messages",
+                t("statMessages"),
                 kindTotal(state, "message", records("message").length),
-                "Personal and digital coaching",
+                t("statMessagesNote"),
               ],
             ]
           : [
@@ -1463,12 +1726,10 @@ function Overview({ state, records }: ViewProps) {
           <div className="card-heading">
             <div>
               <p className="eyebrow">
-                {sub ? "YOUR NEXT SESSION" : "THE COACHING ENGINE"}
+                {sub ? t("nextSession") : "THE COACHING ENGINE"}
               </p>
               <h2>
-                {sub
-                  ? "Ready when you are."
-                  : "Make your experience teachable."}
+                {sub ? t("ready") : "Make your experience teachable."}
               </h2>
             </div>
             <span className="round-icon">
@@ -1477,64 +1738,62 @@ function Overview({ state, records }: ViewProps) {
           </div>
           <p className="muted lead">
             {sub
-              ? "Your program holds the details. Focus on a clear, controlled session and record what actually happens."
+              ? t("readyText")
               : "The best part of your coaching isn’t a template. It’s knowing what to change, when to change it, and why."}
           </p>
           <div className="brain-flow">
             <div>
               <span>01</span>
-              <strong>{sub ? "Prepare" : "Teach"}</strong>
+              <strong>{sub ? t("prepare") : "Teach"}</strong>
               <small>
-                {sub ? "Check your program" : "Share your decisions"}
+                {sub ? t("prepareNote") : "Share your decisions"}
               </small>
             </div>
             <ArrowRight size={18} />
             <div>
               <span>02</span>
-              <strong>{sub ? "Train" : "Refine"}</strong>
-              <small>{sub ? "Log each set" : "Review the rules"}</small>
+              <strong>{sub ? t("train") : "Refine"}</strong>
+              <small>{sub ? t("trainNote") : "Review the rules"}</small>
             </div>
             <ArrowRight size={18} />
             <div>
               <span>03</span>
-              <strong>{sub ? "Reflect" : "Release"}</strong>
-              <small>{sub ? "See your progress" : "Stay in control"}</small>
+              <strong>{sub ? t("reflect") : "Release"}</strong>
+              <small>{sub ? t("reflectNote") : "Stay in control"}</small>
             </div>
           </div>
           <Link
             className="button"
             href={sub ? "/app/program" : "/trainer/brain"}
           >
-            {sub ? "Open my program" : "Continue building my Brain"}
+            {sub ? t("openProgram") : "Continue building my Brain"}
             <ArrowRight size={16} />
           </Link>
         </Card>
         <Card>
           <div className="card-heading">
-            <h2>{sub ? "Your coaching space" : "Your launch checklist"}</h2>
+            <h2>{sub ? t("coachingSpace") : "Your launch checklist"}</h2>
             <Badge>
               {sub
-                ? "PERSONAL"
+                ? t("personal")
                 : `${steps.filter((s) => s[1]).length} / ${steps.length}`}
             </Badge>
           </div>
           {sub ? (
             <>
-              <p className="muted">
-                Your coach’s method, with space for your real life.
-              </p>
+              <p className="muted">{t("spaceText")}</p>
               <Link className="checklist-row" href="/app/intake">
                 <span className="step-circle">
                   <FileText size={17} />
                 </span>
-                <span>Complete your coaching profile</span>
+                <span>{t("completeProfile")}</span>
                 <ChevronRight size={16} />
               </Link>
               <Link className="checklist-row" href="/app/chat">
                 <span className="step-circle">
                   <MessageCircle size={17} />
                 </span>
-                <span>Talk to your trainer</span>
+                <span>{t("talkToTrainer")}</span>
                 <ChevronRight size={16} />
               </Link>
             </>
@@ -1553,27 +1812,26 @@ function Overview({ state, records }: ViewProps) {
       </div>
       <Card>
         <div className="card-heading">
-          <h2>{sub ? "Recent sessions" : "The attention list"}</h2>
+          <h2>{sub ? t("recentSessions") : "The attention list"}</h2>
           <Link
             href={sub ? "/app/progress" : "/trainer/exceptions"}
             className="text-link"
           >
-            View all <ArrowUpRight size={14} />
+            {sub ? t("viewAll") : "View all"} <ArrowUpRight size={14} />
           </Link>
         </div>
         {sub ? (
           workouts.length ? (
             workouts.slice(0, 4).map((w) => (
               <div className="list-row" key={w.id}>
-                <span>{w.data.program?.title ?? "Workout"}</span>
-                <Badge>{w.status.replaceAll("_", " ")}</Badge>
+                <span dir="auto">
+                  {w.data.program?.title ?? t("workoutFallback")}
+                </span>
+                <Badge>{workoutStatusText(w.status, workoutT)}</Badge>
               </div>
             ))
           ) : (
-            <Empty
-              title="Your first session is ahead"
-              detail="Once your trainer assigns a program, you can start logging here."
-            />
+            <Empty title={t("firstSession")} detail={t("firstSessionDetail")} />
           )
         ) : exceptions.length ? (
           exceptions.slice(0, 4).map((e) => (
@@ -2662,17 +2920,41 @@ function useListedOrFetchedWorkout(
       ? { workout: mine.workout, sets: mine.sets }
       : { workout: undefined, sets: [] as any[] };
 }
-/** A logged set: its reps, or the time or distance of a round. */
+/** The time or distance of a logged timed or distance round (reps 0). */
 const loggedWorkText = (body: {
-  reps: number;
-  durationSeconds?: number;
-  distanceMeters?: number;
+  durationSeconds?: number | null;
+  distanceMeters?: number | null;
 }) =>
   typeof body.durationSeconds === "number"
     ? formatDuration(body.durationSeconds)
     : typeof body.distanceMeters === "number"
       ? formatDistance(body.distanceMeters)
-      : `${body.reps} reps`;
+      : null;
+/**
+ * Brings the next set still to log into view after one is logged: smoothly,
+ * and only as far as needed (its scroll margin clears the top bar and the
+ * sticky action bar).
+ */
+function revealNextSet() {
+  document
+    .querySelector(".set-row:not(.is-done) .set-log")
+    ?.closest("form")
+    ?.scrollIntoView({
+      block: "nearest",
+      behavior: prefersReducedMotion() ? "auto" : "smooth",
+    });
+}
+/** Plain words for a workout's status (the badge on the workout screen). */
+function workoutStatusText(
+  status: string,
+  t: ReturnType<typeof useT<"workout">>,
+) {
+  return ["active", "completed", "safety_hold", "paused", "abandoned"].includes(
+    status,
+  )
+    ? t(`status_${status}` as "status_active")
+    : status.replaceAll("_", " ");
+}
 function Workout({ state, records, action, busy, path }: ViewProps) {
   const workoutId = path.split("/").pop() ?? "";
   const listedWorkout = records("workout").find((w) => w.id === workoutId);
@@ -2686,6 +2968,9 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
     loggedSets = found.sets.length
       ? [...state.sets, ...found.sets]
       : state.sets;
+  const t = useT("workout"),
+    locale = useLocale(),
+    toError = useErrorText();
   const [queued, setQueued] = useState(0),
     [notice, setNotice] = useState(""),
     [rejected, setRejected] = useState<RejectedEntry<WorkoutQueueItem>[]>([]);
@@ -2695,6 +2980,44 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
     receiptKey = keys.receipts,
     rejectedKey = keys.rejected;
   const [localDone, setLocalDone] = useState<string[]>([]);
+  // Values logged on this screen, shown until the refreshed logs arrive.
+  const [submitted, setSubmitted] = useState<
+    Record<
+      string,
+      {
+        loadKg: number;
+        reps: number;
+        rir: number;
+        durationSeconds?: number;
+        distanceMeters?: number;
+      }
+    >
+  >({});
+  const [painOpen, setPainOpen] = useState(false),
+    [painText, setPainText] = useState(""),
+    [restUntil, setRestUntil] = useState<number | null>(null),
+    [restLeft, setRestLeft] = useState(0),
+    // The prescribed rest, for the ring counting it down.
+    [restTotal, setRestTotal] = useState(0),
+    // Finished on this screen: the completion moment shows once.
+    [finished, setFinished] = useState(false),
+    // The set logged last on this screen: it confirms itself once
+    // (phone-first.css "Motion") and the next set comes into view.
+    [justLogged, setJustLogged] = useState<string | null>(null),
+    // The one set shown with its steppers: the next to log unless the
+    // member opened another (phone first: one set at a time).
+    [openSet, setOpenSet] = useState<string | null>(null);
+  useEffect(() => {
+    if (!restUntil) return;
+    const tick = () => {
+      const left = Math.max(0, Math.ceil((restUntil - Date.now()) / 1000));
+      setRestLeft(left);
+      if (!left) setRestUntil(null);
+    };
+    tick();
+    const timer = setInterval(tick, 250);
+    return () => clearInterval(timer);
+  }, [restUntil]);
   const refreshQueue = useCallback(() => {
     setQueued(readList(localStorage, key).length);
     setLocalDone(readList<string>(localStorage, receiptKey));
@@ -2709,17 +3032,24 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
       (p, b, h) => api(p, "POST", b, h),
     );
     refreshQueue();
-    if (result.stopped?.reason === "session")
-      setNotice(
-        "Your session ended. Sign in again; set logs saved on this device sync after you sign in.",
-      );
+    if (result.stopped?.reason === "session") setNotice(t("sessionEnded"));
     else if (result.stopped)
-      setNotice("Saved on this device. " + result.stopped.failure.message);
-    else if (result.rejected.length)
       setNotice(
-        "A set log could not be saved. Review it below; later sets kept syncing.",
+        t("savedOnDevice", { reason: toError(result.stopped.failure) }),
       );
-  }, [tenantId, userId, refreshQueue]);
+    else if (result.rejected.length) setNotice(t("rejectedOne"));
+    // Back online and everything sent: say so plainly (then it goes).
+    else if (
+      result.synced.length &&
+      !readList(localStorage, key).length
+    )
+      setNotice(t("allSynced"));
+  }, [tenantId, userId, refreshQueue, t, toError, key]);
+  useEffect(() => {
+    if (notice !== t("allSynced")) return;
+    const gone = window.setTimeout(() => setNotice(""), 4000);
+    return () => window.clearTimeout(gone);
+  }, [notice, t]);
   useEffect(() => {
     refreshQueue();
     const online = () => void sync();
@@ -2733,23 +3063,24 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
     void (async () => {
       try {
         await navigator.serviceWorker.ready;
-        const cache = await caches.open("trainer-workout-shell-v1");
+        // This release's caches (components/pwa.ts, public/sw.js): the
+        // workout page with the personal pages, its assets with the build.
+        const names = cacheNames();
+        const [pages, shell] = await Promise.all([
+          caches.open(names.pages),
+          caches.open(names.shell),
+        ]);
         const assets = performance
           .getEntriesByType("resource")
           .map((r) => r.name)
           .filter((url) => url.startsWith(location.origin + "/_next/static/"));
-        await Promise.all(
-          [path, ...new Set(assets)].map((url) => cache.add(url)),
-        );
-        if (active)
-          setNotice(
-            "Workout saved for this device. Set logs can sync after a connection loss.",
-          );
+        await Promise.all([
+          pages.add(path),
+          ...[...new Set(assets)].map((url) => shell.add(url)),
+        ]);
+        if (active) setNotice(t("savedForDevice"));
       } catch {
-        if (active)
-          setNotice(
-            "Keep this workout open. Offline reload is not ready; reconnect to save it for this device.",
-          );
+        if (active) setNotice(t("keepOpen"));
       }
     })();
     return () => {
@@ -2758,61 +3089,152 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
   }, [workout?.id, path]);
   if (!workout)
     return (
-      <Empty
-        title="Workout unavailable"
-        detail="Choose a program to start your session."
-      />
+      <Empty title={t("unavailable")} detail={t("unavailableDetail")} />
     );
+  const active = workout.status === "active";
+  const pendingItems = readList<WorkoutQueueItem>(localStorage, key);
+  // Every set's state: logged (with the values actually saved), saved on
+  // this device, needing attention, or still to do.
+  const exercises = (workout.data.program.exercises as any[]).map(
+    (ex: any, i: number) => ({
+      ex,
+      i,
+      sets: Array.from({ length: ex.sets }, (_, set) => {
+        const logicalKey = workout.id + ":" + ex.name + ":" + (set + 1);
+        const pending = pendingItems.find((p) => p.logicalKey === logicalKey);
+        const saved = loggedSets.find(
+          (s) =>
+            s.workout_id === workout.id &&
+            s.data.exercise === ex.name &&
+            s.data.set === set + 1,
+        );
+        const needsAttention = rejected.some(
+          (r) => r.item.logicalKey === logicalKey,
+        );
+        const values = saved?.data ?? pending?.body ?? submitted[logicalKey];
+        return {
+          set: set + 1,
+          logicalKey,
+          formId: `set-${i}-${set + 1}`,
+          pending: !!pending,
+          done: !!pending || !!saved || localDone.includes(logicalKey),
+          needsAttention,
+          values: values
+            ? {
+                loadKg: values.loadKg,
+                reps: values.reps,
+                rir: values.rir,
+                durationSeconds: values.durationSeconds,
+                distanceMeters: values.distanceMeters,
+              }
+            : null,
+        };
+      }),
+    }),
+  );
+  const next = exercises
+    .flatMap(({ ex, sets }) => sets.map((s) => ({ ...s, ex })))
+    .find((s) => !s.done && !s.needsAttention);
+  // The set on screen with its steppers: one the member opened, else next.
+  const current =
+    exercises
+      .flatMap(({ ex, sets }) => sets.map((s) => ({ ...s, ex })))
+      .find(
+        (s) => s.logicalKey === openSet && !s.done && !s.needsAttention,
+      ) ?? next;
+
+  const remaining = exercises.reduce(
+    (n, { sets }) => n + sets.filter((s) => !s.done).length,
+    0,
+  );
+  const finishBlocked =
+    queued > 0 ||
+    rejected.some((r) => r.item.path === `/workouts/${workout.id}/sets`);
+  const finish = () => {
+    haptic();
+    // No toast: the completion card itself says the workout is done.
+    void action(
+      () => api(`/workouts/${workout.id}/finish`, "POST", {}),
+      "",
+    ).then((result) => {
+      if (result === null) return;
+      // The completion moment is at the top of the workout: go there once,
+      // instantly, before the card rises, so nothing jumps under it.
+      window.scrollTo({ top: 0, behavior: "auto" });
+      setFinished(true);
+    });
+  };
+  const allSets = exercises.flatMap(({ sets }) => sets);
+  const restText =
+    restLeft > 0 ? t("rest", { time: formatCountdown(restLeft, locale) }) : "";
   return (
     <>
       <TrainingHoldNotice records={state.records} />
-      <WorkoutTools
-        workout={workout}
-        userId={state.user.userId}
-        onChange={async () => {
-          await action(async () => ({}), "Session updated");
-        }}
-      />
       <Heading
-        eyebrow="ONE SET AT A TIME"
+        eyebrow={t("eyebrow")}
         title={workout.data.program.title}
-        detail="Log what you actually do. You can adjust the weight and reps for every set."
-        action={<Badge>{workout.status.replaceAll("_", " ")}</Badge>}
+        detail={t("detail")}
+        action={<Badge>{workoutStatusText(workout.status, t)}</Badge>}
       />
-      {workout.status === "active" && (
-        <>
-          <Link className="text-link" href={`/app/voice-session/${workout.id}`}>
-            Start a voice-led session (hands-free, set by set)
+      {finished && workout.status === "completed" && (
+        <WorkoutComplete
+          done={allSets.filter((s) => s.done).length}
+          total={allSets.length}
+        />
+      )}
+      {active && (
+        <div className="workout-modes">
+          <Link className="button secondary" href={`/app/guided/${workout.id}`}>
+            <Play size={16} aria-hidden="true" />
+            {t("guided")}
           </Link>
-          <Link className="text-link" href={`/app/guided/${workout.id}`}>
-            Open guided session with exercise cues and rest timers
+          <Link
+            className="button secondary"
+            href={`/app/voice-session/${workout.id}`}
+          >
+            <MessageCircle size={16} aria-hidden="true" />
+            {t("voiceLed")}
           </Link>
-        </>
+          <p className="muted">{t("modesHelp")}</p>
+        </div>
       )}
       {queued > 0 && (
         <div className="notice">
-          {queued} set logs waiting to sync.{" "}
+          {queuedSummary(queued, "set", locale)}.{" "}
           <button className="text-button" onClick={() => void sync()}>
-            Sync now
+            {t("syncNow")}
           </button>
         </div>
       )}
-      {notice && <div className="notice">{notice}</div>}
+      {/* Keyed by its words: it drops in once per new message, not again
+          when the page re-renders after a reload. */}
+      {notice && (
+        <div className="notice" role="status" key={notice}>
+          {notice}
+        </div>
+      )}
       {rejected.length > 0 && (
         <div className="notice error" role="alert">
-          <strong>
-            {rejected.length} set{" "}
-            {rejected.length === 1 ? "log needs" : "logs need"} your attention.
-          </strong>{" "}
-          The workspace did not accept{" "}
-          {rejected.length === 1 ? "this entry" : "these entries"}. Try again,
-          or discard one to log that set again with corrected values.
+          <strong>{t("needAttention", { count: rejected.length })}</strong>{" "}
+          {t("notAccepted", { count: rejected.length })}
           <ul>
             {rejected.map((entry) => (
               <li key={entry.item.body.eventKey}>
-                {entry.item.body.exercise} · set {entry.item.body.set} ·{" "}
-                {loggedWorkText(entry.item.body)} · {entry.item.body.loadKg} kg —{" "}
-                {entry.failure.message}{" "}
+                {loggedWorkText(entry.item.body) !== null
+                  ? t("rejectedWorkLine", {
+                      exercise: entry.item.body.exercise,
+                      set: entry.item.body.set,
+                      work: loggedWorkText(entry.item.body) ?? "",
+                      load: entry.item.body.loadKg,
+                      reason: toError(entry.failure),
+                    })
+                  : t("rejectedLine", {
+                      exercise: entry.item.body.exercise,
+                      set: entry.item.body.set,
+                      reps: entry.item.body.reps,
+                      load: entry.item.body.loadKg,
+                      reason: toError(entry.failure),
+                    })}{" "}
                 <button
                   className="text-button"
                   type="button"
@@ -2827,18 +3249,13 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
                     void sync();
                   }}
                 >
-                  Try again
+                  {t("tryAgain")}
                 </button>{" "}
                 <button
                   className="text-button"
                   type="button"
                   onClick={() => {
-                    if (
-                      !window.confirm(
-                        "Discard this set log from this device? It has not been saved.",
-                      )
-                    )
-                      return;
+                    if (!window.confirm(t("discardConfirm"))) return;
                     discardRejected<WorkoutQueueItem>(
                       localStorage,
                       keys,
@@ -2848,236 +3265,429 @@ function Workout({ state, records, action, busy, path }: ViewProps) {
                     refreshQueue();
                   }}
                 >
-                  Discard
+                  {t("discard")}
                 </button>
               </li>
             ))}
           </ul>
         </div>
       )}
-      {workout.data.program.exercises.map((ex: any, i: number) => (
-        <Card key={i}>
+      {exercises.map(({ ex, i, sets }) => (
+        <Card key={i} className="workout-exercise">
           <div className="card-heading">
             <div className="exercise-title">
               <span className="step-circle">{i + 1}</span>
-              <h2>{ex.name}</h2>
+              <h2 dir="auto">{ex.name}</h2>
             </div>
-            <span className="muted">
-              {prescriptionText(ex, { rir: false })}
+            <span className="muted exercise-prescription">
+              {/* Timed and distance work: the domain's prescription line. */}
+              {workMeasure(ex) === "reps"
+                ? t("prescription", {
+                    setsReps: formatSetsReps(ex.sets, ex.reps, locale),
+                    rest: ex.restSeconds,
+                  })
+                : prescriptionText(ex, { rir: false })}
             </span>
           </div>
-          <p className="muted">{ex.cue}</p>
-          {Array.from({ length: ex.sets }, (_, set) => {
-            // Timed and distance rounds log the time or distance done (reps 0).
-            const measure = workMeasure(ex);
-            const logicalKey = workout.id + ":" + ex.name + ":" + (set + 1);
-            const pendingHere = readList<WorkoutQueueItem>(
-                localStorage,
-                key,
-              ).some((p) => p.logicalKey === logicalKey),
-              needsAttention = rejected.some(
-                (r) => r.item.logicalKey === logicalKey,
-              );
-            const done =
-              pendingHere ||
-              localDone.includes(logicalKey) ||
-              loggedSets.some(
-                (s) =>
-                  s.workout_id === workout.id &&
-                  s.data.exercise === ex.name &&
-                  s.data.set === set + 1,
-              );
-            return (
-              <form
-                className="set-row"
-                key={set}
-                onSubmit={async (e) => {
-                  e.preventDefault();
-                  const f = new FormData(e.currentTarget),
-                    body = {
-                      eventKey: crypto.randomUUID(),
-                      rir: Number(f.get("rir")),
-                      notes: String(f.get("notes") || ""),
-                      exercise: ex.name,
-                      set: set + 1,
-                      reps: measure === "reps" ? Number(f.get("reps")) : 0,
-                      loadKg: Number(f.get("load")),
-                      ...(measure === "time"
-                        ? { durationSeconds: Number(f.get("duration")) }
-                        : measure === "distance"
-                          ? { distanceMeters: Number(f.get("distance")) }
-                          : {}),
-                    };
-                  const endpoint = `/workouts/${workout.id}/sets`;
-                  const { notes: _notes, ...setLog } = body,
-                    checked = setSchema.safeParse(setLog);
-                  if (!checked.success) {
-                    setNotice(
-                      "Check this set before logging it: " +
-                        checked.error.issues
-                          .map((x) => `${x.path.join(".")} ${x.message}`)
-                          .join("; "),
-                    );
-                    return;
-                  }
-                  const pending = readList<WorkoutQueueItem>(localStorage, key);
-                  if (
-                    pending.some((p) => p.logicalKey === logicalKey) ||
-                    readList<RejectedEntry<WorkoutQueueItem>>(
-                      localStorage,
-                      rejectedKey,
-                    ).some((r) => r.item.logicalKey === logicalKey) ||
-                    localDone.includes(logicalKey)
-                  )
-                    return;
-                  pending.push({ path: endpoint, body, logicalKey });
-                  localStorage.setItem(key, JSON.stringify(pending));
-                  setQueued(pending.length);
-                  setNotice(
-                    `Set ${set + 1} saved on this device. It will sync when your connection is available.`,
-                  );
-                  await sync();
-                }}
-              >
-                <span>
-                  {measure === "reps" ? "Set" : "Round"} {set + 1}
-                </span>
-                <label>
-                  <input
-                    type="number"
+          {ex.cue && (
+            <p className="muted" dir="auto">
+              {ex.cue}
+            </p>
+          )}
+          {/* "Reps left" is explained once, in the first exercise. */}
+          {i === exercises[0]?.i && (
+            <p className="rir-help">
+              <Rich
+                t={t}
+                k="rirHelp"
+                params={{ rir: ex.rir ?? 2 }}
+                tags={{ b: (text) => <strong>{text}</strong> }}
+              />
+            </p>
+          )}
+          {sets.map((row) => (
+            <form
+              className={
+                "set-row" +
+                (row.done ? " is-done" : "") +
+                (active &&
+                !row.done &&
+                !row.needsAttention &&
+                row.logicalKey !== current?.logicalKey
+                  ? " is-later"
+                  : "") +
+                (row.done && row.logicalKey === justLogged
+                  ? " just-logged"
+                  : "")
+              }
+              id={row.formId}
+              key={row.set}
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!active) return;
+                // Timed and distance rounds log the time or distance done (reps 0).
+                const measure = workMeasure(ex);
+                const f = new FormData(e.currentTarget),
+                  body = {
+                    eventKey: crypto.randomUUID(),
+                    rir: Number(f.get("rir")),
+                    notes: String(f.get("notes") || ""),
+                    exercise: ex.name,
+                    set: row.set,
+                    reps: measure === "reps" ? Number(f.get("reps")) : 0,
+                    loadKg: Number(f.get("load")),
+                    ...(measure === "time"
+                      ? { durationSeconds: Number(f.get("duration")) }
+                      : measure === "distance"
+                        ? { distanceMeters: Number(f.get("distance")) }
+                        : {}),
+                  };
+                const endpoint = `/workouts/${workout.id}/sets`;
+                const { notes: _notes, ...setLog } = body,
+                  checked = setSchema.safeParse(setLog);
+                if (!checked.success) {
+                  setNotice(t("checkSet"));
+                  return;
+                }
+                const pending = readList<WorkoutQueueItem>(localStorage, key);
+                if (
+                  pending.some((p) => p.logicalKey === row.logicalKey) ||
+                  readList<RejectedEntry<WorkoutQueueItem>>(
+                    localStorage,
+                    rejectedKey,
+                  ).some((r) => r.item.logicalKey === row.logicalKey) ||
+                  localDone.includes(row.logicalKey)
+                )
+                  return;
+                pending.push({ path: endpoint, body, logicalKey: row.logicalKey });
+                setSubmitted((old) => ({
+                  ...old,
+                  [row.logicalKey]: {
+                    loadKg: body.loadKg,
+                    reps: body.reps,
+                    rir: body.rir,
+                    durationSeconds: (body as { durationSeconds?: number })
+                      .durationSeconds,
+                    distanceMeters: (body as { distanceMeters?: number })
+                      .distanceMeters,
+                  },
+                }));
+                setJustLogged(row.logicalKey);
+                setOpenSet(null);
+                haptic();
+                requestAnimationFrame(revealNextSet);
+                localStorage.setItem(key, JSON.stringify(pending));
+                setQueued(pending.length);
+                // The prescribed rest starts as soon as the set is logged.
+                if (ex.restSeconds > 0) {
+                  setRestTotal(ex.restSeconds);
+                  setRestUntil(Date.now() + ex.restSeconds * 1000);
+                }
+                await sync();
+                const stillPending = readList<WorkoutQueueItem>(
+                  localStorage,
+                  key,
+                ).some((p) => p.logicalKey === row.logicalKey);
+                setNotice(
+                  t(stillPending ? "setQueued" : "setLogged", {
+                    set: row.set,
+                    exercise: ex.name,
+                  }),
+                );
+              }}
+            >
+              <div className="set-row-head">
+                <strong>
+                  {workMeasure(ex) === "reps"
+                    ? t("setN", { n: row.set })
+                    : t("roundN", { n: row.set })}
+                </strong>
+                {row.done && (
+                  <span className="set-logged">
+                    <span className="set-logged-status">
+                      {/* Drawn once when this set was just logged. */}
+                      <DrawnCheck />
+                      {row.pending
+                        ? locale === "en"
+                          ? QUEUED_LABEL
+                          : queuedLabel(locale)
+                        : t("logged")}
+                    </span>
+                    {row.values && (
+                      <span className="set-logged-values">
+                        {loggedWorkText(row.values) !== null
+                          ? t("loggedWorkLine", {
+                              kg: row.values.loadKg,
+                              work: loggedWorkText(row.values) ?? "",
+                              rir: row.values.rir ?? 2,
+                            })
+                          : t("loggedLine", {
+                              kg: row.values.loadKg,
+                              count: row.values.reps,
+                              rir: row.values.rir ?? 2,
+                            })}
+                      </span>
+                    )}
+                  </span>
+                )}
+                {row.needsAttention && (
+                  <span className="set-attention">{t("needsAttention")}</span>
+                )}
+                {active &&
+                  !row.done &&
+                  !row.needsAttention &&
+                  row.logicalKey !== current?.logicalKey && (
+                    <button
+                      type="button"
+                      className="button secondary set-open"
+                      aria-label={t("openSetLabel", {
+                        exercise: ex.name,
+                        set: row.set,
+                      })}
+                      onClick={() => setOpenSet(row.logicalKey)}
+                    >
+                      {t("openSet")}
+                    </button>
+                  )}
+              </div>
+              {active &&
+                !row.done &&
+                !row.needsAttention &&
+                row.logicalKey === current?.logicalKey && (
+                <>
+                  <NumberStepper
+                    label={t("weightKg")}
                     name="load"
-                    aria-label={`${ex.name} set ${set + 1} load`}
-                    defaultValue={ex.loadKg}
+                    decimal
+                    step={0.5}
                     min={0}
                     max={500}
-                    step="any"
+                    defaultValue={ex.loadKg}
+                    inputLabel={t("weightLabel", {
+                      exercise: ex.name,
+                      set: row.set,
+                    })}
                   />
-                  <small>kg</small>
-                </label>
-                {measure === "time" ? (
-                  <label>
-                    <input
-                      type="number"
+                  {workMeasure(ex) === "time" ? (
+                    <NumberStepper
+                      label={t("seconds")}
                       name="duration"
-                      aria-label={`${ex.name} round ${set + 1} seconds`}
-                      defaultValue={ex.durationSeconds}
                       min={0}
                       max={36000}
-                      step={1}
+                      defaultValue={ex.durationSeconds}
+                      inputLabel={t("secondsLabel", {
+                        exercise: ex.name,
+                        set: row.set,
+                      })}
                     />
-                    <small>seconds</small>
-                  </label>
-                ) : measure === "distance" ? (
-                  <label>
-                    <input
-                      type="number"
+                  ) : workMeasure(ex) === "distance" ? (
+                    <NumberStepper
+                      label={t("metres")}
                       name="distance"
-                      aria-label={`${ex.name} round ${set + 1} metres`}
-                      defaultValue={ex.distanceMeters}
                       min={0}
                       max={200000}
-                      step={1}
+                      defaultValue={ex.distanceMeters}
+                      inputLabel={t("metresLabel", {
+                        exercise: ex.name,
+                        set: row.set,
+                      })}
                     />
-                    <small>metres</small>
-                  </label>
-                ) : (
-                  <label>
-                    <input
-                      type="number"
+                  ) : (
+                    <NumberStepper
+                      label={t("reps")}
                       name="reps"
-                      aria-label={`${ex.name} set ${set + 1} reps`}
-                      defaultValue={ex.reps}
                       min={0}
                       max={200}
-                      step={1}
+                      defaultValue={ex.reps}
+                      inputLabel={t("repsLabel", {
+                        exercise: ex.name,
+                        set: row.set,
+                      })}
                     />
-                    <small>reps</small>
-                  </label>
-                )}
-                <label>
-                  <input
-                    aria-label={`${ex.name} set ${set + 1} repetitions in reserve`}
+                  )}
+                  <NumberStepper
+                    label={t("repsLeft")}
                     name="rir"
-                    type="number"
                     min={0}
                     max={10}
                     defaultValue={ex.rir ?? 2}
-                    required
+                    enterKeyHint="done"
+                    inputLabel={t("rirLabel", {
+                      exercise: ex.name,
+                      set: row.set,
+                    })}
                   />
-                  <small>RIR</small>
-                </label>
-                <label>
-                  <input
-                    aria-label={`${ex.name} set ${set + 1} notes`}
-                    name="notes"
-                    maxLength={1000}
-                    placeholder="Set notes"
-                  />
-                </label>
-                <Button
-                  type="submit"
-                  secondary
-                  disabled={
-                    busy ||
-                    done ||
-                    needsAttention ||
-                    workout.status !== "active"
-                  }
-                >
-                  {needsAttention ? (
-                    "Needs attention"
-                  ) : done ? (
-                    <>
-                      <Check size={16} />
-                      {pendingHere ? "Saved offline" : "Logged"}
-                    </>
-                  ) : (
-                    "Log set"
-                  )}
-                </Button>
-              </form>
-            );
-          })}
+                  <button
+                    type="submit"
+                    className="button secondary set-log"
+                    disabled={busy}
+                  >
+                    {t("logSet", { n: row.set })}
+                  </button>
+                  <details className="set-note">
+                    <summary>{t("addNote", { n: row.set })}</summary>
+                    <label className="field">
+                      <span>{t("note")}</span>
+                      <textarea
+                        name="notes"
+                        maxLength={1000}
+                        rows={2}
+                        enterKeyHint="done"
+                        aria-label={t("noteLabel", {
+                          exercise: ex.name,
+                          set: row.set,
+                        })}
+                      />
+                    </label>
+                  </details>
+                </>
+              )}
+            </form>
+          ))}
         </Card>
       ))}
-      <div className="button-row">
-        <Button
-          disabled={
-            busy ||
-            queued > 0 ||
-            rejected.some(
-              (r) => r.item.path === `/workouts/${workout.id}/sets`,
-            ) ||
-            workout.status !== "active"
-          }
-          onClick={() =>
-            void action(
-              () => api(`/workouts/${workout.id}/finish`, "POST", {}),
-              "Workout completed",
+      {active && next && (
+        <div className="workout-finish">
+          <Button secondary disabled={busy || finishBlocked} onClick={finish}>
+            {t("finishNow")}
+          </Button>
+          <p className="control-reason">
+            {finishBlocked
+              ? t("finishWaits")
+              : t("notLoggedYet", { count: remaining })}
+          </p>
+        </div>
+      )}
+      <WorkoutTools
+        workout={workout}
+        userId={state.user.userId}
+        onChange={async () => {
+          await action(async () => ({}), t("sessionUpdated"));
+        }}
+        rest={{
+          left: restLeft,
+          start: (seconds) => {
+            setRestTotal(seconds);
+            setRestUntil(Date.now() + seconds * 1000);
+          },
+          reset: () => {
+            setRestUntil(null);
+            setRestLeft(0);
+          },
+        }}
+      />
+      {active && (
+        <StickyActionBar
+          label={t("actions")}
+          note={
+            restText ? (
+              <span role="timer" aria-live="off">
+                <ProgressRing
+                  value={restTotal ? restLeft / restTotal : 0}
+                  size={24}
+                  ticking
+                />
+                {restText}
+                {current
+                  ? t("nextAfterRest", {
+                      exercise: current.ex.name,
+                      set: current.set,
+                    })
+                  : ""}
+              </span>
+            ) : current ? (
+              t("next", { exercise: current.ex.name, set: current.set })
+            ) : finishBlocked ? (
+              t("waitingSync")
+            ) : (
+              t("allLogged")
             )
           }
         >
-          Finish workout <CheckCircle size={17} />
-        </Button>
-        <Button
-          secondary
-          disabled={busy || workout.status !== "active"}
-          onClick={() => {
-            const description = window.prompt(
-              "Describe the pain or issue. Your workout will pause for review.",
+          <button
+            type="button"
+            className="button secondary workout-pain"
+            disabled={busy}
+            onClick={() => setPainOpen(true)}
+          >
+            <AlertCircle size={18} aria-hidden="true" />
+            {t("reportPain")}
+          </button>
+          {current ? (
+            <button
+              type="submit"
+              form={current.formId}
+              className="button"
+              disabled={busy}
+            >
+              {t("logSet", { n: current.set })}
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="button"
+              disabled={busy || finishBlocked}
+              onClick={finish}
+            >
+              {t("finish")} <CheckCircle size={18} aria-hidden="true" />
+            </button>
+          )}
+        </StickyActionBar>
+      )}
+      <BottomSheet
+        open={painOpen}
+        onClose={() => setPainOpen(false)}
+        title={t("painTitle")}
+        description={t("painDescription")}
+        footer={
+          <>
+            <button
+              type="button"
+              className="button secondary"
+              onClick={() => setPainOpen(false)}
+            >
+              {t("cancel")}
+            </button>
+            <button
+              type="submit"
+              form="workout-pain-report"
+              className="button"
+              disabled={busy}
+            >
+              {t("stopNotify")}
+            </button>
+          </>
+        }
+      >
+        <form
+          id="workout-pain-report"
+          onSubmit={(e) => {
+            e.preventDefault();
+            // Stopping never waits for a note (pain-report.ts).
+            const description = painDescription(painText);
+            setPainOpen(false);
+            setPainText("");
+            void action(
+              () => api(`/workouts/${workout.id}/pain`, "POST", { description }),
+              t("paused"),
             );
-            if (description)
-              void action(
-                () =>
-                  api(`/workouts/${workout.id}/pain`, "POST", { description }),
-                "Workout paused for trainer review",
-              );
           }}
         >
-          <Pause size={16} />
-          Pain or an issue
-        </Button>
-      </div>
+          <label className="field">
+            <span>{t("whatHappened")}</span>
+            {/* No autofocus: the phone keyboard would open mid-slide and
+                cover "Stop workout and notify coach"; the note is optional. */}
+            <textarea
+              value={painText}
+              onChange={(e) => setPainText(e.target.value)}
+              rows={4}
+              maxLength={2000}
+              enterKeyHint="send"
+              placeholder={t("painExample")}
+            />
+          </label>
+        </form>
+      </BottomSheet>
     </>
   );
 }
@@ -3181,6 +3791,7 @@ function Messages({ state, records, action, busy }: ViewProps) {
           )}
         </div>
         <form
+          {...unsavedMark(!!text.trim())}
           onSubmit={(e) => {
             e.preventDefault();
             void action(
@@ -3349,14 +3960,16 @@ function Finance({ state, records, action, busy, path, more }: ViewProps) {
         ? subscription
         : null;
   const [offer, setOffer] = useState(path.includes("products"));
+  const mt = useT("membership"),
+    locale = useLocale();
   return (
     <>
       <Heading
-        eyebrow="CLEAR NUMBERS. NO GUESSWORK."
-        title={sub ? "Your membership." : "Your coaching, accounted for."}
+        eyebrow={sub ? mt("eyebrow") : "CLEAR NUMBERS. NO GUESSWORK."}
+        title={sub ? mt("title") : "Your coaching, accounted for."}
         detail={
           sub
-            ? "See your access, renewal and refund options in one place."
+            ? mt("detail")
             : "Track the ledger from subscriber payments through to your monthly payout."
         }
         action={
@@ -3373,7 +3986,7 @@ function Finance({ state, records, action, busy, path, more }: ViewProps) {
         <>
           <MemberAccessCard />
           {!membership && (
-            <Field label="Discount code (optional)">
+            <Field label={mt("discountCode")}>
               <input
                 value={promotionCode}
                 maxLength={40}
@@ -3383,9 +3996,7 @@ function Finance({ state, records, action, busy, path, more }: ViewProps) {
           )}
           <Card>
             <h2>
-              {membership
-                ? "Your current plan"
-                : "Choose your coaching membership"}
+              {membership ? mt("currentPlan") : mt("choosePlan")}
             </h2>
             {membership?.data?.billing === "upfront" ? (
               <UpfrontMembership
@@ -3395,17 +4006,22 @@ function Finance({ state, records, action, busy, path, more }: ViewProps) {
             ) : membership ? (
               <>
                 <div className="membership-price">
-                  {money(membership.price_minor)}
-                  <span>/ month</span>
+                  {formatMoney(membership.price_minor, locale)}
+                  <span> {mt("perMonth")}</span>
                 </div>
-                <Badge>{membership.status}</Badge>
+                <Badge>
+                  {mt.dynamic(
+                    `status_${membership.status}`,
+                    humanize(membership.status),
+                  )}
+                </Badge>
                 <p>
                   {membership.data?.modules?.includes("nutrition")
-                    ? "Workout + nutrition"
-                    : "Workout only"}
+                    ? mt("workoutNutrition")
+                    : mt("workoutOnly")}
                 </p>
                 {membership.data?.premiumVoice === true && (
-                  <p>Premium guided voice included</p>
+                  <p>{mt("voiceIncluded")}</p>
                 )}
                 {records("product")
                   .filter(
@@ -3428,23 +4044,28 @@ function Finance({ state, records, action, busy, path, more }: ViewProps) {
                               api("/membership/change-plan", "POST", {
                                 productId: p.id,
                               }),
-                            "Opening price and billing confirmation",
+                            mt("openingChange"),
                           ).then((r) => {
                             if (r?.url) window.location.assign(r.url);
                           })
                         }
                       >
-                        Review change to {p.data.name}
+                        {mt("reviewChange", { name: p.data.name })}
                       </Button>
                     </p>
                   ))}
                 <p className="muted">
-                  {membership.cancel_at_period_end
-                    ? "Access continues until"
-                    : "Current period ends"}{" "}
-                  {membership.period_end
-                    ? new Date(membership.period_end).toLocaleDateString()
-                    : "—"}
+                  {mt(
+                    membership.cancel_at_period_end
+                      ? "accessContinues"
+                      : "periodEnds",
+                    {
+                      date: formatDate(membership.period_end, {
+                        locale,
+                        fallback: "—",
+                      }),
+                    },
+                  )}
                 </p>
                 <Button
                   secondary
@@ -3458,14 +4079,14 @@ function Finance({ state, records, action, busy, path, more }: ViewProps) {
                           {},
                         ),
                       membership.cancel_at_period_end
-                        ? "Renewal reactivated"
-                        : "Renewal stopped; your paid access remains",
+                        ? mt("renewalReactivated")
+                        : mt("renewalStopped"),
                     )
                   }
                 >
                   {membership.cancel_at_period_end
-                    ? "Reactivate renewal"
-                    : "Cancel renewal"}
+                    ? mt("reactivate")
+                    : mt("cancelRenewal")}
                 </Button>
               </>
             ) : (
@@ -3487,15 +4108,15 @@ function Finance({ state, records, action, busy, path, more }: ViewProps) {
                               productId: p.id,
                               promotionCode,
                             }),
-                          "Opening checkout",
+                          mt("openingCheckout"),
                         ).then((r) => {
                           if (r?.url) window.location.assign(r.url);
                         })
                       }
                     >
                       {p.data.billing === "upfront"
-                        ? "Buy this programme"
-                        : "Join this plan"}
+                        ? mt("buyProgramme")
+                        : mt("joinPlan")}
                     </Button>
                   </div>
                 ))
@@ -3503,11 +4124,8 @@ function Finance({ state, records, action, busy, path, more }: ViewProps) {
           </Card>
           <VoiceAddOnCard />
           <Card>
-            <h2>Checkout status</h2>
-            <p className="muted">
-              If checkout was interrupted or your payment is still being
-              confirmed, check the original purchase before trying again.
-            </p>
+            <h2>{mt("checkoutStatus")}</h2>
+            <p className="muted">{mt("checkoutText")}</p>
             <Button
               secondary
               disabled={busy}
@@ -3515,34 +4133,27 @@ function Finance({ state, records, action, busy, path, more }: ViewProps) {
                 setCheckout({ status: "checking" });
                 void action(
                   () => api("/payments/checkout/reconcile", "POST", {}),
-                  "Checkout status checked",
+                  mt("checkoutChecked"),
                 ).then((result) =>
                   setCheckout(result ?? { status: "unresolved" }),
                 );
               }}
             >
               {checkout?.status === "checking"
-                ? "Checking checkout…"
-                : "Check checkout status"}
+                ? mt("checkingCheckout")
+                : mt("checkCheckout")}
             </Button>
             {checkout && (
               <p role="status">
-                {checkout.status === "checking"
-                  ? "Checking your original purchase."
-                  : checkout.status === "open"
-                    ? "Your original checkout is still open. Continue that purchase using the link below."
-                    : checkout.status === "complete"
-                      ? "Checkout is complete. Your membership status has been refreshed above."
-                      : checkout.status === "expired"
-                        ? "The payment provider confirmed that checkout expired. You can choose a plan above."
-                        : checkout.status === "resolved"
-                          ? "There is no pending checkout to reconcile."
-                          : "The payment outcome is not confirmed. Your original purchase remains held while it is checked."}
+                {mt.dynamic(
+                  `checkout_${checkout.status}`,
+                  mt("checkout_unresolved"),
+                )}
               </p>
             )}
             {checkout?.status === "open" && checkout.url && (
               <a className="button secondary" href={checkout.url}>
-                Continue original checkout
+                {mt("continueCheckout")}
               </a>
             )}
           </Card>
@@ -4161,116 +4772,161 @@ function Integrations({ state, action, busy, path }: ViewProps) {
   );
 }
 
-function SettingsView({ state, records, action, busy, path }: ViewProps) {
-  const intake = records("intake")[0]?.data ?? {},
-    sub = state.user.role === "subscriber";
+function SettingsView({
+  state,
+  records,
+  action,
+  busy,
+  path,
+  onSaved,
+}: ViewProps) {
+  const sub = state.user.role === "subscriber";
+  // A member's coaching profile questions are their own step-by-step page
+  // (member-intake.tsx); account security stays in Profile and settings.
+  if (sub && path === "/app/intake")
+    return (
+      <MemberIntake intake={records("intake")[0]?.data} onSaved={onSaved} />
+    );
+  if (sub) return <MemberSettings state={state} action={action} busy={busy} />;
+  return <TrainerSettingsView state={state} action={action} busy={busy} />;
+}
+
+/**
+ * Profile and settings for a member, phone first: the coaching profile link,
+ * the installed app, account details, display preferences (appearance and
+ * motion), notifications, sign-in security folded into one section, privacy
+ * (analytics included) and leaving the coach (a bottom sheet in
+ * AccountSettings).
+ */
+function MemberSettings({
+  state,
+  action,
+  busy,
+}: Pick<ViewProps, "state" | "action" | "busy">) {
+  const t = useT("profile");
+  const intakeDone = state.records.some((r) => r.kind === "intake");
+  return (
+    <div className="member-settings" data-stagger>
+      <header className="page-heading">
+        <h1>{t("settingsTitle")}</h1>
+        <p className="muted">{t("settingsIntro")}</p>
+      </header>
+      <section className="card" aria-labelledby="settings-coaching">
+        <h2 id="settings-coaching">{t("coachingProfile")}</h2>
+        <p className="muted">
+          {intakeDone ? t("profileDoneText") : t("profileStartText")}
+        </p>
+        <Link className="button secondary" href="/app/intake">
+          {intakeDone ? t("reviewProfile") : t("startProfile")}
+        </Link>
+      </section>
+      <InstallAppRow coachName={state.tenant.name} variant="card" />
+      <AccountSettings returnTo="/app/profile" leave={false} />
+      <DisplayPreferences />
+      <NotificationPreferences />
+      {/* Secondary detail folds away (phone first: a shorter page). */}
+      <details className="card settings-group" id="phone-alerts">
+        <summary>
+          <span>
+            <strong>{t("alertsTitle")}</strong>
+            <small>{t("alertsDetail")}</small>
+          </span>
+        </summary>
+        <PushNotifications />
+      </details>
+      <details className="card settings-group" id="security">
+        <summary>
+          <span>
+            <strong>{t("securityTitle")}</strong>
+            <small>{t("securityDetail")}</small>
+          </span>
+        </summary>
+        <AccountSecurity />
+        <AccountExtras />
+      </details>
+      <PersonalPrivacyStatus />
+      {/* Profile > Privacy (/app/profile#privacy), linked from More. */}
+      <Card id="privacy">
+        <h2>{t("yourData")}</h2>
+        <p className="muted">{t("yourDataText")}</p>
+        <div className="button-row">
+          <a className="button secondary" href="/api/v1/privacy/export">
+            <Download size={16} />
+            {t("downloadData")}
+          </a>
+          <Button
+            secondary
+            disabled={busy}
+            onClick={() =>
+              void action(
+                () => api("/privacy/delete-request", "POST", {}),
+                t("deletionReceived"),
+              )
+            }
+          >
+            {t("askDelete")}
+          </Button>
+        </div>
+        <div className="divider" />
+        <p className="muted">{t("digitalText")}</p>
+        <Button
+          secondary
+          disabled={busy}
+          onClick={() =>
+            void action(
+              () =>
+                api("/privacy/consent", "POST", {
+                  type: "coaching",
+                  granted: false,
+                }),
+              t("digitalStopped"),
+            )
+          }
+        >
+          {t("stopDigital")}
+        </Button>
+        <div className="divider" />
+        <AnalyticsSetting />
+      </Card>
+      {/* The one destructive action, last and on its own. */}
+      <section className="member-danger-zone" aria-label={t("dangerZone")}>
+        <LeaveTrainer />
+      </section>
+    </div>
+  );
+}
+
+function TrainerSettingsView({
+  state,
+  action,
+  busy,
+}: Pick<ViewProps, "state" | "action" | "busy">) {
+  const t = useT("profile");
   return (
     <>
       <Heading
         eyebrow="YOUR SPACE, YOUR CHOICES"
-        title={sub ? "Your coaching profile." : "Your workspace settings."}
+        title="Your workspace settings."
         detail="Keep your information useful, your permissions clear and your data under your control."
       />
       <AccountSecurity />
       <AccountExtras />
-      <AccountSettings returnTo={sub ? "/app/profile" : "/trainer/settings"} />
+      <AccountSettings returnTo="/trainer/settings" />
       <PersonalPrivacyStatus />
       {["owner", "staff"].includes(state.user.role) && (
         <WorkspaceLifecycle role={state.user.role} />
-      )}
-      {sub && (
-        <Card>
-          <h2>Help your coach understand you</h2>
-          <PlanIntakeNotice />
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              const f = new FormData(e.currentTarget);
-              void action(
-                () =>
-                  api("/intake", "POST", {
-                    age: Number(f.get("age")),
-                    goal: f.get("goal"),
-                    experience: f.get("experience"),
-                    daysPerWeek: Number(f.get("days")),
-                    equipment: f.get("equipment"),
-                    limitations: f.get("limitations"),
-                    consent: true,
-                  }),
-                "Coaching profile saved",
-              );
-            }}
-          >
-            <div className="form-grid">
-              <Field label="Age (18+)">
-                <input
-                  type="number"
-                  name="age"
-                  min={18}
-                  max={100}
-                  defaultValue={intake.age}
-                  required
-                />
-              </Field>
-              <Field label="Experience">
-                <select
-                  name="experience"
-                  defaultValue={intake.experience ?? "beginner"}
-                >
-                  {["beginner", "intermediate", "advanced"].map((x) => (
-                    <option key={x}>{x}</option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="Main goal">
-                <input name="goal" defaultValue={intake.goal} required />
-              </Field>
-              <Field label="Days available each week">
-                <input
-                  name="days"
-                  type="number"
-                  min={1}
-                  max={7}
-                  defaultValue={intake.daysPerWeek ?? 3}
-                  required
-                />
-              </Field>
-              <Field label="Equipment available">
-                <input name="equipment" defaultValue={intake.equipment} />
-              </Field>
-              <Field label="Limitations your trainer should know">
-                <textarea
-                  name="limitations"
-                  defaultValue={intake.limitations}
-                />
-              </Field>
-            </div>
-            <label className="check-field">
-              <input type="checkbox" required />I agree to the coaching use of
-              this information and understand that digital coaching does not
-              replace medical care.
-            </label>
-            <Button type="submit" disabled={busy}>
-              Save coaching profile
-            </Button>
-          </form>
-        </Card>
       )}
       <div className="two-columns">
         <NotificationPreferences />
         <PushNotifications />
         {state.user.role === "owner" && <WorkoutNotificationPolicy />}
-        <Card>
+        <Card id="privacy">
           <h2>Your data</h2>
-          <p className="muted">
-            Download your coaching records, manage consent, or request account
-            deletion. Required financial records follow the applicable retention
-            policy.
-          </p>
+          <p className="muted">{t("privacyText")}</p>
           <div className="button-row">
             <a className="button secondary" href="/api/v1/privacy/export">
               <Download size={16} />
-              Export my data
+              {t("exportData")}
             </a>
             <Button
               secondary
@@ -4278,11 +4934,11 @@ function SettingsView({ state, records, action, busy, path }: ViewProps) {
               onClick={() =>
                 void action(
                   () => api("/privacy/delete-request", "POST", {}),
-                  "Deletion request recorded for review",
+                  t("deletionRecorded"),
                 )
               }
             >
-              Request deletion
+              {t("requestDeletion")}
             </Button>
           </div>
           <div className="divider" />
@@ -4296,12 +4952,14 @@ function SettingsView({ state, records, action, busy, path }: ViewProps) {
                     type: "coaching",
                     granted: false,
                   }),
-                "New model use of your intake has been disabled",
+                t("consentWithdrawn"),
               )
             }
           >
-            Withdraw coaching-data consent
+            {t("withdrawConsent")}
           </Button>
+          <div className="divider" />
+          <AnalyticsSetting />
         </Card>
       </div>
       {state.user.role === "owner" && (
@@ -4638,378 +5296,5 @@ function Admin({ state, finance = false }: ViewProps & { finance?: boolean }) {
         !error && <p>Loading platform evidence…</p>
       )}
     </>
-  );
-}
-
-function Public({
-  path,
-  platform,
-  coachSlug,
-  onAuthenticated,
-}: {
-  path: string;
-  platform: WorkspacePlatform;
-  /** The trainer whose own domain or subdomain serves this page, if any. */
-  coachSlug: string | null;
-  onAuthenticated: () => Promise<void>;
-}) {
-  const [error, setError] = useState(""),
-    [busy, setBusy] = useState(false),
-    [slugHint, setSlugHint] = useState(""),
-    [store, setStore] = useState<any>(null);
-  const enroll = path.startsWith("/join-coach/");
-  const join = path.startsWith("/join/"),
-    auth =
-      path === "/forgot-password" ||
-      path.startsWith("/reset-password/") ||
-      path.startsWith("/verify-email/") ||
-      path === "/login" ||
-      path === "/signup" ||
-      join ||
-      enroll,
-    signup = path === "/signup";
-  // A /coach/ page, or any page on a trainer's own address (sign in,
-  // recovery, joining), carries that trainer's identity, not the platform's.
-  const coachPage = path.startsWith("/coach/");
-  const siteSlug = coachPage ? path.split("/")[2] || null : coachSlug;
-  useEffect(() => {
-    if (!siteSlug) return;
-    api("/public/trainers/" + encodeURIComponent(siteSlug))
-      .then(setStore)
-      // On a coach address the sign-in page works without the trainer's
-      // details; only the /coach/ page itself reports them missing.
-      .catch((e) => coachPage && setError(e.message));
-  }, [siteSlug, coachPage]);
-  useEffect(() => {
-    // A name typed in the address preview arrives as ?slug=.
-    if (path !== "/signup") return;
-    const hint = new URLSearchParams(window.location.search).get("slug") ?? "";
-    if (/^[a-z][a-z0-9-]{2,39}$/.test(hint)) setSlugHint(hint);
-  }, [path]);
-  const coach = !!siteSlug;
-  const Shell = coach ? TrainerTheme : PlainShell;
-  return (
-    <Shell
-      className={coach ? "public" : "public platform-ui"}
-      theme={store?.trainer?.theme}
-    >
-      <PublicHeader
-        path={path}
-        platform={platform}
-        coach={
-          siteSlug
-            ? { slug: siteSlug, host: !coachPage, trainer: store?.trainer }
-            : null
-        }
-      />
-      {path === "/sign-in/verify" ? (
-        <SocialSignInVerify />
-      ) : path.startsWith("/verify-email-change/") ? (
-        <EmailChangeConfirm token={path.split("/").pop() ?? ""} />
-      ) : path.startsWith("/account-recovery/") ? (
-        <RecoveryLinkReset token={path.split("/").pop() ?? ""} />
-      ) : path === "/magic-link" ||
-        path.startsWith("/magic-link/") ||
-        path === "/recover-authenticator" ? (
-        <MagicAccess path={path} />
-      ) : path.startsWith("/reset-password/") ||
-        path.startsWith("/verify-email/") ||
-        path === "/forgot-password" ? (
-        <AccountRecovery path={path} />
-      ) : auth ? (
-        <main className="auth-layout">
-          <div className="auth-story">
-            <p className="eyebrow">YOUR KNOWLEDGE. YOUR NEXT CHAPTER.</p>
-            <h1>
-              {join
-                ? "Meet your next chapter."
-                : signup
-                  ? "You’ve built the experience.\nNow build the business."
-                  : "Welcome back to your coaching space."}
-            </h1>
-            <p>
-              Your judgment is the part that matters. Give it a place to grow.
-            </p>
-            <div className="auth-lines">
-              <span />
-              <span />
-              <span />
-              <span />
-            </div>
-          </div>
-          <Card>
-            <h2>
-              {enroll
-                ? "Join this coaching space"
-                : join
-                  ? "Accept your invitation"
-                  : signup
-                    ? "Create your coaching space"
-                    : "Sign in"}
-            </h2>
-            <p className="muted">
-              {signup
-                ? "Start with your identity. Your Brain comes next."
-                : join
-                  ? "Use the email address your trainer invited."
-                  : "Pick up exactly where you left off."}
-            </p>
-            {error && (
-              <div className="notice error" role="alert">
-                {error}
-              </div>
-            )}
-            {join && (
-              <InvitationJoin
-                token={path.split("/").pop() ?? ""}
-                onAuthenticated={onAuthenticated}
-              />
-            )}
-            <form
-              hidden={join}
-              onSubmit={async (e) => {
-                e.preventDefault();
-                setBusy(true);
-                setError("");
-                const f = new FormData(e.currentTarget);
-                try {
-                  await api(
-                    enroll
-                      ? "/auth/enroll"
-                      : join
-                        ? "/invitations/accept"
-                        : signup
-                          ? "/auth/register"
-                          : "/auth/login",
-                    "POST",
-                    enroll
-                      ? {
-                          name: f.get("name"),
-                          email: f.get("email"),
-                          password: f.get("password"),
-                          coachSlug: path.split("/").pop(),
-                          accepted: true,
-                          ...(f.get("code") ? { code: f.get("code") } : {}),
-                        }
-                      : join
-                        ? {
-                            name: f.get("name"),
-                            email: f.get("email"),
-                            password: f.get("password"),
-                            token: path.split("/").pop(),
-                            accepted: true,
-                            ...(f.get("code") ? { code: f.get("code") } : {}),
-                          }
-                        : signup
-                          ? {
-                              name: f.get("name"),
-                              email: f.get("email"),
-                              password: f.get("password"),
-                              slug: f.get("slug"),
-                              accepted: true,
-                            }
-                          : {
-                              email: f.get("email"),
-                              password: f.get("password"),
-                              ...(f.get("code") ? { code: f.get("code") } : {}),
-                            },
-                  );
-                  await onAuthenticated();
-                } catch (e) {
-                  setError((e as Error).message);
-                } finally {
-                  setBusy(false);
-                }
-              }}
-            >
-              {(signup || join || enroll) && (
-                <Field label="Your name">
-                  <input
-                    name="name"
-                    autoComplete="name"
-                    required
-                    minLength={2}
-                  />
-                </Field>
-              )}
-              <Field label="Email address">
-                <input
-                  name="email"
-                  type="email"
-                  autoComplete="email"
-                  required
-                />
-              </Field>
-              {signup && (
-                <Field label="Your coaching address">
-                  <div className="input-affix">
-                    <span>/coach/</span>
-                    <input
-                      key={slugHint}
-                      name="slug"
-                      pattern="[a-z][a-z0-9-]{2,39}"
-                      placeholder="your-name"
-                      defaultValue={slugHint}
-                      required
-                    />
-                  </div>
-                </Field>
-              )}
-              <Field label="Password">
-                <input
-                  name="password"
-                  type="password"
-                  minLength={signup || join || enroll ? 12 : 1}
-                  autoComplete={
-                    signup || join || enroll
-                      ? "new-password"
-                      : "current-password"
-                  }
-                  required
-                />
-                {(signup || join || enroll) && (
-                  <small>At least 12 characters.</small>
-                )}
-              </Field>
-              {!signup && (
-                <>
-                  <Field label="Authenticator code (if enabled)">
-                    <input
-                      name="code"
-                      inputMode="numeric"
-                      autoComplete="one-time-code"
-                      pattern="[0-9]{6}"
-                    />
-                  </Field>
-                  <p>
-                    <Link className="text-link" href="/forgot-password">
-                      Forgot your password?
-                    </Link>
-                  </p>
-                </>
-              )}
-              {(signup || join || enroll) && (
-                <label className="check-field">
-                  <input type="checkbox" required />I accept the published terms
-                  and understand the digital coaching disclosure.
-                </label>
-              )}
-              <Button type="submit" disabled={busy}>
-                {busy
-                  ? "Opening your workspace…"
-                  : join || enroll
-                    ? "Join my coach"
-                    : signup
-                      ? "Create my workspace"
-                      : "Sign in"}
-                <ArrowRight size={16} />
-              </Button>
-            </form>
-            {(path === "/login" || join || enroll) && (
-              <SocialSignIn
-                intent={join ? "invite" : enroll ? "join" : "sign_in"}
-                coachSlug={enroll ? path.split("/").pop() : undefined}
-                inviteToken={join ? path.split("/").pop() : undefined}
-              />
-            )}
-            {path === "/login" && (
-              <>
-                <div className="divider" />
-                <PasskeyLoginButton />
-                <p>
-                  <Link href="/magic-link">Email me a sign-in link</Link>
-                </p>
-                <p>
-                  <Link href="/recover-authenticator">
-                    Use an authenticator recovery code
-                  </Link>
-                </p>
-              </>
-            )}
-            {coach ? (
-              // A coach address refuses /signup; new members join the coach.
-              !join &&
-              !enroll && (
-                <>
-                  <div className="divider" />
-                  <p className="muted">
-                    New here?{" "}
-                    <Link href={`/join-coach/${store?.trainer?.slug ?? siteSlug}`}>
-                      Join coaching
-                    </Link>
-                  </p>
-                </>
-              )
-            ) : (
-              <>
-                <div className="divider" />
-                <p className="muted">
-                  {signup
-                    ? "Already have a coaching space?"
-                    : `New to ${platform.name}?`}{" "}
-                  <Link href={signup ? "/login" : "/signup"}>
-                    {signup ? "Sign in" : "Get started"}
-                  </Link>
-                </p>
-              </>
-            )}
-          </Card>
-        </main>
-      ) : path.startsWith("/coach/") ? (
-        <main className="public-section">
-          {store ? (
-            <>
-              <CoachIdentity
-                name={store.trainer.name}
-                theme={store.trainer.theme}
-              />
-              <CoachCover theme={store.trainer.theme} />
-              <p className="eyebrow">{store.trainer.name}</p>
-              <h1>
-                {store.trainer.theme?.headline ?? "Coaching built around you."}
-              </h1>
-              <p className="lead">{store.trainer.theme?.bio}</p>
-              <CoachStory
-                name={store.trainer.name}
-                theme={store.trainer.theme}
-              />
-              {store.products.map((p: any) => (
-                <Card key={p.id}>
-                  <h2>{p.data.name}</h2>
-                  <p>{p.data.description}</p>
-                  <OfferTerms data={p.data} />
-                  <p>
-                    <Link
-                      className="button"
-                      href={"/join-coach/" + store.trainer.slug}
-                    >
-                      Join this coaching space <ArrowRight size={16} />
-                    </Link>
-                  </p>
-                </Card>
-              ))}
-            </>
-          ) : (
-            <p>{error || "Loading coaching page…"}</p>
-          )}
-        </main>
-      ) : ["/terms", "/privacy", "/ai-disclosure"].includes(path) ? (
-        <PublishedLegal
-          documentKey={path.slice(1) as "terms" | "privacy" | "ai-disclosure"}
-        />
-      ) : null}
-      {coach ? (
-        <footer className="public-footer">
-          <span>{platform.name}</span>
-          <div>
-            <Link href="/terms">Terms</Link>
-            <Link href="/privacy">Privacy</Link>
-            <Link href="/ai-disclosure">Digital coaching</Link>
-          </div>
-        </footer>
-      ) : (
-        <MarketingFooter appName={platform.name} initials={platform.initials} />
-      )}
-    </Shell>
   );
 }

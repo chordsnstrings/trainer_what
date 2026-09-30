@@ -8,7 +8,10 @@ import { classifyQueueFailure } from "../apps/web/components/offline-queue.ts";
 import { WorkspaceGovernance } from "../apps/web/components/workspace-governance.tsx";
 import { BusinessMetrics } from "../apps/web/components/business-metrics.tsx";
 import { PlatformAlerts } from "../apps/web/components/platform-alerts.tsx";
-import { WorkspaceSuspended } from "../apps/web/components/workspace-suspended.tsx";
+import {
+  WorkspaceSuspended,
+  suspensionCopy,
+} from "../apps/web/components/workspace-suspended.tsx";
 import { SuspendedMemberBilling } from "../apps/web/components/suspended-member-billing.tsx";
 import {
   GovernanceLinks,
@@ -51,9 +54,29 @@ test("screens render their scoped initial state with accessible labels", () => {
   assert.match(alerts, /aria-pressed="true"[^>]*>Needs attention/);
 
   const suspended = html(WorkspaceSuspended, { onSignOut: async () => {} });
-  assert.match(suspended, /This workspace is suspended\./);
+  assert.match(suspended, /This workspace is unavailable/);
   assert.match(suspended, /Download my data/);
   assert.match(suspended, /Sign out/);
+  assert.match(suspended, /<button class="button" type="button">Check again</);
+});
+
+test("a paused coach's workspace reads as the coach's coaching, not the person", () => {
+  const member = suspensionCopy({
+    role: "subscriber",
+    workspace: { name: "Dana Hart" },
+    message: "This coaching workspace is temporarily suspended by the platform team.",
+  });
+  assert.equal(member.title, "Coaching with Dana Hart is paused");
+  assert.doesNotMatch(member.title, /Dana Hart is suspended/);
+  assert.match(member.body, /Dana Hart’s coaching workspace/);
+  assert.doesNotMatch(member.body, /platform support for help/);
+  const owner = suspensionCopy({
+    role: "owner",
+    workspace: { name: "Dana Hart" },
+    message: "This coaching workspace is temporarily suspended by the platform team.",
+  });
+  assert.equal(owner.title, "The Dana Hart workspace is suspended");
+  assert.match(owner.body, /temporarily suspended by the platform team/);
 });
 
 test("a suspended follower sees renewal, refund and deletion actions", () => {
@@ -84,15 +107,19 @@ test("a suspended follower sees renewal, refund and deletion actions", () => {
       },
     ],
   };
-  const page = html(SuspendedMemberBilling, { initial: billing });
+  const page = html(SuspendedMemberBilling, { initial: billing, coach: "Dana Hart" });
   assert.match(page, /aria-labelledby="suspended-billing-title"/);
   assert.match(page, /not cancelled automatically/);
+  assert.match(page, /keeps renewing/);
   assert.match(page, />Cancel membership renewal</);
+  // Deletion is a quiet link that asks again in a bottom sheet.
+  assert.match(page, /<button class="text-button suspended-delete"[^>]*>Request account deletion</);
+  assert.match(page, /<dialog class="bottom-sheet"/);
+  assert.match(page, /waiting for review/);
   assert.match(page, /Request a refund/);
   assert.match(page, /<select required="" name="chargeId">/);
   assert.match(page, /<span>Reason<\/span><textarea name="reason"/);
   assert.match(page, /Your refund requests/);
-  assert.match(page, />Request account deletion</);
   assert.match(page, /AED/);
   // Renewal already stopped: no cancel action; nothing refundable: no form.
   const stopped = html(SuspendedMemberBilling, {
@@ -110,9 +137,13 @@ test("a suspended follower sees renewal, refund and deletion actions", () => {
   assert.doesNotMatch(stopped, /Request a refund/);
   const none = html(SuspendedMemberBilling, {
     initial: { membership: null, transitions: [], requests: [], charges: [] },
+    coach: "Dana Hart",
   });
-  assert.match(none, /no membership in this workspace/);
+  // No renewal or refund talk without a membership.
+  assert.match(none, /You have no paid membership with Dana Hart, so nothing is charged/);
+  assert.doesNotMatch(none, /stop renewal|ask for a refund|keeps renewing/i);
   assert.match(none, /Request account deletion/);
+  assert.match(none, /Download my data/);
 });
 
 test("governance links follow the operator role", () => {

@@ -5,6 +5,8 @@ import {
   signInErrorMessage,
   type AccountError,
 } from "./account-request";
+import { AuthPage, ReturnToSignIn } from "./auth-page";
+import { useErrorText, useLocale, useT } from "../lib/i18n/react";
 
 type Provider = { id: string; name: string; enabled: boolean };
 
@@ -17,15 +19,26 @@ export function SocialSignIn({
   intent,
   coachSlug,
   inviteToken,
+  accepted: given,
 }: {
   intent: "sign_in" | "join" | "invite";
   coachSlug?: string;
   inviteToken?: string;
+  /**
+   * The page's own terms acceptance (components/legal-acceptance.tsx). When
+   * given, these buttons follow it instead of showing a second checkbox.
+   */
+  accepted?: boolean;
 }) {
   const [providers, setProviders] = useState<Provider[]>([]),
     [message, setMessage] = useState(""),
-    [accepted, setAccepted] = useState(false),
+    // An ended or missing membership is a state to explain, not an error.
+    [neutral, setNeutral] = useState(false),
+    [ticked, setTicked] = useState(false),
     [busy, setBusy] = useState("");
+  const t = useT("auth"),
+    locale = useLocale(),
+    toError = useErrorText();
   useEffect(() => {
     accountRequest<{ providers: Provider[] }>("/auth/oidc/providers")
       .then((r) => setProviders(r.providers.filter((p) => p.enabled)))
@@ -33,33 +46,38 @@ export function SocialSignIn({
     const params = new URLSearchParams(window.location.search);
     const error = params.get("signin_error");
     if (error) {
-      setMessage(signInErrorMessage(error));
+      setMessage(signInErrorMessage(error, locale));
+      setNeutral(error === "MEMBERSHIP_ENDED" || error === "NO_MEMBERSHIP");
       window.history.replaceState(null, "", window.location.pathname);
     }
   }, []);
   if (!providers.length && !message) return null;
   const needsTerms = intent !== "sign_in";
+  const ownBox = needsTerms && given === undefined;
+  const accepted = given ?? ticked;
   return (
     <div className="acct-social">
       {message && (
-        <div className="notice error" role="alert">
+        <div
+          className={neutral ? "notice" : "notice error"}
+          role={neutral ? "status" : "alert"}
+        >
           {message}
         </div>
       )}
       {providers.length > 0 && (
         <>
           <p className="acct-or">
-            <span>or</span>
+            <span>{t("or")}</span>
           </p>
-          {needsTerms && (
+          {ownBox && (
             <label className="check-field">
               <input
                 type="checkbox"
-                checked={accepted}
-                onChange={(e) => setAccepted(e.target.checked)}
+                checked={ticked}
+                onChange={(e) => setTicked(e.target.checked)}
               />
-              I accept the published terms and understand the digital coaching
-              disclosure.
+              {t("acceptPublished")}
             </label>
           )}
           {providers.map((p) => (
@@ -84,12 +102,15 @@ export function SocialSignIn({
                   );
                   window.location.assign(r.authorizationUrl);
                 } catch (e) {
-                  setMessage((e as AccountError).message);
+                  setNeutral(false);
+                  setMessage(toError(e as AccountError));
                   setBusy("");
                 }
               }}
             >
-              {busy === p.id ? `Opening ${p.name}…` : `Continue with ${p.name}`}
+              {busy === p.id
+                ? t("opening", { provider: p.name })
+                : t("continueWith", { provider: p.name })}
             </button>
           ))}
         </>
@@ -104,29 +125,26 @@ export function SocialSignInVerify() {
     [message, setMessage] = useState(""),
     [expired, setExpired] = useState(false),
     [busy, setBusy] = useState(false);
+  const t = useT("auth"),
+    toError = useErrorText();
   useEffect(() => {
     accountRequest("/auth/oidc/pending")
       .then(setPending)
       .catch(() => setExpired(true));
   }, []);
   return (
-    <main className="auth-layout">
-      <section className="auth-story">
-        <p className="eyebrow">YOUR ACCOUNT</p>
-        <h1>One more step.</h1>
-      </section>
-      <section className="card">
-        <h2>Authenticator code</h2>
+    <AuthPage eyebrow={t("yourAccount")} title={t("oneMoreStep")}>
+        <h2>{t("authenticatorCode")}</h2>
         {expired ? (
           <p className="notice error" role="alert">
-            This sign-in expired. Start again from the sign-in page.
+            {t("signInExpired")}
           </p>
         ) : (
           <>
             <p className="muted">
               {pending
-                ? `${pending.name} confirmed your identity. Enter the six-digit code from your authenticator app to finish signing in.`
-                : "Checking your sign-in…"}
+                ? t("providerConfirmed", { provider: pending.name })
+                : t("checkingSignIn")}
             </p>
             {message && (
               <p className="notice error" role="alert">
@@ -148,13 +166,13 @@ export function SocialSignInVerify() {
                   } catch (error) {
                     const err = error as AccountError;
                     if (err.code === "OIDC_EXPIRED") setExpired(true);
-                    setMessage(err.message);
+                    setMessage(toError(err));
                     setBusy(false);
                   }
                 }}
               >
                 <label className="field">
-                  <span>Authenticator code</span>
+                  <span>{t("authenticatorCode")}</span>
                   <input
                     name="code"
                     inputMode="numeric"
@@ -165,18 +183,13 @@ export function SocialSignInVerify() {
                   />
                 </label>
                 <button className="button" disabled={busy}>
-                  Finish signing in
+                  {t("finishSignIn")}
                 </button>
               </form>
             )}
           </>
         )}
-        <p>
-          <a className="text-link" href="/login">
-            Return to sign in
-          </a>
-        </p>
-      </section>
-    </main>
+        <ReturnToSignIn />
+    </AuthPage>
   );
 }

@@ -2378,11 +2378,25 @@ test("review regression: a prescribed distance or load can be logged as prescrib
     new URL("../apps/web/components/workspace.tsx", import.meta.url),
     "utf8",
   );
+  // The member workout screen logs each value with a NumberStepper
+  // (phone-ui.tsx): a text input with a numeric keyboard, so the browser
+  // applies no step and any whole or decimal value is accepted as typed.
   const input = (name: string) => {
     const at = source.indexOf(`name="${name}"`);
     assert.ok(at > 0, name);
-    return source.slice(at, source.indexOf("/>", at));
+    const open = source.lastIndexOf("<", at);
+    return source.slice(open, source.indexOf("/>", at));
   };
+  const phoneUi = await readFile(
+    new URL("../apps/web/components/phone-ui.tsx", import.meta.url),
+    "utf8",
+  );
+  const stepperInput = phoneUi.slice(
+    phoneUi.indexOf('className="stepper-input"'),
+    phoneUi.indexOf("/>", phoneUi.indexOf('className="stepper-input"')),
+  );
+  assert.match(stepperInput, /type="text"/);
+  assert.doesNotMatch(stepperInput, /\bstep=/);
   // Distances are whole metres (the schema) but not multiples of 10: 1609 m stays 1609 m in an unscaled week.
   const draft = runWalkPlan([1, 1.1, 1.15, 0.7]);
   draft.sessions[2].exercises[1] = ex("Easy Run", {
@@ -2391,10 +2405,11 @@ test("review regression: a prescribed distance or load can be logged as prescrib
   const mile = expandPlan(planDraftSchema.parse(draft))[0].sessions[2]
     .exercises[1];
   assert.equal(mile.distanceMeters, 1609);
-  assert.match(input("distance"), /step=\{1\}/);
+  assert.match(input("distance"), /^<NumberStepper/);
   // Loads may be any decimal (a 1.25 kg jump, an adjustment's 61.25 kg).
-  assert.match(input("load"), /step="any"/);
-  assert.match(input("duration"), /step=\{1\}/);
+  assert.match(input("load"), /^<NumberStepper/);
+  assert.match(input("load"), /\bdecimal\b/);
+  assert.match(input("duration"), /^<NumberStepper/);
 });
 
 test("review regression (Opus T2S03, trial T3 template): walks, intervals and holds written as 1 rep are flagged and the plan goes to the trainer", () => {

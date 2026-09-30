@@ -118,7 +118,8 @@ test("the coaches card names itself whether or not the heading is shown", async 
   const card = source.slice(source.indexOf("const listed ="));
   assert.match(
     card,
-    /listed\s*\?\s*\{ "aria-labelledby": "coach-switcher-title" \}\s*:\s*\{ "aria-label": "Your coaches" \}/,
+    // The label is the catalog's "Your coaches" (lib/i18n/messages/join.ts).
+    /listed\s*\?\s*\{ "aria-labelledby": "coach-switcher-title" \}\s*:\s*\{ "aria-label": t\("yourCoaches"\) \}/,
   );
   assert.match(card, /\{listed && \(\s*<>\s*<h2 id="coach-switcher-title">/);
 });

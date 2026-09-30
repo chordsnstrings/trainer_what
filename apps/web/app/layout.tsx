@@ -1,7 +1,12 @@
 import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import { AcquisitionConsent } from "../components/acquisition";
-import { documentLanguage } from "../components/public-website";
+import { LAUNCH_COLOUR_SCRIPT } from "../components/pwa";
+import {
+  documentLanguage,
+  memberMotionChoice,
+} from "../components/public-website";
+import { LocaleProvider } from "../lib/i18n/react";
 import { publicPlatform } from "../components/marketing/platform";
 import {
   BRAND_COLORS,
@@ -30,7 +35,16 @@ import "./programme.css";
 import "./brain-plans.css";
 import "./voice-session.css";
 import "./web-address.css";
+import "./phone-first.css";
+import "./subscriber-public.css";
+import "./pwa.css";
+import "./appearance.css";
+import "./member-screens.css";
 import "./marketing.css";
+import "./analytics-consent.css";
+// Motion for subscriber surfaces: tokens, every animation and transition,
+// and the reduced-motion rules (docs/features/motion.md).
+import "./motion.css";
 
 // The trainsyou typeface: Inter (SIL OFL 1.1, app/fonts/Inter-OFL.txt), the
 // variable-weight files of @fontsource-variable/inter 5.3.0 kept in the
@@ -97,6 +111,11 @@ export async function generateMetadata(): Promise<Metadata> {
       ],
       apple: { url: icons.apple180, sizes: "180x180" },
     },
+    // Opened from the home screen, iOS shows the app full screen with a
+    // light status bar and this title under the icon (the member app puts
+    // the coach's name there once signed in: member-app-install.tsx).
+    appleWebApp: { capable: true, title: name, statusBarStyle: "default" },
+    other: { "apple-mobile-web-app-capable": "yes" },
     // app/manifest.ts serves /manifest.webmanifest from the configured name.
     description: brand
       ? `${BRAND_COPY.line} ${BRAND_COPY.explanation}`
@@ -122,11 +141,28 @@ export default async function Layout({
   // after sign-in; see components/document-direction.tsx and pageLanguage in
   // document-language.ts for the precedence).
   const { lang, dir } = await documentLanguage();
+  // The member's "Reduce motion" choice on this device keeps every
+  // subscriber surface still from the first paint (app/motion.css).
+  const reduceMotion = (await memberMotionChoice()) === "reduce";
   return (
-    <html lang={lang} dir={dir} className={fontVariables}>
+    // The launch script may set the member app's first-paint colour on
+    // <html> before React hydrates (docs/features/pwa.md).
+    <html
+      lang={lang}
+      dir={dir}
+      className={fontVariables}
+      data-reduce-motion={reduceMotion ? "on" : undefined}
+      suppressHydrationWarning
+    >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: LAUNCH_COLOUR_SCRIPT }} />
+      </head>
       <body>
-        {children}
-        <AcquisitionConsent marketingPaths={MARKETING_SITE_PATHS} />
+        {/* Subscriber text follows <html lang> (lib/i18n/react.tsx). */}
+        <LocaleProvider locale={lang}>
+          {children}
+          <AcquisitionConsent marketingPaths={MARKETING_SITE_PATHS} />
+        </LocaleProvider>
       </body>
     </html>
   );
