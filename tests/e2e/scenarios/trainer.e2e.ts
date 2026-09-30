@@ -104,7 +104,6 @@ async function setupTrainer(ctx: E2EContext, plan: TrainerPlan, seed: TrainerSee
         audience: plan.audience,
       },
     });
-    await t.put("/api/v1/onboarding/brain-intro", { version: 0, values: { understood: true } });
     // Imports plus the companion app's automatic Apple Health sync.
     await t.put("/api/v1/onboarding/wearables", { version: 0, values: { policy: "permitted_imports_and_sync" } });
     if (!plan.voice) await t.put("/api/v1/onboarding/voice", { version: 0, values: {}, defer: true });
@@ -183,6 +182,17 @@ async function setupTrainer(ctx: E2EContext, plan: TrainerPlan, seed: TrainerSee
   await must(ctx, "Brain release and rollback", `${plan.slug}: publish the evaluated release`, async () => {
     release = await t.post("/api/v1/brain/releases", { evaluationId: evaluation.id, notes: "First sandbox release" });
     assert.equal(release.status, "published");
+  });
+  await must(ctx, "Practice quiz (Would you reply like this?)", `${plan.slug}: one practice quiz round answered`, async () => {
+    // A completed quiz round is part of the Brain minimum: "Waits for me"
+    // needs it, and automatic replies need it plus a passing full check.
+    let round = await t.post("/api/v1/brain/quiz/rounds", {});
+    assert.ok(round.total >= 8 && round.total <= 10, `quiz round has ${round.total} questions`);
+    assert.ok(round.cases.some((c: any) => c.source === "platform"), "platform safety questions are included");
+    for (const c of round.cases)
+      if (!c.answer) round = await t.post(`/api/v1/brain/quiz/rounds/${round.id}/answers`, { caseId: c.id, verdict: "yes" });
+    assert.equal(round.status, "completed");
+    return `${round.answered}/${round.total}`;
   });
 
   // ------------------------------------------------------------ programs
@@ -292,9 +302,18 @@ async function setupTrainer(ctx: E2EContext, plan: TrainerPlan, seed: TrainerSee
   if (plan.voice) await setupVoice(ctx, t, plan);
 
   // ------------------------------------------------------------ preview + publish
+  await must(ctx, "Choose the web address (subdomain)", `${plan.slug}: the reserved address is confirmed in setup`, async () => {
+    const setup = await t.get("/api/v1/setup");
+    const sub = setup.page.subdomain;
+    const check = await t.get(`/api/v1/setup/subdomain/check?name=${encodeURIComponent(plan.slug)}`);
+    assert.equal(check.available, true, JSON.stringify(check));
+    const saved = await t.put("/api/v1/setup/subdomain", { name: plan.slug, currentSlug: sub.name, version: sub.version ?? 0 });
+    assert.equal(saved.name, plan.slug);
+  });
   await must(ctx, "Subscriber preview review step", `${plan.slug}: preview digest reviewed`, async () => {
     const state = await t.get("/api/v1/onboarding");
-    const blocking = state.gates.filter((g: any) => g.key !== "preview");
+    // "Your page" is the preview approval itself.
+    const blocking = state.gates.filter((g: any) => g.key !== "preview" && g.key !== "page_ready");
     assert.deepEqual(blocking, [], "gates before preview: " + JSON.stringify(blocking));
     const step = state.steps.find((s: any) => s.key === "preview");
     await t.put("/api/v1/onboarding/preview", { version: step.version, values: { digest: state.previewDigest } });

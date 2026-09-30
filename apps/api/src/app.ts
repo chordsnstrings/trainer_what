@@ -35,6 +35,15 @@ import { compiledRuleFlags } from "../../../packages/domain/src/text-screen.ts";
 import { screenSafety } from "../../../packages/domain/src/safety-policy.ts";
 import { activeSafetyPolicy } from "./safety-policy.ts";
 import { registerCoachingFollowups } from "./coaching-followups.ts";
+import { registerBrainTeaching } from "./brain-teach.ts";
+import { registerBrainCheck } from "./brain-check.ts";
+import { registerBrainLearning } from "./brain-learning.ts";
+import {
+  assertReleaseRuleLimit,
+  evaluateBrainReplies,
+  HELD_OUT_SCENARIO_LIMIT,
+} from "./brain-replies-check.ts";
+import { registerTrainerInbox } from "./trainer-inbox.ts";
 import {
   registerCoachingFeedback,
   revokeCoachingFeedbackLearning,
@@ -58,6 +67,8 @@ import {
 import { registerCoachSite, saveCoachBrand } from "./coach-site.ts";
 import { registerDiscovery } from "./discovery.ts";
 import { registerEarlyAccess } from "./early-access.ts";
+import { freeStartingSlug, registerCoachSignup } from "./coach-signup.ts";
+import { registerCoachSetup } from "./coach-setup.ts";
 import { registerMarketing, type InstagramTransport } from "./marketing.ts";
 import {
   registerIntegrationCompletion,
@@ -129,6 +140,7 @@ import { clientTwinRoutes, currentClientTwin } from "./client-twin.ts";
 import { nutritionRoutes, requireNutritionReady } from "./nutrition.ts";
 import { NutritionBlocked } from "../../../packages/domain/src/nutrition.ts";
 import { onboardingRoutes, publishStorefront } from "./onboarding.ts";
+import { setupAssistantRoutes } from "./setup-assistant.ts";
 import { modelAccounting } from "./model-accounting.ts";
 import { privacyOperations } from "./privacy-operations.ts";
 import { executePayout } from "./payout-execution.ts";
@@ -196,6 +208,9 @@ import {
 import {
   platformName,
   signupSchema,
+  brainCaseCoverage,
+  FULL_CASE_SET,
+  SETUP_BRAIN_MINIMUM,
   loginSchema,
   brandSchema,
   intakeSchema,
@@ -297,17 +312,7 @@ async function assertTeachingSources(tx: Tx, ids: string[]) {
 }
 // A published release must fit in one model request beside the client's
 // profile and Client Twin, so no confirmed rule is silently left unseen.
-const RELEASE_RULE_LIMIT = MODEL_EVIDENCE_LIMIT - 2;
-const HELD_OUT_SCENARIO_LIMIT = 30;
 const ADMIN_OVERVIEW_PAGE = 50;
-function assertReleaseRuleLimit(count: number) {
-  if (count > RELEASE_RULE_LIMIT)
-    throw fail(
-      409,
-      "RULE_LIMIT",
-      `A Brain release can include at most ${RELEASE_RULE_LIMIT} confirmed rules; return extra rules to draft before evaluating`,
-    );
-}
 async function putException(
   tx: Tx,
   a: Actor,
@@ -649,6 +654,7 @@ export async function buildApp(
   }
   registerCoachingCompletion(app, db);
   registerCoachingFollowups(app, db);
+  registerTrainerInbox(app, db);
   registerCoachingFeedback(app, db);
   registerLifecycleMessages(app, db);
   registerRetention(app, db);
@@ -699,6 +705,8 @@ export async function buildApp(
     instagramTransport: options.providers?.instagram,
   });
   registerEarlyAccess(app, db, identity);
+  registerCoachSignup(app, db, session);
+  registerCoachSetup(app, db, identity);
   platformSettingsRoutes(app, db, identity);
   financeOperations(app, db, identity);
   privacyOperations(app, db, identity, privacyHooks);
@@ -757,13 +765,16 @@ export async function buildApp(
       );
       // The slug is also the workspace subdomain (<slug>.<root>): reserved
       // names and a previous slug still redirecting are refused.
-      await assertSlugAvailable(db, b.slug);
+      if (b.slug) await assertSlugAvailable(db, b.slug);
       if (strictSecurity() && runtimeConfig().LEGAL_APPROVED !== "true")
         throw fail(
           503,
           "LEGAL_PENDING",
           "Registration is waiting for the published legal documents",
         );
+      // The setup wizard lets the coach choose their address; until then a
+      // free one is reserved from their name.
+      const slug = b.slug ?? (await freeStartingSlug(db, b.name));
       const uid = randomUUID(),
         tid = randomUUID(),
         hash = await passwordHash(b.password);
@@ -774,7 +785,7 @@ export async function buildApp(
         );
         await tx.query("INSERT INTO tenants(id,slug,name) VALUES($1,$2,$3)", [
           tid,
-          b.slug,
+          slug,
           b.name,
         ]);
         await tx.query(
@@ -1082,6 +1093,7 @@ export async function buildApp(
     return { ok: true, theme, brandVersion: theme.brandVersion };
   });
   onboardingRoutes(app, db, owner);
+  setupAssistantRoutes(app, db, owner);
   app.post("/api/v1/tenant/publish", (req) =>
     publishStorefront(db, owner(req)),
   );
@@ -1304,9 +1316,10 @@ export async function buildApp(
       return r;
     });
   });
-  app.post("/api/v1/brain/compile", async (req) => {
-    const a = owner(req),
-      b = z.object({ sourceIds: z.array(id).min(1).max(20) }).parse(req.body);
+  // Draft rules from teaching material; also used by Keep training
+  // (brain-teach.ts) for rules written in chat and quiz corrections.
+  const compileTeaching = async (a: Identity, sourceIds: string[]) => {
+    const b = { sourceIds };
     const material = await db.tenant(a, async (tx) => {
       await lockBrainReviewActor(tx, a);
       return tx.query(
@@ -1402,7 +1415,15 @@ export async function buildApp(
         coverage: generated.coverage,
       };
     });
+  };
+  app.post("/api/v1/brain/compile", async (req) => {
+    const a = owner(req),
+      b = z.object({ sourceIds: z.array(id).min(1).max(20) }).parse(req.body);
+    return compileTeaching(a, b.sourceIds);
   });
+  registerBrainTeaching(app, db, identity, { compile: compileTeaching });
+  registerBrainCheck(app, db, identity);
+  registerBrainLearning(app, db, identity);
   app.patch("/api/v1/brain/rules/:id", async (req) => {
     const a = owner(req),
       b = z
@@ -1542,126 +1563,9 @@ export async function buildApp(
       return putRecord(tx, a, "scenario", b, { status: "held_out" });
     });
   });
-  app.post("/api/v1/brain/evaluate", async (req) => {
-    const a = owner(req);
-    const material = await db.tenant(a, async (tx) => ({
-      rules: await tx.query(
-        "SELECT * FROM records WHERE kind='rule' AND status='confirmed' ORDER BY id",
-      ),
-      cases: await tx.query(
-        "SELECT * FROM records WHERE kind='scenario' AND status='held_out' ORDER BY id LIMIT $1",
-        [HELD_OUT_SCENARIO_LIMIT + 1],
-      ),
-      // The trainer's library and plan bounds grade any program an answer
-      // proposes.
-      plan: {
-        library: planLibrary(
-          await tx.query(
-            "SELECT * FROM records WHERE kind='exercise' AND status='active' ORDER BY data->>'name',id LIMIT 1000",
-          ),
-          await tx.query(
-            "SELECT * FROM records WHERE kind='program' AND status='template' ORDER BY created_at DESC,id LIMIT 100",
-          ),
-        ),
-        bounds: (await loadPlanSettings(tx)).settings.bounds,
-      },
-    }));
-    // Every held-out scenario is evaluated; none is silently dropped.
-    if (material.cases.length > HELD_OUT_SCENARIO_LIMIT)
-      throw fail(
-        409,
-        "EVAL_SCOPE",
-        `Evaluation covers at most ${HELD_OUT_SCENARIO_LIMIT} held-out scenarios; nothing has been evaluated`,
-      );
-    assertReleaseRuleLimit(material.rules.length);
-    if (material.cases.length < 20)
-      throw fail(
-        409,
-        "EVAL_COVERAGE",
-        "Add at least 20 held-out scenarios before evaluating a release",
-      );
-    const outcomes: Array<{
-      scenarioId: string;
-      passed: boolean;
-      error?: string;
-      issues?: string[];
-    }> = [];
-    for (const c of material.cases) {
-      let generated: Awaited<ReturnType<typeof modelDecision>>;
-      try {
-        generated = await modelDecision(
-          "held_out_evaluation",
-          c.data.prompt,
-          material.rules.map((r) => ({ id: r.id, data: r.data })),
-          modelAccounting(db, a, "evaluation"),
-        );
-      } catch (error) {
-        // An invalid answer fails its scenario; the rest of the run and the
-        // calls already paid for are kept. Configuration and network
-        // failures still stop the evaluation.
-        if (!(error instanceof ModelOutputInvalid)) throw error;
-        outcomes.push({
-          scenarioId: c.id,
-          passed: false,
-          error: "invalid_model_answer",
-        });
-        continue;
-      }
-      const routed = c.data.expectEscalation
-        ? generated.decision.type === "escalation"
-        : generated.decision.evidenceIds.includes(c.data.expectedEvidenceId);
-      // Citing the right rule is not enough: the wording and any program
-      // must also be safe to show a member.
-      const cited = material.rules.filter((r) =>
-        generated.decision.evidenceIds.includes(r.id),
-      );
-      const issues = evaluationAnswerIssues(generated.decision, {
-        ...material.plan,
-        programExpected:
-          !c.data.expectEscalation &&
-          generated.decision.type === "program_build",
-        citedText: cited
-          .map((r) => [r.data.title, r.data.condition, r.data.directive].join(". "))
-          .join(" "),
-        requestText: String(c.data.prompt ?? ""),
-      });
-      outcomes.push({
-        scenarioId: c.id,
-        passed: routed && !issues.length,
-        ...(issues.length ? { issues } : {}),
-      });
-    }
-    const digest = createHash("sha256")
-      .update(
-        JSON.stringify(
-          material.rules.map((r) => ({
-            id: r.id,
-            data: r.data,
-            version: r.version,
-          })),
-        ),
-      )
-      .digest("hex");
-    return db.tenant(a, async (tx) => {
-      const r = await putRecord(
-        tx,
-        a,
-        "evaluation",
-        {
-          outcomes,
-          total: outcomes.length,
-          passed: outcomes.filter((x) => x.passed).length,
-          rulesDigest: digest,
-          promptVersion: coachDecisionPromptVersion,
-        },
-        { status: outcomes.every((x) => x.passed) ? "passed" : "failed" },
-      );
-      await event(tx, a, "brain.evaluation_completed", r.id, {
-        total: outcomes.length,
-      });
-      return r;
-    });
-  });
+  app.post("/api/v1/brain/evaluate", async (req) =>
+    evaluateBrainReplies(db, owner(req)),
+  );
   app.post("/api/v1/brain/releases", async (req) => {
     const a = owner(req);
     const b = z
@@ -1717,6 +1621,9 @@ export async function buildApp(
           evaluationId: evaluation.id,
           notes: b.notes,
           mode: "supervised",
+          // A full check (at least 20 own cases) qualifies this release for
+          // "Sends automatically"; brain-teach.ts publishes "quiz" releases.
+          qualification: "full",
         },
         { status: "published" },
       );

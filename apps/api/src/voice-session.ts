@@ -678,13 +678,26 @@ async function heldByScreen(
       "Session stopped. Your trainer has been told. Seek urgent local medical help if your symptoms are severe.",
   };
 }
-function decodeSpeech(base64: string, type: SpeechAudioType) {
-  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(base64) || base64.length > 700000)
-    throw fail(400, "SPEECH_AUDIO", "Send a short audio clip under 500 KB.");
+/**
+ * Decodes one audio clip and checks its bytes match the declared format.
+ * `maxBytes` is 500 KB for a spoken reply in a session; the setup
+ * assistant's voice notes allow a longer clip (setup-assistant.ts).
+ */
+export function decodeSpeech(
+  base64: string,
+  type: SpeechAudioType,
+  maxBytes = 512000,
+) {
+  const limitKb = Math.round(maxBytes / 1024);
+  if (
+    !/^[A-Za-z0-9+/]+={0,2}$/.test(base64) ||
+    base64.length > Math.ceil((maxBytes * 4) / 3) + 16000
+  )
+    throw fail(400, "SPEECH_AUDIO", `Send a short audio clip under ${limitKb} KB.`);
   const b = Buffer.from(base64, "base64");
   const ok =
     b.length >= 16 &&
-    b.length <= 512000 &&
+    b.length <= maxBytes &&
     (type === "audio/webm"
       ? b.readUInt32BE(0) === 0x1a45dfa3
       : type === "audio/ogg"

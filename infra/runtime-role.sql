@@ -94,6 +94,10 @@ GRANT SELECT,INSERT,UPDATE ON platform_recurring_costs TO trainer_service;
 -- (append-only) and the current month's estimate, recomputed daily.
 GRANT SELECT,INSERT ON digitalocean_invoices TO trainer_service;
 GRANT SELECT,INSERT,UPDATE ON digitalocean_estimates TO trainer_service;
+-- Open coach sign-up (078): hashed six-digit email codes (no workspace yet)
+-- and "Report this coach" reports for the Super admin.
+GRANT SELECT,INSERT,UPDATE,DELETE ON coach_signup_codes TO trainer_service;
+GRANT SELECT,INSERT,UPDATE ON coach_reports TO trainer_service;
 
 -- Tenant transactions SET ROLE trainer_app; it must never bypass RLS.
 ALTER ROLE trainer_app NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;

@@ -9,6 +9,7 @@ import {
   type Tx,
 } from "@trainer/db";
 import { platformName } from "@trainer/contracts";
+import { emailTransport } from "@trainer/providers";
 import { newToken, tokenHash } from "./auth.ts";
 import { lockActiveInvitation } from "./team.ts";
 import { notifyCoachingTeam } from "./notifications.ts";
@@ -97,7 +98,7 @@ export function messageDate(value: string | Date, timeZone?: string | null) {
 export function invitationEmailConfigured(
   config: RuntimeConfig = runtimeConfig(),
 ) {
-  return !!(config.EMAIL_API_KEY && config.EMAIL_API_URL && config.EMAIL_FROM);
+  return !!emailTransport(config);
 }
 export function legalOpen() {
   return !(strictSecurity() && runtimeConfig().LEGAL_APPROVED !== "true");

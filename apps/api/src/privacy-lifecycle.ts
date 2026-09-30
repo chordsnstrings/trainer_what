@@ -381,6 +381,19 @@ export async function scrubUnusedAccount(tx: Tx, userId: string) {
     [userId],
   );
   if (!remaining.n) {
+    // Sign-up codes and "Report this coach" reports carry the address too.
+    const [prior] = await tx.query("SELECT email FROM users WHERE id=$1", [
+      userId,
+    ]);
+    if (prior?.email) {
+      await tx.query("DELETE FROM coach_signup_codes WHERE email=lower($1)", [
+        prior.email,
+      ]);
+      await tx.query(
+        "UPDATE coach_reports SET reporter_email='',reporter_user_id=NULL WHERE reporter_user_id=$1 OR reporter_email=lower($2)",
+        [userId, prior.email],
+      );
+    }
     await tx.query(
       "UPDATE users SET name='Deleted member',email=$2,password_hash=$3,email_verified=false,platform_role='none' WHERE id=$1",
       [userId, userId + "@deleted.invalid", randomUUID()],

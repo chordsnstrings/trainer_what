@@ -123,7 +123,7 @@ export async function browserScenarios(ctx: E2EContext) {
     });
     const layla = ctx.trainers.find((t) => t.slug === "layla-strength" && t.published);
     if (layla)
-      await r.step(T, "Brain workspace screen", "/trainer/brain: the Knowledge, Constitution and Readiness tabs show the sources, confirmed rules and releases", async () => {
+      await r.step(T, "Brain workspace screen", "/trainer/brain: the Knowledge, My rules and Check my Brain tabs show the sources, confirmed rules and versions", async () => {
         const { context } = await sessionContext(ctx, browser, layla.client, "browser-trainer");
         opened.push(context);
         const page = await context.newPage();
@@ -132,11 +132,11 @@ export async function browserScenarios(ctx: E2EContext) {
         await visible(page, "Your coaching mind, made clear.");
         await page.getByRole("button", { name: "Knowledge" }).click();
         await visible(page, "Strength progression");
-        await page.getByRole("button", { name: "Constitution" }).click();
+        await page.getByRole("button", { name: "My rules" }).click();
         await visible(page, /squat/i);
         await visible(page, "confirmed");
-        await page.getByRole("button", { name: "Readiness & releases" }).click();
-        await visible(page, /release/i);
+        await page.getByRole("button", { name: "Check my Brain" }).click();
+        await visible(page, /goes live/i);
         await noOverflow(page);
       });
     const member = ctx.followers.find((f) => f.trainer.slug === "layla-strength" && f.paid && f.tier === "workout" && f.client.userId);

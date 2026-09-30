@@ -132,6 +132,10 @@ export async function verifyRuntimeAccess(client) {
     // Platform finance phase D (077): DigitalOcean billing, service only.
     digitalocean_invoices: ["SELECT", "INSERT"],
     digitalocean_estimates: ["SELECT", "INSERT", "UPDATE"],
+    // Open coach sign-up (078): email codes and public coach reports.
+    // Codes are deleted after a day and with the account (retention).
+    coach_signup_codes: ["SELECT", "INSERT", "UPDATE", "DELETE"],
+    coach_reports: ["SELECT", "INSERT", "UPDATE"],
   };
   for (const [table, grants] of Object.entries(systemTables)) {
     for (const privilege of ["SELECT", "INSERT", "UPDATE", "DELETE"]) {
@@ -610,6 +614,8 @@ export async function verifyRuntimeAccess(client) {
       "stripe_fees",
       "digitalocean_invoices",
       "digitalocean_estimates",
+      "coach_signup_codes",
+      "coach_reports",
     ]) {
       const [r] = await query(
         "SELECT has_table_privilege(current_user,$1,'SELECT') AS allowed",

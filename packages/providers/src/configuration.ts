@@ -821,6 +821,22 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
     ],
   },
   {
+    id: "resend",
+    name: "Resend email",
+    category: "communications",
+    implemented: true,
+    description:
+      "Sends coach sign-up codes and every account email through Resend. While no Resend key is saved, email sign-up codes stay off and the transactional email settings are used.",
+    setupNotes:
+      "Create a sending API key in Resend and verify the sender domain there. The key is encrypted. Validation checks the settings without sending a message.",
+    fields: [
+      field("RESEND_API_KEY", "API key", "secret", { required: true }),
+      field("RESEND_FROM", "Verified sender address", "text", {
+        required: true,
+      }),
+    ],
+  },
+  {
     id: "push",
     name: "Device notifications",
     category: "communications",
@@ -1832,7 +1848,9 @@ export function validateIntegrationValues(
       )
         throw new ConfigurationError(`${entry.label} must be from 1 to 10`);
       if (
-        (key === "SUPPORT_EMAIL" || key === "EMAIL_FROM") &&
+        (key === "SUPPORT_EMAIL" ||
+          key === "EMAIL_FROM" ||
+          key === "RESEND_FROM") &&
         !/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(text)
       )
         throw new ConfigurationError(`${entry.label} must be an email address`);
@@ -2505,6 +2523,13 @@ export async function testIntegration(
         },
       };
     }
+    if (id === "resend")
+      return {
+        status: "validated",
+        message:
+          "Settings validated. No email was sent; sender-domain verification and delivery stay with Resend.",
+        checkedAt,
+      };
     if (id === "email" || id === "lean") {
       await validatePublicEndpoint(
         fields[id === "email" ? "EMAIL_API_URL" : "LEAN_BASE_URL"],

@@ -324,6 +324,9 @@ test("without production email delivery the change is refused and the account sc
       {
         EMAIL_API_URL: "https://mail.example.test/send",
         EMAIL_API_KEY: "fixture",
+        // Delivery counts as configured only when mail can be sent, which
+        // needs a sender address too (emailTransport in packages/providers).
+        EMAIL_FROM: "coach@example.test",
       },
       async () => {
         assert.equal(

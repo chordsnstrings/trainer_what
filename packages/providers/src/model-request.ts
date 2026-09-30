@@ -663,6 +663,10 @@ export const MODEL_CALL_BUDGETS = {
   coach_decision: { maxTokens: 2500, timeoutMs: 30000 },
   /** Draft rules from trainer teaching material (compileTrainerRules). */
   rule_compilation: { maxTokens: 5000, timeoutMs: 30000 },
+  /** Practice-quiz questions from confirmed rules (generateQuizCases). */
+  brain_quiz: { maxTokens: 4000, timeoutMs: 30000 },
+  /** One suggested rule from a coach's correction (suggestRuleFromCorrection). */
+  brain_correction: { maxTokens: 1500, timeoutMs: 30000 },
   /** Weekly plan adjustment (proposePlanAdaptation). */
   plan_adaptation: { maxTokens: 3000, timeoutMs: 60000 },
   /** Meal-photo estimate (estimateMealPhoto). */
@@ -689,7 +693,7 @@ export const MODEL_FAMILY_TIMEOUT_MS: ReadonlyArray<{
   {
     family: "seed",
     pattern: /(?:^|[^a-z0-9])seed(?:[^a-z0-9]|$)/i,
-    timeoutMs: Object.freeze({ rule_compilation: 90000, meal_photo: 60000 }),
+    timeoutMs: Object.freeze({ rule_compilation: 90000, meal_photo: 60000, brain_quiz: 90000, brain_correction: 60000 }),
   },
 ]);
 /**

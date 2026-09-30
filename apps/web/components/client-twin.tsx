@@ -243,11 +243,11 @@ export function ClientTwin({
     <>
       <div className="page-heading">
         <div>
-          <p className="eyebrow">{subscriber ? t("eyebrow") : "CLIENT TWIN"}</p>
+          {subscriber && <p className="eyebrow">{t("eyebrow")}</p>}
           <h1>
             {subscriber
               ? t("title")
-              : `${name ?? "Subscriber"} · coaching context`}
+              : `${name ?? "Client"} · notes`}
           </h1>
           <p>{t("intro")}</p>
         </div>

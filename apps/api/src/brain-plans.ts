@@ -145,10 +145,13 @@ export async function loadPlanSettings(tx: Tx) {
     settings: parsed.success ? parsed.data : defaultPlanSettings(),
   };
 }
-async function trainerMaterial(tx: Tx) {
-  const [release] = await tx.query(
-    "SELECT * FROM records WHERE kind='brain_release' AND status='published' ORDER BY created_at DESC,id DESC LIMIT 1",
-  );
+async function trainerMaterial(tx: Tx, candidateRelease?: any) {
+  // A candidate Brain release is checked before it is published (brain-check.ts).
+  const [release] = candidateRelease
+    ? [candidateRelease]
+    : await tx.query(
+        "SELECT * FROM records WHERE kind='brain_release' AND status='published' ORDER BY created_at DESC,id DESC LIMIT 1",
+      );
   const cases = await tx.query(
     "SELECT * FROM records WHERE kind='coaching_teaching' AND status='confirmed' ORDER BY id LIMIT 101",
   );
@@ -224,8 +227,8 @@ async function heldOutPlanScenarios(tx: Tx) {
 }
 const scenariosDigest = (rows: any[]) =>
   hash(rows.map((r) => ({ id: r.id, data: r.data })));
-export async function planQualificationState(tx: Tx, settings: PlanSettings) {
-  const m = await trainerMaterial(tx);
+export async function planQualificationState(tx: Tx, settings: PlanSettings, candidateRelease?: any) {
+  const m = await trainerMaterial(tx, candidateRelease);
   const contractDigest = planContract(m.release, settings);
   const scenarios = await heldOutPlanScenarios(tx);
   const digest = scenariosDigest(scenarios);
@@ -1804,11 +1807,11 @@ async function reviewAdaptation(
  * expectation. Programme scenarios qualify plans; adaptation scenarios (one
  * to apply, one for the trainer, at least) also qualify weekly adjustments.
  */
-export async function qualifyPlanGeneration(db: Database, a: Actor) {
+export async function qualifyPlanGeneration(db: Database, a: Actor, options: { candidateRelease?: any } = {}) {
   const snapshot = await db.tenant(a, async (tx) => {
     const { settings } = await loadPlanSettings(tx);
-    const material = await trainerMaterial(tx);
-    const state = await planQualificationState(tx, settings);
+    const material = await trainerMaterial(tx, options.candidateRelease);
+    const state = await planQualificationState(tx, settings, options.candidateRelease);
     return { settings, material, state, policy: await activeSafetyPolicy(tx) };
   });
   const { settings, material, state, policy } = snapshot;
@@ -2021,7 +2024,7 @@ export async function qualifyPlanGeneration(db: Database, a: Actor) {
   return db.tenant(a, async (tx) => {
     await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [a.tenantId + ":brain"]);
     const { settings: current } = await loadPlanSettings(tx);
-    const now = await planQualificationState(tx, current);
+    const now = await planQualificationState(tx, current, options.candidateRelease);
     if (now.contractDigest !== state.contractDigest || now.scenariosDigest !== state.scenariosDigest)
       throw fail(409, "PLAN_CONTRACT_CHANGED", "Your Brain, bounds or scenarios changed during qualification; run it again");
     const passed = outcomes.filter((o) => o.passed).length;

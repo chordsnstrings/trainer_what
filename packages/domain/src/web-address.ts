@@ -194,8 +194,20 @@ export type SlugProblem = "format" | "hyphen" | "reserved";
 export function slugProblem(slug: string): SlugProblem | null {
   if (!SLUG_PATTERN.test(slug)) return "format";
   if (slug.endsWith("-") || slug.includes("--")) return "hyphen";
-  if (RESERVED_SLUGS.has(slug)) return "reserved";
+  if (RESERVED_SLUGS.has(slug) || impersonatingSlug(slug)) return "reserved";
   return null;
+}
+/**
+ * Open self-serve sign-up lets anyone pick an address, so new addresses may
+ * not carry the platform's name or pass themselves off as its staff pages
+ * (trainsyou-support, official-billing, login-help). Existing addresses are
+ * not affected; this only refuses new ones.
+ */
+const PLATFORM_WORD = /trains-?you/;
+const STAFF_SEGMENT =
+  /(?:^|-)(?:admin|administrator|superadmin|support|helpdesk|official|verify|verification|security|secure|login|signin|billing|staff|moderator|password)(?:-|$)/;
+export function impersonatingSlug(slug: string) {
+  return PLATFORM_WORD.test(slug) || STAFF_SEGMENT.test(slug);
 }
 export const SLUG_PROBLEM_MESSAGES: Record<SlugProblem, string> = {
   format:

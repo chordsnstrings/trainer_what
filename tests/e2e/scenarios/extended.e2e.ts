@@ -412,8 +412,9 @@ async function trainerAccounts(ctx: E2EContext, layla: TrainerSeed, omar: Traine
     const state = await layla.client.get("/api/v1/onboarding");
     assert.ok(state.steps.length >= 10, state.steps.length + " steps");
     assert.ok(state.steps.every((s: any) => s.key && s.label && s.status), "every step has a key, label and status");
-    // After launch, later changes make the reviewed subscriber preview stale; that is the only open item.
-    assert.ok(state.gates.every((g: any) => g.key === "preview"), JSON.stringify(state.gates));
+    // After launch, later changes make the reviewed subscriber preview stale; that is the only open
+    // item. It shows as the preview step and as the "Your page" go-live check, which is that approval.
+    assert.ok(state.gates.every((g: any) => g.key === "preview" || g.key === "page_ready"), JSON.stringify(state.gates));
     return `${state.steps.length} steps, ${state.steps.filter((s: any) => s.status === "complete").length} complete; open: ${state.gates.map((g: any) => g.key).join(",") || "none"}`;
   });
   await r.step(T, "Coaching interview answers", `${omar.slug}: an interview answer is stored as teaching material`, async () => {

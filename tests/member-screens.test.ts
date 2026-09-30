@@ -680,7 +680,7 @@ test("the pain report stops the workout even without a note", () => {
 
 test("workout and guided session: Report pain opens a sheet whose stop button never waits for typing", async () => {
   for (const file of [
-    "apps/web/components/workspace.tsx",
+    "apps/web/components/workspace-training.tsx",
     "apps/web/components/integration-center.tsx",
   ]) {
     const src = await source(file);

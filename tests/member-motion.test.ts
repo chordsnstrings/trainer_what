@@ -453,11 +453,12 @@ test("the shell, the controls and the screens play their microanimations", async
   assert.match(ui, /playMotion\(leaving, rollOutKeyframes\(direction\)/);
   assert.match(ui, /playMotion\(input\.current, tickKeyframes\(direction\)/);
   const workspace = await source("apps/web/components/workspace.tsx");
-  assert.match(workspace, /setJustLogged\(row\.logicalKey\);\s*setOpenSet\(null\);\s*haptic\(\);\s*requestAnimationFrame\(revealNextSet\);/);
-  assert.match(workspace, /const finish = \(\) => \{\s*haptic\(\);/);
-  assert.match(workspace, /<WorkoutComplete/);
-  assert.match(workspace, /<ProgressRing\s+value=\{restTotal \? restLeft \/ restTotal : 0\}/);
-  assert.match(workspace, /<DrawnCheck \/>/);
+  const training = await source("apps/web/components/workspace-training.tsx");
+  assert.match(training, /setJustLogged\(row\.logicalKey\);\s*setOpenSet\(null\);\s*haptic\(\);\s*requestAnimationFrame\(revealNextSet\);/);
+  assert.match(training, /const finish = \(\) => \{\s*haptic\(\);/);
+  assert.match(training, /<WorkoutComplete/);
+  assert.match(training, /<ProgressRing\s+value=\{restTotal \? restLeft \/ restTotal : 0\}/);
+  assert.match(training, /<DrawnCheck \/>/);
   // Members get a toast for "Saved"; trainers keep their notice.
   assert.match(workspace, /success && !subscriber &&/);
   assert.match(workspace, /<Toast key=\{success\} onDone=\{\(\) => setSuccess\(""\)\}>/);

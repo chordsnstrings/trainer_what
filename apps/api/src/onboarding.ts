@@ -18,6 +18,20 @@ import { canonicalCoaching } from "../../../packages/domain/src/coaching-complet
 import { coachingModelPin } from "../../../packages/providers/src/coaching.ts";
 import { coachingRuntimeReadiness } from "./coaching-runtime.ts";
 import { recordPublishAcquisition } from "./acquisition.ts";
+import {
+  brainCaseCoverage,
+} from "../../../packages/contracts/src/coach-setup.ts";
+import {
+  NAME_PROBLEM_MESSAGES,
+  pageIssues,
+  realNameProblem,
+  type PageIssue,
+} from "../../../packages/domain/src/coach-setup.ts";
+import {
+  RESERVED_SLUGS,
+  subdomainEligible,
+} from "../../../packages/domain/src/web-address.ts";
+import { OWN_CASES_FOR_SUPERVISED } from "../../../packages/domain/src/brain-teach.ts";
 
 const digest = (value: unknown) =>
   createHash("sha256")
@@ -141,12 +155,6 @@ export const baseRegistry = [
     true,
   ],
   [
-    "brain-intro",
-    "Meet your Brain",
-    "Teach your decisions and their limits. Qualified routine actions can run automatically; exceptions need your input.",
-    true,
-  ],
-  [
     "interview",
     "Coaching interview",
     "Explain recommendations, reasons, alternatives and the conditions that would change your answer.",
@@ -166,8 +174,8 @@ export const baseRegistry = [
   ],
   [
     "scenarios",
-    "Scenario lab",
-    "Add at least 20 held-out scenarios and check how your Brain responds.",
+    "Practice quiz",
+    "Take the practice quiz and write 3 to 5 of your own client questions. Sending automatically later needs 20 cases and the full check.",
     true,
   ],
   [
@@ -184,9 +192,9 @@ export const baseRegistry = [
   ],
   [
     "payout",
-    "Your payout account",
-    "Add a UAE IBAN and complete ownership review. Holds remain visible.",
-    true,
+    "Bank details",
+    "Asked at your first payout, not before launch. Add a UAE IBAN and complete ownership review; holds remain visible.",
+    false,
   ],
   [
     "wearables",
@@ -201,15 +209,9 @@ export const baseRegistry = [
     false,
   ],
   [
-    "domain",
-    "Your address",
-    "Your workspace slug is reserved. A custom domain is optional and requires a configured provider.",
-    true,
-  ],
-  [
     "preview",
     "Subscriber preview",
-    "Review your saved app design, website, galleries, offer and coaching disclosure before launch.",
+    "Approve what the public sees: your name, brand, published website, galleries and plans. Private teaching changes never reset this.",
     true,
   ],
   [
@@ -225,6 +227,29 @@ export const baseRegistry = [
     false,
   ],
 ] as const;
+const offerIndex = baseRegistry.findIndex(([key]) => key === "offer");
+/** The account fields the go-live checks read (users is a service table). */
+export type SetupAccount = { name?: string | null };
+/** One automatic go-live check; "trainsyou" ones wait on the platform. */
+export type GoLiveGate = {
+  key: string;
+  label: string;
+  reason: string;
+  owner: "coach" | "trainsyou";
+};
+const ISSUE_TEXT: Record<PageIssue["issue"], string> = {
+  contact: "a phone number",
+  link: "a link or email address",
+  medical_claim: "a medical claim or medical advice",
+  platform_name: "the trainsyou name in your page name",
+};
+function pageIssueReason(issues: PageIssue[]) {
+  const kinds = [...new Set(issues.map((i) => ISSUE_TEXT[i.issue]))];
+  return `Your page has ${kinds.join(" and ")}. Members contact you through trainsyou, and a coaching page cannot promise medical results. Edit ${issues
+    .slice(0, 3)
+    .map((i) => i.field || "your page")
+    .join(", ")}.`;
+}
 /** The owner's verified tenant scope inside the service transaction. */
 function context<T>(tx: SystemTx, a: Actor, fn: (tx: Tx) => Promise<T>) {
   return tx.tenant({ ...a, role: "owner" }, fn);
@@ -234,9 +259,10 @@ export async function onboardingState(
   a: Owner,
   tenant: any,
   legal: LegalSnapshot,
+  account: SetupAccount = {},
 ) {
   const records = await tx.query(
-    "SELECT * FROM records WHERE kind IN ('onboarding_step','interview','source','rule','conflict','scenario','brain_release','evaluation','product','beneficiary','coaching_teaching','coaching_action','coaching_scenario','coaching_evaluation','coaching_runtime_release','program','nutrition_scenario','nutrition_evaluation','nutrition_preview','nutrition_method') ORDER BY updated_at DESC,id DESC",
+    "SELECT * FROM records WHERE kind IN ('onboarding_step','interview','source','rule','conflict','scenario','brain_release','brain_quiz_round','evaluation','product','beneficiary','coaching_teaching','coaching_action','coaching_scenario','coaching_evaluation','coaching_runtime_release','program','nutrition_scenario','nutrition_evaluation','nutrition_preview','nutrition_method') ORDER BY updated_at DESC,id DESC",
   );
   const of = (kind: string) => records.filter((r) => r.kind === kind);
   const saved = Object.fromEntries(
@@ -260,16 +286,18 @@ export async function onboardingState(
   const baseScenarios = of("scenario")
     .filter((r) => r.status === "held_out")
     .sort((a, b) => a.id.localeCompare(b.id));
+  // The wizard's minimum (quiz answers plus the coach's own cases) or 20.
+  const coverage = brainCaseCoverage(baseScenarios.slice(0, 30));
   const evaluatedIds = (brainEvaluation?.data.outcomes ?? [])
     .map((r: any) => r.scenarioId)
     .sort();
-  const brainCurrent =
+  const fullBrainCurrent =
     !!release &&
     confirmedRules.length > 0 &&
     digest(release.data.rules) === digest(confirmedRules) &&
     brainEvaluation?.status === "passed" &&
     brainEvaluation.data.rulesDigest === evaluationDigest(confirmedRules) &&
-    baseScenarios.length >= 20 &&
+    coverage.enough &&
     digest(evaluatedIds) ===
       digest(
         baseScenarios
@@ -278,6 +306,27 @@ export async function onboardingState(
           .sort(),
       ) &&
     !of("conflict").some((r) => r.status !== "resolved");
+  // "Waits for me" launch (brain-teach.ts): a completed practice quiz and
+  // at least 3 own cases instead of the full check. Automatic sending still
+  // needs the full check (coaching-runtime.ts).
+  const quizCompleted = of("brain_quiz_round").some(
+    (r) => r.status === "completed",
+  );
+  // Own cases exclude quiz answers stored as platform_quiz scenarios.
+  const quizReady = quizCompleted && coverage.own >= OWN_CASES_FOR_SUPERVISED;
+  const quizAnswered = of("brain_quiz_round").reduce(
+    (n, r) =>
+      n + ((r.data?.cases as any[]) ?? []).filter((c) => c?.answer).length,
+    0,
+  );
+  const brainCurrent =
+    fullBrainCurrent ||
+    (!!release &&
+      release.data.qualification === "quiz" &&
+      confirmedRules.length > 0 &&
+      digest(release.data.rules) === digest(confirmedRules) &&
+      quizReady &&
+      !of("conflict").some((r) => r.status !== "resolved"));
   let runtime: Awaited<ReturnType<typeof coachingRuntimeReadiness>> & {
     blocker?: string;
   };
@@ -292,13 +341,17 @@ export async function onboardingState(
         of("coaching_runtime_release").find((r) => r.status === "published")
           ?.id ?? null,
       current: false,
+      live: false,
+      rechecking: false,
       mode: null,
       automatic: false,
       blocker: (error as Error).message,
     };
   }
+  // The last passing version stays live while edits are re-checked.
   const runtimeCurrent =
-    !runtime.blocker && (!runtime.releaseId || runtime.current);
+    !runtime.blocker &&
+    (!runtime.releaseId || runtime.current || runtime.live);
   const nutrition = await nutritionReadiness(tx);
   const combinedPublished = products.some(
     (p) => p.status === "published" && p.data.tier === "workout_nutrition",
@@ -370,9 +423,9 @@ export async function onboardingState(
   const registry: ReadonlyArray<readonly [string, string, string, boolean]> =
     nutritionVisible
       ? [
-          ...baseRegistry.slice(0, 9),
+          ...baseRegistry.slice(0, offerIndex),
           ...nutritionSteps,
-          ...baseRegistry.slice(9),
+          ...baseRegistry.slice(offerIndex),
         ]
       : baseRegistry;
   const [site] = await tx.query(
@@ -407,87 +460,29 @@ export async function onboardingState(
       !!site && digest(site.draft) !== digest(site.published),
     launchRequired: !tenant.published,
   };
-  const materialKinds = new Set([
-    "interview",
-    "source",
-    "rule",
-    "conflict",
-    "scenario",
-    "coaching_teaching",
-    "coaching_action",
-    "coaching_scenario",
-    "coaching_runtime_release",
-  ]);
+  // What the public sees, and only that: private teaching, automation,
+  // provider settings and unpublished drafts never reset the approval.
+  const publicProducts = products
+    .filter((r) => r.status === "published")
+    .map((r) => ({
+      id: r.id,
+      name: r.data.name,
+      description: r.data.description,
+      priceMinor: r.data.priceMinor,
+      billing: r.data.billing ?? "monthly",
+      tier: r.data.tier ?? "workout",
+      programmeDays: r.data.programmeDays ?? null,
+      voiceAddOnMinor: r.data.voiceAddOnMinor ?? null,
+    }))
+    .sort((a, b) => a.id.localeCompare(b.id));
   const previewDigest = digest({
     name: tenant.name,
+    slug: tenant.slug,
     theme: tenant.theme,
-    brandDraft,
-    website: {
-      draft: website.draft,
-      published: website.published,
-      version: website.version,
-    },
+    website: website.published,
     galleries,
     photos,
-    products: products
-      .map((r) => ({
-        id: r.id,
-        version: r.version,
-        status: r.status,
-        data: r.data,
-      }))
-      .sort((a, b) => a.id.localeCompare(b.id)),
-    release: release
-      ? { id: release.id, version: release.version, data: release.data }
-      : null,
-    teaching: records
-      .filter(
-        (r) =>
-          materialKinds.has(r.kind) ||
-          (r.kind === "program" && r.status === "template"),
-      )
-      .map((r) => ({
-        id: r.id,
-        version: r.version,
-        status: r.status,
-        data: r.data,
-      }))
-      .sort((a, b) => a.id.localeCompare(b.id)),
-    coachingModel: coachingModelPin(),
-    coachingRuntime: runtime,
-    capabilities: providers
-      .filter((p) => ["stripe", "lean", "voice", "model"].includes(p.id))
-      .map((p) => ({
-        id: p.id,
-        configured: p.configured,
-        approved: p.approved,
-      })),
-    nutrition: nutritionVisible
-      ? {
-          enabled: nutrition.enabled,
-          required: combinedPublished,
-          releaseId: nutrition.release?.id,
-          digest: nutrition.material.digest,
-          scenarioDigest,
-          methods: of("nutrition_method")
-            .map((r) => ({
-              id: r.id,
-              version: r.version,
-              status: r.status,
-              data: r.data,
-            }))
-            .sort((a, b) => a.id.localeCompare(b.id)),
-        }
-      : null,
-    wearablePolicy: saved.wearables?.data.values ?? null,
-    voice: voice
-      ? {
-          id: voice.id,
-          version: voice.version,
-          status: voice.status,
-          consent: voiceConsent?.granted ?? false,
-        }
-      : null,
+    products: publicProducts,
     legal,
   });
   const beneficiary = of("beneficiary")[0];
@@ -503,13 +498,14 @@ export async function onboardingState(
     voiceProvider.approved;
   const complete: Record<string, boolean> = {
     account: a.emailVerified,
-    identity: identityFields.safeParse(saved.identity?.data.values).success,
+    identity:
+      identityFields.safeParse(saved.identity?.data.values).success ||
+      aboutComplete(saved.about?.data.values),
     brand: !!(
       tenant.theme?.headline &&
       tenant.theme?.bio &&
       tenant.theme?.category
     ),
-    "brain-intro": saved["brain-intro"]?.data.values?.understood === true,
     interview:
       of("interview").length > 0 ||
       of("coaching_teaching").some((r) => r.status === "confirmed"),
@@ -517,7 +513,7 @@ export async function onboardingState(
     knowledge:
       confirmedRules.length > 0 &&
       !of("conflict").some((r) => r.status !== "resolved"),
-    scenarios: baseScenarios.length >= 20,
+    scenarios: coverage.enough || quizReady,
     readiness: brainCurrent && runtimeCurrent && modelReady,
     offer:
       products.some((r) => r.status === "published" && r.data.stripePriceId) &&
@@ -526,7 +522,6 @@ export async function onboardingState(
     payout: bankReady && bank.configured && bank.approved,
     wearables: saved.wearables?.status === "saved",
     voice: voiceReady,
-    domain: !!tenant.slug,
     preview: saved.preview?.data.values?.digest === previewDigest,
     publish: tenant.published,
     share: tenant.published && saved.share?.status === "saved",
@@ -586,26 +581,141 @@ export async function onboardingState(
   if (brainCurrent && runtimeCurrent && !modelReady)
     blockers.readiness =
       "The operator must configure a coaching model connection before digital coaching is available.";
-  const gates: Array<{ key: string; label: string; reason: string }> = registry
-    .filter(
-      ([key, , , required]) => required && key !== "publish" && !complete[key],
-    )
-    .map(([key, label]) => ({
-      key,
-      label,
-      reason: blockers[key] ?? `Complete ${label.toLowerCase()}.`,
-    }));
+  // Automatic go-live checks (owner decision, 30 September 2026) instead of
+  // a staff approval: coach-side checks, then what waits on trainsyou.
+  const commerceReady = commerce.configured && commerce.approved;
+  const nameProblem = realNameProblem(account.name ?? "");
+  const brandReady = complete.brand;
+  const issues = pageIssues({
+    name: tenant.name,
+    headline: tenant.theme?.headline,
+    bio: tenant.theme?.bio,
+    tagline: tenant.theme?.tagline,
+    website: website.published,
+    galleries: galleries.map((g) => ({
+      title: g.title,
+      description: g.description,
+    })),
+    photos: photos.map((p) => ({ caption: p.caption, alt: p.alt })),
+    plans: products
+      .filter((p) => p.status !== "archived")
+      .map((p) => ({ name: p.data.name, description: p.data.description })),
+  });
+  const subdomainReady =
+    subdomainEligible(tenant.slug) &&
+    !RESERVED_SLUGS.has(tenant.slug) &&
+    (tenant.published === true ||
+      saved.subdomain?.data.values?.slug === tenant.slug);
+  const pricedPlan = products.some(
+    (p) => p.status !== "archived" && Number(p.data.priceMinor) > 0,
+  );
+  const planLive = products.some(
+    (p) => p.status === "published" && p.data.stripePriceId,
+  );
+  const checks: Array<GoLiveGate & { ok: boolean }> = [
+    {
+      key: "real_name",
+      label: "Your real name",
+      owner: "coach",
+      ok: !nameProblem,
+      reason: nameProblem ? NAME_PROBLEM_MESSAGES[nameProblem] : "",
+    },
+    {
+      key: "email_verified",
+      label: "Verified email",
+      owner: "coach",
+      ok: a.emailVerified,
+      reason: "Confirm your email address with the code or link we sent.",
+    },
+    {
+      key: "page_ready",
+      label: "Your page",
+      owner: "coach",
+      ok: brandReady && complete.preview,
+      reason: brandReady
+        ? "Approve your page as the public will see it."
+        : "Add your headline, short bio and specialty.",
+    },
+    {
+      key: "page_clean",
+      label: "Page wording",
+      owner: "coach",
+      ok: issues.length === 0,
+      reason: issues.length ? pageIssueReason(issues) : "",
+    },
+    {
+      key: "subdomain",
+      label: "Your web address",
+      owner: "coach",
+      ok: subdomainReady,
+      reason: "Choose your web address.",
+    },
+    {
+      key: "priced_plan",
+      label: "A plan with a price",
+      owner: "coach",
+      ok: pricedPlan && (!commerceReady || planLive),
+      reason: pricedPlan
+        ? "Turn on your plan so members can join."
+        : "Add a plan with a price.",
+    },
+    {
+      key: "brain_minimum",
+      label: "Brain taught",
+      owner: "coach",
+      ok: brainCurrent && runtimeCurrent,
+      // Either route counts: a finished practice quiz round plus 3 own
+      // questions (brain-teach.ts), or the wizard's case minimum.
+      reason: !coverage.enough && !quizReady
+        ? `${quizCompleted ? "" : `Finish a practice quiz round (${quizAnswered} questions answered so far) and `}${quizCompleted ? "Write" : "write"} ${OWN_CASES_FOR_SUPERVISED} of your own client questions (${Math.min(coverage.own, OWN_CASES_FOR_SUPERVISED)} so far).`
+        : (blockers.readiness ??
+          "Approve your rules and check your Brain with your answers."),
+    },
+    ...(combinedPublished && !nutrition.ready
+      ? [
+          {
+            key: "nutrition-readiness",
+            label: "Nutrition",
+            owner: "coach" as const,
+            ok: false,
+            reason: blockers["nutrition-readiness"]!,
+          },
+        ]
+      : []),
+  ];
   const missingLegal = legal.documents
     .filter((d) => d.version === null)
     .map((d) => d.key);
-  if (!legal.approved || missingLegal.length)
-    gates.push({
+  checks.push(
+    {
       key: "legal",
       label: "Reviewed legal documents",
+      owner: "trainsyou",
+      ok: legal.approved && !missingLegal.length,
       reason: missingLegal.length
         ? `The operator must publish effective ${missingLegal.join(", ")} documents.`
         : "The operator must confirm approval of the published legal documents.",
-    });
+    },
+    {
+      key: "payments",
+      label: "Payments",
+      owner: "trainsyou",
+      ok: commerceReady,
+      reason:
+        "trainsyou is finishing card payments. We'll email you when members can pay.",
+    },
+    {
+      key: "model",
+      label: "Coaching assistant",
+      owner: "trainsyou",
+      ok: modelReady,
+      reason:
+        "trainsyou is connecting the coaching assistant. We'll email you when it is ready.",
+    },
+  );
+  const gates: GoLiveGate[] = checks
+    .filter((c) => !c.ok)
+    .map(({ ok: _ok, ...gate }) => gate);
   const steps = registry.map(([key, label, description, required]) => ({
     key,
     label,
@@ -634,6 +744,25 @@ export async function onboardingState(
       "publish",
     licenceStatus: "NOT_REQUESTED",
     reservedSlug: tenant.slug,
+    goLive: {
+      checks: checks.map(({ key, label, owner, ok, reason }) => ({
+        key,
+        label,
+        owner,
+        ok,
+        reason: ok ? null : reason,
+      })),
+      pageIssues: issues,
+      // Quiz answers count from both routes: practice quiz rounds
+      // (brain-teach.ts) and any platform_quiz scenarios.
+      brainCases: {
+        ...coverage,
+        quiz: coverage.quiz + quizAnswered,
+        enough: coverage.enough || quizReady,
+        quizCompleted,
+      },
+      mode: "waits_for_me" as const,
+    },
     storefrontPath: `/coach/${tenant.slug}`,
     teaching: {
       brainCurrent,
@@ -681,31 +810,119 @@ export async function onboardingState(
     previewDigest,
   };
 }
+/** Wizard "About you": name, an offered specialty and who you coach. */
+export function aboutComplete(values: any) {
+  return (
+    typeof values?.name === "string" &&
+    values.name.trim().length >= 2 &&
+    typeof values?.specialty === "string" &&
+    values.specialty.length > 0 &&
+    typeof values?.audience === "string" &&
+    values.audience.trim().length >= 3
+  );
+}
+/** The account's own fields, read in the service transaction. */
+export async function setupAccount(
+  tx: SystemTx,
+  a: Actor,
+  known: SetupAccount = {},
+): Promise<SetupAccount> {
+  if (known.name != null) return known;
+  const [user] = await tx.query("SELECT name FROM users WHERE id=$1", [
+    a.userId,
+  ]);
+  return { name: user?.name ?? "" };
+}
+/** Loads the tenant, legal snapshot and account, then the setup state. */
+export function loadOnboarding(db: Database, a: Owner) {
+  return db.system(
+    async (tx) => {
+      const [tenant] = await tx.query("SELECT * FROM tenants WHERE id=$1", [
+        a.tenantId,
+      ]);
+      const legal = await legalSnapshot(tx);
+      const account = await setupAccount(tx, a);
+      return context(tx, a, (tx) =>
+        onboardingState(tx, a, tenant, legal, account),
+      );
+    },
+    { tenantId: a.tenantId },
+  );
+}
+/**
+ * Saves one step record (optimistic version check). A "preview" value is the
+ * digest of the page as shown; it must still match what the public would see.
+ */
+export async function saveOnboardingStep(
+  db: Database,
+  a: Owner,
+  step: string,
+  input: { version: number; values: unknown; status: "saved" | "deferred" },
+) {
+  return db.system(
+    async (tx) => {
+      const [tenant] = await tx.query(
+        "SELECT * FROM tenants WHERE id=$1 FOR UPDATE",
+        [a.tenantId],
+      );
+      const legal = await legalSnapshot(tx);
+      const account = await setupAccount(tx, a);
+      return context(tx, a, async (tx) => {
+        const [prior] = await tx.query(
+          "SELECT * FROM records WHERE kind='onboarding_step' AND data->>'step'=$1 FOR UPDATE",
+          [step],
+        );
+        if ((prior?.version ?? 0) !== input.version)
+          throw fail(
+            409,
+            "STALE_ONBOARDING",
+            "This step changed in another session. Reload it before saving.",
+          );
+        let values = input.values;
+        if (step === "preview" && input.status === "saved") {
+          const state = await onboardingState(tx, a, tenant, legal, account);
+          if ((values as { digest: string }).digest !== state.previewDigest)
+            throw fail(
+              409,
+              "PREVIEW_CHANGED",
+              "Your page changed after this preview loaded. Refresh and review the current version before continuing.",
+            );
+          values = {
+            digest: state.previewDigest,
+            reviewedAt: new Date().toISOString(),
+          };
+        }
+        const data = { step, values, licenceStatus: "NOT_REQUESTED" },
+          status = input.status;
+        const row = prior
+          ? (
+              await tx.query(
+                "UPDATE records SET data=$2,status=$3,version=version+1,updated_at=now() WHERE id=$1 RETURNING *",
+                [prior.id, JSON.stringify(data), status],
+              )
+            )[0]
+          : await putRecord(tx, a, "onboarding_step", data, { status });
+        await event(tx, a, "onboarding.step_saved", row.id, {
+          step,
+          version: row.version,
+          status,
+        });
+        return { version: row.version, values: row.data.values };
+      });
+    },
+    { tenantId: a.tenantId },
+  );
+}
 export function onboardingRoutes(
   app: FastifyInstance,
   db: Database,
   owner: (r: FastifyRequest) => Owner,
 ) {
-  const load = (a: Owner) =>
-    db.system(async (tx) => {
-      const [tenant] = await tx.query("SELECT * FROM tenants WHERE id=$1", [
-        a.tenantId,
-      ]);
-      const legal = await legalSnapshot(tx);
-      return context(tx, a, (tx) => onboardingState(tx, a, tenant, legal));
-    });
-  app.get("/api/v1/onboarding", (req) => load(owner(req)));
+  app.get("/api/v1/onboarding", (req) => loadOnboarding(db, owner(req)));
   app.put("/api/v1/onboarding/:step", async (req) => {
     const a = owner(req),
       step = z
-        .enum([
-          "identity",
-          "brain-intro",
-          "wearables",
-          "voice",
-          "preview",
-          "share",
-        ])
+        .enum(["identity", "wearables", "voice", "preview", "share"])
         .parse((req.params as any).step);
     const b = z
       .object({
@@ -717,11 +934,6 @@ export function onboardingRoutes(
       .parse(req.body);
     let values: unknown;
     if (step === "identity") values = identityDraft.parse(b.values);
-    else if (step === "brain-intro")
-      values = z
-        .object({ understood: z.literal(true) })
-        .strict()
-        .parse(b.values);
     else if (step === "wearables")
       values = z
         .object({
@@ -758,61 +970,28 @@ export function onboardingRoutes(
         .parse(b.values);
     if (b.defer && !["wearables", "voice"].includes(step))
       throw fail(400, "REQUIRED_STEP", "This step cannot be deferred");
-    return db.system(
-      async (tx) => {
-        const [tenant] = await tx.query(
-          "SELECT * FROM tenants WHERE id=$1 FOR UPDATE",
-          [a.tenantId],
-        );
-        const legal = await legalSnapshot(tx);
-        return context(tx, a, async (tx) => {
-          const [prior] = await tx.query(
-            "SELECT * FROM records WHERE kind='onboarding_step' AND data->>'step'=$1 FOR UPDATE",
-            [step],
-          );
-          if ((prior?.version ?? 0) !== b.version)
-            throw fail(
-              409,
-              "STALE_ONBOARDING",
-              "This step changed in another session. Reload it before saving.",
-            );
-          if (step === "preview") {
-            const state = await onboardingState(tx, a, tenant, legal);
-            if ((values as { digest: string }).digest !== state.previewDigest)
-              throw fail(
-                409,
-                "PREVIEW_CHANGED",
-                "Your setup changed after this preview loaded. Refresh and review the current version before continuing.",
-              );
-            values = {
-              digest: state.previewDigest,
-              reviewedAt: new Date().toISOString(),
-            };
-          }
-          const data = { step, values, licenceStatus: "NOT_REQUESTED" },
-            status = b.defer ? "deferred" : "saved";
-          const row = prior
-            ? (
-                await tx.query(
-                  "UPDATE records SET data=$2,status=$3,version=version+1,updated_at=now() WHERE id=$1 RETURNING *",
-                  [prior.id, JSON.stringify(data), status],
-                )
-              )[0]
-            : await putRecord(tx, a, "onboarding_step", data, { status });
-          await event(tx, a, "onboarding.step_saved", row.id, {
-            step,
-            version: row.version,
-            status,
-          });
-          return { version: row.version, values: row.data.values };
-        });
-      },
-      { tenantId: a.tenantId },
-    );
+    return saveOnboardingStep(db, a, step, {
+      version: b.version,
+      values,
+      status: b.defer ? "deferred" : "saved",
+    });
   });
 }
-export async function publishStorefront(db: Database, a: Owner) {
-  requireRecentMfa(a);
+export async function publishStorefront(
+  db: Database,
+  a: Owner,
+  account: SetupAccount = {},
+) {
+  // Asked in place: the go-live screen enters the authenticator code (or
+  // sets one up) itself and retries; no detour to Account security.
+  try {
+    requireRecentMfa(a);
+  } catch (error) {
+    throw Object.assign(error as Error, {
+      message:
+        "Enter your authenticator code to go live. If you have none yet, set one up on this screen.",
+    });
+  }
   const result = await db.system(
     async (tx) => {
       const [tenant] = await tx.query(
@@ -820,8 +999,9 @@ export async function publishStorefront(db: Database, a: Owner) {
         [a.tenantId],
       );
       const legal = await legalSnapshot(tx);
+      const user = await setupAccount(tx, a, account);
       const state = await context(tx, a, async (tx) => {
-        const state = await onboardingState(tx, a, tenant, legal);
+        const state = await onboardingState(tx, a, tenant, legal, user);
         if (state.gates.length)
           throw fail(
             409,

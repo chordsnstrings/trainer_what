@@ -591,9 +591,14 @@ export async function transcribeSpeech(
   audio: Buffer,
   type: SpeechAudioType,
   beforeSend: () => Promise<void>,
-  options: { language?: "en" | "ar" } = {},
+  options: {
+    language?: "en" | "ar";
+    /** Transcript length kept (default 500, a spoken reply; voice notes keep more). */
+    maxCharacters?: number;
+  } = {},
 ) {
   const c = speechToTextContract();
+  const keep = Math.max(1, Math.min(options.maxCharacters ?? 500, 20000));
   if (c.provider === "cartesia") {
     try {
       const result = await new CartesiaClient(
@@ -614,7 +619,7 @@ export async function transcribeSpeech(
         beforeSend,
       );
       return {
-        text: result.text.slice(0, 500),
+        text: result.text.slice(0, keep),
         durationSeconds: result.durationSeconds,
         languageCode: result.language,
         requestId: result.requestId,
@@ -673,7 +678,7 @@ export async function transcribeSpeech(
     .map((w: any) => Number(w?.end))
     .filter((n: number) => Number.isFinite(n) && n >= 0 && n < 86400);
   return {
-    text: payload.text.slice(0, 500),
+    text: payload.text.slice(0, keep),
     durationSeconds: ends.length ? Math.max(...ends) : null,
     languageCode:
       typeof payload.language_code === "string"

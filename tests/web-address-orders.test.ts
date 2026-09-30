@@ -527,7 +527,7 @@ before(async () => {
   layla = await register("layla");
   omar = await register("omar");
   sara = await register("sara");
-  admin = await register("ops-admin");
+  admin = await register("ops-lead");
   await db.system(async (tx) => {
     await tx.query("UPDATE users SET platform_role='admin' WHERE id=$1", [
       admin.userId,

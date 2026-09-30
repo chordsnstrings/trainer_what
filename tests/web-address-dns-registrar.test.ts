@@ -263,7 +263,7 @@ before(async () => {
   db = await createDatabase({ memory: true });
   app = await buildApp({ db, testing: true, providers: { webAddresses: deps } });
   owner = await register("noor");
-  admin = await register("registrar-ops-admin");
+  admin = await register("registrar-ops-lead");
   await db.system(async (tx) => {
     await tx.query("UPDATE tenants SET published=true WHERE id=$1", [owner.tenantId]);
     await tx.query("UPDATE users SET platform_role='admin' WHERE id=$1", [admin.userId]);

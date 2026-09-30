@@ -1,0 +1,214 @@
+"use client";
+import { pageKey } from "./workspace-paging";
+import { type ReactNode } from "react";
+import { Layers, Brain } from "lucide-react";
+export type Row = {
+  id: string;
+  kind: string;
+  status: string;
+  data: any;
+  owner_user_id: string;
+  created_at: string;
+  version: number;
+};
+export type State = {
+  user: any;
+  tenant: any;
+  records: Row[];
+  sets: any[];
+  members?: any[];
+  subscriptions: any[];
+  complimentary?: any[];
+  integrations: any[];
+  events?: any[];
+  finance?: any;
+  journals?: any[];
+  payouts?: any[];
+  costs?: any[];
+  usageStatements?: any[];
+  consents: any[];
+  environment?: string;
+  providerSandbox?: string | null;
+  platform?: { name?: string; supportEmail?: string };
+  /** First-page positions: { hasMore, cursor } per collection (records per kind). */
+  pages?: Record<string, any>;
+  /** Exact counts, independent of how many rows are loaded. */
+  totals?: Record<string, any>;
+};
+export type More = {
+  has: (collection: string, kind?: string) => boolean;
+  load: (collection: string, kind?: string) => Promise<void>;
+  loading: string;
+};
+/** Shown while a paged list has rows beyond those loaded. */
+export function LoadMore({
+  more,
+  collection,
+  kind,
+  label = "Load more",
+}: {
+  more: More;
+  collection: string;
+  kind?: string;
+  label?: string;
+}) {
+  if (!more.has(collection, kind)) return null;
+  const loading = more.loading === pageKey(collection, kind);
+  return (
+    <div className="button-row load-more">
+      <button
+        type="button"
+        className="button secondary"
+        disabled={loading}
+        onClick={() => void more.load(collection, kind)}
+      >
+        {loading ? "Loading…" : label}
+      </button>
+    </div>
+  );
+}
+export async function api(
+  path: string,
+  method = "GET",
+  body?: unknown,
+  headers?: Record<string, string>,
+) {
+  const r = await fetch("/api/v1" + path, {
+    method,
+    headers:
+      body !== undefined
+        ? { "Content-Type": "application/json", ...headers }
+        : headers,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+    credentials: "same-origin",
+  });
+  const data = await r.json();
+  if (!r.ok)
+    throw Object.assign(new Error(data.message ?? "Request failed"), {
+      status: r.status,
+      code: data.code,
+    });
+  return data;
+}
+export function Button({
+  children,
+  onClick,
+  type = "button",
+  secondary = false,
+  disabled = false,
+}: {
+  children: ReactNode;
+  onClick?: () => void;
+  type?: "button" | "submit";
+  secondary?: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type={type}
+      className={"button " + (secondary ? "secondary" : "")}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+}
+export function Empty({
+  title,
+  detail,
+  children,
+}: {
+  title: string;
+  detail: string;
+  children?: ReactNode;
+}) {
+  return (
+    <div className="empty">
+      <div className="empty-icon">
+        <Layers size={24} />
+      </div>
+      <h3>{title}</h3>
+      <p>{detail}</p>
+      {children}
+    </div>
+  );
+}
+/** Trainer-facing wording for a compiled rule's flags (text-screen.ts). */
+export const RULE_FLAG_TEXT: Record<string, string> = {
+  medical_advice: "it gives medicine, dose or diagnosis advice",
+  red_flag_not_stopped:
+    "it names a red flag but does not stop the session and send the member to you or to help",
+  link: "it contains a link or email address",
+  contact: "it contains a phone number",
+  approval_claim: "it claims your approval or tells the Brain to skip review",
+  guarantee: "it guarantees results or tells the member not to check with you",
+};
+export function Badge({
+  children,
+  tone = "",
+}: {
+  children: ReactNode;
+  tone?: string;
+}) {
+  return <span className={"badge " + tone}>{children}</span>;
+}
+export function Card({
+  children,
+  className = "",
+  id,
+}: {
+  children: ReactNode;
+  className?: string;
+  id?: string;
+}) {
+  return (
+    <section className={"card " + className} id={id}>
+      {children}
+    </section>
+  );
+}
+export function Heading({
+  eyebrow,
+  title,
+  detail,
+  action,
+}: {
+  eyebrow?: string;
+  title: string;
+  detail?: string;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="page-heading">
+      <div>
+        {eyebrow && <p className="eyebrow">{eyebrow}</p>}
+        <h1>{title}</h1>
+        {detail && <p className="muted">{detail}</p>}
+      </div>
+      {action}
+    </div>
+  );
+}
+export type ViewProps = {
+  state: State;
+  records: (kind: string) => Row[];
+  action: (fn: () => Promise<any>, message?: string) => Promise<any>;
+  busy: boolean;
+  path: string;
+  onSaved?: () => Promise<void>;
+  more: More;
+};
+/** Exact when the bootstrap sent totals; otherwise the loaded rows. */
+export const total = (state: State, key: string, fallback: number): number =>
+  typeof state.totals?.[key] === "number" ? state.totals[key] : fallback;
+export const kindTotal = (state: State, kind: string, fallback: number): number =>
+  typeof state.totals?.records?.[kind] === "number"
+    ? state.totals.records[kind]
+    : fallback;
+export const openExceptionCount = (state: State, records: ViewProps["records"]) =>
+  total(
+    state,
+    "openExceptions",
+    records("exception").filter((x) => x.status === "open").length,
+  );

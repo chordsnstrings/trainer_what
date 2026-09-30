@@ -646,10 +646,22 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
     const a = trainer(req),
       b = z
         .object({
-          note: z.string().trim().min(3).max(4000),
+          // A note is only required when the item is closed without sending
+          // anything (rejecting a draft or dismissing a question).
+          note: z.string().trim().max(4000).optional(),
           approveDecision: z.boolean().default(false),
+          // "Edit & send": the coach's own reply goes to the client as a
+          // trainer message and closes the item in the same transaction.
+          replyText: z.string().trim().min(1).max(4000).optional(),
         })
         .strict()
+        .refine((v) => !(v.approveDecision && v.replyText), {
+          message: "Approve the draft or send your own reply, not both",
+        })
+        .refine(
+          (v) => v.approveDecision || v.replyText || (v.note ?? "").length >= 3,
+          { message: "Add a short note saying why", path: ["note"] },
+        )
         .parse(req.body);
     return db.tenant(a, async (tx) => {
       const e = await record(tx, (req.params as any).id, "exception");
@@ -678,9 +690,58 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
           );
         await deliverReviewedCoachingDecision(tx, a, d);
       }
+      const clientId = e.data.subscriberId ?? e.owner_user_id;
+      if (b.replyText) {
+        await subscriber(tx, a, clientId);
+        const message = await putRecord(
+          tx,
+          a,
+          "message",
+          {
+            text: b.replyText,
+            author: "trainer",
+            authorUserId: a.userId,
+            subscriberId: clientId,
+            exceptionId: e.id,
+          },
+          { ownerId: clientId, status: "sent" },
+        );
+        await notifyUser(tx, a, {
+          userId: clientId,
+          category: "coaching",
+          dedupeKey: `message:${message.id}`,
+          title: "You have a new coaching message",
+          body: "Open your coaching conversation to read the new message.",
+          href: "/app/chat",
+          templateKey: "coaching-message",
+        });
+      }
+      const outcome =
+        b.approveDecision && e.data.decisionId
+          ? "approved"
+          : b.replyText
+            ? e.data.decisionId
+              ? "edited"
+              : "replied"
+            : "closed";
       await tx.query(
         "UPDATE records SET status='resolved',version=version+1,data=data||$2::jsonb,updated_at=now() WHERE id=$1",
-        [e.id, JSON.stringify({ resolution: b.note, resolvedBy: a.userId })],
+        [
+          e.id,
+          JSON.stringify({
+            resolution:
+              b.note ||
+              (outcome === "approved"
+                ? "Approved the drafted reply"
+                : outcome === "edited"
+                  ? "Edited the drafted reply and sent it"
+                  : outcome === "replied"
+                    ? "Replied personally"
+                    : ""),
+            resolvedBy: a.userId,
+            outcome,
+          }),
+        ],
       );
       await event(tx, a, "exception.resolved", e.id);
       return { ok: true };

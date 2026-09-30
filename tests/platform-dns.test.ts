@@ -70,7 +70,7 @@ before(async () => {
   Object.assign(process.env, env);
   db = await createDatabase({ memory: true });
   app = await buildApp({ db, testing: true, providers: { platformDns: deps } });
-  const ops = await register("dns-admin");
+  const ops = await register("dns-operator");
   const coach = await register("dns-coach");
   await db.system(async (tx) => {
     await tx.query("UPDATE users SET platform_role='admin' WHERE id=$1", [ops.userId]);
