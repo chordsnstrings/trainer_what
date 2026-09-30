@@ -1663,7 +1663,7 @@ test("the adaptation prompt is v3: it carries the code's progression hold, keeps
   for (const phrase of [
     "Trainer Brain plan adaptation brain-plan-adapt-v3.",
     "Keep every session within bounds.maxSessionMinutes",
-    "shorten a longer nextWeek session with fewer sets or less duration or distance, never making anything harder",
+    "shorten any nextWeek session over that limit with fewer sets or less duration or distance, never making anything harder",
     "uncertainties:[at most 5 one-sentence notes for the trainer, each under 300 characters]",
     "When progressionHold lists a reason",
     "nextWeek has already been held at no more than this week's values",
