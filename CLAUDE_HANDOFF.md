@@ -2,7 +2,7 @@
 
 Updated 27 September 2026 (afternoon). PR #1 and [PR #2](https://github.com/chordsnstrings/trainer_what/pull/2) are merged into `main`. At the owner's request the application runs live on a new DigitalOcean project, GymMembership, which deployed `main` `eb7b678` automatically after its checks passed, and live verification passed on it. Historical stage entries below retain their original evidence.
 
-## Work in progress (updated with every owner update; last update 30 September 2026, Superadmin recovery)
+## Work in progress (updated with every owner update; last update 30 September 2026, round 4 teaching loop)
 
 Owner rule (29 September): every update to the owner is also written here. Live: `main` `5c2aad5` (PR #6) at https://trainsyou.com. Deployment stays separately assigned; the owner said "stop the checks and ship it" for round 3.
 
@@ -21,6 +21,8 @@ Owner rule (29 September): every update to the owner is also written here. Live:
 4. **Superadmin recovery (done, pushed, not deployed; owner approved 30 September after losing admin access).** Stage 2026-09-30c: host-only `npm run admin:access -- list|create|reset-password` in the api container and `infra/digitalocean/admin-access.sh` for the Droplet console (as root; the password is typed twice without echo and sent on stdin only). The current live release does not contain it until a release with this change deploys; until then the owner pastes the block in `docs/DIGITALOCEAN_DEPLOYMENT.md` "Recover Superadmin access", which creates a new Superadmin with code already in earlier releases. Pushed to `claude/repository-overview-osejlw` from `main` `5d3ad59`; no pull request (not asked).
 
 6. **Round 4 integration (`r4/integrate`, not pushed, not merged, not deployed).** Stage 2026-09-30r4-int: sign-up backend, Teach your Brain and setup assistant merged from `origin/main` `32ed5fe`; the wizard's Brain minimum now accepts the practice quiz round route. Typechecks pass; the eight touched test files pass 99/99 under PGlite and under PostgreSQL with the restricted role. Next: the web wizard builder works from this branch.
+
+7. **One teaching loop (round 4, phase 6; `r4/teaching-loop` from `r4/integrate`, not pushed, not merged, not deployed).** Stage 2026-09-30r4-loop: "Check my Brain" with per-area results, background re-checks after every edit that keep the last passing version live, and corrections turned into suggested rules the coach confirms (prompt `brain-correction-v2`, live Seed test 52/52 on the final prompt). Typechecks pass; `tests/brain-check.test.ts` and 12 related files pass under PGlite and PostgreSQL with the restricted role; `tests/nutrition.test.ts` already fails on `r4/integrate` (onboarding step count 21 vs 23) and is left to the integrator. Next: merge into `r4/integrate`; the "My Brain" screens use `docs/features/brain-check.md`.
 
 5. **Setup assistant backend (round 4, phase 4; built on `r4/setup-assistant`, not merged, not deployed).** Stage 2026-09-30r4a: per-step setup chat for the one-wizard onboarding, drafts applied through the existing endpoints, website link import into the private review, voice notes through the existing speech-to-text. Live Seed 2.0 Pro test held on prompt `setup-assistant-v3`. Waiting on: the wizard UI branch and integration.
 

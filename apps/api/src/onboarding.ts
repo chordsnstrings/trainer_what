@@ -340,13 +340,17 @@ export async function onboardingState(
         of("coaching_runtime_release").find((r) => r.status === "published")
           ?.id ?? null,
       current: false,
+      live: false,
+      rechecking: false,
       mode: null,
       automatic: false,
       blocker: (error as Error).message,
     };
   }
+  // The last passing version stays live while edits are re-checked.
   const runtimeCurrent =
-    !runtime.blocker && (!runtime.releaseId || runtime.current);
+    !runtime.blocker &&
+    (!runtime.releaseId || runtime.current || runtime.live);
   const nutrition = await nutritionReadiness(tx);
   const combinedPublished = products.some(
     (p) => p.status === "published" && p.data.tier === "workout_nutrition",

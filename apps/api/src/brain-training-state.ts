@@ -25,7 +25,7 @@ const TEACHING_ORIGINS = new Set(["quiz", "keep_training_chat", "reply_correctio
  */
 export async function brainTrainingState(tx: Tx) {
   const rows = await tx.query(
-    "SELECT id,kind,status,version,data,created_at FROM records WHERE kind IN ('rule','conflict','scenario','brain_quiz_round','interview','rule_revision','evaluation','brain_release','coaching_correction') AND status<>'archived' ORDER BY created_at,id LIMIT 5000",
+    "SELECT id,kind,status,version,data,created_at FROM records WHERE kind IN ('rule','conflict','scenario','brain_quiz_round','interview','rule_revision','evaluation','brain_release','coaching_correction','brain_suggestion') AND status<>'archived' ORDER BY created_at,id LIMIT 5000",
   );
   const of = (kind: string) => rows.filter((r) => r.kind === kind);
   const rules = of("rule");
@@ -106,10 +106,24 @@ export async function brainTrainingState(tx: Tx) {
     openConflicts,
     release,
     fullCheck: fullCheck ?? null,
+    /** The latest check of the current rules (passed or not). */
+    latestEvaluation: latest ?? null,
     meter,
     uncompiledTeaching,
+    // A correction the suggestion flow (brain-learning.ts) turned into a
+    // suggested rule is listed there, not here.
     unconvertedCorrections: replyCorrections.filter(
-      (c) => !convertedCorrections.has(c.id),
+      (c) =>
+        !convertedCorrections.has(c.id) &&
+        !of("brain_suggestion").some(
+          (s) =>
+            s.data.source?.correctionId === c.id &&
+            ["suggested", "confirmed", "dismissed"].includes(s.status),
+        ),
+    ),
+    /** Suggested rules from corrections, waiting for the coach. */
+    learnedSuggestions: of("brain_suggestion").filter(
+      (s) => s.status === "suggested",
     ),
   };
 }

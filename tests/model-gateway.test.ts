@@ -747,6 +747,9 @@ test("time limits come from each call site's budget per model family; classic de
       coach_selection: { maxTokens: 800, timeoutMs: 30000 },
       coach_decision: { maxTokens: 2500, timeoutMs: 30000 },
       rule_compilation: { maxTokens: 5000, timeoutMs: 30000 },
+      // Added in round 4 (practice quiz; suggested rules from corrections).
+      brain_quiz: { maxTokens: 4000, timeoutMs: 30000 },
+      brain_correction: { maxTokens: 1500, timeoutMs: 30000 },
       plan_adaptation: { maxTokens: 3000, timeoutMs: 60000 },
       meal_photo: { maxTokens: 2500, timeoutMs: 30000 },
       voice_suggestions: { maxTokens: null, timeoutMs: 30000 },

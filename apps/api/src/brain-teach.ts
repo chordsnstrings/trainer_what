@@ -145,6 +145,8 @@ function overview(s: BrainTrainingState) {
       drafts: s.drafts.length,
       teaching: s.uncompiledTeaching.length,
       replyCorrections: s.unconvertedCorrections.length,
+      /** GET /brain/suggestions: rules suggested from corrected replies. */
+      learned: s.learnedSuggestions.length,
     },
   };
 }

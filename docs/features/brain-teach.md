@@ -10,6 +10,9 @@ meter inputs), `packages/domain/src/brain-teach.ts` (platform safety questions, 
 levels), `packages/providers/src/brain-quiz.ts` (quiz prompt `brain-quiz-v1`). Tests:
 `tests/brain-teach.test.ts`.
 
+Phase 6 adds "Check my Brain", background re-checks and rules suggested from corrected replies:
+`docs/features/brain-check.md` (`GET /brain/teach` `suggestions.learned` counts them).
+
 ## Safety floor (unchanged)
 
 - The Brain only drafts. A quiz round, a "Waits for me" launch or a Keep-training rule never sends
