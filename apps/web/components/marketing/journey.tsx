@@ -32,10 +32,12 @@ import { CoreMark } from "./hero-flow";
 import { JourneyPlayer, type JourneyTiming } from "./journey-player";
 import type { PublicPlatform } from "./platform";
 
-/** Whether a coach can reach the subscriber half of the workflow today. */
-export function journeyAvailable(platform: PublicPlatform): boolean {
-  const a = platform.availability;
-  return platform.registrationOpen && a.model && a.payments && a.payouts;
+/**
+ * The walkthrough is always shown (owner, 30 September 2026). Parts that are
+ * not live yet keep their availability chips inside the scenes.
+ */
+export function journeyAvailable(_platform: PublicPlatform): boolean {
+  return true;
 }
 
 /**
