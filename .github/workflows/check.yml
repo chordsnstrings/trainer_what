@@ -9,7 +9,8 @@ permissions:
 jobs:
   application:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    # The suite plus the browser check passed 20 minutes as the test count grew.
+    timeout-minutes: 35
     env:
       PUBLIC_APP_URL: http://localhost:3000
       API_INTERNAL_URL: http://127.0.0.1:4000
