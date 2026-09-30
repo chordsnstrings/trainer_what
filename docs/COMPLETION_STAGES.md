@@ -6,6 +6,14 @@ Application implementation and the job audit are complete for the current phase.
 
 The local environment restored an older snapshot. Yesterday's uncommitted completion work is absent. The recovery note on `work-in-progress/completion-2026-09-25` documents intended behavior, not preserved source. Work here starts from published `620eef1` and reconstructs missing features. Previously passing release evidence does not verify these new changes.
 
+## Stage 2026-09-30r4-rev — round 4 safety and privacy review (r4/review-fixes from r4/teaching-loop `3ead9ea` + r4/wizard-web `c10ccc4`, not pushed, not merged, not deployed)
+
+- Reviewed the five round 4 branches against `origin/main` for member exposure without the coach, weakened checks, prompt injection, cross-workspace reads, open sign-up abuse, privacy and vendor names. Details and open items: `docs/features/r4-review.md`.
+- Fixed with tests (`tests/r4-review-fixes.test.ts`, 7 tests): existing-account emails count toward the five-per-hour code limit; sign-up codes deleted after 24 hours and with the account, reporter address cleared on erasure (078 grants DELETE on `coach_signup_codes`); new addresses may not carry the platform name or staff words; names with the platform name fail the real-name and page checks; Arabic medical claims caught by the page check; suggestions sharing other clients' data or deciding sending are withheld; website import reads at most 2 MB.
+- Checks actually run: `npx tsc --noEmit` (root) and `-p apps/web/tsconfig.json` pass. `r4-review-fixes`, `coach-setup`, `setup-assistant`, `web-address-subdomains`, `privacy-lifecycle`, `onboarding-completion`, `brain-check`: PGlite 52/52, PostgreSQL restricted role (pg-sandbox port 56992) 52/52. Not run: full suite, e2e, build, browser checks.
+- Live Seed 2.0 Pro (`seed-2-0-pro-260328`, prompts unchanged): 12 injection cases; before fixes 10/12 safe outcomes (other-clients rule and "send without asking the coach" shown; Arabic claim not blocked), after fixes 12/12; about USD 0.06.
+- Remaining: open items in `docs/features/r4-review.md` (last passing version keeps an old rule text while a tightened rule is re-checked, address squatting by never-published workspaces, report retention, compiled-rule flag for sending wording).
+
 ## Stage 2026-09-30r4-loop — one teaching loop: Check my Brain, background re-checks, learning from corrections (r4/teaching-loop from r4/integrate `bbad657`, not pushed, not merged, not deployed)
 
 - **Check my Brain** (`apps/api/src/brain-check.ts`): `GET/POST /api/v1/brain/check` and `GET /api/v1/brain/check/cases` show the held-out cases of Brain replies, routine replies, plans and nutrition as one set with a result per area. Every successful teaching edit queues one debounced `brain_check` job per workspace (worker lease 30 minutes); only after the Brain is live, unless the coach asks.

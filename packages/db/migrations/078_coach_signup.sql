@@ -46,7 +46,7 @@ CREATE POLICY service_workspace_scope ON coach_reports
 REVOKE ALL ON coach_reports FROM PUBLIC,trainer_app;
 
 DO $$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='trainer_service') THEN
- GRANT SELECT,INSERT,UPDATE ON coach_signup_codes TO trainer_service;
+ GRANT SELECT,INSERT,UPDATE,DELETE ON coach_signup_codes TO trainer_service;
  GRANT SELECT,INSERT,UPDATE ON coach_reports TO trainer_service;
 END IF; END $$;
 INSERT INTO schema_migrations(version) VALUES('078_coach_signup');

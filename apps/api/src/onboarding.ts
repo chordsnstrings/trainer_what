@@ -241,6 +241,7 @@ const ISSUE_TEXT: Record<PageIssue["issue"], string> = {
   contact: "a phone number",
   link: "a link or email address",
   medical_claim: "a medical claim or medical advice",
+  platform_name: "the trainsyou name in your page name",
 };
 function pageIssueReason(issues: PageIssue[]) {
   const kinds = [...new Set(issues.map((i) => ISSUE_TEXT[i.issue]))];

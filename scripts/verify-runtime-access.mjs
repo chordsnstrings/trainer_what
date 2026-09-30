@@ -133,7 +133,8 @@ export async function verifyRuntimeAccess(client) {
     digitalocean_invoices: ["SELECT", "INSERT"],
     digitalocean_estimates: ["SELECT", "INSERT", "UPDATE"],
     // Open coach sign-up (078): email codes and public coach reports.
-    coach_signup_codes: ["SELECT", "INSERT", "UPDATE"],
+    // Codes are deleted after a day and with the account (retention).
+    coach_signup_codes: ["SELECT", "INSERT", "UPDATE", "DELETE"],
     coach_reports: ["SELECT", "INSERT", "UPDATE"],
   };
   for (const [table, grants] of Object.entries(systemTables)) {

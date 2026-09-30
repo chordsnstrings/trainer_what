@@ -208,6 +208,35 @@ export function websiteAddress(value: string) {
     );
   return url;
 }
+/** Most a website import reads; a larger page is refused, not buffered. */
+export const WEBSITE_MAX_BYTES = 2 * 1024 * 1024;
+/**
+ * Reads a response body as text up to `maxBytes`, or null when it is larger
+ * (checked from Content-Length first, then while streaming), so a huge or
+ * endless page cannot exhaust the API's memory.
+ */
+export async function readLimitedText(response: Response, maxBytes: number) {
+  const declared = Number(response.headers.get("content-length") ?? "");
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    await response.body?.cancel().catch(() => {});
+    return null;
+  }
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > maxBytes) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    chunks.push(value);
+  }
+  return new TextDecoder().decode(Buffer.concat(chunks));
+}
 const ENTITIES: Record<string, string> = {
   amp: "&",
   lt: "<",
@@ -565,7 +594,9 @@ export function setupAssistantRoutes(
       const type = response.headers.get("content-type") ?? "";
       if (!response.ok || !/text\/html|text\/plain|application\/xhtml/i.test(type))
         throw fail(422, "WEBSITE_UNREADABLE", "We couldn't read this page. Check the address, or paste the text instead.");
-      const raw = await response.text();
+      const raw = await readLimitedText(response, WEBSITE_MAX_BYTES);
+      if (raw === null)
+        throw fail(422, "WEBSITE_TOO_LARGE", "This page is too large to read. Paste the text you want to use instead.");
       const text = /text\/plain/i.test(type) ? raw.replace(/\r\n/g, "\n").trim().slice(0, 60000) : htmlText(raw);
       if (text.length < 10)
         throw fail(422, "WEBSITE_EMPTY", "This page has almost no text we can read. Paste the text instead.");

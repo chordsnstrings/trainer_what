@@ -31,6 +31,8 @@ export const SIGNUP_CODE_MINUTES = 15;
 export const SIGNUP_CODE_ATTEMPTS = 5;
 /** Codes one address may be sent per hour. */
 export const SIGNUP_CODES_PER_HOUR = 5;
+/** Hours a code row (an email address) is kept; erased with the account too. */
+export const SIGNUP_CODE_RETENTION_HOURS = 24;
 const codeHash = (id: string, code: string) =>
   createHash("sha256").update(`coach-signup:${id}:${code}`).digest("hex");
 
@@ -135,12 +137,26 @@ export function registerCoachSignup(
           [email],
         );
         if (recent.n >= SIGNUP_CODES_PER_HOUR) return { kind: "limited" as const };
+        // Codes are kept one day (the hourly limit needs the last hour only),
+        // so addresses that never became accounts are not kept.
+        await tx.query(
+          `DELETE FROM coach_signup_codes WHERE created_at<now()-interval '${SIGNUP_CODE_RETENTION_HOURS} hours'`,
+        );
         const [existing] = await tx.query(
           "SELECT id FROM users WHERE email=$1",
           [email],
         );
         // The reply never says whether an account exists; the email does.
-        if (existing) return { kind: "existing" as const };
+        // The "you already have an account" email counts toward the same
+        // hourly limit (a used-up row), so it cannot flood a real inbox.
+        if (existing) {
+          const id = randomUUID();
+          await tx.query(
+            "INSERT INTO coach_signup_codes(id,email,code_hash,expires_at,consumed_at) VALUES($1,$2,$3,now(),now())",
+            [id, email, codeHash(id, randomUUID())],
+          );
+          return { kind: "existing" as const };
+        }
         await tx.query(
           "UPDATE coach_signup_codes SET consumed_at=now() WHERE email=$1 AND consumed_at IS NULL",
           [email],

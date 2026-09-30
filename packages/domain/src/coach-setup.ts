@@ -10,6 +10,8 @@ const B = "(?:^|[^\\p{L}\\p{N}])",
 const word = (alternatives: string) =>
   new RegExp(B + "(?:" + alternatives + ")" + E, "iu");
 
+/** The platform's own name ("trainsyou", "trains you"), in any spacing. */
+const PLATFORM_NAME = /(?<![\p{L}])trains\s*-?\s*you(?![\p{L}])/iu;
 export type NameProblem = "missing" | "too_short" | "not_a_name" | "placeholder";
 const PLACEHOLDERS = new Set([
   "test",
@@ -61,6 +63,8 @@ export function realNameProblem(value: string | null | undefined): NameProblem |
   if (PLACEHOLDERS.has(folded) || words.every((w) => PLACEHOLDERS.has(w.toLowerCase())))
     return "placeholder";
   if (/(\p{L})\1{3,}/iu.test(name)) return "placeholder";
+  // Open sign-up: a coach's name may not pass them off as the platform.
+  if (PLATFORM_NAME.test(folded)) return "placeholder";
   return null;
 }
 export const NAME_PROBLEM_MESSAGES: Record<NameProblem, string> = {
@@ -87,13 +91,15 @@ const MEDICAL_CLAIM = word(
     "(?:medically|clinically|scientifically)\\s+(?:proven|approved)",
     "(?:doctor|fda|dha|moh)[\\s-]+approved",
     "lose\\s+\\d+\\s*(?:kg|kgs|kilos?|kilograms?|lbs?|pounds)\\s+in\\s+(?:\\d+|one|two|three|a)\\s*(?:days?|weeks?)",
-    "يعالج|علاج\\s+(?:السكري|الامراض|المرض)|شفاء|مضمون|نتائج\\s+مضمونه",
+    // Arabic, in screeningText's folded spelling (أ→ا, ئ→ي, ة→ه): "I/we/he
+    // treat(s)", treating diabetes or disease, healing, guaranteed results.
+    "[اينت]عالج\\p{L}*|علاج\\s+(?:السكري|الامراض|المرض|مرض)|شفاء|[اينت]?شفي\\p{L}*|مضمون\\p{L}*|نتايج\\s+مضمون\\p{L}*",
   ].join("|"),
 );
 
 export type PageIssue = {
   field: string;
-  issue: "contact" | "link" | "medical_claim";
+  issue: "contact" | "link" | "medical_claim" | "platform_name";
 };
 /**
  * Structured fields the website offers on purpose (its contact mailbox,
@@ -155,6 +161,10 @@ export function pageIssues(fields: Record<string, unknown>): PageIssue[] {
       }
   };
   visit(fields, "", 0);
+  // The page's own name may not pass the coach off as the platform or its
+  // staff ("trainsyou Support"); mentioning the platform in the bio is fine.
+  if (typeof fields.name === "string" && PLATFORM_NAME.test(fields.name))
+    add("name", "platform_name");
   return issues;
 }
 

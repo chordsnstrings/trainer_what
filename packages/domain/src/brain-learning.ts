@@ -58,6 +58,8 @@ export type SuggestionIssue =
   | "new_number"
   | "too_broad"
   | "names_software"
+  | "other_clients"
+  | "sending_control"
   | "empty";
 
 // "Always", "any message", "every client": a rule that would apply to every
@@ -67,6 +69,16 @@ const BROAD =
 const SOFTWARE =
   /\b(?:seed|bytedance|byteplus|modelark|openai|chatgpt|gpt-?\d*|claude|anthropic|gemini|llm|language model|large language|artificial intelligence|a\.?i\.? (?:model|assistant))\b/i;
 
+// Telling a client about other clients (their weight, progress, names or
+// results) shares personal data the member never agreed to share.
+const OTHER_CLIENTS =
+  /\b(?:other|another|fellow|rest of the|group)\s+(?:group\s+)?(?:clients?|members?|people|trainees?|athletes?)(?:'s?)?\b[^.]{0,80}\b(?:weigh\w*|weights?|progress|results?|names?|photos?|measurements?|data|details|kg|bodyfat|body fat)\b|\b(?:weigh\w*|weights?|progress|results?|photos?|measurements?)\s+of\s+(?:other|another|fellow)\s+(?:clients?|members?|people)\b/i;
+// Whether and how a reply is sent is decided by code and the coach's own
+// setting, never by a rule; a rule that says otherwise is an injection or a
+// misunderstanding (it would read as permission to skip the coach).
+const SENDING_CONTROL =
+  /\b(?:send|sends|sent|sending|deliver\w*|post\w*|reply|replies|respond\w*)\b[^.]{0,60}\b(?:without\s+(?:asking|checking|approval|review|confirmation|the coach|me|my)|automatically|directly to (?:the )?client)|\b(?:skip|bypass|don't wait for|do not wait for|no need for)\s+(?:the\s+)?(?:coach|trainer|review|approval|confirmation|me)\b/i;
+
 /**
  * Reasons a suggested rule is withheld from the coach:
  * - any warning a compiled draft rule would carry (medical, medicine, dose or
@@ -74,7 +86,9 @@ const SOFTWARE =
  *   contact details, approval claims, guarantees);
  * - a number the coach did not write (in their reply or note);
  * - a condition that applies to everything ("always", "any message");
- * - naming the software or its vendor.
+ * - naming the software or its vendor;
+ * - telling clients about other clients (weights, progress, names);
+ * - deciding how replies are sent (without the coach, automatically).
  */
 export function suggestionIssues(
   rule: SuggestedRule,
@@ -94,8 +108,10 @@ export function suggestionIssues(
     issues.push("new_number");
   if (BROAD.test(rule.condition) || rule.condition.trim().split(/\s+/).length < 3)
     issues.push("too_broad");
-  if (SOFTWARE.test(`${rule.title} ${rule.condition} ${rule.directive}`))
-    issues.push("names_software");
+  const text = `${rule.title}. ${rule.condition}. ${rule.directive}`;
+  if (SOFTWARE.test(text)) issues.push("names_software");
+  if (OTHER_CLIENTS.test(text)) issues.push("other_clients");
+  if (SENDING_CONTROL.test(text)) issues.push("sending_control");
   return [...new Set(issues)];
 }
 
