@@ -26,6 +26,7 @@ export type PromptKind =
   | "plan_generation"
   | "plan_adaptation"
   | "voice_session_phrasing"
+  | "brain_quiz"
   | "unknown";
 
 export function classifyPrompt(body: any): { kind: PromptKind; task: string | null; input: any } {
@@ -54,6 +55,8 @@ export function classifyPrompt(body: any): { kind: PromptKind; task: string | nu
     return { kind: "meal_photo", task: "meal_photo_estimate", input };
   if (system.startsWith("Voice session phrasing"))
     return { kind: "voice_session_phrasing", task: "voice_session_suggestions", input };
+  if (system.startsWith("You write practice questions that let a fitness coach check"))
+    return { kind: "brain_quiz", task: "brain_quiz", input };
   return { kind: "unknown", task: null, input };
 }
 
@@ -529,6 +532,32 @@ function voiceSessionPhrasing(input: any) {
   };
 }
 
+// Practice quiz (brain-quiz-v1): one hand-over case per supplied rule
+// reference, round robin, each with distinct wording and no numbers, so the
+// app's own quiz checks (packages/domain/src/brain-teach.ts) accept them.
+const QUIZ_MESSAGES = [
+  "Quick one before my next session: how do you usually want me to handle this part of the plan?",
+  "My week got busy and I am unsure how to follow this part of the programme. What would you like me to do?",
+  "I would like your view on how I should approach this in my training this week.",
+  "Something came up with my schedule and I want to do the right thing with my plan. Can you advise?",
+  "Before I change anything in my routine, I want to check with you how you prefer to handle it.",
+  "I read my plan again and I am not sure what you expect from me here. Could you explain?",
+  "Can you tell me how you normally deal with this situation for your clients?",
+];
+function brainQuiz(input: any) {
+  const refs: string[] = (input?.rules ?? []).map((r: any) => String(r.id));
+  const count = Math.max(1, Math.min(Number(input?.count ?? 3), QUIZ_MESSAGES.length));
+  if (!refs.length) throw new Error("brain quiz without rules");
+  return {
+    cases: Array.from({ length: count }, (_, i) => ({
+      ruleId: refs[i % refs.length],
+      message: QUIZ_MESSAGES[i],
+      route: "escalate",
+      reply: "Thanks for asking. Your coach will reply to you personally.",
+    })),
+  };
+}
+
 export function ruleBasedAnswer(body: any): { kind: PromptKind; task: string | null; content: unknown } {
   const { kind, task, input } = classifyPrompt(body);
   switch (kind) {
@@ -546,6 +575,8 @@ export function ruleBasedAnswer(body: any): { kind: PromptKind; task: string | n
       return { kind, task, content: planAdaptation(input) };
     case "voice_session_phrasing":
       return { kind, task, content: voiceSessionPhrasing(input) };
+    case "brain_quiz":
+      return { kind, task, content: brainQuiz(input) };
     case "nutrition": {
       if (task === "nutrition_evaluation") return { kind, task, content: nutritionEvaluation(input) };
       if (task === "nutrition_week") return { kind, task, content: nutritionWeek(input) };
