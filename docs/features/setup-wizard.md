@@ -122,3 +122,10 @@ in the session scratchpad `round4-evals/wizard-web/` (not in the repository).
 - A list of the coach's own client questions (count only; no list endpoint).
 - Arabic strings (the trainer area is English-only; deferred by the owner).
 - Google and Apple sign-up (later, per the owner).
+
+## Integration with the four-section workspace (round 4 final)
+
+- One address for setup: `SETUP_HREF` in `workspace-nav.tsx` is the wizard's `SETUP_PATH` (`/setup`). Until the owner's page is live the side menu and phone bar show "Finish setup", and the Inbox banner and the old checklist rows lead there; `/trainer/setup` and the older `/trainer/onboarding/*` step addresses redirect into the wizard (the optional share step still opens).
+- After going live, My Brain links the owner to "Keep training" (`/setup/keep-training`).
+- Every wizard and teach-your-Brain field inside a `<label>` carries an `aria-label` equal to its visible label, so it is announced (and found by the browser check) by that label rather than by its value or chosen option (`tests/setup-wizard-web.test.ts`).
+- The e2e trainer journey (`tests/e2e/scenarios/trainer.e2e.ts`) takes one practice quiz round after the first release and confirms the web address through `PUT /api/v1/setup/subdomain` before the preview; the rule-based model mock answers the `brain-quiz-v1` prompt with hand-over cases.
