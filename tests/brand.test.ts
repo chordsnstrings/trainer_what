@@ -195,7 +195,7 @@ test("the approved lines lead the home page, its description and llms.txt", () =
   assert.ok(llms.includes(`${BRAND_COPY.descriptor}. ${BRAND_COPY.audience}. ${BRAND_COPY.line}`));
   assert.ok(llms.includes(BRAND_COPY.introduction));
   assert.doesNotMatch(llmsTxt({ origin: "https://acme.example", appName: "Acme" }), /trainsyou/i);
-  assert.deepEqual(claimCta(true), { label: "Teach your AI", href: "/signup" });
+  assert.deepEqual(claimCta(true), { label: "Start coaching", href: "/signup" });
   assert.equal(claimCta(false).label, "Join early access");
 });
 
@@ -251,7 +251,7 @@ test("the header and footer show the lockup in ink and white, and a renamed plat
   assert.match(header, /aria-label="trainsyou home"/);
   assert.ok(header.includes(`class="brand-logo-light" src="${BRAND_ASSETS.lockupInk}"`));
   assert.ok(header.includes(`class="brand-logo-dark" src="${BRAND_ASSETS.lockupWhite}"`));
-  assert.match(header, />Teach your AI</);
+  assert.match(header, />Start coaching</);
   const footer = renderToStaticMarkup(createElement(MarketingFooter, props));
   assert.ok(footer.includes(BRAND_ASSETS.lockupInk) && footer.includes(BRAND_ASSETS.lockupWhite));
   assert.ok(footer.includes(BRAND_COPY.line));
@@ -270,7 +270,7 @@ test("sign-in and joining pages on a trainer's own address show the trainer, nev
     render({ slug: "alex-morgan", host: true, trainer: null }),
     render({ slug: "alex-morgan", host: true, trainer }, "/forgot-password"),
   ]) {
-    assert.doesNotMatch(markup, /\/brand\/|Teach your AI|href="\/signup"|trainsyou/, markup);
+    assert.doesNotMatch(markup, /\/brand\/|Start coaching|href="\/signup"|trainsyou/, markup);
     assert.match(markup, /href="\/join-coach\/alex-morgan"/);
     assert.match(markup, /<a class="wordmark"[^>]* href="\/">/);
   }
@@ -280,7 +280,7 @@ test("sign-in and joining pages on a trainer's own address show the trainer, nev
   // The platform's own sign-in page keeps the trainsyou header.
   const own = render(null);
   assert.ok(own.includes(BRAND_ASSETS.lockupInk));
-  assert.match(own, />Teach your AI</);
+  assert.match(own, />Start coaching</);
   // The server passes the proxy's coach slug down; the page uses it.
   const page = await source("app/[[...path]]/page.tsx");
   assert.match(page, /<Workspace[\s\S]*coachSlug=\{coachSlug\}/);
@@ -299,7 +299,7 @@ test("sign-in and joining pages on a trainer's own address show the trainer, nev
   }
   // An invitation still being read: a coach header without a home link.
   const reading = render({ slug: "", host: false, trainer: null }, "/join/" + "t".repeat(40));
-  assert.doesNotMatch(reading, /Teach your AI|href="\/join-coach\//);
+  assert.doesNotMatch(reading, /Start coaching|href="\/join-coach\//);
   assert.match(await source("components/discovery-server.ts"), /x-trainer-site-slug/);
 });
 

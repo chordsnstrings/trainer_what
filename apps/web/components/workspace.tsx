@@ -42,6 +42,12 @@ import {
   WorkoutTools,
 } from "./training-workspace";
 import { Onboarding } from "./onboarding";
+import { SetupRedirect, SetupWizard } from "./setup-wizard";
+import {
+  SETUP_PATH,
+  isSetupPath,
+  legacySetupRedirect,
+} from "./setup-wizard-model";
 import { NutritionCoach, NutritionSubscriber } from "./nutrition";
 import { ClientTwin } from "./client-twin";
 import { SourceCompilation } from "./source-compilation";
@@ -293,7 +299,7 @@ function LoadMore({
 }
 const nav = [
   ["Overview", "/trainer", LayoutDashboard],
-  ["Setup", "/trainer/onboarding/account", CheckCircle],
+  ["Setup", SETUP_PATH, CheckCircle],
   ["Followers & growth", "/trainer/growth", Users],
   ["My Brain", "/trainer/brain", Brain],
   ["Subscribers", "/trainer/subscribers", Users],
@@ -832,7 +838,7 @@ export default function Workspace({
             s.user.role === "subscriber"
               ? "/app"
               : path === "/signup"
-                ? "/trainer/onboarding/identity"
+                ? SETUP_PATH
                 : "/trainer",
           );
         }}
@@ -1151,6 +1157,16 @@ export default function Workspace({
             ) : (
               <AdminNotFound />
             )
+          ) : isSetupPath(path) ? (
+            state.user.role === "owner" ? (
+              <SetupWizard path={path} tenant={state.tenant} onSaved={load} />
+            ) : (
+              <div className="notice">
+                Only the coach who owns this page can set it up.
+              </div>
+            )
+          ) : legacySetupRedirect(path) ? (
+            <SetupRedirect to={legacySetupRedirect(path)!} />
           ) : path.includes("/onboarding") ? (
             <OnboardingView {...props} />
           ) : path.startsWith("/trainer/nutrition/clients/") ? (

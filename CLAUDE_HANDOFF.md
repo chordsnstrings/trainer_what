@@ -2,7 +2,7 @@
 
 Updated 27 September 2026 (afternoon). PR #1 and [PR #2](https://github.com/chordsnstrings/trainer_what/pull/2) are merged into `main`. At the owner's request the application runs live on a new DigitalOcean project, GymMembership, which deployed `main` `eb7b678` automatically after its checks passed, and live verification passed on it. Historical stage entries below retain their original evidence.
 
-## Work in progress (updated with every owner update; last update 30 September 2026, Superadmin recovery)
+## Work in progress (updated with every owner update; last update 30 September 2026, setup wizard web)
 
 Owner rule (29 September): every update to the owner is also written here. Live: `main` `5c2aad5` (PR #6) at https://trainsyou.com. Deployment stays separately assigned; the owner said "stop the checks and ship it" for round 3.
 
@@ -22,6 +22,8 @@ Owner rule (29 September): every update to the owner is also written here. Live:
 
 6. **Round 4 integration (`r4/integrate`, not pushed, not merged, not deployed).** Stage 2026-09-30r4-int: sign-up backend, Teach your Brain and setup assistant merged from `origin/main` `32ed5fe`; the wizard's Brain minimum now accepts the practice quiz round route. Typechecks pass; the eight touched test files pass 99/99 under PGlite and under PostgreSQL with the restricted role. Next: the web wizard builder works from this branch.
 
+7. **Setup wizard web (round 4, `r4/wizard-web` from `r4/integrate`, committed, not pushed, not merged, not deployed).** Stage 2026-09-30r4-wiz: "Start coaching" → sign-up (email code / password / early access while closed) → six-step wizard at `/setup` with progress bar, save and continue later, Back, Skip for later, prefilled answers, chat panel or short form per step, subdomain picker with live check, rule cards with "Approve all", practice quiz, own client questions, automatic go-live checks with the authenticator in place, then Keep training (meter, levels, Grow). Typechecks pass; touched tests 36/36 under PGlite and PostgreSQL (restricted role); live Seed 2.0 Pro wizard-contract check 2 runs × 31 calls, all checks pass (USD 0.14). Not run: e2e, build, browser checks. Next: integrate with `r4/workspace` (textual conflict in `workspace.tsx` expected).
+
 5. **Setup assistant backend (round 4, phase 4; built on `r4/setup-assistant`, not merged, not deployed).** Stage 2026-09-30r4a: per-step setup chat for the one-wizard onboarding, drafts applied through the existing endpoints, website link import into the private review, voice notes through the existing speech-to-text. Live Seed 2.0 Pro test held on prompt `setup-assistant-v3`. Waiting on: the wizard UI branch and integration.
 
 Waiting on the owner: Stripe activation (charges and payouts), the AED payout bank account, test-mode keys and a restricted key; the Anthropic key entered in Super admin after the next build deploys; key rotation (later); the Arabic review and polish (later).
@@ -31,6 +33,8 @@ Waiting on the owner: running the Superadmin recovery in the Droplet console (it
 Next action: the owner recovers access with item 4; a pull request for the recovery command when the owner asks (merging deploys); then build item 2.
 
 ## Latest (30 September 2026)
+
+Stage 2026-09-30r4-wiz (round 4 builder, `r4/wizard-web` from `r4/integrate` `bbad657`, committed on the branch only, not pushed or deployed): the setup wizard web screens, the sign-up screen that leads into it, "Start coaching" on the marketing header and Keep training. No API or prompt change. Checks and the live Seed wizard-contract result are in `docs/COMPLETION_STAGES.md`; screens in `docs/features/setup-wizard.md`. Next: integration with `r4/workspace`.
 
 Stage 2026-09-30d (round 4 builder, `r4/signup-backend` from `main` `32ed5fe`, committed on the branch only, not pushed or deployed): coach sign-up with email codes through Resend (off until the key is saved), the six-step setup wizard API, subdomain reservation, automatic go-live checks (bank details moved to first payout), "Report this coach", migration 078. Checks and the live Seed result are in `docs/COMPLETION_STAGES.md`; API in `docs/features/coach-setup.md`. Next: the web wizard, then integration.
 
