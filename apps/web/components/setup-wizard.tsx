@@ -49,7 +49,12 @@ import {
  */
 type Setup = {
   steps: WizardStep[];
-  progress: { done: number; total: number; percent: number; minutesLeft: number };
+  progress: {
+    done: number;
+    total: number;
+    percent: number;
+    minutesLeft: number;
+  };
   resumeStep: SetupStepKey;
   published: boolean;
   about: {
@@ -84,19 +89,40 @@ type Setup = {
   };
   plan: {
     priced: boolean;
-    plans: Array<{ id: string; status: string; name: string; priceMinor: number; billing: string }>;
+    plans: Array<{
+      id: string;
+      status: string;
+      name: string;
+      priceMinor: number;
+      billing: string;
+    }>;
   };
-  goLive: { checks: GoLiveCheck[]; ready: boolean; waitingOnTrainsyou: string[] };
+  goLive: {
+    checks: GoLiveCheck[];
+    ready: boolean;
+    waitingOnTrainsyou: string[];
+  };
   security: {
     authenticatorRequired: boolean;
     authenticatorEnrolled: boolean;
     hasPassword: boolean;
     verifiedRecently: boolean;
   };
-  grow: Array<{ key: string; label: string; done: boolean; href: string; note?: string; optional?: boolean }>;
+  grow: Array<{
+    key: string;
+    label: string;
+    done: boolean;
+    href: string;
+    note?: string;
+    optional?: boolean;
+  }>;
 };
 const BRAIN_CHANGED = "setup-brain-changed";
-type Tenant = { name: string; slug: string; theme?: Record<string, any> | null };
+type Tenant = {
+  name: string;
+  slug: string;
+  theme?: Record<string, any> | null;
+};
 type Draft = Record<string, unknown>;
 
 export function SetupWizard({
@@ -112,7 +138,9 @@ export function SetupWizard({
   const [setup, setSetup] = useState<Setup | null>(null),
     [error, setError] = useState(""),
     [chat, setChat] = useState(false),
-    [draft, setDraft] = useState<{ step: SetupStepKey; values: Draft } | null>(null);
+    [draft, setDraft] = useState<{ step: SetupStepKey; values: Draft } | null>(
+      null,
+    );
   const load = useCallback(async () => {
     try {
       setSetup(await setupApi("/setup"));
@@ -130,7 +158,8 @@ export function SetupWizard({
   }, [load, onSaved]);
   const heading = useRef<HTMLHeadingElement>(null);
   const current: SetupStepKey | null =
-    view.step ?? (setup && !view.keepTraining && !setup.published ? setup.resumeStep : null);
+    view.step ??
+    (setup && !view.keepTraining && !setup.published ? setup.resumeStep : null);
   useEffect(() => {
     setChat(false);
     heading.current?.focus({ preventScroll: true });
@@ -150,7 +179,9 @@ export function SetupWizard({
     return (
       <div className="setup-wizard">
         <header className="setup-top">
-          <p className="eyebrow">{setup.published ? "Your page is live" : "Before you go live"}</p>
+          <p className="eyebrow">
+            {setup.published ? "Your page is live" : "Before you go live"}
+          </p>
           <h1 ref={heading} tabIndex={-1}>
             Keep training
           </h1>
@@ -174,8 +205,7 @@ export function SetupWizard({
     if (!canSkip(current)) return;
     try {
       await setupApi(`/setup/${current}`, "PUT", {
-        version:
-          current === "about" ? setup.about.version : step.version,
+        version: current === "about" ? setup.about.version : step.version,
         values: {},
         skip: true,
       });
@@ -290,7 +320,11 @@ export function SetupWizard({
             )}
             <div className="button-row">
               {canSkip(current) && step.status !== "done" && (
-                <button type="button" className="button secondary" onClick={() => void skip()}>
+                <button
+                  type="button"
+                  className="button secondary"
+                  onClick={() => void skip()}
+                >
                   Skip for later
                 </button>
               )}
@@ -308,7 +342,9 @@ export function SetupWizard({
             step={current}
             open={chat}
             onClose={() => setChat(false)}
-            onUseDraft={(values) => setDraft({ step: current, values: { ...values, at: Date.now() } })}
+            onUseDraft={(values) =>
+              setDraft({ step: current, values: { ...values, at: Date.now() } })
+            }
             onTaught={() => {
               window.dispatchEvent(new Event(BRAIN_CHANGED));
               void saved();
@@ -354,7 +390,14 @@ function AccountStep({ setup }: { setup: Setup }) {
 
 // ------------------------------------------------------------ 2 about you
 
-const ABOUT_FIELDS = ["name", "specialty", "audience", "emirate", "instagram", "programmeUrl"] as const;
+const ABOUT_FIELDS = [
+  "name",
+  "specialty",
+  "audience",
+  "emirate",
+  "instagram",
+  "programmeUrl",
+] as const;
 function AboutStep({
   setup,
   draft,
@@ -433,11 +476,14 @@ function AboutStep({
       }}
     >
       {setup.about.fromEarlyAccess && (
-        <p className="muted">We filled in what you told us when you joined early access.</p>
+        <p className="muted">
+          We filled in what you told us when you joined early access.
+        </p>
       )}
       <label className="field">
         <span>Your name, as clients will see it</span>
         <input
+          aria-label="Your name, as clients will see it"
           value={values.name}
           onChange={set("name")}
           autoComplete="name"
@@ -447,7 +493,11 @@ function AboutStep({
       </label>
       <label className="field">
         <span>Your specialty</span>
-        <select value={values.specialty} onChange={set("specialty")}>
+        <select
+          aria-label="Your specialty"
+          value={values.specialty}
+          onChange={set("specialty")}
+        >
           <option value="">Choose one</option>
           {setup.about.specialties.map((s) => (
             <option key={s.id} value={s.id}>
@@ -459,6 +509,7 @@ function AboutStep({
       <label className="field">
         <span>Who you coach</span>
         <textarea
+          aria-label="Who you coach"
           rows={3}
           value={values.audience}
           onChange={set("audience")}
@@ -469,7 +520,11 @@ function AboutStep({
       <div className="setup-form-row">
         <label className="field">
           <span>Where you coach</span>
-          <select value={values.emirate} onChange={set("emirate")}>
+          <select
+            aria-label="Where you coach"
+            value={values.emirate}
+            onChange={set("emirate")}
+          >
             <option value="">Choose one</option>
             {setup.about.emirates.map((id) => (
               <option key={id} value={id}>
@@ -483,6 +538,7 @@ function AboutStep({
             Instagram <span className="muted">(optional)</span>
           </span>
           <input
+            aria-label="Instagram (optional)"
             value={values.instagram}
             onChange={set("instagram")}
             maxLength={31}
@@ -540,6 +596,7 @@ function ProgrammeMaterial({
       <label className="field">
         <span>Website link</span>
         <input
+          aria-label="Website link"
           type="url"
           inputMode="url"
           value={url}
@@ -551,6 +608,7 @@ function ProgrammeMaterial({
       <label className="field">
         <span>Programme file (PDF, Word, Excel or text, up to 5 MB)</span>
         <input
+          aria-label="Programme file (PDF, Word, Excel or text, up to 5 MB)"
           type="file"
           accept=".pdf,.docx,.xlsx,.csv,.txt,.md"
           disabled={busy || !rights}
@@ -564,7 +622,10 @@ function ProgrammeMaterial({
             }
             void run(async () => {
               const bytes = new Uint8Array(await file.arrayBuffer());
-              const title = file.name.replace(/\.[^.]+$/, "").trim().slice(0, 120);
+              const title = file.name
+                .replace(/\.[^.]+$/, "")
+                .trim()
+                .slice(0, 120);
               let binary = "";
               for (let i = 0; i < bytes.length; i += 0x8000)
                 binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
@@ -647,7 +708,9 @@ function PageStep({
     (s) => s.id === setup.about.values.specialty,
   )?.label;
   const name = String(setup.about.values.name || tenant.name || "");
-  const changed = headline !== String(theme.headline ?? "") || bio !== String(theme.bio ?? "");
+  const changed =
+    headline !== String(theme.headline ?? "") ||
+    bio !== String(theme.bio ?? "");
   const run = async (fn: () => Promise<unknown>, done: string) => {
     setBusy(true);
     setProblem("");
@@ -663,7 +726,8 @@ function PageStep({
           ? "Your page changed since this loaded. It has been refreshed; check it and approve again."
           : err.message,
       );
-      if (err.code === "PREVIEW_CHANGED" || err.code === "STALE_ONBOARDING") await onSaved();
+      if (err.code === "PREVIEW_CHANGED" || err.code === "STALE_ONBOARDING")
+        await onSaved();
     } finally {
       setBusy(false);
     }
@@ -694,6 +758,7 @@ function PageStep({
         <label className="field">
           <span>Headline</span>
           <input
+            aria-label="Headline"
             value={headline}
             maxLength={160}
             onChange={(e) => setHeadline(e.target.value)}
@@ -703,15 +768,22 @@ function PageStep({
         <label className="field">
           <span>About you</span>
           <textarea
+            aria-label="About you"
             rows={5}
             value={bio}
             maxLength={2000}
             onChange={(e) => setBio(e.target.value)}
             placeholder="How you coach and who it is for, in a few sentences."
           />
-          <small>No phone numbers, links or health claims; clients contact you through your page.</small>
+          <small>
+            No phone numbers, links or health claims; clients contact you
+            through your page.
+          </small>
         </label>
-        <button className="button secondary" disabled={busy || !changed || !headline.trim() || !bio.trim()}>
+        <button
+          className="button secondary"
+          disabled={busy || !changed || !headline.trim() || !bio.trim()}
+        >
           Save page text
         </button>
       </form>
@@ -721,7 +793,9 @@ function PageStep({
         <div className="setup-preview">
           <p className="eyebrow">{specialty ?? "Your specialty"}</p>
           <strong className="setup-preview-name">{name || "Your name"}</strong>
-          <p className="setup-preview-headline">{theme.headline || "Your headline"}</p>
+          <p className="setup-preview-headline">
+            {theme.headline || "Your headline"}
+          </p>
           <p>{theme.bio || "Your text about you."}</p>
           {setup.page.subdomain.host && (
             <p className="muted">{setup.page.subdomain.host}</p>
@@ -743,13 +817,19 @@ function PageStep({
         )}
         {setup.page.approved ? (
           <p className="setup-done-line">
-            <Check size={16} /> Approved. Changing what the public sees asks you again.
+            <Check size={16} /> Approved. Changing what the public sees asks you
+            again.
           </p>
         ) : (
           <button
             type="button"
             className="button"
-            disabled={busy || !setup.page.brandReady || setup.page.issues.length > 0 || changed}
+            disabled={
+              busy ||
+              !setup.page.brandReady ||
+              setup.page.issues.length > 0 ||
+              changed
+            }
             onClick={() =>
               void run(
                 () =>
@@ -765,7 +845,10 @@ function PageStep({
           </button>
         )}
         {!setup.page.brandReady && (
-          <p className="muted">Add a headline and some text about you, and choose your specialty in About you.</p>
+          <p className="muted">
+            Add a headline and some text about you, and choose your specialty in
+            About you.
+          </p>
         )}
         <p>
           <Link className="text-link" href="/trainer/website/preview">
@@ -791,9 +874,10 @@ function SubdomainPicker({
   onSaved: () => Promise<void>;
 }) {
   const sub = setup.page.subdomain;
-  const root = sub.host && sub.host.startsWith(sub.name + ".")
-    ? sub.host.slice(sub.name.length + 1)
-    : null;
+  const root =
+    sub.host && sub.host.startsWith(sub.name + ".")
+      ? sub.host.slice(sub.name.length + 1)
+      : null;
   const [name, setName] = useState(sub.name),
     [check, setCheck] = useState<SubdomainCheck | null>(null),
     [checking, setChecking] = useState(false),
@@ -852,12 +936,14 @@ function SubdomainPicker({
     >
       <h3>Your web address</h3>
       <p className="muted">
-        Your page opens here once you go live. Pick something short, like your name.
+        Your page opens here once you go live. Pick something short, like your
+        name.
       </p>
       <label className="field">
         <span>Address</span>
         <div className="input-affix setup-address">
           <input
+            aria-label="Address"
             value={name}
             onChange={(e) => setName(subdomainInput(e.target.value))}
             autoCapitalize="none"
@@ -879,7 +965,12 @@ function SubdomainPicker({
         <div className="setup-suggestions">
           <span className="muted">Free instead:</span>
           {check.suggestions!.map((s) => (
-            <button key={s} type="button" className="setup-chip" onClick={() => setName(s)}>
+            <button
+              key={s}
+              type="button"
+              className="setup-chip"
+              onClick={() => setName(s)}
+            >
               {s}
             </button>
           ))}
@@ -892,7 +983,9 @@ function SubdomainPicker({
       ) : (
         <button
           className="button secondary"
-          disabled={busy || checking || !check || !(check.available || check.current)}
+          disabled={
+            busy || checking || !check || !(check.available || check.current)
+          }
         >
           {unchanged ? "Keep this address" : "Reserve this address"}
         </button>
@@ -931,10 +1024,10 @@ function BrainStepFrame({
   return (
     <div className="setup-panel">
       <p>
-        Your Brain drafts replies the way you would. Teach it three ways: approve
-        its rules, answer a short quiz, and write a few client questions of your
-        own. It starts in <strong>Waits for me</strong>: nothing reaches a client
-        until you approve it.
+        Your Brain drafts replies the way you would. Teach it three ways:
+        approve its rules, answer a short quiz, and write a few client questions
+        of your own. It starts in <strong>Waits for me</strong>: nothing reaches
+        a client until you approve it.
       </p>
       <p>
         <button type="button" className="text-link" onClick={chat}>
@@ -1032,13 +1125,20 @@ function PlanStep({
         <h3>{live.length ? "Add another plan" : "Your first plan"}</h3>
         <label className="field">
           <span>Plan name</span>
-          <input value={name} minLength={2} maxLength={100} onChange={(e) => setName(e.target.value)} />
+          <input
+            aria-label="Plan name"
+            value={name}
+            minLength={2}
+            maxLength={100}
+            onChange={(e) => setName(e.target.value)}
+          />
         </label>
         <label className="field">
           <span>
             What clients get <span className="muted">(optional)</span>
           </span>
           <textarea
+            aria-label="What clients get (optional)"
             rows={3}
             maxLength={1500}
             value={description}
@@ -1049,11 +1149,21 @@ function PlanStep({
         <fieldset className="setup-choice">
           <legend>How clients pay</legend>
           <label className="check-field">
-            <input type="radio" name="billing" checked={billing === "monthly"} onChange={() => setBilling("monthly")} />
+            <input
+              type="radio"
+              name="billing"
+              checked={billing === "monthly"}
+              onChange={() => setBilling("monthly")}
+            />
             Every month
           </label>
           <label className="check-field">
-            <input type="radio" name="billing" checked={billing === "upfront"} onChange={() => setBilling("upfront")} />
+            <input
+              type="radio"
+              name="billing"
+              checked={billing === "upfront"}
+              onChange={() => setBilling("upfront")}
+            />
             Once, for a fixed programme
           </label>
         </fieldset>
@@ -1061,18 +1171,24 @@ function PlanStep({
           <label className="field">
             <span>Price (AED{billing === "monthly" ? " a month" : ""})</span>
             <input
+              aria-label={`Price (AED${billing === "monthly" ? " a month" : ""})`}
               inputMode="decimal"
               value={price}
               onChange={(e) => setPrice(e.target.value)}
               placeholder="Your price"
               aria-invalid={price !== "" && (minor === null || tooLow)}
             />
-            {tooLow && <small>The lowest price is AED {STRIPE_MIN_CHARGE_AED_MINOR / 100}.</small>}
+            {tooLow && (
+              <small>
+                The lowest price is AED {STRIPE_MIN_CHARGE_AED_MINOR / 100}.
+              </small>
+            )}
           </label>
           {billing === "upfront" && (
             <label className="field">
               <span>Programme length (days)</span>
               <input
+                aria-label="Programme length (days)"
                 type="number"
                 min={7}
                 max={365}
@@ -1086,7 +1202,10 @@ function PlanStep({
           Clients pay through trainsyou. Your bank details are asked at your
           first payout, not now.
         </p>
-        <button className="button" disabled={busy || minor === null || tooLow || name.trim().length < 2}>
+        <button
+          className="button"
+          disabled={busy || minor === null || tooLow || name.trim().length < 2}
+        >
           Save plan
         </button>
         {note && (
@@ -1102,8 +1221,17 @@ function PlanStep({
 
 // ------------------------------------------------------------ 6 go live
 
-function LiveStep({ setup, onSaved }: { setup: Setup; onSaved: () => Promise<void> }) {
-  const groups = useMemo(() => goLiveGroups(setup.goLive.checks), [setup.goLive.checks]);
+function LiveStep({
+  setup,
+  onSaved,
+}: {
+  setup: Setup;
+  onSaved: () => Promise<void>;
+}) {
+  const groups = useMemo(
+    () => goLiveGroups(setup.goLive.checks),
+    [setup.goLive.checks],
+  );
   const [busy, setBusy] = useState(false),
     [problem, setProblem] = useState(""),
     [mfa, setMfa] = useState(false),
@@ -1248,8 +1376,8 @@ function Authenticator({
     return (
       <div className="setup-mfa">
         <p>
-          <strong>Save these recovery codes privately.</strong> Each one gets you
-          back in if you lose your phone. They are shown once.
+          <strong>Save these recovery codes privately.</strong> Each one gets
+          you back in if you lose your phone. They are shown once.
         </p>
         <ul className="setup-codes">
           {recovery.map((c) => (
@@ -1267,6 +1395,7 @@ function Authenticator({
     <label className="field">
       <span>6-digit code from your authenticator app</span>
       <input
+        aria-label="6-digit code from your authenticator app"
         inputMode="numeric"
         autoComplete="one-time-code"
         pattern="\d{6}"
@@ -1280,6 +1409,7 @@ function Authenticator({
     <label className="field">
       <span>Your password</span>
       <input
+        aria-label="Your password"
         type="password"
         autoComplete="current-password"
         value={password}
@@ -1302,7 +1432,10 @@ function Authenticator({
         <p>Confirm it is you to go live.</p>
         {passwordField}
         {codeField}
-        <button className="button" disabled={busy || code.length !== 6 || !password}>
+        <button
+          className="button"
+          disabled={busy || code.length !== 6 || !password}
+        >
           Confirm and go live
         </button>
         <Problem text={problem} />

@@ -32,7 +32,11 @@ export type Teach = {
   approveAll: Array<{ id: string; version: number }>;
   flaggedDrafts: number;
   quiz: { open: Round | null; completedRounds: number };
-  ownCases: { count: number; forWaitsForMe: number; forSendsAutomatically: number };
+  ownCases: {
+    count: number;
+    forWaitsForMe: number;
+    forSendsAutomatically: number;
+  };
   meter: {
     score: number;
     level: number;
@@ -41,7 +45,12 @@ export type Teach = {
     automaticActions: number;
     next: string[];
   };
-  levels: Array<{ level: number; name: string; summary: string; automaticActions: number }>;
+  levels: Array<{
+    level: number;
+    name: string;
+    summary: string;
+    automaticActions: number;
+  }>;
   launch: {
     live: boolean;
     liveMode: "waits_for_me" | "checked" | null;
@@ -118,9 +127,13 @@ export function RuleCards({
               disabled={busy || !teach.approveAll.length}
               onClick={() =>
                 void run(async () => {
-                  const out = await setupApi("/brain/rules/approve-all", "POST", {
-                    rules: teach.approveAll,
-                  });
+                  const out = await setupApi(
+                    "/brain/rules/approve-all",
+                    "POST",
+                    {
+                      rules: teach.approveAll,
+                    },
+                  );
                   const skipped = out.skipped?.length ?? 0;
                   return `${out.approved.length} approved.${
                     skipped
@@ -159,7 +172,9 @@ export function RuleCards({
                   <input
                     type="checkbox"
                     checked={!!ack[r.id]}
-                    onChange={(e) => setAck({ ...ack, [r.id]: e.target.checked })}
+                    onChange={(e) =>
+                      setAck({ ...ack, [r.id]: e.target.checked })
+                    }
                   />
                   I read the warning
                 </label>
@@ -179,7 +194,10 @@ export function RuleCards({
                   >
                     Approve this rule
                   </button>
-                  <Link className="button secondary" href="/trainer/brain/teaching">
+                  <Link
+                    className="button secondary"
+                    href="/trainer/brain/teaching"
+                  >
                     Edit in My Brain
                   </Link>
                 </div>
@@ -267,6 +285,7 @@ export function TeachByText({
       <label className="field">
         <span>{label}</span>
         <textarea
+          aria-label={label}
           rows={3}
           value={text}
           minLength={10}
@@ -274,9 +293,14 @@ export function TeachByText({
           placeholder="For example: When a beginner misses a week, I restart them at their last easy week, never where they stopped."
           onChange={(e) => setText(e.target.value)}
         />
-        <small>Describe clients in general terms, without names or contact details.</small>
+        <small>
+          Describe clients in general terms, without names or contact details.
+        </small>
       </label>
-      <button className="button secondary" disabled={busy || text.trim().length < 10}>
+      <button
+        className="button secondary"
+        disabled={busy || text.trim().length < 10}
+      >
         {busy ? "Drafting rules…" : "Draft rules from this"}
       </button>
       <Problem text={error} />
@@ -325,7 +349,9 @@ export function PracticeQuiz({
       const next: Round = await setupApi(
         `/brain/quiz/rounds/${round.id}/answers`,
         "POST",
-        verdict === "yes" ? { caseId: c.id, verdict } : { caseId: c.id, verdict, reply },
+        verdict === "yes"
+          ? { caseId: c.id, verdict }
+          : { caseId: c.id, verdict, reply },
       );
       setRound(next);
       setChanging(false);
@@ -343,7 +369,8 @@ export function PracticeQuiz({
       <div className="setup-quiz">
         {finished > 0 && (
           <p className="setup-done-line">
-            <Check size={16} /> {finished} quiz round{finished === 1 ? "" : "s"} finished.
+            <Check size={16} /> {finished} quiz round{finished === 1 ? "" : "s"}{" "}
+            finished.
           </p>
         )}
         {(!finished || again) && (
@@ -387,8 +414,8 @@ export function PracticeQuiz({
       </div>
       {current.source === "platform" && (
         <p className="setup-safety">
-          <ShieldCheck size={16} /> A safety question from trainsyou. These always
-          come to you.
+          <ShieldCheck size={16} /> A safety question from trainsyou. These
+          always come to you.
         </p>
       )}
       <p className="eyebrow">A client writes</p>
@@ -412,6 +439,7 @@ export function PracticeQuiz({
           <label className="field">
             <span>How would you reply?</span>
             <textarea
+              aria-label="How would you reply?"
               rows={3}
               value={reply}
               minLength={3}
@@ -429,7 +457,10 @@ export function PracticeQuiz({
             >
               Back
             </button>
-            <button className="button" disabled={busy || reply.trim().length < 3}>
+            <button
+              className="button"
+              disabled={busy || reply.trim().length < 3}
+            >
               Save my reply
             </button>
           </div>
@@ -513,6 +544,7 @@ export function OwnCases({
           <label className="field">
             <span>What a client might write</span>
             <textarea
+              aria-label="What a client might write"
               rows={2}
               value={prompt}
               minLength={10}
@@ -523,7 +555,12 @@ export function OwnCases({
           </label>
           <label className="field">
             <span>Which of your rules answers it</span>
-            <select value={rule} onChange={(e) => setRule(e.target.value)} required>
+            <select
+              aria-label="Which of your rules answers it"
+              value={rule}
+              onChange={(e) => setRule(e.target.value)}
+              required
+            >
               <option value="">Choose a rule</option>
               {approved.map((r) => (
                 <option key={r.id} value={r.id}>
@@ -575,7 +612,12 @@ export function BrainStep({
   const { teach, error, reload } = teachState;
   const [busy, setBusy] = useState(false),
     [launchError, setLaunchError] = useState("");
-  if (!teach) return error ? <Problem text={error} /> : <p className="muted">Loading your Brain…</p>;
+  if (!teach)
+    return error ? (
+      <Problem text={error} />
+    ) : (
+      <p className="muted">Loading your Brain…</p>
+    );
   const groups = ruleGroups(teach.rules);
   const list = brainChecklist({
     approvedRules: groups.approved.length,
@@ -673,7 +715,14 @@ export function BrainStep({
 export function KeepTraining({
   grow,
 }: {
-  grow: Array<{ key: string; label: string; done: boolean; href: string; note?: string; optional?: boolean }>;
+  grow: Array<{
+    key: string;
+    label: string;
+    done: boolean;
+    href: string;
+    note?: string;
+    optional?: boolean;
+  }>;
 }) {
   const teachState = useTeach();
   const { teach, error, reload } = teachState;
@@ -695,18 +744,25 @@ export function KeepTraining({
     await reload();
     await loadSuggestions();
   };
-  if (!teach) return error ? <Problem text={error} /> : <p className="muted">Loading…</p>;
+  if (!teach)
+    return error ? <Problem text={error} /> : <p className="muted">Loading…</p>;
   const pending =
-    (suggestions?.teaching?.length ?? 0) + (suggestions?.replyCorrections?.length ?? 0);
+    (suggestions?.teaching?.length ?? 0) +
+    (suggestions?.replyCorrections?.length ?? 0);
   return (
     <div className="setup-keep">
-      <section className="setup-panel setup-meter-panel" aria-labelledby="meter-h">
+      <section
+        className="setup-panel setup-meter-panel"
+        aria-labelledby="meter-h"
+      >
         <div className="setup-meter-top">
           <div>
             <p className="eyebrow">Brain trained</p>
             <h2 id="meter-h">{meterText(teach.meter.score)}</h2>
           </div>
-          <span className="setup-level">Level {teach.meter.level}: {teach.meter.name}</span>
+          <span className="setup-level">
+            Level {teach.meter.level}: {teach.meter.name}
+          </span>
         </div>
         <Meter
           value={teach.meter.score}
@@ -725,7 +781,16 @@ export function KeepTraining({
         )}
         <ol className="setup-levels">
           {teach.levels.map((l) => (
-            <li key={l.level} className={l.level === teach.meter.level ? "is-current" : l.level < teach.meter.level ? "is-done" : ""}>
+            <li
+              key={l.level}
+              className={
+                l.level === teach.meter.level
+                  ? "is-current"
+                  : l.level < teach.meter.level
+                    ? "is-done"
+                    : ""
+              }
+            >
               <strong>{l.name}</strong>
               <small>
                 {l.automaticActions
@@ -749,8 +814,8 @@ export function KeepTraining({
           <>
             <h3 className="setup-subhead">From your corrections</h3>
             <p>
-              {pending} of your changed replies can become rules. Your
-              corrected wording is used, never the client's message.
+              {pending} of your changed replies can become rules. Your corrected
+              wording is used, never the client's message.
             </p>
             <button
               type="button"
@@ -760,13 +825,24 @@ export function KeepTraining({
                 setBusy(true);
                 setProblem("");
                 try {
-                  const out = await setupApi("/brain/teach/suggestions/compile", "POST", {
-                    teachingIds: (suggestions.teaching ?? []).slice(0, 20).map((t: any) => t.id),
-                    correctionIds: (suggestions.replyCorrections ?? [])
-                      .slice(0, Math.max(0, 20 - (suggestions.teaching?.length ?? 0)))
-                      .map((c: any) => c.id),
-                  });
-                  setNote(`${out.rules?.length ?? 0} draft rules suggested. Approve them above.`);
+                  const out = await setupApi(
+                    "/brain/teach/suggestions/compile",
+                    "POST",
+                    {
+                      teachingIds: (suggestions.teaching ?? [])
+                        .slice(0, 20)
+                        .map((t: any) => t.id),
+                      correctionIds: (suggestions.replyCorrections ?? [])
+                        .slice(
+                          0,
+                          Math.max(0, 20 - (suggestions.teaching?.length ?? 0)),
+                        )
+                        .map((c: any) => c.id),
+                    },
+                  );
+                  setNote(
+                    `${out.rules?.length ?? 0} draft rules suggested. Approve them above.`,
+                  );
                   await changed();
                 } catch (e) {
                   setProblem((e as Error).message);

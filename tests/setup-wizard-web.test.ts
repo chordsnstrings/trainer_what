@@ -268,6 +268,24 @@ test("the workspace opens the wizard, redirects the older checklist and lands si
   assert.match(layout, /import "\.\/setup-wizard\.css";/);
 });
 
+test("wizard fields are named by their label alone, not by their value or selected option", async () => {
+  // A select inside its <label> is otherwise announced with the chosen
+  // option ("Your specialty Choose one"); an explicit name keeps it exact.
+  const wizard = await source("components/setup-wizard.tsx");
+  assert.match(wizard, /aria-label="Your specialty"\s+value=\{values\.specialty\}/);
+  assert.match(wizard, /aria-label="Where you coach"\s+value=\{values\.emirate\}/);
+  const brain = await source("components/setup-brain.tsx");
+  assert.match(brain, /aria-label="Which of your rules answers it"/);
+  // The same holds for text fields once they have a value ("Who you coach
+  // Adults building..."), so every field inside a label carries its own name.
+  for (const [file, text] of [["setup-wizard.tsx", wizard], ["setup-brain.tsx", brain]])
+    for (const m of text.matchAll(/<label className="field">([\s\S]*?)<\/label>/g)) {
+      const control = m[1].match(/<(input|textarea|select)\b[^>]*/);
+      if (!control || /type="checkbox"/.test(control[0])) continue;
+      assert.match(control[0], /aria-label=/, `${file}: ${m[1].slice(0, 80)}`);
+    }
+});
+
 test("wizard screens use plain words and never name a model or its maker", async () => {
   const files = [
     "components/setup-wizard.tsx",
