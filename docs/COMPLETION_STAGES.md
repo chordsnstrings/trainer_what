@@ -6,6 +6,18 @@ Application implementation and the job audit are complete for the current phase.
 
 The local environment restored an older snapshot. Yesterday's uncommitted completion work is absent. The recovery note on `work-in-progress/completion-2026-09-25` documents intended behavior, not preserved source. Work here starts from published `620eef1` and reconstructs missing features. Previously passing release evidence does not verify these new changes.
 
+## Stage 2026-09-30d — round 4, coach sign-up and setup wizard backend (r4/signup-backend from main `32ed5fe`, not pushed, not merged, not deployed)
+
+Owner decisions of 30 September (open self-serve sign-up behind the existing legal gate; one six-step wizard; custom subdomain; automatic go-live checks; bank details at first payout; "Report this coach"). Details: `docs/features/coach-setup.md`.
+
+- Sign-up: email + six-digit code through Resend (new Super admin settings "Resend email", off until a key is saved; account emails then also use Resend), `GET /public/signup-options`, `POST /auth/signup/code|verify`; `/auth/register` keeps working with an optional slug. Migration 078 (`coach_signup_codes`, `coach_reports`).
+- Wizard: `GET /setup`, `PUT /setup/:step` (save, resume, skip for later, prefill from sign-up and the person's early-access request), `GET /setup/subdomain/check`, `PUT /setup/subdomain` (before launch, no authenticator and no redirect; once live, the web-address rename with its redirect), `POST /setup/go-live`.
+- Go-live checks replace the checklist gates: real name, verified email, approved and clean page (no contact details or medical claims), subdomain, priced plan, Brain minimum (3 own cases plus 8 quiz answers or 20 cases; `POST /brain/evaluate` uses the same rule; automatic sending unchanged); legal, payments and the model are "waiting on trainsyou". Payout and its review left launch (payouts still need a verified beneficiary); "Meet your Brain" and "Your address" removed; the page approval covers only public content; the authenticator is asked on the go-live screen.
+- Report this coach: public endpoint plus Super admin list and review (suspension stays the governance action).
+- Checks actually run: `npx tsc --noEmit` (root) and `-p apps/web/tsconfig.json` pass; PGlite `tests/coach-setup.test.ts` 10/10, `tests/onboarding-completion.test.ts` 6/6, the onboarding test in `tests/platform.test.ts` and the legacy Brain evaluation test in `tests/fix-coaching.test.ts` pass; restricted-role PostgreSQL (`pg-sandbox.sh 56987`, migrations, grant verification) `coach-setup` 10/10, `onboarding-completion` 6/6, `platform` 37/37. Not run: full suite, e2e, browser checks.
+- Live Seed 2.0 Pro (no prompt changed; the app's held-out evaluation over the wizard's minimum): 22/26; the two medication/supplement quiz cases fail the reason screen in both runs (details in the feature doc). Open for the Brain/quiz builder.
+- Remaining: the web wizard; the quiz endpoint must set `origin: "platform_quiz"` server-side; the old `onboarding.tsx` still has dead "Meet your Brain"/"Your address" branches.
+
 ## Stage 2026-09-30c — host-only Superadmin recovery (claude/repository-overview-osejlw from main `5d3ad59`, pushed, no pull request, not deployed)
 
 Owner (30 September) approved a host-only Superadmin recovery command after losing admin access. Email delivery is not configured, the first-admin bootstrap refuses once a Superadmin exists, and `operator:role` needs an existing Superadmin's authenticator code. Root access on the server is the authority (the same trust as the bootstrap and `operator:role reset-mfa`).

@@ -9,7 +9,11 @@ export const signupSchema = z
     name: z.string().trim().min(2).max(100),
     email: z.email().transform((s) => s.toLowerCase()),
     password: z.string().min(12).max(128),
-    slug: z.string().regex(/^[a-z][a-z0-9-]{2,39}$/),
+    /** Optional: the setup wizard lets the coach choose it later. */
+    slug: z
+      .string()
+      .regex(/^[a-z][a-z0-9-]{2,39}$/)
+      .optional(),
     accepted: z.literal(true),
   })
   .strict();
@@ -105,3 +109,4 @@ export const productSchema = z
       });
   });
 export * from "./marketing-features.ts";
+export * from "./coach-setup.ts";

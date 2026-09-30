@@ -1569,7 +1569,8 @@ test("all onboarding steps resume with optimistic concurrency and server-checked
   const coach = await register("onboarding-check");
   const first = await request("/onboarding", "GET", undefined, coach.cookie);
   assert.equal(first.statusCode, 200, first.body);
-  assert.equal(first.json().steps.length, 17);
+  // "Meet your Brain" and "Your address" were removed (30 September 2026).
+  assert.equal(first.json().steps.length, 15);
   assert.equal(first.json().licenceStatus, "NOT_REQUESTED");
   const values = {
     businessName: "Fixture Training",

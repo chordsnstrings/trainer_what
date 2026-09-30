@@ -1,5 +1,5 @@
 import { elevated, type Database } from "@trainer/db";
-import { sendEmail } from "@trainer/providers";
+import { emailTransport, sendEmail } from "@trainer/providers";
 import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
 import { notificationDeliveryDecision } from "../../api/src/notifications.ts";
 /** Account links are bearer credentials: keep them only while they may be sent. */
@@ -67,7 +67,7 @@ export async function executeEmailDelivery(
     return;
   }
   const config = runtimeConfig();
-  if (!config.EMAIL_API_KEY || !config.EMAIL_API_URL || !config.EMAIL_FROM) {
+  if (!emailTransport(config)) {
     // Nothing was dispatched. An edited integration stays inactive until it is
     // tested again, so wait for it instead of blocking account emails. Waiting
     // does not count as a delivery attempt.

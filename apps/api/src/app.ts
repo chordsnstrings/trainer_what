@@ -58,6 +58,8 @@ import {
 import { registerCoachSite, saveCoachBrand } from "./coach-site.ts";
 import { registerDiscovery } from "./discovery.ts";
 import { registerEarlyAccess } from "./early-access.ts";
+import { freeStartingSlug, registerCoachSignup } from "./coach-signup.ts";
+import { registerCoachSetup } from "./coach-setup.ts";
 import { registerMarketing, type InstagramTransport } from "./marketing.ts";
 import {
   registerIntegrationCompletion,
@@ -196,6 +198,9 @@ import {
 import {
   platformName,
   signupSchema,
+  brainCaseCoverage,
+  FULL_CASE_SET,
+  SETUP_BRAIN_MINIMUM,
   loginSchema,
   brandSchema,
   intakeSchema,
@@ -699,6 +704,8 @@ export async function buildApp(
     instagramTransport: options.providers?.instagram,
   });
   registerEarlyAccess(app, db, identity);
+  registerCoachSignup(app, db, session);
+  registerCoachSetup(app, db, identity);
   platformSettingsRoutes(app, db, identity);
   financeOperations(app, db, identity);
   privacyOperations(app, db, identity, privacyHooks);
@@ -757,13 +764,16 @@ export async function buildApp(
       );
       // The slug is also the workspace subdomain (<slug>.<root>): reserved
       // names and a previous slug still redirecting are refused.
-      await assertSlugAvailable(db, b.slug);
+      if (b.slug) await assertSlugAvailable(db, b.slug);
       if (strictSecurity() && runtimeConfig().LEGAL_APPROVED !== "true")
         throw fail(
           503,
           "LEGAL_PENDING",
           "Registration is waiting for the published legal documents",
         );
+      // The setup wizard lets the coach choose their address; until then a
+      // free one is reserved from their name.
+      const slug = b.slug ?? (await freeStartingSlug(db, b.name));
       const uid = randomUUID(),
         tid = randomUUID(),
         hash = await passwordHash(b.password);
@@ -774,7 +784,7 @@ export async function buildApp(
         );
         await tx.query("INSERT INTO tenants(id,slug,name) VALUES($1,$2,$3)", [
           tid,
-          b.slug,
+          slug,
           b.name,
         ]);
         await tx.query(
@@ -1574,11 +1584,14 @@ export async function buildApp(
         `Evaluation covers at most ${HELD_OUT_SCENARIO_LIMIT} held-out scenarios; nothing has been evaluated`,
       );
     assertReleaseRuleLimit(material.rules.length);
-    if (material.cases.length < 20)
+    // The setup wizard's minimum (8 confirmed quiz answers and 3 cases the
+    // coach wrote) or the earlier 20; "Sends automatically" keeps its own
+    // full check in coaching-runtime.ts.
+    if (!brainCaseCoverage(material.cases).enough)
       throw fail(
         409,
         "EVAL_COVERAGE",
-        "Add at least 20 held-out scenarios before evaluating a release",
+        `Answer at least ${SETUP_BRAIN_MINIMUM.quiz} practice quiz questions and write ${SETUP_BRAIN_MINIMUM.own} of your own cases (or add ${FULL_CASE_SET} cases) before checking your Brain`,
       );
     const outcomes: Array<{
       scenarioId: string;

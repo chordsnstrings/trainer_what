@@ -250,7 +250,7 @@ test("launch requires effective published legal versions and previews expire whe
   );
 });
 
-test("preview acknowledgement binds to what was shown and foreign teaching does not affect a workspace", async () => {
+test("preview acknowledgement binds to what the public sees; private teaching never resets it", async () => {
   const a = await person(),
     other = await person();
   const viewed = await state(a);
@@ -271,8 +271,17 @@ test("preview acknowledgement binds to what was shown and foreign teaching does 
       { status: "confirmed" },
     ),
   );
+  const taught = await state(a);
+  assert.equal(step(taught, "interview").status, "complete");
+  // Teaching is private: the approval stays (the "preview tick" trap).
+  assert.equal(step(taught, "preview").status, "complete");
+  assert.equal(taught.previewDigest, reviewed.previewDigest);
+  await db.system((tx) =>
+    tx.query("UPDATE tenants SET name='Renamed Coach' WHERE id=$1", [
+      a.tenantId,
+    ]),
+  );
   const changed = await state(a);
-  assert.equal(step(changed, "interview").status, "complete");
   assert.equal(step(changed, "preview").status, "draft");
   assert.equal((await state(other)).previewDigest, before.previewDigest);
   const stale = await req(a, "/preview", "PUT", {
@@ -335,7 +344,8 @@ test("base Brain and automatic qualification use current rules, action boundarie
   s = await state(a, { MODEL_NAME: "changed-model-fixture" });
   assert.equal(s.teaching.runtime.current, false);
   assert.equal(step(s, "readiness").status, "blocked");
-  assert.equal(step(s, "preview").status, "draft");
+  // Model and automation settings are private: the page approval stays.
+  assert.equal(step(s, "preview").status, "complete");
   await db.tenant(a, (tx) =>
     tx.query(
       'UPDATE records SET data=data||\'{"response":"Use the shorter planned session"}\'::jsonb,version=version+1 WHERE id=$1',
@@ -405,7 +415,8 @@ test("nutrition setup reflects independent current case checks and preview witho
       );
   });
   let s = await state(a);
-  assert.equal(s.steps.length, 23);
+  // "Meet your Brain" and "Your address" are gone (21 with nutrition).
+  assert.equal(s.steps.length, 21);
   assert.equal(step(s, "nutrition-cases").status, "complete");
   assert.equal(step(s, "nutrition-preview").status, "blocked");
   await withRuntimeConfig(config, () =>
@@ -461,7 +472,8 @@ test("nutrition setup reflects independent current case checks and preview witho
   );
   s = await state(a);
   assert.equal(s.teaching.nutrition.calorieMethods, 1);
-  assert.equal(step(s, "preview").status, "draft");
+  // Nutrition teaching is private: the page approval stays.
+  assert.equal(step(s, "preview").status, "complete");
   await db.tenant(a, (tx) =>
     tx.query(
       "UPDATE records SET version=version+1 WHERE kind='nutrition_policy'",
@@ -487,13 +499,14 @@ test("nutrition setup reflects independent current case checks and preview witho
     );
   });
   s = await state(a);
-  assert.equal(s.steps.length, 23);
+  // "Meet your Brain" and "Your address" are gone (21 with nutrition).
+  assert.equal(s.steps.length, 21);
   assert.equal(step(s, "nutrition-readiness").required, true);
   assert.match(step(s, "nutrition-readiness").blocker, /enable nutrition/i);
   assert.ok(s.gates.some((g: any) => g.key === "nutrition-readiness"));
 });
 
-test("saved website and gallery changes invalidate review while launch does not require website publication", async () => {
+test("gallery changes invalidate review, private drafts do not, and launch does not require website publication", async () => {
   const a = await person();
   await baseBrain(a);
   await db.tenant(a, async (tx) => {
@@ -518,7 +531,7 @@ test("saved website and gallery changes invalidate review while launch does not 
       tx,
       a,
       "onboarding_step",
-      { step: "brain-intro", values: { understood: true } },
+      { step: "subdomain", values: { slug: "onboarding-" + a.tenantId } },
       { status: "saved" },
     );
     await putRecord(
@@ -587,10 +600,10 @@ test("saved website and gallery changes invalidate review while launch does not 
     ),
   );
   s = await state(a);
-  assert.equal(step(s, "preview").status, "draft");
+  // An unpublished website draft is private: the approval stays.
+  assert.equal(step(s, "preview").status, "complete");
   assert.equal(s.preview.website.published, null);
   assert.equal(s.preview.website.draft.headline, "A revised private website");
-  await review(a, s);
   await db.tenant(a, (tx) =>
     tx.query(
       'INSERT INTO coach_design_drafts(tenant_id,data) VALUES($1,\'{"headline":"Private design"}\')',
@@ -598,8 +611,7 @@ test("saved website and gallery changes invalidate review while launch does not 
     ),
   );
   s = await state(a);
-  assert.equal(step(s, "preview").status, "draft");
-  await review(a, s);
+  assert.equal(step(s, "preview").status, "complete");
   const analyticsToken = newToken(),
     visitorId = randomUUID();
   await db.system((tx) =>
