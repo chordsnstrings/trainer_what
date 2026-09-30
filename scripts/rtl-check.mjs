@@ -67,6 +67,7 @@ const FOLLOWER_ROUTES = [
   "/app/progress",
   "/app/membership",
   "/app/profile",
+  "/app/more",
 ];
 
 const failures = [];
@@ -218,6 +219,23 @@ function measure(page) {
     const main = document
       .querySelector(".workspace > .main")
       ?.getBoundingClientRect();
+    // The member app (components/member-shell.tsx): a side navigation from
+    // 1024 px, a bottom tab bar below that.
+    const visibleRect = (selector) => {
+      const el = document.querySelector(selector);
+      if (!el || getComputedStyle(el).display === "none") return null;
+      const r = el.getBoundingClientRect();
+      return { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+    };
+    const memberShell = !!document.querySelector(".member-shell");
+    const memberSide = visibleRect(".member-sidenav");
+    const memberFrame = visibleRect(".member-frame");
+    const memberTabs = visibleRect(".member-tabbar");
+    const memberCurrentTab = document.querySelector(
+      ".member-tabbar [aria-current='page']",
+    )
+      ? true
+      : false;
     return {
       main: main ? { left: main.left, right: main.right } : null,
       dir: root.dir,
@@ -232,16 +250,37 @@ function measure(page) {
         ? { left: sidebarRect.left, right: sidebarRect.right }
         : null,
       sidebarOffCanvas,
+      memberShell,
+      memberSide,
+      memberFrame,
+      memberTabs,
+      memberCurrentTab,
+      // The member chrome in the page language (docs/features/arabic.md):
+      // tab labels, the top bar title and the page's main heading.
+      memberChrome: (() => {
+        if (!document.querySelector(".member-frame")) return null;
+        const text = (selector) =>
+          [...document.querySelectorAll(selector)]
+            .filter((el) => el.getClientRects().length)
+            .map((el) => el.textContent.trim())
+            .filter(Boolean);
+        return {
+          tabs: text(".member-tabbar .member-tab-label, .member-sidenav nav a"),
+          title: text(".member-topbar-title"),
+          heading: text(".member-content h1").slice(0, 1),
+        };
+      })(),
+      memberBackMirrored: mirrored(".member-back .lucide-chevron-left"),
       chevronMirrored: mirrored(".topbar .lucide-chevron-right"),
       arrowMirrored: mirrored(".lucide-arrow-right, .lucide-arrow-up-right"),
       // The marketing header (.mk-header, its content in .mk-header-inner)
-      // replaced .public-header on the platform pages; coach pages keep
-      // .public-header.
+      // is on the platform pages; coach sign-in and joining pages have the
+      // compact .subscriber-header (components/public-header.tsx).
       publicWordmark: center(
-        ".public-header > .wordmark, .mk-header-inner > .wordmark",
+        ".subscriber-header > .wordmark, .mk-header-inner > .wordmark",
       ),
       publicAction: center(
-        ".public-header > .button, .mk-header-actions > .button",
+        ".subscriber-header > nav > .button, .mk-header-actions > .button",
       ),
       siteIdentity: center(".site-header > a"),
       siteNav: center(".site-header > nav"),
@@ -305,7 +344,40 @@ async function assertRtl(page, label, extra = {}) {
     fail(label, "an address prefix is not left of its input");
   if (m.auditTimesAtEnd === false)
     fail(label, "an audit timestamp is not at the end of its row");
-  if (extra.workspace) {
+  if (extra.workspace && m.memberShell) {
+    // The member app: side navigation on the right from 1024 px, else a
+    // bottom tab bar with the current tab marked; no navigation drawer.
+    if (m.width >= 1024) {
+      if (!m.memberSide) fail(label, "no member side navigation");
+      else if (Math.abs(m.memberSide.right - m.width) > 1)
+        fail(
+          label,
+          `member navigation is not on the right (right edge ${m.memberSide.right})`,
+        );
+      else if (!m.memberFrame || m.memberFrame.right > m.memberSide.left + 1)
+        fail(label, "member content overlaps the side navigation");
+    } else {
+      if (!m.memberTabs) fail(label, "no bottom tab bar");
+      else if (!m.memberCurrentTab)
+        fail(label, "no tab is marked as the current page");
+      if (m.memberSide) fail(label, "the side navigation shows on a phone");
+    }
+    if (m.memberBackMirrored === false)
+      fail(label, "the back button's chevron did not mirror");
+    // Every navigation label, the top bar title and the page heading are
+    // Arabic (the coach's own name may sit beside them).
+    if (m.memberChrome) {
+      const arabic = /[\u0600-\u06FF]/;
+      const english = m.memberChrome.tabs.filter(
+        (s) => !arabic.test(s) || /[A-Za-z]{3,}/.test(s),
+      );
+      if (english.length)
+        fail(label, `navigation not in Arabic: ${english.join(", ")}`);
+      for (const text of [...m.memberChrome.title, ...m.memberChrome.heading])
+        if (!arabic.test(text))
+          fail(label, `heading not in Arabic: ${text.slice(0, 60)}`);
+    }
+  } else if (extra.workspace) {
     if (!m.sidebar) fail(label, "no workspace navigation");
     else if (m.width >= 651) {
       if (Math.abs(m.sidebar.right - m.width) > 1)
@@ -373,7 +445,8 @@ async function signIn(page, email) {
 /** Saves the member's language in the real settings screen. */
 async function chooseLanguage(page, settingsPath, value) {
   await visit(page, settingsPath);
-  const select = page.getByLabel("Message language");
+  // The settings screen is in the member's current language.
+  const select = page.getByLabel(/Message language|لغة الرسائل/);
   await select.waitFor();
   await select.selectOption(value);
   const [response] = await Promise.all([
@@ -382,7 +455,9 @@ async function chooseLanguage(page, settingsPath, value) {
         r.url().endsWith("/api/v1/notifications/preferences") &&
         r.request().method() === "PUT",
     ),
-    page.getByRole("button", { name: "Save preferences" }).click(),
+    page
+      .getByRole("button", { name: /Save preferences|حفظ التفضيلات/ })
+      .click(),
   ]);
   if (!response.ok())
     throw new Error(`Saving the language failed: ${response.status()}`);
@@ -602,7 +677,13 @@ try {
         await screen(label, async () => {
           await visit(page, route);
           await assertRtl(page, label, { workspace: true });
-          if (viewport.width < 651 && route === member.routes[0])
+          // Members navigate with the bottom tab bar (checked above); the
+          // drawer belongs to the trainer and operator workspace.
+          if (
+            viewport.width < 651 &&
+            route === member.routes[0] &&
+            member.section !== "follower"
+          )
             await assertMobileNavigation(
               page,
               `${viewport.name} ${member.audience} navigation`,

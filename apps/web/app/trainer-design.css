@@ -93,7 +93,8 @@
 .trainer-theme select {
   background: var(--white);
   color: var(--ink);
-  border-color: var(--line);
+  /* The same as --line in light (below); 3:1 in dark (appearance.css). */
+  border-color: var(--field-border);
   border-radius: var(--brand-button-radius);
 }
 .trainer-theme input::placeholder,

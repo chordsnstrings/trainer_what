@@ -92,7 +92,7 @@ export const FEATURE_MATRIX: CapabilityGroup[] = [
     items: [
       { name: "Sessions in your own voice", detail: "Cues, sets and rest, voiced from your own verified voice.", ...voice },
       { name: "Verified and consented", detail: "Identity verification and your separate, recorded consent, which you can withdraw.", ...voice },
-      { name: "Usage on your statement", detail: "Voice usage cost is passed through and itemised.", ...voice },
+      { name: "Only your subscribers", detail: "Used only for your own subscribers who add it, never for another trainer’s.", ...voice },
     ],
   },
   {
@@ -156,7 +156,7 @@ export const FEATURE_MATRIX: CapabilityGroup[] = [
       { name: "Trials and promotion codes", detail: "Free trial days and codes when you want them.", availability: paid },
       { name: "Card checkout", detail: "Through Stripe, with receipts and billing history for subscribers.", availability: paid },
       { name: "Refund decisions", detail: "Requests you approve or decline, reconciled with the payment provider.", availability: paid },
-      { name: "Transparent commission", detail: "Marginal bands of 25%, 20%, 15% and 10%; AI usage at cost." },
+      { name: "Transparent commission", detail: "Marginal bands of 25%, 20%, 15% and 10%." },
       { name: "Monthly statement", detail: "From gross revenue to net, every cost itemised." },
       { name: "Ledger export", detail: "Your ledger as a CSV file." },
       { name: "Monthly payouts", detail: "To a verified UAE IBAN.", availability: ["payouts"] },

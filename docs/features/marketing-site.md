@@ -10,6 +10,25 @@ written to read well as "TrainsYou" but never hard-codes it. Since the
 corporate identity package the default name is `trainsyou` (lowercase), with
 its logo, icons, share card and tokens: see [brand.md](brand.md).
 
+**Owner decision, 30 September 2026: no AI costs on the marketing site.**
+"Let's not talk about AI costs. It's integrated." Every "AI usage at cost",
+"passed through at cost", "voice usage cost" and "Why is AI usage passed
+through?" sentence, bullet, FAQ, statement row and calculator exclusion was
+removed from `marketing-content.ts`, `marketing-features.ts` and the
+marketing components (showcase statement, pricing example, earnings
+calculator). Where a removal left a page under its word floor, the removed
+sentence was replaced with a true one that says nothing about costs (voice
+page: "Uses your voice only for your own subscribers who add it.", a "Yours
+to withdraw" card, "Only subscribers who add it hear the session in your
+voice."; pricing intro: "Payment processing and optional services are
+itemised on your statement."; pricing guide: subscribers choose whether to
+add voice). The voice feature row "Usage on your statement" became "Only
+your subscribers" (same capability count). The trainer-facing billing label
+"AI Coach Service Fee" inside the app is unchanged. `tests/marketing-site.test.ts`
+("the marketing site does not talk about AI costs") scans every registry
+page, every rendered site page, the feature matrix and the earnings
+calculator.
+
 ## What was built
 
 ### One registry, everything derived
@@ -231,8 +250,8 @@ sessions, and the trainer's usual rate. Commission uses the ledger's own
 marginal band function (`commission`, `BANDS`); for one price it equals
 `projectedCommission`. Output: subscriptions, commission by band, amount
 before other costs, and "about N sessions at your usual rate". Excluded and
-stated: processing, AI usage at cost, voice usage, domain, refunds, disputes,
-booking fees, tax.
+stated: processing, domain, refunds, disputes, booking fees, tax (no AI or
+voice usage line since the owner's decision of 30 September 2026, below).
 
 Every result carries "Estimate, not a promise" / "Not an earnings promise",
 the assumptions and a link to `/methodology`, which lists every source with
@@ -559,7 +578,7 @@ the page.
    from the ledger's `BANDS` under "Commission by paying subscriber" (25% ·
    first 100, 20% · 101–300, 15% · 301–1,000, 10% · 1,001+) and "Each rate
    applies only to the subscribers in its band."; the copy names card
-   processing and AI usage at cost; "Pricing in detail".
+   processing ("Card processing is itemised."); "Pricing in detail".
 6. **What are your followers worth?** (paper): "The headline is a strong
    case for an engaged, growing audience, from published benchmarks and our
    stated assumptions. An estimate, not a promise." and the compact follower
@@ -582,11 +601,14 @@ the page.
    followers worth?").
 
 The optional-analytics prompt (`components/acquisition.tsx`) on marketing
-pages is a slim bottom bar (one sentence, "Allow analytics", "No thanks",
-"Details"; 58 px tall at 1440 px) that opens only after the visitor
-scrolls, so the first screen is never covered. The footer's "Analytics
-preferences" button opens the full panel; pages with that footer show no
-floating preferences button. Other pages keep the full panel as before.
+pages is a slim bottom bar that opens only after the visitor scrolls, so
+the first screen is never covered. Since 29 September 2026 (branch
+`ui/consent`, `docs/features/analytics-consent.md`) it has two equal 48 px
+choices, a 48 px Close and a privacy policy link (65 px tall at 1440 px),
+it reserves its own space, and any answer (allow, No thanks or Close) ends
+it for good: no floating analytics control on any page, after a reload too.
+The footer's "Analytics preferences" button opens the preferences sheet.
+Coach websites, sign-in and the member app use the same bar at once.
 
 Measurements: see "Review fixes" below.
 
@@ -657,7 +679,8 @@ entity sentence).
   analytics notice in its default state) at 1440×900 (hero bottom, three
   relay cards in one row with aligned titles, nothing covered by the
   notice, one left edge for header, hero, bands, closing and footer, the
-  bar after a scroll at most 64 px, visible words, H2 count, one H1) and
+  bar after a scroll at most 72 px (64 px before the 48 px choices of
+  29 September 2026), visible words, H2 count, one H1) and
   390×844 (H1, primary action and all three relay titles on the first
   screen, one compact row, nothing covered, one left edge); inner
   marketing pages start at the header logo's edge; reduced motion (no
@@ -669,7 +692,9 @@ entity sentence).
 - `scripts/browser-completion-check.mjs` (`npm run test:browser`): on `/`
   no analytics prompt before a scroll, then the bar; "No thanks" sets no
   identifier and does not return; the footer's "Analytics preferences"
-  opens the full panel for opt-in, the readback and withdrawal.
+  opens the preferences sheet for opt-in, the readback and withdrawal
+  (since 29 September 2026 also: nothing floats after an answer, and the
+  phone checks in `docs/features/analytics-consent.md`).
 
 ### Review fixes (28 September 2026, second pass)
 
@@ -709,8 +734,613 @@ the green "Strong case" badge on its pale tint); no dark band returns.
 Checks: `docs/COMPLETION_STAGES.md` stage 2026-09-28l, "Merge into the PR
 #4 branch".
 
+## Sitewide microanimations (29 September 2026, `mk/motion`)
+
+Owner request: "marketing site should get microanimation revamp". This
+package builds part B of the motion storyboard (every component present at
+`c856d9d`); the coach-to-subscriber walkthrough (part A,
+`components/marketing/journey.tsx`) is a separate track. No marketing text
+was added, reworded or removed, and no layout proportion changed; the
+site stays light with Pace accents.
+
+### Rules and tokens
+
+The home relay's house rules now hold on every page: every word is real
+HTML and visible from the first paint; motion is decorative, short and
+plays once; reduced motion removes it; no metrics, counts, revenue or
+count-ups. The tokens are defined once on the marketing roots (`.mk,
+.mk-header, .mk-footer` in `app/marketing.css`), with the subscriber app
+pass's values: `--mk-dur-press` 80 ms, `--mk-dur-fast` 140 ms,
+`--mk-dur-base` 200 ms, `--mk-dur-slow` 280 ms, `--mk-dur-emphasis` 420 ms,
+`--mk-ease-out` `cubic-bezier(0.2, 0, 0, 1)`, `--mk-ease-in`
+`cubic-bezier(0.4, 0, 1, 1)`, `--mk-ease-in-out` `cubic-bezier(0.4, 0, 0.2,
+1)` and `--mk-ease-spring` `cubic-bezier(0.34, 1.4, 0.64, 1)` (success states
+only). Only transform (`translate`, `scale`, `rotate`), opacity, SVG
+`stroke-dashoffset` and a FAQ's grid rows move; colour changes (tints,
+borders, the focus ring) are instant. Hover effects sit in `@media (hover:
+hover)`; the one exception is the header menu opening on hover, which is
+behaviour, not decoration (it also opens on keyboard focus). CSS
+transitions and keyframes, one IntersectionObserver and the Web Animations
+API only: no library, no new dependency. Logical properties throughout;
+arrows nudge by `calc(3px * var(--inline-sign, 1))` and inline-start
+origins use `calc(50% - 50% * var(--inline-sign, 1))`.
+
+### What moves
+
+| Part | Motion |
+| --- | --- |
+| Buttons (`.button` in `.mk` and the header) | Press `scale: .97` on every device (80 ms in, 140 ms out); the existing 1 px lift only where the pointer hovers (cancelled under `hover: none`, so no stuck lift after a tap); the trailing arrow nudges 3 px forward (200 ms). The hover colour is instant (the storyboard's faded tint overlay was not built: see deviations). |
+| Single-line links (`.mk-link`, sign in, breadcrumbs, footer, header) | A 1 px ink bar slides in from the inline start on hover (200 ms) and shows at once on keyboard focus; the current page keeps it at 2 px, static. Links inside sentences keep their underline. |
+| Header | Its shadow fades in over the first 48 px of scrolling (a scroll-driven animation, no script; browsers without scroll timelines keep the flat header). Menus open with opacity and a 4 px rise (140 ms out, close 80 ms in); the group chevron turns. The phone menu drops in (200 ms) and its items rise 30 ms apart; it closes at once; "Menu" presses. |
+| Home relay | Unchanged sequence and delays, on the tokens: wires draw in 420 ms, the dot travels in 420 ms in-out, the row ticks pop with the spring (280 ms). The core tile's box-shadow pulse is now a Pace ring behind the mark (`::after`, scale 1 to 1.5, fading); the mark itself never scales. It ends at 2.53 s. |
+| Section reveal (`components/marketing/motion.tsx`) | Units wholly below the first screen when the page loads (home band contents; each block of an inner page; the closing panel) wait and rise 12 px into place once as they enter the view (280 ms); grid items follow 40 ms apart, at most 240 ms (cards, tiles, steps, the /get-started checklist, price anchors, band pills), the /features screens 80 ms apart. Never the hero, breadcrumbs, page heading, relay or anything on the first screen. |
+| Link cards (`.mk-tile`, home icon tiles, /features included) | Lift 2 px and a soft shadow (overlay opacity) where the pointer hovers, the icon rises with its home tile, press `scale: .99`. Static cards never move on hover. |
+| Pills and chips | No motion of their own; link pills tint instantly on hover, the related links' arrows nudge. |
+| "You stay in charge" (home) | Once, as its band is revealed: the message card rises, your AI's card follows (+140 ms), the confidence meter fills from the inline start (`scale`, its 86% width never changes), the lanes follow 80 ms apart, "Applied automatically" pops (spring) and the safety lane stamps. About 1.1 s. |
+| Economics (home) | The band pills stagger in; the address preview settles (opacity .5 to 1) once typing pauses for 120 ms. |
+| Disclosures (FAQs, the calculators' assumptions and optional numbers) | The native marker becomes a chevron at the inline end, in the space the marker took (1.06em), so every question wraps as before; it turns as the answer opens (200 ms). A FAQ answer also unfolds through its grid row (`::details-content`, 280 ms; checked in Chromium 141) and fades in; the calculators' disclosures fade and their height changes at once (their content has several children, so one grid row cannot hold it). |
+| Tables | Row hover: an instant paper tint on hover devices. |
+| Calculators | No count-up (the result is an `aria-live` region, widths would jitter, and a rolling figure dramatises an estimate). 150 ms after the last change the result figure settles (Web Animations, opacity .55 to 1 and 4 px, 200 ms) and changed rows and cells settle the same way (140 ms). Marketing pages only: the trainer workspace's follower calculator is unchanged. |
+| /demo | After a visitor picks a tab, the chosen decision rises 6 px (200 ms) and its label follows 80 ms later: the two automatic outcomes pop (spring), the hand-offs stamp. The first decision shows at once. |
+| /features screens | Reveal 80 ms apart; the ticks inside pop once. The timer never ticks and the counts never count up. |
+| /get-started | The checklist staggers in; the early-access confirmation rises (280 ms); errors appear without a shake. |
+| Closing panel, footer | The panel reveals as a section; footer links get the bar; "Analytics preferences" presses (it is now `inline-block`). |
+
+### How the reveal stays safe
+
+`MarketingMotion` (one island in `MarketingSite`, rendering nothing) adds
+`.mk-motion` to the page root only when JavaScript runs, IntersectionObserver
+exists and the visitor has not asked for reduced motion. Its observer's
+first report says where each unit starts; only a unit whose top is below
+the viewport is marked `data-mk-reveal="pending"`, and it turns `"in"` once
+it enters the view (root margin 10% from the bottom). Every hiding rule
+needs `.mk-motion`, so without JavaScript nothing is hidden; a unit that
+holds the address's `#target` never waits; printing reveals everything;
+leaving the page reveals what is left. Under reduced motion the script does
+nothing, `globals.css` stops every element's transitions and animations,
+and `marketing.css` stops the pseudo-elements and the details content box
+(which `*` does not reach), removes lifts, presses and nudges, and shows any
+unit that was waiting when the preference changed. The settle checks the
+preference itself.
+
+Two measures keep a reveal cheap to draw, found by tracing a scroll
+through /features with the CPU throttled 4x. A waiting unit is at 0.001
+opacity, not 0: it looks the same, but Chromium skips painting content at
+0 opacity, so a reveal would repaint the whole unit in one frame. A
+revealed unit and its grid items keep `translate: 0 0` (no movement), so
+the end of the rise does not tear down their layers and repaint them a
+second time. Grid items become `data-mk-item="done"` once the longest
+stagger and the rise are over, so a revealed link card lifts on hover with
+its own 200 ms timing instead of the reveal's stagger.
+
+### Deviations from the storyboard (part B)
+
+- Button hover tints are instant colour changes, not a faded overlay: the
+  storyboard's own rule is that colour changes are instant, and the
+  overlay would need a stacking context on every button and a rewrite of
+  the brand test's contrast check of the hover colour.
+- The calculators' assumptions and optional-numbers disclosures fade but do
+  not unfold (several children; storyboard D7's fallback). FAQs unfold.
+- A waiting unit is at 0.001 opacity rather than the storyboard's 0 (B5),
+  for the paint cost above; it is not visible.
+- The FAQ answer's 18 px bottom space moved from its margin into the
+  answer (a block after its text), so a closed answer folds to nothing;
+  open and closed FAQs measure the same as before (checked against a
+  `c856d9d` build at 390 and 1366 on eight pages, every FAQ open and
+  closed: the same page heights and element positions). Because the
+  chevron is at the inline end (B10), a question now starts at the inline
+  edge where the native marker used to sit, about 16 px earlier.
+- The static audit is `tests/marketing-motion-sitewide.test.ts` and the
+  browser check `scripts/marketing-motion-sitewide-check.mjs`
+  (`npm run test:marketing-motion-sitewide`), so they do not collide with
+  the walkthrough track's `marketing-motion` files.
+- The browser check runs without the API (the fallback platform facts);
+  the walkthrough's launch-ready platform state is that track's concern.
+
+### Checks for this package
+
+- `tests/marketing-motion-sitewide.test.ts` reads `marketing.css` with its
+  at-rule context and fails when a transition or keyframe moves anything
+  but transform, opacity, `stroke-dashoffset` or a disclosure's grid rows
+  (never width, height, top, left, margin and the like); when a duration or
+  easing is not a `--mk-*` token (delays are choreography and exempt, and so
+  is the scroll-driven header shadow); on an infinite animation; on the
+  spring outside the success states; on a `:hover` rule outside `@media
+  (hover: …)` (one listed exception); when motion escapes the reduced-motion
+  rules or an auto-playing keyframe sits outside `prefers-reduced-motion:
+  no-preference`; when anything is hidden without `.mk-motion`; when the
+  tokens are defined twice, differ from the agreed values or from the
+  script's copy; or when a marketing component imports an animation
+  library.
+- `tests/brand.test.ts` reads the primary action's hover colour inside
+  `@media (hover: hover)`.
+- `scripts/brand-check.mjs` scrolls every public page through once before
+  its contrast pass, so revealed sections are scanned, and fails if a
+  section never appears.
+- `scripts/marketing-motion-sitewide-check.mjs` (local Chromium, never a
+  cloud browser): /, /how-it-works, /pricing, /features and
+  /earnings-calculator at 390x844 (touch, DPR 3) and 1366x900 with the CPU
+  throttled 4x, against a build of `c856d9d` (`MOTION_BASE_DIR`): LCP
+  median of five cold loads within max(50 ms, 5%) of base and the same
+  element; CLS on load and during a scroll-through in 300 px steps no worse
+  than base; the reveal script's setup and every observer callback under
+  50 ms (timed where they run); no more long tasks while scrolling than
+  base (median run); no gross regression in blocking time on load; every
+  word visible with JavaScript off and after a scroll-through; nothing on
+  the first screen waits; reduced motion leaves nothing running, marks
+  nothing and does not settle; the FAQ opens fully; the phone menu opens.
+
+### Measured results (29 September 2026, local Chromium, this machine)
+
+The machine is a shared 4-core container that other jobs were using (load
+average 5 to 10 during every run), so single timings vary by several
+hundred ms between identical loads. Numbers are medians of five cold loads
+per page and width, the CPU throttled 4x, against a `next build` of
+`c856d9d` served the same way, loads alternating between the builds.
+
+`npm run test:marketing-motion-sitewide` (with `MOTION_BASE_DIR`), final
+run after the paint fixes:
+
+| Page and width | LCP new (base) | CLS load / scroll | Long tasks while scrolling (median run) | Reveal setup / slowest callback |
+| --- | --- | --- | --- | --- |
+| 390 `/` | 592 (636) ms | 0 / 0 (base 0 / 0) | 0 (0) | 2.6 / 16.0 ms |
+| 390 `/how-it-works` | 504 (524) ms | 0 / 0 | 0 (0) | 0.4 / 6.6 ms |
+| 390 `/pricing` | 572 (520) ms | 0 / 0 | 0 (0) | 2.3 / 25.1 ms |
+| 390 `/features` | 780 (708) ms | 0 / 0 | 0 (0) | 4.1 / 9.5 ms |
+| 390 `/earnings-calculator` | 428 (508) ms | 0 / 0 | 0 (0) | 1.9 / 8.5 ms |
+| 1366 `/` | 696 (684) ms | 0 / 0 | 0 (0) | 1.1 / 9.9 ms |
+| 1366 `/how-it-works` | 600 (452) ms | 0 / 0 | 0 (0) | 1.3 / 1.2 ms |
+| 1366 `/pricing` | 512 (496) ms | 0 / 0 | 0 (0) | 1.1 / 7.5 ms |
+| 1366 `/features` | 780 (864) ms | 0 / 0 | 0 (0) | 3.3 / 4.8 ms |
+| 1366 `/earnings-calculator` | 472 (456) ms | 0 / 0 | 0 (0) | 1.7 / 2.1 ms |
+
+The same LCP element as base on every page (the page heading, the lede or
+the calculator's answer). All of the check's own rules passed: nothing on
+the first screen, in the hero or the relay ever waited; nothing was still
+waiting or hidden after a scroll-through; every word was visible with
+JavaScript off at both widths (nothing marked, no `.mk-motion`); under
+reduced motion nothing ran, nothing was marked, the calculator did not
+settle and the FAQ opened fully; with motion the calculator settled (7
+animations), the FAQ unfolded to full height and opacity and the phone
+menu opened; no infinite animation. The run exited 1 on four comparisons
+with base: LCP at 390 `/pricing` (+52 ms), 390 `/features` (+72 ms) and
+1366 `/how-it-works` (+148 ms), and blocking time on load at 390 `/pricing`
+(490 against 367 ms). The previous run (before the paint fixes) failed on
+different pages (LCP at 390 `/earnings-calculator` and 1366
+`/how-it-works`), so each was re-measured with fifteen alternating cold
+loads per build (a separate probe, same throttling, no scrolling):
+
+| Page and width | LCP median new (base) |
+| --- | --- |
+| 1366 `/how-it-works` | 492 (444) ms |
+| 390 `/pricing` | 428 (428) ms |
+| 390 `/features` | 720 (712) ms |
+| 390 `/earnings-calculator` | 392 (392) ms |
+| 1366 `/` | 480 (452) ms |
+
+All are within the budget (max(50 ms, 5%)). On the desktop pages LCP is the
+first paint, which is about 30 to 48 ms later at 4x throttling (about 10 ms
+unthrottled); the marketing stylesheet is 1.7 KB larger gzipped (8.2 KB
+against 6.5 KB) and draws the link bars and card overlays. It has not been
+reduced further.
+
+Scroll-through long tasks: before the paint fixes the reveal produced 1 to
+3 long tasks (50 to 176 ms) per run on 1366 `/` and `/features` and 390
+`/features`, where base had none; a trace showed paint, pre-paint and
+layerisation work, not script (the reveal's own code stayed under 26 ms).
+After the fixes the median run had none on any page. Main-thread work
+during a scroll-through of 1366 `/features` is still about twice base's
+(the reveals' paint and compositing, measured by trace: roughly 1.0 s
+against 0.45 s over the whole scroll at 4x), and single runs on this busy
+machine still show the occasional long task, so this budget holds on the
+median, not on every run.
+
+Layout: against the `c856d9d` build at 390 and 1366 on eight pages (`/`,
+`/how-it-works`, `/pricing`, `/features`, `/earnings-calculator`, `/demo`,
+`/get-started`, `/follower-calculator`), every FAQ closed and then open,
+under reduced motion: the same page heights and the same position and size
+for every visible element, except the FAQ answers themselves (their 18 px
+bottom space is now inside them) and the address preview's width (the two
+servers' port numbers differ).
+
+Other checks run for this package: `npx tsc --noEmit`, `npx tsc --noEmit -p
+apps/web/tsconfig.json`, `node --import tsx --test` on
+`tests/marketing-site.test.ts`, `tests/marketing-api.test.ts`,
+`tests/logical-css.test.ts`, `tests/marketing-motion-sitewide.test.ts`,
+`tests/brand.test.ts` and `tests/branding.test.ts`, and `npm run build`;
+`git diff c856d9d` shows no change to `marketing-content.ts` or
+`marketing.ts`.
+`npm run test:brand` on the production build (`RTL_WEB_MODE=start`, its own
+ports and PGlite data) passed on 112 screens, including its scroll-through
+before the contrast pass (no section left waiting).
+
+## Coach-to-subscriber journey (29 September 2026, `mk/walkthrough`)
+
+The owner asked for "a UI animation that shows how the whole coach
+onboarding process will go like and how that will translate to a
+subscriber. the whole workflow." Built from part A of the accuracy-checked
+storyboard (`scratchpad/marketing-motion/storyboard.md`; the deviations are
+recorded there and below). Sitewide microanimations (part B) are a separate
+track.
+
+### What it is
+
+- One player, eight chapters: the eight /how-it-works steps. Each chapter
+  shows what the coach does in the workspace (a laptop mock), how it
+  crosses a wire, and what it means for a subscriber (a phone mock in the
+  demo coach's colours, "Layla Strength", the name the address preview
+  already uses). Chapters 6-8 also draw the dashed return wire, the relay's
+  "it asks you" loop: pain comes back to the coach, an unsure change is
+  handed over, the payment reaches the coach.
+- `components/marketing/journey.tsx` (server): the launch gate
+  (`journeyAvailable`), the subscriber-line lookups, the chapter timings,
+  the eight scenes and both placements. `journey-player.tsx` (the only
+  client code, React only): the control bar, the chapter clock and the
+  root's data attributes; the stage and captions arrive as server-rendered
+  slots, so the mocks never enter the JavaScript bundle.
+  `app/marketing-journey.css`, imported next to `marketing.css` in
+  `app/layout.tsx`, holds every journey style (since the combine step the
+  motion tokens are defined only in `marketing.css`; see "Combined" below).
+- /how-it-works: the "Eight steps, start to finish" section keeps its h2 and
+  `ol.mk-steps`, with the registry titles and bodies unchanged and the
+  HowTo JSON-LD untouched. Each step adds one subscriber line, looked up
+  from the registry (never copied; a test resolves every lookup) after a
+  visible "Your subscriber" label (the column header of "Who does what"
+  on the same page; visually hidden until the second review). The steps
+  are a scroll-snap carousel at every width once the island runs (four in
+  view from 1150 px, two from 761 px, one and a peek on phones; the grid
+  without JavaScript); the active step gets an ink edge and a Pace bar,
+  and a click on a card selects its chapter.
+- Home: a paper band directly after the hero, with no heading (the six H2s
+  and brand-check limits stay): the existing heading as a small label, the
+  active step's title, its subscriber line (after "Your subscriber"; added
+  in the second review), the controls and "See how it works" to
+  `/how-it-works#steps`. Its stage shows the same scenes with every word
+  replaced by a bar (no words in the stage).
+- The launch gate: the second half of the workflow (publish, join, pay,
+  daily coaching, payouts) exists only once a coach can launch, so both
+  placements render only while registration is open and the model,
+  payments and payouts providers are available. Otherwise /how-it-works
+  renders its steps section exactly as before and the home page has no
+  band. On the live site today (commerce off until the owner approves)
+  the player stays hidden and appears by itself once those approvals are
+  recorded (storyboard decision D10, needing the owner).
+- Honesty: sample data only ("Illustration with sample data" on the full
+  stage, at every width since the second review); no metrics, counts, revenue or amounts (prices and statement
+  values are placeholder bars; the statement has three rows and no total);
+  no AI usage, cost, fee or model names anywhere in the mocks; only
+  features available now (chapter 4's nutrition tier and voice add-on rows
+  follow their `/features` availability). Chapter 1's phone has no Join
+  and no address bar (nothing is published yet); chapter 5's follower
+  opens the address, joins, pays and answers the intake.
+- New visible words: "Evaluate" (the Scenario lab button), "Passed" (its
+  badge; no longer elsewhere on the site since the AI usage lines were
+  removed on 30 September 2026), "LS" (the demo
+  coach's initials) and the slug `layla-strength` inside the address built
+  from the platform's `coachAddressTemplate`; control names "Replay" and
+  "Previous step" (accessible names only). Everything else is existing
+  site wording in new places; `tests/marketing-journey.test.ts` checks the
+  mock text against the marketing sources.
+
+### Motion
+
+- Tokens on `.mk, .mk-header, .mk-footer` (the brief's values):
+  80/140/200/280 ms and 420 ms for emphasis; out, in, in-out and spring
+  (success only: ticks, Reserved, Confirmed, Passed, Live, Applied and
+  Rescheduled automatically, Approved, Paid).
+- Base styles are each chapter's complete picture; keyframes hold only the
+  starting states and run while the root carries `data-run`. Only opacity,
+  transform (translate, scale, rotate) and one stroke-dashoffset (the rest
+  ring) animate; scenes crossfade (opacity, with content-visibility so the
+  seven hidden scenes skip rendering). Nothing is infinite; the player
+  plays once through (about 54 s) and stops on its last chapter with
+  Replay.
+- The chapter clock is a Web Animations API animation on the active
+  progress segment; its finish advances the chapter. The first automatic
+  pass shows chapter 1 complete (no blank flash at load). A chapter
+  restarts by rewinding its CSS animations' current time. The CSS
+  animations are never played or paused through the API: in Chromium that
+  detaches them from the style sheet, and a swap animation removed by the
+  next chapter kept running (found by the browser check); pausing uses
+  `animation-play-state` through `data-hold` instead.
+- Auto-play starts only when at least half of the stage is on screen and
+  the tab is visible. It holds (and resumes by itself) when the stage
+  leaves the screen or the tab is hidden; a mouse resting on the player
+  stops only the chapter clock (the beats finish; see the second review);
+  it stops until Play when keyboard focus enters the player, on Pause, a
+  swipe, a chapter button, Previous or Next, or a touch on the step cards.
+- Phones (up to 760 px): a square stage showing one frame at a time under a
+  strip ("You" with a laptop, the wire, "Your subscriber" with a phone,
+  labelled since the second review); at each crossing the frames swap
+  (the leaving one slides 12% towards the inline start and fades, the other
+  enters). Mock text never goes below 11 px; the bar (Play, Previous, eight
+  24 px-wide chapter targets, Next) fits one row at 360 px.
+- Reduced motion: no auto-play, static complete chapters, instant changes;
+  Play runs a slideshow whose clock has no target, so nothing on screen
+  moves. Without JavaScript: every step shows, the stage shows chapter 1
+  complete and no controls show.
+- Keyboard and screen readers: Pause/Play/Replay is the first control;
+  chapter buttons use a roving tabindex (arrows, mirrored in right to left,
+  Home and End), carry `aria-current="step"` and are named "01 Claim your
+  address" from the visible number and heading; a polite live region
+  announces the step only after manual navigation that does not focus the
+  chapter's own button (Previous, Next, a swipe, a card). The stage is
+  `aria-hidden`.
+- Right to left: everything uses logical properties; the coach sits at the
+  inline start, the wires point from coach to phone, the platform mark is
+  never mirrored.
+
+### Weight (measured on the production build)
+
+With the launch gate open, against the gate-closed page: /how-it-works
++9.0 kB gzipped (HTML with its inline RSC payload; 9.6 kB in an earlier
+run; storyboard limit 16 kB) and / +6.3 kB (limit 10 kB). The stylesheet is 29.0 kB raw; minified, it
+adds about 4.1 kB gzipped to the combined app CSS (limit 5 kB; all app
+CSS ships on every route). The island minifies to 7.1 kB, 3.0 kB gzipped
+(limit 8 kB). No images and no new dependency.
+
+### Checks
+
+- `tests/marketing-journey.test.ts` (10 tests): the captions are the
+  registry's eight titles and bodies in the same `ol`, and the chapter
+  buttons' names follow them; the steps stay real HTML and the embedded
+  HowTo JSON-LD is the registry's; every subscriber line resolves and
+  shows; the launch gate (registration, model, payments and payouts each
+  off: no player, no band, the steps section byte-identical to the base
+  `Section`); the home band (no heading, no words in its stage, directly
+  after the hero); no AI cost, fee, model names, amounts, counts or
+  "Available soon" in the mocks, the three-row statement, no Join in
+  chapter 1, Pay in chapter 5, the gated extras; the new-word list; the
+  address from the platform; the token values; motion hygiene (keyframes
+  and transitions limited to transform, opacity and stroke-dashoffset,
+  token durations and easings, hover rules inside `(hover: hover)`, a
+  reduced-motion block, nothing infinite, the spring only on success
+  states); the island imports only React and no dependency was added.
+- `npm run test:marketing-motion-journey` (since the combine step;
+  `npm run test:marketing-motion` now runs this and the sitewide check;
+  `scripts/run-marketing-motion-check.mjs` starts the production build against a stub platform API, no database,
+  provider or credential; `scripts/marketing-motion-check.mjs` runs local
+  Chromium at 360×740, 390×844 and 1366×900): the gate closed, then open;
+  the player visible with no horizontal overflow; auto-play at load only
+  if half of the stage is on screen, holding out of view and resuming in
+  view (home too); Pause/Play by keyboard, the chapter buttons (Tab, arrows,
+  Home, End, names, live announcement), Previous and Next; phones: square
+  stage, one frame at rest, the strip, the swap at the crossing, controls
+  in one row, a swipe; no layout shift (CLS and layout boxes) while
+  chapters change and through one full pass sped up 20× (chapters 2-8 in
+  order, then Replay); reduced motion (no auto-play, no animation even
+  after Play, the slideshow advances, instant chapters); stage text AA
+  contrast and at least 11 px in every chapter (both sides on phones); no
+  JavaScript; right to left at 390 and 1366.
+
+## Combined: sitewide motion and the journey (29 September 2026, `ui/marketing-motion`)
+
+`mk/motion` (sitewide microanimations, `53c1443`) and then `mk/walkthrough`
+(the journey player, `3ccff10`) merged with `--no-ff` onto `c856d9d` in
+`.claude/worktrees/mk-integrate`. Git conflicts: `site.tsx` (both imports
+kept: `journey` and `motion`), `package.json` (the npm scripts, below) and
+this file (both sections kept). No marketing text changed (`git diff
+c856d9d` on `marketing-content.ts` and `marketing.ts` is empty).
+
+Resolved so the two tracks behave as one:
+
+- Tokens: one definition, on `.mk, .mk-header, .mk-footer` in
+  `app/marketing.css`. The walkthrough's duplicate block in
+  `app/marketing-journey.css` is gone (same selector, same values); the
+  journey only uses them. `tests/marketing-motion-sitewide.test.ts` now
+  fails if any stylesheet in `app/` other than `marketing.css` defines a
+  `--mk-dur-*` or `--mk-ease-*` token, and `tests/marketing-journey.test.ts`
+  checks that every token the journey uses is one of those.
+- Reveal: the section reveal never marks the journey (`NEVER` in
+  `components/marketing/motion.tsx` adds `.mk-walk-section` and
+  `.mk-walk-band` to the hero, page heading and relay). Without this the
+  /how-it-works steps section, as one unit below the first screen, would
+  fade and rise 12 px and stagger its eight step cards while the player
+  starts its own chapter beats. The home band was never a unit (its inner
+  is `.mk-container`, not `.mk-home-inner`); the exclusion covers it anyway.
+- Relay ring: the hero relay's one-off ring (`mk-ring` on
+  `.mk-relay-mark::after`) was keyed on every `.mk-relay-mark`, so it also
+  fired, 0.85 s after load, on the journey laptop bar's copy of the mark
+  (`CoreMark`). It is now `.mk .mk-relay .mk-relay-mark::after`.
+- Press: the player's control buttons (`.mk-walk-btn`: Pause/Play/Replay,
+  Previous, Next) join the sitewide press (scale 0.97 on the press token,
+  ease-in) and the reduced-motion freeze list. Their hover tint was
+  already instant and inside `(hover: hover)`, like the sitewide buttons;
+  the chapter segments and the step cards keep their instant tints and do
+  not move (they are not link cards).
+- Checks: `npm run test:marketing-motion` (`scripts/run-marketing-motion-checks.mjs`)
+  runs the journey check and then the sitewide check, the second even when
+  the first fails, and exits 1 if either fails. `npm run
+  test:marketing-motion-journey` and `npm run test:marketing-motion-sitewide`
+  run one each. The sitewide check's server log is now
+  `test-results/marketing-motion-sitewide-servers.log` (it shared a name
+  with the journey's). The journey check adds, at 360, 390 and 1366 with
+  motion allowed: the sitewide reveal ran on the page (`.mk-motion`) but
+  left no mark on or in the player's section or band; the laptop bar's
+  mark has no animation; the hero relay still has its ring.
+
+### Checks on the merged tree (29 September 2026, this machine)
+
+- `npx tsc --noEmit` and `npx tsc --noEmit -p apps/web/tsconfig.json`:
+  both pass.
+- `node --import tsx --test --test-concurrency=1` on
+  `tests/marketing-site.test.ts`, `tests/marketing-api.test.ts`,
+  `tests/marketing-journey.test.ts`, `tests/marketing-motion-sitewide.test.ts`,
+  `tests/logical-css.test.ts`, `tests/brand.test.ts` and
+  `tests/branding.test.ts`: 68 tests, all pass;
+  `tests/marketing-follower-model.test.ts`: 12, all pass.
+- `npm run build`: passes.
+- `npm run test:marketing-motion` with `MOTION_BASE_DIR` set to a fresh
+  `next build` of `c856d9d`: exit 1.
+  - Journey player: 146 checks passed, 0 failed (including the new reveal,
+    ring and gate checks).
+  - Sitewide: every rule of its own passed (nothing on the first screen,
+    in the hero or relay waited; nothing hidden after a scroll-through or
+    with JavaScript off; reduced motion ran, marked and settled nothing;
+    CLS 0 on load and while scrolling on every page; no scroll long tasks
+    in the median run; the reveal's setup at most 3.4 ms and its slowest
+    callback 17.5 ms). It failed two LCP comparisons with base, both at
+    1366: `/` 508 against 400 ms and `/features` 696 against 632 ms
+    (allowance 50 ms). The other eight page and width medians were within
+    the allowance (390: `/` 452 (500), `/how-it-works` 456 (420),
+    `/pricing` 464 (464), `/features` 664 (744), `/earnings-calculator`
+    376 (356); 1366: `/how-it-works` 436 (408), `/pricing` 412 (404),
+    `/earnings-calculator` 452 (420) ms).
+- A separate probe (not committed): fifteen cold loads per build, the
+  three builds alternating, CPU throttled 4x, no scrolling, LCP median
+  (it equals first paint on these pages):
+
+  | Page and width | `c856d9d` | `mk/motion` alone | merged |
+  | --- | --- | --- | --- |
+  | 1366 `/` | 472 ms | 488 ms | 500 ms |
+  | 1366 `/features` | 772 ms | 768 ms | 816 ms |
+  | 1366 `/how-it-works` | 436 ms | 440 ms | 456 ms |
+  | 1366 `/pricing` | 444 ms | 472 ms | 468 ms |
+  | 390 `/` | 396 ms | 400 ms | 440 ms |
+
+  The merged build is within the check's allowance of base on all five,
+  but it paints later than `mk/motion` alone on four of them (12 to 48 ms;
+  `/pricing` 4 ms earlier). The pages here run with the launch
+  gate closed, so the only difference the merge makes to them is the
+  journey stylesheet, which `app/layout.tsx` imports for every page: the
+  marketing CSS chunk is 6.5 KB gzipped at `c856d9d`, 8.1 KB with
+  `mk/motion` alone and 12.1 KB merged. This is the combined weight of the
+  two tracks as built (the walkthrough measured its stylesheet at about
+  +4.1 KB gzipped), not a conflict, so it was not changed here.
+- `npm run test:brand` on the production build (`RTL_WEB_MODE=start`,
+  ports 3941/4941, fresh PGlite data): passed on 112 screens. Its platform
+  has every provider off, so the journey is not rendered there.
+- `npm run test:browser` (ports 3943/4943, fresh PGlite data,
+  `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/opt/pw-browsers/chromium`): the
+  first attempt stopped before any page because the demo workspace had not
+  been seeded (its fixture requires `npm run seed:demo`); after `npm run
+  seed:demo` on fresh data it passed ("Browser smoke passed", including
+  its marketing-site pass, which loads the key public pages such as `/`,
+  `/how-it-works`, `/demo`, `/features`, `/pricing` and the calculators and
+  checks each H1 in the shared frame).
+
+## Second review of the combined motion work (29 September 2026, `ui/marketing-motion`)
+
+25 review findings on the journey player and the sitewide motion; the
+reference for the result is [marketing-motion.md](marketing-motion.md).
+No marketing text changed (`git diff c856d9d` on `marketing-content.ts`,
+`marketing.ts` and `brand.ts` is empty).
+
+Layout and legibility:
+
+- The step cards are a carousel at every width once the island runs (four
+  in view from 1150 px, two from 761 px), so chapters 5 to 8 no longer
+  play with their explanation off screen; the chapter change scrolls it
+  (never the page). From 1150 px the full stage is 5/2 (508 px at 1366)
+  instead of 21/9, so header, stage, controls and a full row of cards fit
+  900 px. Without JavaScript wider screens keep the grid.
+- Phones: the subscriber phone is 76% of the stage (text about 13 to 14 px
+  instead of the 11 px floor) and the coach window is 4/3 with text of at
+  least 12.5 px. The square stage stays: the suggested 6/5 cut chapter 6's
+  "Report pain / Workout paused" row off at 360 and 390 px (checked in
+  screenshots), so the strip is 32 px, the fade 24 px and chapter 6's set
+  rows and card padding tighter instead. The home band's stage is 4/3 on
+  phones.
+- "Illustration with sample data" is the journey's own label (`.w-tag`, no
+  longer the relay's class, which phones hide) and shows at every width.
+- The subscriber side is named on screen: a visible "Your subscriber" label
+  before each card's subscriber line (the colon stays for screen readers),
+  and on phones the strip names both sides, "You" (laptop) and "Your
+  subscriber" (phone), borderless, the side on screen on lime. Both are the
+  "Who does what" column headers. The home band shows the active step's
+  subscriber line under its title, in reserved space.
+- Controls: 6 px between buttons on phones (40 px arrows and 4 px at 380 px
+  and below, so each chapter segment keeps a 24 px target at 360 px); the
+  current segment is a lime track ringed in ink. The last phone card ends a
+  gutter from the edge (the list is as wide as its cards; the suggested
+  last-card margin shrank the card inside its grid track instead).
+- Scenes: chapter 6's card and its pain row and chapter 3's Evaluate row
+  have entry beats (each frame builds top to bottom); chapter 5's intake
+  sheet keeps its padding and lines up with the card above; the address
+  bar no longer wraps (it trims) and moved from chapter 1 (nothing is
+  published yet) to chapter 5, where the follower opens the link; chapter
+  8's payout crosses back solid and lime-backed. From 1024 px the phone
+  column is wider (56/18/26) and the phone 9/16, its foot cropped by the
+  stage.
+- No blue tap flash on the header menu or any disclosure.
+
+Behaviour:
+
+- The Play/Pause icon no longer disappears when the player is held: the
+  hold pauses only the stage's animated parts, so the icon's fade runs.
+- A mouse over the player stops only the chapter clock; the beats finish.
+  An explicit Play or Replay wins until the pointer leaves and comes back
+  (the button's icon swap under a resting pointer also reads as an entry,
+  so the hover pause is re-armed only by leaving).
+- Previous and Next stay focusable at either end (`aria-disabled`).
+- The in-view observer uses the latest entry of a batch.
+- The steps' scroller is no longer a second region with the section's
+  name, and it is a tab stop only while it scrolls.
+- The live region speaks only when focus does not land on the chapter's
+  own button (Previous, Next, a swipe, a card), so arrow keys read the step
+  once.
+
+Weight:
+
+- The stage and the steps each sit in a memoised `<Activity
+  mode="visible">` inside the island: still server-rendered in place, but
+  hydrated after the controls at low priority in interruptible pieces. A
+  `Suspense` boundary was tried first and rejected (the server streamed
+  both into hidden `<div>`s revealed by a script: hidden without
+  JavaScript and painted late).
+- The player's mount effects no longer read layout (the tab-stop check runs
+  in a ResizeObserver callback; the carousel scroll skips the mount), and
+  the hold rule no longer has a universal selector. A trace of
+  `/how-it-works` at 1366 (CPU 4x) went from 93 to 159 ms of long tasks
+  after the main script to 52 to 80 ms (base: 0 to 55 ms).
+- Declined: loading `marketing-journey.css` only where the player renders.
+  With the stylesheet's journey rules removed from the chunk (the same
+  request intercepted in both arms, eleven cold loads each, CPU 4x), first
+  paint on pages without the player did not change (390
+  `/earnings-calculator` 388 against 396 ms, 1366 `/pricing` 488 against
+  484 ms), so the regressions the review saw there were not the
+  stylesheet. Every component's CSS is imported in `app/layout.tsx` and
+  all pages share one catch-all route, and a stylesheet imported from a
+  component would break the node tests that render the site.
+- The frames' text no longer uses container queries: the sizes come from
+  the viewport and the known grid shares (`--walk-s`, `--walk-cw`,
+  `--walk-pw` on `.mk-walk`), and the journey check compares them with the
+  frames' real widths at every tested width. With the stage replaced by
+  nothing but its box (`content-visibility: hidden`), first paint on
+  `/how-it-works` at 1366 matched base (400 against 372 ms, nineteen loads
+  each); removing the container queries saved 30 to 70 ms of the roughly
+  90 to 150 ms in two such comparisons. The rest is drawing chapter 1's two
+  frames. See "Checks" in marketing-motion.md for the committed
+  comparison.
+
+Checks: `npm run test:marketing-motion`'s sitewide half now runs with the
+launch gate open (the same platform stub as the journey check), so `/` and
+`/how-it-works` are compared with the player; the journey check adds the
+sample-data label at every width, the Play icon's opacity while paused,
+focused and hovered, Play under a resting mouse, hover early in a chapter
+(the beats finish, the clock holds), focus kept on Next at the last step,
+the live region's quiet on arrow keys, the active card in view, one region
+for the steps, no layout shift on the home band, and the mocks' text size
+against the frames' real widths (181 checks).
+
 ## Not done / next
 
+- Journey: the owner decides D10 (keep the player hidden until a coach can
+  launch, the default built here, or show it earlier). brand-check has no
+  launch-ready run yet (its runner seeds a platform with every provider
+  off, so it measures the gate-closed pages, which equal base); the
+  storyboard's LCP and long-task measurements (`marketing-perf-check.mjs`,
+  section C) are not built. The sitewide microanimations (part B) are
+  combined on `ui/marketing-motion` (tokens de-duplicated; see "Combined"
+  above).
+- Journey weight (second review): with the launch gate open, the player's
+  first paint still costs `/how-it-works` roughly 50 to 120 ms at 4x CPU
+  throttling (the visible stage itself; see "Second review" above and
+  marketing-motion.md), so `npm run test:marketing-motion`'s sitewide half
+  exits 1 on the player pages. It needs the owner to accept that cost or
+  a lighter stage (fewer visible elements in chapter 1's two frames). The
+  same run also failed on pages without the player (see marketing-motion.md
+  for the numbers and the load on the machine).
 - Stage record: this package ran in parallel with others, so it does not edit
   `CLAUDE_HANDOFF.md`, `docs/COMPLETION_STAGES.md` or
   `docs/PROJECT_MEMORY.md`; the coordinating session records it there.

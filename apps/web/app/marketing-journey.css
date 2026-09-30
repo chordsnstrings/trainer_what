@@ -1,0 +1,1559 @@
+/* The coach-to-subscriber journey (components/marketing/journey.tsx): a
+   laptop (the coach's workspace), a wire and a phone (the subscriber), with
+   one scene per /how-it-works step. Always light, lime only behind ink.
+   Base styles are each chapter's complete picture (no JavaScript, reduced
+   motion and the first automatic pass show it); the keyframes hold only
+   the starting states and run while the root carries data-run. Only
+   transform, opacity and stroke-dashoffset animate; hover rules sit in
+   (hover: hover); logical properties only (tests/logical-css.test.ts). */
+
+/* The motion tokens (--mk-dur-*, --mk-ease-*) are defined once, on the
+   marketing roots in app/marketing.css (imported just before this file);
+   the controls' press and hover and the section reveal are the sitewide
+   ones there too (the reveal leaves the player alone: its stage has its
+   own chapter motion). */
+
+.mk-walk {
+  /* The demo coach's colour inside the phone (white text 9.6:1). */
+  --walk-coach: #244c46;
+  --walk-stage: var(--mk-band);
+  /* The mocks' text scales with their frames, computed from the viewport
+     rather than with container queries (those cost the first paint about
+     50 ms with the CPU throttled 4x, measured): the container's content
+     width, the stage's content width (2% padding each side and a 1px
+     border) and each frame's share of it (the grid columns below).
+     scripts/marketing-motion-check.mjs checks the result against the
+     frames' real widths at every tested width. */
+  --walk-wc: min(100vi - 2 * var(--mk-gutter), var(--mk-max));
+  --walk-s: calc(var(--walk-wc) * 0.96 - 2px);
+  --walk-cw: 0.58;
+  --walk-pw: 0.19;
+  min-inline-size: 0;
+}
+.mk-walk-full {
+  display: grid;
+  gap: 12px;
+  margin-block-start: 8px;
+}
+.mk-walk-view {
+  min-inline-size: 0;
+}
+
+/* The stage: fixed aspect ratios, so nothing inside ever changes size. */
+.mk-walk-stage {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 58fr) minmax(0, 23fr) minmax(0, 19fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-areas: "tag tag tag" "coach wire phone";
+  align-items: center;
+  aspect-ratio: 21 / 9;
+  min-block-size: 0;
+  padding: 1.4% 2%;
+  background: var(--walk-stage);
+  border: 1px solid var(--mk-line);
+  border-radius: 8px;
+  overflow: clip;
+  touch-action: pan-y;
+  user-select: none;
+  color: var(--ink);
+  line-height: 1.35;
+}
+.mk-walk-compact {
+  --walk-stage: var(--ty-white);
+}
+.mk-walk-compact .mk-walk-stage {
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-areas: "coach wire phone";
+  aspect-ratio: 16 / 10;
+}
+/* The honesty label: the journey's own (the hero relay hides its label on
+   phones; this one stays at every width, like the sample data it labels). */
+.w-tag {
+  grid-area: tag;
+  justify-self: start;
+  margin: 0 0 0.4em;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.w-chip {
+  display: none;
+}
+.w-frame {
+  position: relative;
+  min-inline-size: 0;
+}
+.w-coach {
+  grid-area: coach;
+  aspect-ratio: 16 / 10;
+}
+.w-phone {
+  grid-area: phone;
+  aspect-ratio: 1 / 2;
+}
+.w-dev {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--ty-white);
+  border: 1px solid var(--mk-line);
+  border-radius: 8px;
+  box-shadow: var(--mk-shadow);
+  /* 2.4% of the laptop frame's width, never below 11px. */
+  font-size: max(11px, calc(var(--walk-s) * var(--walk-cw) * 0.024));
+}
+.w-phone .w-dev {
+  border: 2px solid var(--ink);
+  border-radius: 18px;
+  /* 5.4% of the phone frame's width. */
+  font-size: max(11px, calc(var(--walk-s) * var(--walk-pw) * 0.054));
+}
+/* The arrival ring. */
+.w-frame::after {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  border: 2px solid var(--ink);
+  border-radius: 12px;
+  opacity: 0;
+  pointer-events: none;
+}
+.w-phone::after {
+  border-radius: 22px;
+}
+.w-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  flex: none;
+  padding: 0.4em 0.8em;
+  background: var(--mk-band);
+  border-block-end: 1px solid var(--mk-line);
+}
+.w-bar .mk-browser-dots > span {
+  inline-size: 0.6em;
+  block-size: 0.6em;
+}
+.w-bar .mk-relay-mark,
+.w-mk {
+  inline-size: 1.7em;
+  block-size: 1.7em;
+  border-radius: 4px;
+  background: var(--lime);
+}
+.w-tab,
+.w-scr {
+  display: grid;
+  min-inline-size: 0;
+}
+.w-tab {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.w-scr {
+  flex: 1;
+  min-block-size: 0;
+  padding: 0.8em;
+}
+.w-phone .w-scr {
+  padding: 0 0.6em 0.6em;
+}
+.w-stat {
+  position: relative;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.3em;
+  flex: none;
+  padding: 0.35em 0.9em 0.25em;
+}
+.w-stat svg {
+  inline-size: 0.8em;
+  block-size: 0.8em;
+}
+.w-notch {
+  position: absolute;
+  inset-inline: 0;
+  inset-block-start: 0.3em;
+  margin-inline: auto;
+  inline-size: 30%;
+  block-size: 0.7em;
+  border-radius: 1em;
+  background: var(--ink);
+}
+
+/* Scenes: stacked in one cell; the active one crossfades in. Hidden ones
+   skip rendering; the outgoing one stays rendered for its fade. */
+.w-s {
+  grid-area: 1 / 1;
+  min-inline-size: 0;
+  opacity: 0;
+  content-visibility: hidden;
+  transition:
+    opacity var(--mk-dur-base) var(--mk-ease-in),
+    content-visibility var(--mk-dur-base) allow-discrete;
+}
+.mk-walk[data-chapter="1"] [data-s="1"],
+.mk-walk[data-chapter="2"] [data-s="2"],
+.mk-walk[data-chapter="3"] [data-s="3"],
+.mk-walk[data-chapter="4"] [data-s="4"],
+.mk-walk[data-chapter="5"] [data-s="5"],
+.mk-walk[data-chapter="6"] [data-s="6"],
+.mk-walk[data-chapter="7"] [data-s="7"],
+.mk-walk[data-chapter="8"] [data-s="8"] {
+  opacity: 1;
+  content-visibility: visible;
+  transition:
+    opacity var(--mk-dur-slow) var(--mk-ease-out) 80ms,
+    content-visibility 0s allow-discrete;
+}
+
+/* The wire: coach to subscriber, and the dashed return. */
+.w-wire {
+  grid-area: wire;
+  position: relative;
+  block-size: 34px;
+  margin-inline: 8%;
+}
+.w-go,
+.w-ret {
+  position: absolute;
+  inset-inline: 0;
+  block-size: 12px;
+}
+.w-go {
+  inset-block-start: 0;
+}
+.w-ret {
+  inset-block-end: 0;
+}
+.w-go::before,
+.w-go::after,
+.w-ret .w-trail::after {
+  content: "";
+  position: absolute;
+  z-index: 1;
+}
+.w-go::before {
+  inset-inline: 0 7px;
+  inset-block-start: 5px;
+  block-size: 2px;
+  background: var(--ink);
+}
+.w-go::after,
+.w-ret .w-trail::after {
+  inset-block-start: 1px;
+  border-block: 5px solid transparent;
+}
+.w-go::after {
+  inset-inline-end: 0;
+  border-inline-start: 8px solid var(--ink);
+}
+.w-trail {
+  position: absolute;
+  inset-inline: 0 7px;
+  inset-block-start: 2px;
+  block-size: 8px;
+  border-radius: 4px;
+  background: var(--lime);
+  transform-origin: calc(50% - 50% * var(--inline-sign, 1)) 50%;
+}
+.w-ret .w-trail {
+  inset-inline: 7px 0;
+  inset-block-start: 5px;
+  block-size: 0;
+  border-block-start: 1.5px dashed var(--ink);
+  border-radius: 0;
+  background: none;
+  transform-origin: calc(50% + 50% * var(--inline-sign, 1)) 50%;
+}
+.w-ret .w-trail::after {
+  inset-block-start: -6px;
+  inset-inline-start: -7px;
+  border-inline-end: 8px solid var(--ink);
+}
+.w-dot {
+  --x: -100%;
+  position: absolute;
+  inset-block: 0;
+  inset-inline: 0 7px;
+  z-index: 2;
+  opacity: 0;
+}
+.w-ret .w-dot {
+  --x: 100%;
+  inset-inline: 7px 0;
+}
+.w-dot::after {
+  content: "";
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-end: -6px;
+  inline-size: 12px;
+  block-size: 12px;
+  box-sizing: border-box;
+  border: 1.5px solid var(--ink);
+  border-radius: 50%;
+  background: var(--lime);
+}
+.w-ret .w-dot::after {
+  inset-inline: -6px auto;
+}
+.mk-walk:not([data-go]) .w-go .w-trail,
+.mk-walk:not([data-back]) .w-ret {
+  opacity: 0;
+}
+/* Chapter 8: the payout crosses back as a solid, lime-backed line (the
+   dashed return means "handed to you" in chapters 6 and 7). */
+.mk-walk[data-chapter="8"] .w-ret::before {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  inset-inline: 7px 0;
+  inset-block-start: 5px;
+  block-size: 2px;
+  background: var(--ink);
+}
+.mk-walk[data-chapter="8"] .w-ret .w-trail {
+  inset-block-start: 2px;
+  block-size: 8px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--lime);
+}
+.mk-walk[data-chapter="8"] .w-ret .w-trail::after {
+  inset-block-start: -1px;
+}
+
+/* Mock parts. Every size is in em of the frame's text, which scales with
+   the frame (see .mk-walk) and never goes below 11px. */
+.w-pane,
+.w-f,
+.w-card {
+  display: grid;
+  align-content: start;
+  gap: 0.5em;
+  min-inline-size: 0;
+}
+.w-f {
+  gap: 0.3em;
+}
+.w-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5em;
+  min-inline-size: 0;
+}
+.w-wrap {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+.w-line {
+  padding-block: 0.35em;
+  border-block-end: 1px solid var(--mk-line);
+}
+.w-lab,
+.w-m {
+  color: var(--muted);
+}
+.w-block {
+  display: block;
+}
+.w-card {
+  gap: 0.45em;
+  padding: 0.7em;
+  border: 1px solid var(--mk-line);
+  border-radius: 6px;
+  background: var(--ty-white);
+}
+.w-val {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  min-block-size: 1.9em;
+  padding-inline: 0.5em;
+  border: 1px solid var(--mk-line);
+  border-radius: 4px;
+}
+.w-addr,
+.w-url,
+.w-link {
+  position: relative;
+  overflow: hidden;
+  font-weight: 600;
+}
+.w-addr,
+.w-link {
+  overflow-wrap: anywhere;
+}
+/* An address bar never wraps: a long address trims, as in a browser. */
+.w-url {
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.w-cover {
+  position: absolute;
+  inset: 0;
+  background: var(--ty-white);
+  translate: calc(101% * var(--inline-sign, 1)) 0;
+}
+.w-url,
+.w-link {
+  padding: 0.25em 0.7em;
+  border-radius: 1em;
+  background: var(--mk-band);
+}
+.w-link {
+  justify-self: center;
+  border: 1px solid var(--mk-line);
+  background: var(--ty-white);
+}
+.w-badge,
+.w-live,
+.w-new,
+.w-chips li {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  padding: 0.15em 0.55em;
+  border: 1px solid var(--mk-line);
+  border-radius: 1em;
+  background: var(--mk-band);
+  font-size: max(11px, 0.85em);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.w-g {
+  background: var(--success-bg);
+  border-color: var(--success-line);
+  color: var(--success);
+}
+.w-a {
+  background: var(--warning-bg);
+  border-color: var(--warning-line);
+  color: var(--warning);
+}
+.w-r {
+  background: var(--error-bg);
+  border-color: var(--error-line);
+  color: var(--error);
+}
+.w-live {
+  background: var(--lime);
+  border-color: var(--ink);
+  color: var(--on-lime);
+}
+.w-new {
+  background: var(--ty-white);
+  border: 2px solid var(--lime);
+}
+.w-tick {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  inline-size: 1.4em;
+  block-size: 1.4em;
+  border-radius: 50%;
+  background: var(--lime);
+  color: var(--on-lime);
+}
+.w-tick svg {
+  inline-size: 0.85em;
+  block-size: 0.85em;
+}
+.w-btn,
+.w-cta {
+  position: relative;
+  display: inline-flex;
+  justify-content: center;
+  padding: 0.25em 0.7em;
+  border: 1px solid var(--mk-line);
+  border-radius: 4px;
+  background: var(--ty-white);
+  font-weight: 600;
+}
+.w-pri {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--ty-white);
+}
+.w-cta {
+  display: flex;
+  background: var(--walk-coach);
+  border-color: var(--walk-coach);
+  color: var(--ty-white);
+}
+.w-acts,
+.w-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4em;
+}
+.w-sk,
+.w-ph {
+  display: inline-block;
+  max-inline-size: 100%;
+  block-size: 0.65em;
+  border-radius: 0.35em;
+  background: var(--mk-line);
+  vertical-align: middle;
+}
+.w-head .w-sk {
+  background: rgb(255 255 255 / 55%);
+}
+.w-pri .w-sk,
+.w-cta .w-sk {
+  background: rgb(255 255 255 / 45%);
+}
+.w-quote {
+  margin: 0;
+  padding-inline-start: 0.6em;
+  border-inline-start: 2px solid var(--ink);
+}
+.w-hl {
+  position: relative;
+  z-index: 0;
+  white-space: nowrap;
+}
+.w-hl::before {
+  content: "";
+  position: absolute;
+  inset: -0.05em -0.15em;
+  z-index: -1;
+  border-radius: 3px;
+  background: var(--lime);
+}
+.w-stack {
+  display: grid;
+}
+.w-stack > * {
+  grid-area: 1 / 1;
+}
+.w-sw {
+  position: relative;
+  inline-size: 1.6em;
+  block-size: 1.6em;
+  border-radius: 50%;
+  background: var(--walk-coach);
+}
+.w-sw1 {
+  background: #a4553f;
+}
+.w-sw2 {
+  background: #3d5ba8;
+}
+.w-sw3 {
+  background: #75539e;
+}
+.w-sw4 {
+  background: var(--ink);
+}
+.w-sel {
+  position: absolute;
+  inset: -0.25em;
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+}
+.w-logo,
+.w-av {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  inline-size: 2em;
+  block-size: 2em;
+  border-radius: 6px;
+  background: var(--walk-coach);
+  color: var(--ty-white);
+  font-weight: 700;
+}
+.w-line .w-lab {
+  flex: 1;
+}
+.w-prev {
+  display: grid;
+  inline-size: 3.6em;
+  block-size: 2.2em;
+  overflow: hidden;
+  border: 1px solid var(--mk-line);
+  border-radius: 4px;
+}
+.w-prev > i {
+  grid-area: 1 / 1;
+  background: var(--mk-band);
+}
+.w-prev .w-prev-new {
+  background: linear-gradient(var(--walk-coach) 0 40%, var(--ty-white) 40%);
+}
+/* The subscriber's phone: the coach's header, chat, cards. */
+.w-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  margin-inline: -0.6em;
+  padding: 0.45em 0.6em;
+  background: var(--walk-coach);
+  color: var(--ty-white);
+  font-weight: 600;
+}
+.w-av {
+  inline-size: 1.9em;
+  block-size: 1.9em;
+  border-radius: 50%;
+  background: var(--ty-white);
+  color: var(--walk-coach);
+  font-size: max(11px, 0.8em);
+}
+.w-av.w-blank {
+  inline-size: 3em;
+  block-size: 3em;
+  background: var(--mk-band);
+}
+.w-bub {
+  margin: 0;
+  max-inline-size: 90%;
+  padding: 0.45em 0.65em;
+  border-radius: 0.9em;
+}
+.w-me {
+  justify-self: end;
+  background: var(--mk-band);
+  border-end-end-radius: 0.2em;
+}
+.w-bot {
+  display: grid;
+  gap: 0.2em;
+  justify-self: start;
+  border: 1px solid var(--mk-line);
+  border-end-start-radius: 0.2em;
+}
+.w-who {
+  font-weight: 700;
+}
+.w-typing {
+  display: inline-flex;
+  gap: 0.25em;
+  align-self: start;
+  justify-self: start;
+  padding: 0.7em;
+}
+.w-typing i {
+  inline-size: 0.45em;
+  block-size: 0.45em;
+  border-radius: 50%;
+  background: var(--muted);
+  opacity: 0;
+}
+.w-list,
+.w-checks,
+.w-chips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.4em;
+}
+.w-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5em;
+  padding: 0.4em 0.6em;
+  border: 1px solid var(--mk-line);
+  border-radius: 5px;
+}
+.w-items li {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25em;
+}
+.w-form {
+  gap: 0.3em;
+}
+.w-form > .w-row {
+  min-block-size: 1.9em;
+}
+.w-seg2 {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 0.15em;
+  border: 1px solid var(--mk-line);
+  border-radius: 5px;
+  background: var(--mk-band);
+}
+.w-seg2 span {
+  position: relative;
+  padding: 0.05em 0.55em;
+  text-align: center;
+}
+.w-pill {
+  position: absolute;
+  inset-block: 0.15em;
+  inset-inline-start: 50%;
+  inline-size: calc(50% - 0.15em);
+  border: 1px solid var(--ink);
+  border-radius: 4px;
+  background: var(--ty-white);
+}
+.w-toggle {
+  position: relative;
+  inline-size: 2.4em;
+  block-size: 1.3em;
+  border-radius: 1em;
+  background: var(--mk-line);
+}
+.w-on {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--ink);
+}
+.w-knob {
+  --x: -110%;
+  position: absolute;
+  inset-block-start: 0.15em;
+  inset-inline-end: 0.15em;
+  inline-size: 1em;
+  block-size: 1em;
+  border-radius: 50%;
+  background: var(--ty-white);
+}
+.w-split {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.8em;
+}
+.w-split > .w-pane {
+  flex: 1;
+}
+.w-mini {
+  display: grid;
+  align-content: start;
+  gap: 0.3em;
+  flex: none;
+  inline-size: 4.2em;
+  block-size: 6.6em;
+  padding: 0 0.3em;
+  overflow: hidden;
+  border: 2px solid var(--ink);
+  border-radius: 0.7em;
+}
+.w-mini-head {
+  block-size: 1em;
+  margin-inline: -0.3em;
+  background: var(--walk-coach);
+}
+.w-checks {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.35em 0.8em;
+}
+.w-checks li {
+  display: flex;
+  align-items: center;
+  gap: 0.35em;
+}
+.w-layers {
+  position: relative;
+}
+.w-layers > .w-layer {
+  grid-area: 1 / 1;
+}
+.w-layer {
+  display: grid;
+  align-content: start;
+  gap: 0.5em;
+}
+.w-profile {
+  justify-items: center;
+  padding-block-start: 0.8em;
+}
+.w-sheet {
+  position: absolute;
+  inset-inline: 0;
+  inset-block-start: 11.2em;
+  box-shadow: var(--mk-shadow);
+}
+.w-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35em;
+}
+/* The intake sheet keeps its card padding (the list reset above removes
+   it from plain lists only). */
+.w-card.w-chips {
+  padding: 0.55em 0.6em;
+}
+.w-sets {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+}
+.w-sets > .w-pane {
+  flex: 1;
+  gap: 0.3em;
+}
+.w-set {
+  min-block-size: 1.7em;
+  padding-inline: 0.4em;
+  border-radius: 4px;
+  background: var(--mk-band);
+}
+.w-grow {
+  display: flex;
+  flex: 1;
+}
+.w-grow .w-ph {
+  background: rgb(23 25 23 / 22%);
+}
+.w-ring {
+  flex: none;
+  inline-size: 2.6em;
+  block-size: 2.6em;
+  rotate: -90deg;
+}
+.w-ring circle {
+  fill: none;
+  stroke: var(--mk-line);
+  stroke-width: 3;
+}
+.w-ring .w-ring-on {
+  stroke: var(--ink);
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0.3;
+  stroke-linecap: round;
+}
+[data-b="tap"] {
+  position: relative;
+}
+[data-b="tap"]::after {
+  content: "";
+  position: absolute;
+  inset: -0.3em;
+  border: 2px solid var(--ink);
+  border-radius: 1em;
+  opacity: 0;
+  pointer-events: none;
+}
+[data-b="xout"],
+[data-b="temp"] {
+  opacity: 0;
+}
+
+/* Beats: the active scene of a playing chapter names its keyframes; every
+   other scene resolves to none. `both` keeps finished beats reachable, so
+   a chapter restarts by rewinding them (journey-player.tsx). */
+.mk-walk[data-run][data-chapter="1"] [data-s="1"],
+.mk-walk[data-run][data-chapter="2"] [data-s="2"],
+.mk-walk[data-run][data-chapter="3"] [data-s="3"],
+.mk-walk[data-run][data-chapter="4"] [data-s="4"],
+.mk-walk[data-run][data-chapter="5"] [data-s="5"],
+.mk-walk[data-run][data-chapter="6"] [data-s="6"],
+.mk-walk[data-run][data-chapter="7"] [data-s="7"],
+.mk-walk[data-run][data-chapter="8"] [data-s="8"] {
+  --w-rise: mk-walk-rise;
+  --w-pop: mk-walk-pop;
+  --w-stamp: mk-walk-stamp;
+  --w-fade: mk-walk-fade;
+  --w-gone: mk-walk-gone;
+  --w-slide: mk-walk-slide;
+  --w-press: mk-walk-press;
+  --w-ring: mk-walk-ring;
+  --w-draw: mk-walk-draw;
+  --w-blink: mk-walk-blink;
+  --w-show: mk-walk-show;
+  --w-hide: mk-walk-hide;
+}
+[data-b="rise"],
+[data-b="card"] {
+  animation: var(--w-rise, none) var(--mk-dur-slow) var(--mk-ease-out) var(--d)
+    both;
+}
+[data-b="card"] {
+  --y: 12px;
+}
+[data-b="pop"] {
+  animation: var(--w-pop, none) var(--mk-dur-slow) var(--mk-ease-spring)
+    var(--d) both;
+}
+[data-b="stamp"] {
+  animation: var(--w-stamp, none) var(--mk-dur-base) var(--mk-ease-out) var(--d)
+    both;
+}
+[data-b="fade"] {
+  animation: var(--w-fade, none) var(--mk-dur-fast) var(--mk-ease-out) var(--d)
+    both;
+}
+[data-b="xin"],
+[data-b="glow"]::before {
+  animation: var(--w-fade, none) var(--mk-dur-slow) var(--mk-ease-out) var(--d)
+    both;
+}
+[data-b="xout"] {
+  animation: var(--w-gone, none) var(--mk-dur-base) var(--mk-ease-in) var(--d)
+    both;
+}
+[data-b="slide"],
+[data-b="uncover"] {
+  animation: var(--w-slide, none) var(--mk-dur-base) var(--mk-ease-out) var(--d)
+    both;
+}
+[data-b="uncover"] {
+  --x: 0%;
+}
+[data-b="tap"] {
+  animation: var(--w-press, none) calc(var(--mk-dur-press) + var(--mk-dur-fast))
+    var(--mk-ease-in-out) var(--d) both;
+}
+[data-b="tap"]::after {
+  animation: var(--w-ring, none) var(--mk-dur-slow) var(--mk-ease-out) var(--d)
+    both;
+}
+[data-b="draw"] {
+  animation: var(--w-draw, none) var(--mk-dur-emphasis) var(--mk-ease-out)
+    var(--d) both;
+}
+[data-b="dots"] i {
+  animation: var(--w-blink, none) var(--mk-dur-slow) var(--mk-ease-in-out)
+    var(--d) 2 both;
+}
+[data-b="temp"] {
+  animation:
+    var(--w-show, none) var(--mk-dur-slow) var(--mk-ease-out) var(--d) both,
+    var(--w-hide, none) var(--mk-dur-base) var(--mk-ease-in) var(--e) forwards;
+}
+/* Paused means nothing on the stage moves: the beats, the wire and the
+   frames hold where they are and continue from there. Only the stage: the
+   controls (the Play/Pause icon's fade) never pause. */
+.mk-walk[data-hold] .mk-walk-stage :is([data-b], [data-b] i, .w-trail, .w-dot, .w-frame, .w-fill),
+.mk-walk[data-hold] .mk-walk-stage :is([data-b], .w-frame)::before,
+.mk-walk[data-hold] .mk-walk-stage :is([data-b], .w-frame)::after {
+  animation-play-state: paused !important;
+}
+/* The shared wire and the frames restart with each chapter. */
+.mk-walk[data-run][data-go] .w-go .w-trail {
+  animation: mk-walk-trail var(--mk-dur-slow) var(--mk-ease-out) var(--w-go)
+    both;
+}
+.mk-walk[data-run][data-back] .w-ret .w-trail {
+  animation: mk-walk-trail var(--mk-dur-slow) var(--mk-ease-out) var(--w-back)
+    both;
+}
+.mk-walk[data-run][data-go] .w-go .w-dot {
+  animation: mk-walk-travel var(--mk-dur-emphasis) var(--mk-ease-in-out)
+    calc(var(--w-go) + 150ms) both;
+}
+.mk-walk[data-run][data-back] .w-ret .w-dot {
+  animation: mk-walk-travel var(--mk-dur-emphasis) var(--mk-ease-in-out)
+    calc(var(--w-back) + 150ms) both;
+}
+.mk-walk[data-run][data-go] .w-phone::after {
+  animation: mk-walk-arrive var(--mk-dur-slow) var(--mk-ease-out)
+    calc(var(--w-go) + 570ms) both;
+}
+.mk-walk[data-run][data-back] .w-coach::after {
+  animation: mk-walk-arrive var(--mk-dur-slow) var(--mk-ease-out)
+    calc(var(--w-back) + 570ms) both;
+}
+
+@keyframes mk-walk-rise {
+  from {
+    opacity: 0;
+    translate: 0 var(--y, 8px);
+  }
+}
+@keyframes mk-walk-pop {
+  from {
+    opacity: 0;
+    scale: 0.6;
+  }
+}
+@keyframes mk-walk-stamp {
+  from {
+    opacity: 0;
+    scale: 0.92;
+  }
+}
+@keyframes mk-walk-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes mk-walk-gone {
+  from {
+    opacity: 1;
+  }
+}
+@keyframes mk-walk-slide {
+  from {
+    translate: calc(var(--x, -100%) * var(--inline-sign, 1)) 0;
+  }
+}
+@keyframes mk-walk-press {
+  40% {
+    scale: 0.97;
+  }
+}
+@keyframes mk-walk-ring {
+  0% {
+    opacity: 0;
+    scale: 0.6;
+  }
+  1% {
+    opacity: 0.5;
+  }
+  100% {
+    opacity: 0;
+    scale: 1.4;
+  }
+}
+@keyframes mk-walk-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+}
+@keyframes mk-walk-blink {
+  50% {
+    opacity: 1;
+  }
+}
+@keyframes mk-walk-show {
+  from {
+    opacity: 0;
+    scale: 0.92;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+@keyframes mk-walk-hide {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+@keyframes mk-walk-trail {
+  from {
+    scale: 0 1;
+  }
+}
+@keyframes mk-walk-travel {
+  0% {
+    opacity: 0;
+    translate: calc(var(--x) * var(--inline-sign, 1)) 0;
+  }
+  12%,
+  88% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    translate: 0 0;
+  }
+}
+@keyframes mk-walk-arrive {
+  0% {
+    opacity: 0;
+    scale: 1;
+  }
+  40% {
+    opacity: 0.5;
+  }
+  100% {
+    opacity: 0;
+    scale: 1.02;
+  }
+}
+@keyframes mk-walk-out {
+  from {
+    opacity: 1;
+    translate: 0 0;
+  }
+  to {
+    opacity: 0;
+    translate: calc(-12% * var(--inline-sign, 1)) 0;
+  }
+}
+@keyframes mk-walk-in {
+  from {
+    opacity: 0;
+    translate: calc(12% * var(--inline-sign, 1)) 0;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+/* The controls: Pause/Play/Replay, the chapters and (full) previous and
+   next. Their space is reserved; they show once the island is ready and
+   never without JavaScript. */
+.mk-walk-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-block-size: 44px;
+  visibility: hidden;
+}
+.mk-walk[data-ready] .mk-walk-bar {
+  visibility: visible;
+}
+@media (scripting: none) {
+  .mk-walk-bar {
+    display: none;
+  }
+}
+.mk-walk-btn {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  inline-size: 44px;
+  block-size: 44px;
+  padding: 0;
+  border: 1px solid var(--mk-line);
+  border-radius: 6px;
+  background: var(--ty-white);
+  color: var(--ink);
+  cursor: pointer;
+}
+/* Previous at the first step and Next at the last stay focusable
+   (aria-disabled) and look inactive. */
+.mk-walk-btn[aria-disabled="true"] {
+  color: var(--muted);
+  background: var(--mk-band);
+  cursor: default;
+}
+.mk-walk-play svg {
+  animation: mk-walk-fade var(--mk-dur-fast) var(--mk-ease-out);
+}
+.mk-walk-segs {
+  display: flex;
+  flex: 1 1 auto;
+  min-inline-size: 0;
+}
+.mk-walk-seg {
+  display: grid;
+  align-items: center;
+  flex: 1 1 0;
+  min-inline-size: 24px;
+  block-size: 44px;
+  padding: 0 2px;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.mk-walk-seg > span {
+  display: block;
+  block-size: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--mk-line);
+}
+/* The current step: a lime track ringed in ink, the ink fill growing over
+   it (lime only behind ink). */
+.mk-walk-seg[aria-current] > span {
+  background: var(--lime);
+  box-shadow: inset 0 0 0 1px var(--ink);
+}
+.mk-walk-seg i {
+  display: block;
+  block-size: 100%;
+  background: var(--ink);
+  scale: 0 1;
+  transform-origin: calc(50% - 50% * var(--inline-sign, 1)) 50%;
+}
+.mk-walk-seg[data-done] i {
+  scale: 1 1;
+}
+
+/* The steps under the full player: the registry's cards, with the active
+   one marked (an ink edge and a Pace bar). */
+.mk-walk-steps .mk-steps {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 4px 0 0;
+}
+.mk-walk-steps li {
+  position: relative;
+}
+.mk-walk-steps li::before {
+  content: "";
+  position: absolute;
+  inset-block: 14px;
+  inset-inline-start: -1px;
+  inline-size: 4px;
+  border-radius: 2px;
+  background: var(--lime);
+  opacity: var(--walk-on, 0);
+  transition: opacity var(--mk-dur-fast) var(--mk-ease-out);
+}
+.mk-walk[data-chapter="1"] [data-step="1"],
+.mk-walk[data-chapter="2"] [data-step="2"],
+.mk-walk[data-chapter="3"] [data-step="3"],
+.mk-walk[data-chapter="4"] [data-step="4"],
+.mk-walk[data-chapter="5"] [data-step="5"],
+.mk-walk[data-chapter="6"] [data-step="6"],
+.mk-walk[data-chapter="7"] [data-step="7"],
+.mk-walk[data-chapter="8"] [data-step="8"] {
+  --walk-on: 1;
+  border-color: var(--ink);
+}
+.mk-walk-steps .mk-walk-sub {
+  display: grid;
+  gap: 4px;
+  margin-block-start: 10px;
+  padding-block-start: 10px;
+  border-block-start: 1px solid var(--mk-line);
+  font-size: 14px;
+  color: var(--ink);
+}
+/* "Your subscriber": the visible label before each subscriber line. */
+.mk-walk-sub-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.mk-walk-sub-label svg {
+  flex: none;
+}
+@media (min-width: 1150px) {
+  .mk-walk-steps .mk-steps {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+/* Wider screens: once the island runs, the cards are a carousel too (two
+   in view, four from 1150px), so the active card is always on screen; the
+   chapter change scrolls it into view (journey-player.tsx). Without
+   JavaScript they stay a grid with every card in view. */
+@media (min-width: 761px) {
+  .mk-walk[data-ready] .mk-walk-steps {
+    overflow-x: auto;
+    scroll-snap-type: inline mandatory;
+    overscroll-behavior-inline: contain;
+    scrollbar-width: none;
+  }
+  .mk-walk[data-ready] .mk-walk-steps .mk-steps {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: calc((100% - 12px) / 2);
+    gap: 12px;
+  }
+  .mk-walk[data-ready] .mk-walk-steps li {
+    scroll-snap-align: start;
+  }
+}
+/* From 1024px: a larger subscriber phone (its text about the coach
+   window's size), its foot cropped by the stage like a device rising from
+   the edge. */
+@media (min-width: 1024px) {
+  .mk-walk-full {
+    --walk-cw: 0.56;
+    --walk-pw: 0.26;
+  }
+  .mk-walk-full .mk-walk-stage {
+    grid-template-columns: minmax(0, 56fr) minmax(0, 18fr) minmax(0, 26fr);
+  }
+  .mk-walk-full .w-phone {
+    align-self: start;
+    aspect-ratio: 9 / 16;
+  }
+}
+@media (min-width: 1150px) {
+  .mk-walk[data-ready] .mk-walk-steps .mk-steps {
+    grid-auto-columns: calc((100% - 3 * 12px) / 4);
+  }
+  /* A shorter stage: the header, the stage, the controls and a full row of
+     cards fit a 900px screen. */
+  .mk-walk-full .mk-walk-stage {
+    aspect-ratio: 5 / 2;
+  }
+}
+
+/* The home band: label, the active step's title, the controls and the
+   link beside the stage (a white panel on the paper band). */
+.mk-walk-compact {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  grid-template-rows: minmax(0, 1fr) repeat(4, auto) minmax(0, 1fr);
+  grid-template-areas: ". view" "label view" "cap view" "bar view" "more view" ". view";
+  column-gap: 56px;
+  row-gap: 12px;
+}
+.mk-walk-compact .mk-walk-view {
+  grid-area: view;
+}
+@media (min-width: 1024px) {
+  .mk-walk-compact {
+    --walk-s: calc((var(--walk-wc) - 56px) * 7 / 12 * 0.96 - 2px);
+  }
+}
+.mk-walk-label {
+  grid-area: label;
+  margin: 0;
+}
+.mk-walk-cap {
+  grid-area: cap;
+  display: grid;
+  gap: 10px;
+}
+.mk-walk-caption {
+  min-block-size: 2.3em;
+  margin: 0;
+  font-size: clamp(24px, 2.6vw, 34px);
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  font-weight: 540;
+}
+/* What the step means for the subscriber: the same registry line as on
+   /how-it-works. Its space is reserved (the longest line), so changing
+   chapters never moves the controls. */
+.mk-walk-then {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  min-block-size: calc(22px + 2lh);
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.45;
+  color: var(--ink);
+}
+.mk-walk-compact .mk-walk-bar {
+  grid-area: bar;
+}
+.mk-walk-more {
+  grid-area: more;
+  margin: 0;
+}
+
+@media (hover: hover) {
+  .mk-walk-btn:hover:not([aria-disabled="true"]) {
+    background: var(--mk-band);
+  }
+  .mk-walk-seg:hover > span {
+    background: color-mix(in srgb, var(--ink) 45%, var(--mk-line));
+  }
+  .mk-walk-steps li:hover {
+    border-color: var(--ink);
+    cursor: pointer;
+  }
+}
+
+@media (max-width: 1023px) {
+  .mk-walk-full {
+    --walk-cw: 0.6;
+    --walk-pw: 0.22;
+  }
+  .mk-walk-full .mk-walk-stage {
+    grid-template-columns: minmax(0, 60fr) minmax(0, 18fr) minmax(0, 22fr);
+    aspect-ratio: 16 / 9;
+  }
+  .mk-walk-compact {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+    grid-template-areas: "label" "view" "cap" "bar" "more";
+  }
+}
+
+/* Phones: one frame at a time under a strip (laptop, wire, phone). At each
+   arrival the frames swap: the side shown first leaves, the other enters;
+   base styles show the chapter's last side. */
+@media (max-width: 760px) {
+  /* One frame at a time across the stage (8px padding): the laptop is the
+     whole width, the phone 76% of it. */
+  .mk-walk.mk-walk {
+    --walk-s: calc(var(--walk-wc) - 18px);
+    --walk-cw: 1;
+    --walk-pw: 0.76;
+  }
+  .mk-walk .mk-walk-stage {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-rows: auto 32px minmax(0, 1fr);
+    grid-template-areas: "tag tag tag" "cc wire pc" "frame frame frame";
+    align-items: start;
+    row-gap: 8px;
+    aspect-ratio: 1;
+    padding: 8px;
+  }
+  .mk-walk-compact .mk-walk-stage {
+    grid-template-rows: 32px minmax(0, 1fr);
+    grid-template-areas: "cc wire pc" "frame frame frame";
+  }
+  .mk-walk-stage::after {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    inset-block-end: 0;
+    block-size: 24px;
+    background: linear-gradient(transparent, var(--walk-stage));
+    pointer-events: none;
+  }
+  /* The strip: "You" (laptop) and "Your subscriber" (phone), borderless
+     so neither reads as a button; the side on screen sits on lime. */
+  .mk-walk .w-tag {
+    margin: 0 0 2px;
+  }
+  .w-chip {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    grid-area: cc;
+    min-inline-size: 40px;
+    block-size: 32px;
+    padding-inline: 10px;
+    border-radius: 16px;
+    font-size: 12px;
+    font-weight: 650;
+    white-space: nowrap;
+    color: var(--ink);
+  }
+  .w-pc {
+    grid-area: pc;
+  }
+  .w-chip > :not(.w-fill) {
+    position: relative;
+  }
+  .w-fill {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: var(--lime);
+  }
+  .w-wire {
+    align-self: center;
+    margin-inline: 6px;
+  }
+  .w-frame {
+    --w-out: mk-walk-out;
+    --w-in: mk-walk-in;
+    grid-area: frame;
+  }
+  .w-coach {
+    align-self: center;
+  }
+  .w-phone {
+    justify-self: center;
+    inline-size: 76%;
+  }
+  /* The full player's coach window: taller, with text of at least 12.5px. */
+  .mk-walk-full .w-coach {
+    align-self: start;
+    aspect-ratio: 4 / 3;
+  }
+  .mk-walk-full .w-coach .w-dev {
+    font-size: max(12.5px, calc(var(--walk-s) * 0.036));
+  }
+  /* Chapter 6, the densest phone: its pain report stays above the fade. */
+  .w-set {
+    min-block-size: 1.5em;
+  }
+  .w-sets > .w-pane {
+    gap: 0.25em;
+  }
+  .w-phone .w-card {
+    padding: 0.6em;
+  }
+  .mk-walk-compact .mk-walk-stage {
+    aspect-ratio: 4 / 3;
+  }
+  .mk-walk-then {
+    min-block-size: calc(22px + 3lh);
+  }
+  .w-fill {
+    --w-out: mk-walk-hide;
+    --w-in: mk-walk-show;
+  }
+  .mk-walk[data-end="phone"] .w-c,
+  .mk-walk[data-end="coach"] .w-p {
+    opacity: 0;
+  }
+  .mk-walk[data-run][data-start="coach"] .w-c,
+  .mk-walk[data-run][data-start="phone"] .w-p {
+    animation: var(--w-out) var(--mk-dur-base) var(--mk-ease-in) var(--w-sw1)
+      both;
+  }
+  .mk-walk[data-run][data-start="coach"] .w-p,
+  .mk-walk[data-run][data-start="phone"] .w-c {
+    animation: var(--w-in) var(--mk-dur-slow) var(--mk-ease-out)
+      calc(var(--w-sw1) + 80ms) both;
+  }
+  .mk-walk[data-run][data-sw2][data-start="coach"] .w-c,
+  .mk-walk[data-run][data-sw2][data-start="phone"] .w-p {
+    animation:
+      var(--w-out) var(--mk-dur-base) var(--mk-ease-in) var(--w-sw1) both,
+      var(--w-in) var(--mk-dur-slow) var(--mk-ease-out)
+        calc(var(--w-sw2) + 80ms) forwards;
+  }
+  .mk-walk[data-run][data-sw2][data-start="coach"] .w-p,
+  .mk-walk[data-run][data-sw2][data-start="phone"] .w-c {
+    animation:
+      var(--w-in) var(--mk-dur-slow) var(--mk-ease-out)
+        calc(var(--w-sw1) + 80ms) both,
+      var(--w-out) var(--mk-dur-base) var(--mk-ease-in) var(--w-sw2) forwards;
+  }
+  .mk-walk-bar {
+    gap: 6px;
+  }
+  /* The steps become a scroll-snap carousel (pure CSS, with or without
+     JavaScript); the next card peeks in. */
+  .mk-walk-steps {
+    margin-inline: calc(-1 * var(--mk-gutter));
+    padding-inline: var(--mk-gutter);
+    scroll-padding-inline: var(--mk-gutter);
+    overflow-x: auto;
+    scroll-snap-type: inline mandatory;
+    overscroll-behavior-inline: contain;
+    scrollbar-width: none;
+  }
+  /* The list is as wide as its cards (each 86% of the scroller's content
+     box, which is the container's content width), so the scroller's end
+     padding follows the last card: it stops a gutter from the edge, like
+     the first. */
+  .mk-walk-steps .mk-steps {
+    inline-size: max-content;
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: calc(var(--walk-wc) * 0.86);
+    gap: 12px;
+  }
+  .mk-walk-steps li {
+    scroll-snap-align: start;
+  }
+}
+/* The narrowest phones: slimmer arrows, so each step's segment keeps a
+   24px target. */
+@media (max-width: 380px) {
+  .mk-walk-bar {
+    gap: 4px;
+  }
+  .mk-walk-full .mk-walk-btn {
+    inline-size: 40px;
+  }
+}
+
+/* Reduced motion: static complete chapters, instant changes and no
+   auto-play (journey-player.tsx); globals.css already stops element
+   animations and transitions, this covers the pseudo-elements too. */
+@media (prefers-reduced-motion: reduce) {
+  .mk-walk *::before,
+  .mk-walk *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+  .mk-walk-seg[aria-current] i {
+    scale: 1 1;
+  }
+}

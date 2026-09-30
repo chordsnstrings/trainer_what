@@ -9,6 +9,14 @@ import {
   pageLanguage,
   parseLanguage,
 } from "../document-language";
+import {
+  DEFAULT_COLOR_SCHEME,
+  DEFAULT_MOTION_CHOICE,
+  MEMBER_MOTION_COOKIE,
+  MEMBER_SCHEME_COOKIE,
+  parseColorScheme,
+  parseMotionChoice,
+} from "../color-scheme";
 
 // Server-only helpers shared by the root layout and the catch-all page. The
 // React cache makes the layout's language lookup and the page's render one
@@ -68,4 +76,29 @@ export async function documentLanguage() {
       return data ? (parseLanguage(data.site?.language) ?? "en") : undefined;
     },
   });
+}
+
+/**
+ * The member's appearance choice mirrored on this device (color-scheme.ts):
+ * the coach website and the coach's sign-in and joining pages render in it,
+ * and the member app's first paint uses it. "system" when none is saved.
+ */
+export async function memberColorScheme() {
+  const jar = await cookies();
+  return (
+    parseColorScheme(jar.get(MEMBER_SCHEME_COOKIE)?.value) ??
+    DEFAULT_COLOR_SCHEME
+  );
+}
+
+/**
+ * The member's "Reduce motion" choice on this device (color-scheme.ts):
+ * "reduce" puts data-reduce-motion="on" on <html> from the first paint.
+ */
+export async function memberMotionChoice() {
+  const jar = await cookies();
+  return (
+    parseMotionChoice(jar.get(MEMBER_MOTION_COOKIE)?.value) ??
+    DEFAULT_MOTION_CHOICE
+  );
 }

@@ -374,7 +374,9 @@ test("evaluation keeps each check's category from the model, scales its budget a
   assert.equal(request.maxTokens, budget.maxTokens);
   assert.equal(request.timeoutMs, budget.timeoutMs);
   assert.ok(budget.timeoutMs > 30000);
-  assert.match(request.system, /not its scenario/);
+  // v4: the quote is 4 to 15 consecutive words from the cited case itself.
+  assert.match(request.system, /4 to 15 consecutive words \(at least 12 characters\)/);
+  assert.match(request.system, /of the case given as caseId, which must also be in caseIds; never quote a scenario or another case/);
   assert.match(request.system, /nearest whole number/);
   assert.ok(!UUID_TEXT.test(request.content), "no full IDs are sent");
   assert.ok(request.input.scenarios.every((s: any) => /^Q\d+$/.test(s.id)));

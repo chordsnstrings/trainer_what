@@ -309,7 +309,12 @@ export async function closeMonth(
     [cutoff.toISOString()],
   );
   const [unresolved] = await tx.query(
-    "SELECT count(*)::int AS n FROM records WHERE (kind='refund' AND status IN ('requested','submitting','submitted','unknown')) OR (kind='reconciliation' AND status<>'resolved') OR (kind='booking_payment' AND status IN ('creating','open','unknown','refund_submitting','refund_pending','refund_unknown')) OR (kind='checkout' AND status='unknown' AND data->>'billing'='upfront') OR (kind='billing_invoice' AND status='open' AND coalesce((data->>'amountDue')::bigint,0)>coalesce((data->>'amountPaid')::bigint,0))",
+    // A failed invoice holds only the months it could still be paid into:
+    // one issued after the month ended cannot change it, and one Stripe no
+    // longer collects (void, uncollectible, or its subscription ended) is
+    // not open (stripe-events.ts).
+    "SELECT count(*)::int AS n FROM records WHERE (kind='refund' AND status IN ('requested','submitting','submitted','unknown')) OR (kind='reconciliation' AND status<>'resolved') OR (kind='booking_payment' AND status IN ('creating','open','unknown','refund_submitting','refund_pending','refund_unknown')) OR (kind='checkout' AND status='unknown' AND data->>'billing'='upfront') OR (kind='billing_invoice' AND status='open' AND coalesce((data->>'amountDue')::bigint,0)>coalesce((data->>'amountPaid')::bigint,0) AND coalesce(data->>'issuedAt','')<>'' AND (data->>'issuedAt')::timestamptz<$1)",
+    [cutoff.toISOString()],
   );
   const [unknown] = await tx.query(
     "SELECT count(*)::int AS n FROM payouts WHERE status IN ('submitted','processing','unknown')",

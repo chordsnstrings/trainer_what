@@ -144,6 +144,10 @@ export type PlannedDay = {
   status: string;
   week?: number;
   exercises?: number;
+  /** The assigned programme this session belongs to. */
+  programId?: string | null;
+  /** The workout started from this session, once started. */
+  workoutId?: string | null;
 };
 export type TimelineDay = {
   date: string;

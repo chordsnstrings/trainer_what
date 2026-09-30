@@ -1,23 +1,30 @@
+"use client";
 import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
 import { MarketingHeader, claimCta } from "./marketing/frame";
 import { CoachIdentity } from "./trainer-design";
+import { useT } from "../lib/i18n/react";
 
 /** The coach whose sign-in, recovery or joining page this is. */
 export type PublicCoach = {
+  /** Empty while an invitation is still being read. */
   slug: string;
   /** On the trainer's own domain or subdomain (not /coach/ on the platform). */
   host: boolean;
   /** The published trainer, once loaded (GET /public/trainers/:slug). */
   trainer?: { name: string; slug: string; theme: unknown } | null;
+  /** The coach has a public website to link home to (default: yes). */
+  website?: boolean;
 };
 
 /**
  * The header of the public sign-in, recovery and joining pages. On the
  * platform address it is the marketing header (the trainsyou lockup and
  * "Teach your AI"). For a coach, including every page on a trainer's own
- * domain or subdomain, it carries the trainer's identity and "Join coaching",
- * never the platform's logo or its sign-up link, which coach addresses refuse.
+ * domain or subdomain, a coach's join page and an invitation, it is a compact
+ * bar with the trainer's identity, never the platform's logo or its sign-up
+ * link, which coach addresses refuse. Joining pages drop "Join coaching"
+ * (the page is the join flow) and the sign-in page drops "Sign in".
  */
 export function PublicHeader({
   path,
@@ -28,6 +35,7 @@ export function PublicHeader({
   platform: { name: string; initials: string; registrationOpen: boolean };
   coach: PublicCoach | null;
 }) {
+  const t = useT("auth");
   if (!coach)
     return (
       <MarketingHeader
@@ -38,23 +46,43 @@ export function PublicHeader({
       />
     );
   const trainer = coach.trainer;
+  const joining = path.startsWith("/join-coach/") || path.startsWith("/join/");
+  const home = coach.host
+    ? "/"
+    : coach.slug && coach.website !== false
+      ? `/coach/${coach.slug}`
+      : null;
+  const identity = trainer && (
+    <CoachIdentity name={trainer.name} theme={trainer.theme} compact />
+  );
   return (
-    <header className="public-header">
-      <Link
-        href={coach.host ? "/" : `/coach/${coach.slug}`}
-        className="wordmark"
-        aria-label={trainer ? undefined : "Coaching website"}
-      >
-        {trainer && (
-          <CoachIdentity name={trainer.name} theme={trainer.theme} compact />
+    <header className="subscriber-header">
+      {home ? (
+        <Link
+          href={home}
+          className="wordmark"
+          aria-label={trainer ? undefined : t("coachingWebsite")}
+        >
+          {identity}
+        </Link>
+      ) : (
+        <span className="wordmark">{identity}</span>
+      )}
+      <nav aria-label={t("account")}>
+        {path !== "/login" && (
+          <Link className="subscriber-header-link" href="/login">
+            {t("signIn")}
+          </Link>
         )}
-      </Link>
-      <nav>
-        <Link href="/login">Sign in</Link>
+        {!joining && coach.slug && (
+          <Link
+            className="button"
+            href={`/join-coach/${trainer?.slug ?? coach.slug}`}
+          >
+            {t("joinCoaching")} <ArrowUpRight size={16} aria-hidden="true" />
+          </Link>
+        )}
       </nav>
-      <Link className="button" href={`/join-coach/${trainer?.slug ?? coach.slug}`}>
-        Join coaching <ArrowUpRight size={16} />
-      </Link>
     </header>
   );
 }

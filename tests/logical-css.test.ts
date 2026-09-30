@@ -35,6 +35,12 @@ const ALLOWED: Array<{ file: string; declaration: string; reason: string }> =
       reason:
         "The home relay's decorative dot travels along its wire inside .mk-relay-wire, an SVG that already mirrors with scale: var(--inline-sign) 1, so the dot's own offset must stay positive in both directions.",
     },
+    {
+      file: "apps/web/app/motion.css",
+      declaration: "right: auto",
+      reason:
+        "React sizes the ::view-transition layer to 0 x 0 while it keeps inset: 0; in a right-to-left page the over-constrained box keeps its right edge, so the layer sits at the right side of the screen and every snapshot (placed physically from its top-left corner) is off screen. The layer must be pinned to the physical left in both directions.",
+    },
   ];
 
 const PHYSICAL_PROPERTY =

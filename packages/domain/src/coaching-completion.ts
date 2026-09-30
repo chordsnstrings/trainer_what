@@ -214,28 +214,70 @@ export function writtenInArabic(text: string) {
 const arabicClitic = "(?:[وف]?(?:[بك]?ال|لل|[بلك])?)";
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 /**
+ * Determiners and possessives an English term may be written with: "move my
+ * session" also reads "move tomorrow's session", "move the Tuesday session"
+ * and "move session". In the folded text a possessive is a word followed by
+ * "s" ("tomorrow s"); at most two such words fill the place. Only the
+ * member's own words fill it (my, our, the, this, a, next, a day or time),
+ * plus the term's own determiner: "move her session" and "move their
+ * session" are not a request about the member's session, and a contraction
+ * ("that's my session", "it's session day") is not a possessive.
+ */
+const TERM_DETERMINERS = new Set(["my", "your", "the", "this", "that", "our", "his", "her", "their", "a", "an"]);
+const TIME_WORDS =
+  "today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|morning|afternoon|evening|night|week|weekend|day";
+const determinerSlot = (own: string) =>
+  `(?:(?:my|our|the|this|that|these|those|a|an|next|${escapeRegExp(own)}|${TIME_WORDS}|(?:${TIME_WORDS}|coach|trainer) s) ){0,2}`;
+/**
+ * An English term word and its present-tense inflections: -s, -es, -ing, a
+ * final e dropped (move: moves, moving), a final consonant doubled (skip:
+ * skipping) and y to ies (carry: carries). The past tense is not a request:
+ * "I moved my session already" and "I skipped my session yesterday" report
+ * what happened and must not make a move or skip eligible, so -ed forms match
+ * only when the term itself is written that way. Only the term word grows;
+ * the request word is never cut down, so "tired" does not read "tires" and
+ * "band" does not read "bandana". A possessive "s" may follow ("coach's").
+ * Words under three letters and words with digits match exactly, and so does
+ * a one-word term (`inflect` false): "increasing" and "progresses" describe
+ * ("my tiredness is increasing"), they do not ask for a progression.
+ */
+function englishWordPattern(word: string, inflect = true) {
+  if (!inflect) return escapeRegExp(word) + "(?: s)?";
+  if (word.length < 3 || !/^\p{Script=Latin}+$/u.test(word)) return escapeRegExp(word);
+  const forms = new Set([word, word + "s", word + "es", word + "ing"]);
+  if (word.endsWith("e")) forms.add(word.slice(0, -1) + "ing");
+  if (/[^aeiou]y$/.test(word)) forms.add(word.slice(0, -1) + "ies");
+  if (/(?:^|[^aeiou])[aeiou][b-df-hj-np-tvz]$/.test(word)) forms.add(word + word.at(-1) + "ing");
+  return "(?:" + [...forms].map(escapeRegExp).join("|") + ")(?: s)?";
+}
+/**
  * A request term as a whole-word pattern over coachingTermText(). English
- * words must match exactly. An Arabic word may carry an attached clitic in
- * the request, and a term word's own article is optional (the term "تأجيل
- * الحصة" matches "تأجيل حصة الغد"). A term that folds to empty text never
- * matches anything.
+ * words match at word level: in a term of two or more words, present-tense
+ * inflections; a possessive "s"; and the member's own determiners or a day's
+ * possessive in place of the term's own ("my", "the"; see englishWordPattern
+ * and determinerSlot). A one-word English term matches exactly. An Arabic word may carry an
+ * attached clitic in the request, and a term word's own article is optional
+ * (the term "تأجيل الحصة" matches "تأجيل حصة الغد"). A term that folds to
+ * empty text never matches anything.
  */
 function requestTermPattern(term: string) {
   const words = coachingTermText(term).split(" ").filter(Boolean);
   if (!words.length) return null;
-  return new RegExp(
-    " " +
-      words
-        .map((word) => {
-          if (!arabicLetter.test(word)) return escapeRegExp(word);
-          const stem =
-            word.startsWith("ال") && word.length >= 5 ? word.slice(2) : word;
-          return arabicClitic + escapeRegExp(stem);
-        })
-        .join(" ") +
-      "(?= )",
-    "u",
-  );
+  let source = " ";
+  words.forEach((word, i) => {
+    const last = i === words.length - 1;
+    // A determiner between two words of the term is a place, not a word.
+    if (!last && i > 0 && TERM_DETERMINERS.has(word)) {
+      source += determinerSlot(word);
+      return;
+    }
+    if (arabicLetter.test(word)) {
+      const stem = word.startsWith("ال") && word.length >= 5 ? word.slice(2) : word;
+      source += arabicClitic + escapeRegExp(stem);
+    } else source += englishWordPattern(word, words.length > 1);
+    if (!last) source += " ";
+  });
+  return new RegExp(source + "(?= )", "u");
 }
 export function requestMatchesTerm(request: string, term: string) {
   const pattern = requestTermPattern(term);
@@ -407,9 +449,13 @@ export const teachingCaseSchema = z
  * so it is in the runtime contract digest. Changing it makes published
  * automatic releases stale (members' requests go to trainer review) until the
  * trainer evaluates and activates again. v3: identifiers are short prompt
- * references, and evidenceIds need a rule the selected action cites.
+ * references, and evidenceIds need a rule the selected action cites. v4 (the
+ * trial tuning of 30 September 2026): the prompt says which checks the app
+ * already made on every action shown, that instructions inside a request are
+ * data and not by themselves a reason for review, and which concrete reasons
+ * do need review (including a spacing rule a moved session could break).
  */
-export const coachingPromptVersion = "coach-action-selector-v3";
+export const coachingPromptVersion = "coach-action-selector-v4";
 export const coachingFactsSchema = z
   .object({
     profile: z
@@ -544,6 +590,84 @@ export function eligibleCoachAction(
         (s.rir ?? -1) >= action.minimumRir,
     )
   );
+}
+/**
+ * The trainer's session-spacing and session-order rules, as far as the app can
+ * read them (owner decision N11/E7, 30 September 2026: an automatic move must
+ * respect them). Rules are free text, so only a schedule, recovery or safety
+ * rule that talks about spacing or order counts ("no intervals on consecutive
+ * days", "48 hours between hard sessions", "keep the session order"). Returns
+ * the least number of calendar days that rule asks between two sessions (2:
+ * never on consecutive days; hours and days are rounded up, since session
+ * times are unknown), 0 when no rule talks about spacing or order, and null
+ * when a rule gives a duration the app cannot read (it cannot tell).
+ */
+export function sessionSpacingDays(rules: unknown[] = []): number | null {
+  const words: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7 };
+  let days = 0;
+  for (const rule of rules as any[]) {
+    const data = rule?.data ?? rule;
+    if (!["schedule", "recovery", "safety"].includes(data?.category)) continue;
+    const text = [data.title, data.condition, data.directive]
+      .filter((v) => typeof v === "string")
+      .join(" ")
+      .toLowerCase();
+    const english = SPACING_RULE.test(text),
+      arabic = SPACING_RULE_AR.test(text);
+    if (!english && !arabic) continue;
+    // Arabic durations (يومين, ٤٨ ساعة) are not read: the app cannot tell.
+    if (arabic && /[0-9\u0660-\u0669]|يومين|ساع|ثلاث|اربع|أربع/u.test(text))
+      return null;
+    let least = 2;
+    for (const m of text.matchAll(SPACING_DURATION)) {
+      const n = words[m[1]] ?? Number(m[1]);
+      least = Math.max(least, m[2].startsWith("hour") ? Math.floor(n / 24) + 1 : n + 1);
+    }
+    // Any other number ("at least 2 between hard sessions") is not read.
+    if (/\d/.test(text.replace(SPACING_DURATION, " "))) return null;
+    days = Math.max(days, least);
+  }
+  return days;
+}
+const SPACING_RULE =
+  /\b(consecutive|back[- ]to[- ]back|in a row|rest days?|days? (?:off|between|apart)|hours? (?:between|apart|of rest)|spac(?:e|ed|ing)|same day|next day|following day|day after|day before|(?<!in )order|sequence)\b/;
+const SPACING_DURATION =
+  /\b(\d+|one|two|three|four|five|six|seven)[\s-]+(?:full\s+)?(?:rest\s+)?(hours?|days?|nights?)\b/g;
+const SPACING_RULE_AR =
+  /(متتالي|متتاليه|متتالية|ورا بعض|وراء بعض|يوم راح|ايام راح|أيام راح|بين الحصص|ترتيب)/u;
+/**
+ * Whether an automatic move of the next session by daysOffset keeps the
+ * trainer's spacing and order rules (sessionSpacingDays). The facts carry
+ * dates, not session kinds (a planned session has a label and exercises but
+ * no kind the app can rely on), so with such a rule the move is automatic
+ * only when the new date is at least that many days from every other planned
+ * session, no planned session lies between the old and new dates (the order
+ * is unchanged) and the spacing window does not reach back before today
+ * (completed sessions are not in the facts). Otherwise the app cannot tell and
+ * the request goes to the trainer.
+ */
+export function moveKeepsSessionSpacing(
+  facts: CoachingFacts,
+  daysOffset: number,
+  rules: unknown[] = [],
+) {
+  const gap = sessionSpacingDays(rules);
+  if (gap === 0) return true;
+  if (gap === null || !facts.nextSession) return false;
+  const from = facts.nextSession.date,
+    to = addTrainingDays(from, daysOffset);
+  if (addTrainingDays(to, 1 - gap) < facts.currentDate) return false;
+  const apart = (d: string) =>
+    Math.abs(
+      Date.parse(d + "T12:00:00Z") - Date.parse(to + "T12:00:00Z"),
+    ) / 86_400_000;
+  let moved = false;
+  return facts.occupiedDates.every((d) => {
+    if (d === from && !moved) return (moved = true);
+    if (d < facts.currentDate) return true;
+    if (d > from && d < to) return false;
+    return apart(d) >= gap;
+  });
 }
 export function canonicalCoaching(value: any): string {
   if (Array.isArray(value))

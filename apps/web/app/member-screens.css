@@ -1,0 +1,881 @@
+/* Member app screens, phone first (docs/features/member-screens.md).
+   Base rules are the 360-430 px phone layout; larger screens are added with
+   min-width queries only. Logical properties only (tests/logical-css).
+   Motion comes from the shared rules in phone-first.css (presses, page
+   arrival, notices, sheets); nothing here animates. */
+
+/* ------------------------------------------------------------------ */
+/* Today                                                                */
+/* ------------------------------------------------------------------ */
+.member-today {
+  display: grid;
+  gap: 16px;
+}
+.member-today > .card {
+  margin-block-end: 0;
+}
+.today-greeting h1 {
+  margin: 4px 0 0;
+}
+.today-greeting .eyebrow {
+  margin: 0;
+}
+.today-focus {
+  display: grid;
+  gap: 8px;
+  border-inline-start: 4px solid var(--brand-primary, var(--green));
+}
+.member-shell .card.today-focus > h2,
+.today-focus h2 {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.today-focus p {
+  margin: 0;
+}
+.today-focus .small-label {
+  margin: 0;
+}
+.today-focus.is-done {
+  border-inline-start-color: var(--success, #226044);
+}
+.today-focus.is-waiting,
+.today-focus.is-rest {
+  border-inline-start-color: var(--line);
+}
+.today-focus.is-hold {
+  border-inline-start-color: var(--warning-line, #805400);
+  background: var(--warning-bg, var(--white));
+}
+.today-focus .today-primary {
+  inline-size: 100%;
+  justify-content: center;
+  margin-block-start: 8px;
+}
+.today-focus .notice {
+  margin: 4px 0 0;
+}
+.today-next {
+  margin-block-start: 4px;
+  padding-block-start: 12px;
+  border-block-start: 1px solid var(--line);
+  font-size: 15px;
+}
+.today-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-block-size: 44px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--brand-link, var(--ink));
+}
+.today-status {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.today-status li > :is(a, div) {
+  display: grid;
+  gap: 2px;
+  min-block-size: 64px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius, 8px);
+  background: var(--white);
+  color: var(--ink);
+  text-decoration: none;
+}
+/* An odd tile out takes the whole row (no empty half row). */
+.today-status li:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+.today-status .small-label {
+  font-size: 12px;
+  line-height: 1.35;
+}
+.today-status strong {
+  font-size: 17px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.today-coach-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+.today-coach-note p {
+  margin: 0;
+}
+.today-coach-note .small-label {
+  margin-block-end: 4px;
+}
+.today-coach-photo {
+  flex: none;
+  inline-size: 48px;
+  block-size: 48px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+span.today-coach-photo {
+  display: grid;
+  place-items: center;
+}
+.member-today .programme-end {
+  display: grid;
+  gap: 10px;
+}
+.member-today .programme-end p {
+  margin: 0;
+}
+@media (min-width: 768px) {
+  .today-status {
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  }
+  .today-focus .today-primary {
+    inline-size: auto;
+    justify-self: start;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Programme timeline: weeks of day rows                                */
+/* ------------------------------------------------------------------ */
+.timeline-week h2 .muted,
+.timeline-week summary .muted {
+  font-size: 15px;
+  font-weight: 400;
+}
+.timeline-week > summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-block-size: 44px;
+  cursor: pointer;
+}
+.timeline-week > summary strong {
+  font-size: 19px;
+}
+.timeline-week .programme-timeline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  margin-block-start: 8px;
+}
+.timeline-week .programme-timeline li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  min-block-size: 48px;
+  padding: 8px 10px;
+  border: 0;
+  border-block-end: 1px solid var(--line);
+  border-radius: 0;
+  font-size: 15px;
+}
+.timeline-week .programme-timeline li:last-child {
+  border-block-end: 0;
+}
+/* The date never wraps inside itself ("Wednesday, 30 / September"): it
+   takes its own width, and the session moves to the next line if needed. */
+.timeline-week .timeline-date {
+  flex: 0 0 auto;
+  min-inline-size: 92px;
+  color: var(--muted);
+  font-size: 14px;
+  white-space: nowrap;
+}
+.timeline-week .timeline-label {
+  flex: 1 1 120px;
+  min-inline-size: 0;
+  font-weight: 600;
+}
+.timeline-week .programme-timeline li.rest .timeline-label {
+  font-weight: 400;
+  color: var(--muted);
+}
+.timeline-week .programme-timeline li.is-today {
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 2px var(--brand-primary, var(--green));
+}
+.timeline-week .badge {
+  white-space: nowrap;
+}
+.timeline-plan-sessions {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 16px;
+  padding: 0;
+  list-style: none;
+}
+.timeline-plan-sessions li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Whole-screen states: not found, workspace unavailable               */
+/* ------------------------------------------------------------------ */
+.member-state {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+}
+.member-state h1 {
+  margin: 0;
+}
+.member-state p {
+  margin: 0;
+}
+.member-state-actions {
+  display: grid;
+  gap: 10px;
+  inline-size: 100%;
+  margin-block-start: 8px;
+}
+.member-state-actions .button {
+  justify-content: center;
+  inline-size: 100%;
+}
+.workspace-unavailable {
+  padding: 16px;
+}
+.workspace-unavailable .member-state {
+  inline-size: min(100%, 480px);
+}
+.workspace-unavailable .button {
+  min-block-size: 48px;
+}
+@media (min-width: 768px) {
+  .member-state-actions {
+    display: flex;
+    flex-wrap: wrap;
+  }
+  .member-state-actions .button {
+    inline-size: auto;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Programme tab (/app/program)                                         */
+/* ------------------------------------------------------------------ */
+.member-program .program-next {
+  display: grid;
+  gap: 8px;
+  border-inline-start: 4px solid var(--brand-primary, var(--green));
+}
+.member-shell .member-program .program-next > h2,
+.member-program .program-next p {
+  margin: 0;
+}
+.member-program .program-next .button {
+  inline-size: 100%;
+  justify-content: center;
+  margin-block-start: 8px;
+}
+.member-program .program-plan > p {
+  margin-block: 6px;
+}
+.program-session {
+  border-block-start: 1px solid var(--line);
+  margin-block-start: 12px;
+}
+.program-session > summary {
+  font-weight: 600;
+}
+.program-exercises {
+  display: grid;
+  gap: 12px;
+  margin: 4px 0 12px;
+  padding: 0;
+  list-style: none;
+}
+.program-exercises li {
+  display: grid;
+  gap: 2px;
+}
+.program-calendar {
+  display: grid;
+  gap: 0;
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+}
+.program-calendar li {
+  display: grid;
+  gap: 8px;
+  padding-block: 12px;
+  border-block-end: 1px solid var(--line);
+}
+.program-calendar li > div:first-child {
+  display: grid;
+  gap: 2px;
+}
+.program-calendar-day {
+  font-size: 14px;
+  color: var(--muted);
+}
+.program-calendar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+@media (min-width: 768px) {
+  .member-program .program-next .button {
+    inline-size: auto;
+    justify-self: start;
+  }
+  .program-calendar li {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+}
+.program-calendar li {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+.sheet-choices {
+  display: grid;
+  gap: 10px;
+}
+.sheet-choices .button {
+  justify-content: center;
+  inline-size: 100%;
+}
+
+/* ------------------------------------------------------------------ */
+/* Coaching context (/app/twin)                                         */
+/* ------------------------------------------------------------------ */
+.context-facts {
+  display: grid;
+  gap: 0;
+  margin: 12px 0 16px;
+}
+.context-facts > div {
+  display: grid;
+  gap: 2px;
+  padding-block: 10px;
+  border-block-end: 1px solid var(--line);
+}
+.context-facts dt,
+.context-stats dt {
+  font-size: 13px;
+  color: var(--muted);
+}
+.context-facts dd,
+.context-stats dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.context-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 12px 0;
+}
+.context-stats > div {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.context-stats dd {
+  font-size: 22px;
+  font-weight: 600;
+}
+.context-list {
+  display: grid;
+  gap: 0;
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+}
+.context-list li {
+  display: grid;
+  gap: 2px;
+  padding-block: 10px;
+  border-block-end: 1px solid var(--line);
+}
+
+/* ------------------------------------------------------------------ */
+/* Coach chat (/app/chat): bubbles and a composer in thumb reach        */
+/* ------------------------------------------------------------------ */
+.member-chat-intro p {
+  margin: 0 0 12px;
+  font-size: 14px;
+}
+.chat-thread {
+  display: grid;
+  gap: 12px;
+}
+.chat-earlier {
+  justify-self: center;
+}
+.chat-messages {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.chat-message {
+  justify-self: start;
+  max-inline-size: min(88%, 560px);
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  border-end-start-radius: 4px;
+  background: var(--white);
+  overflow-wrap: anywhere;
+}
+.chat-message.is-mine {
+  justify-self: end;
+  border-color: transparent;
+  border-radius: 16px;
+  border-end-end-radius: 4px;
+  background: color-mix(
+    in srgb,
+    var(--brand-primary, var(--green)) 12%,
+    var(--white)
+  );
+}
+.chat-message.is-digital {
+  border-style: dashed;
+}
+.chat-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  margin: 0 0 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.chat-meta strong {
+  color: var(--ink);
+}
+.chat-text {
+  margin: 0;
+  white-space: pre-wrap;
+  font-size: 16px;
+  line-height: 1.45;
+}
+.chat-empty {
+  display: grid;
+  gap: 8px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius, 8px);
+  background: var(--white);
+}
+.chat-empty h2 {
+  margin: 0;
+  font-size: 20px;
+}
+.chat-empty p {
+  margin: 0;
+}
+.chat-prompts {
+  display: grid;
+  gap: 8px;
+  margin-block-start: 8px;
+}
+.chat-prompts .button {
+  justify-content: flex-start;
+  text-align: start;
+  white-space: normal;
+  font-weight: 500;
+}
+.chat-composer {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+.member-shell .chat-composer textarea {
+  inline-size: 100%;
+  min-block-size: 48px;
+  max-block-size: 30vh;
+  resize: none;
+  padding: 11px 14px;
+  border-radius: 12px;
+}
+.chat-composer-actions {
+  display: grid;
+  /* Attach, Ask the digital coach (the room left), Send (its own width). */
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: stretch;
+}
+.chat-composer-actions .button {
+  justify-content: center;
+  padding-inline: 10px;
+  white-space: normal;
+  line-height: 1.2;
+  font-size: 14px;
+}
+.chat-attach {
+  position: relative;
+  display: grid;
+  place-items: center;
+  inline-size: 44px;
+  min-block-size: 44px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--white);
+  color: var(--ink);
+}
+.chat-attach-count {
+  position: absolute;
+  inset-block-start: -6px;
+  inset-inline-end: -6px;
+  min-inline-size: 18px;
+  block-size: 18px;
+  padding-inline: 4px;
+  border-radius: 9px;
+  background: var(--brand-primary, var(--green));
+  color: var(--white);
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+}
+@media (min-width: 768px) {
+  .chat-composer-actions {
+    grid-template-columns: 44px auto auto;
+    justify-content: end;
+  }
+  .chat-prompts {
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Notifications and support lists                                      */
+/* ------------------------------------------------------------------ */
+.notification-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.notification-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Profile and settings: sign-in security folds into one section        */
+/* ------------------------------------------------------------------ */
+.settings-group > summary {
+  display: flex;
+  align-items: center;
+  min-block-size: 48px;
+  cursor: pointer;
+}
+.settings-group > summary > span {
+  display: grid;
+  gap: 2px;
+}
+.settings-group > summary strong {
+  font-size: 19px;
+}
+.settings-group > summary small {
+  font-size: 14px;
+  color: var(--muted);
+}
+/* The cards inside the section read as its parts, not nested boxes. */
+.settings-group .card {
+  margin: 16px 0 0;
+  padding: 16px 0 0;
+  border: 0;
+  border-block-start: 1px solid var(--line);
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+/* ------------------------------------------------------------------ */
+/* Coaching profile questions (/app/intake): one step at a time         */
+/* ------------------------------------------------------------------ */
+.intake-progress {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 6px;
+}
+.intake-progress span {
+  block-size: 6px;
+  border-radius: 3px;
+  background: var(--line);
+}
+.intake-progress span.is-done {
+  background: var(--brand-primary, var(--green));
+}
+.intake-form fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.intake-form fieldset[hidden] {
+  display: none;
+}
+.intake-form h2 {
+  margin-block: 0 8px;
+}
+.intake-form h2:focus {
+  outline: none;
+}
+.field-legend {
+  margin: 16px 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.intake-choices {
+  display: grid;
+  gap: 8px;
+}
+.member-shell .intake-choices label {
+  margin: 0;
+  padding-block: 12px;
+  padding-inline: 44px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--white);
+}
+.member-shell .intake-choices label > input[type="radio"] {
+  inset-inline-start: 12px;
+  inset-block-start: 13px;
+}
+.member-shell .intake-choices label:has(input:checked) {
+  border-color: var(--brand-primary, var(--green));
+  box-shadow: inset 0 0 0 1px var(--brand-primary, var(--green));
+}
+.intake-actions {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 10px;
+}
+.intake-actions .button {
+  justify-content: center;
+}
+.intake-done {
+  display: grid;
+  gap: 12px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Membership (/app/membership)                                         */
+/* ------------------------------------------------------------------ */
+.member-plan-card {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+.member-shell .card.member-plan-card > h2,
+.member-plan-card p {
+  margin: 0;
+}
+.member-plan-card .membership-price {
+  font-size: 26px;
+  font-weight: 650;
+}
+.member-plan-card .membership-price span:first-child {
+  font-size: inherit;
+  color: var(--ink);
+  margin: 0;
+}
+.member-plan-card .membership-price span:last-child {
+  font-size: 15px;
+  font-weight: 400;
+  color: var(--muted);
+}
+.membership-offers {
+  display: grid;
+  gap: 12px;
+  margin: 12px 0;
+  padding: 0;
+  list-style: none;
+}
+.membership-offers li {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.membership-offers h3,
+.membership-offers p {
+  margin: 0;
+}
+.membership-offers .button {
+  justify-content: center;
+}
+.membership-code > summary {
+  min-block-size: 44px;
+  display: flex;
+  align-items: center;
+  font-weight: 600;
+  cursor: pointer;
+}
+.support-list,
+.support-messages {
+  display: grid;
+  gap: 0;
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+}
+.support-row {
+  display: grid;
+  gap: 2px;
+  inline-size: 100%;
+  min-block-size: 56px;
+  padding: 10px 4px;
+  border: 0;
+  border-block-end: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.support-row[aria-current="true"] strong {
+  text-decoration: underline;
+}
+.support-messages li {
+  padding-block: 10px;
+  border-block-end: 1px solid var(--line);
+}
+.support-messages li p {
+  margin: 0;
+}
+.sheet-facts {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-inline-start: 20px;
+}
+
+/* Guided and voice-led sessions: what the session holds before it starts. */
+.voice-plan {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 16px;
+  padding: 0;
+  list-style: none;
+}
+.voice-plan li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding-block: 8px;
+  border-block-end: 1px solid var(--line);
+}
+.voice-reason {
+  margin: 0 0 12px;
+}
+
+/* Badges read in sentence case at a readable size in the member app (the
+   labels are already written in words, never keys). */
+.member-shell .badge {
+  text-transform: none;
+  font-size: 12px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Motion anchors for the member screens (docs/features/motion.md):     */
+/* sizes only; every animation lives in motion.css.                    */
+/* ------------------------------------------------------------------ */
+/* Today: the programme and calorie bars under their numbers. */
+.today-status .today-meter {
+  block-size: 6px;
+  margin-block-start: 6px;
+}
+/* Nutrition: the latest day's calories as a ring beside its number. */
+.nutrition-ring {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-block-end: 12px;
+}
+.nutrition-ring p {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+}
+/* The coaching profile's thank-you check, drawn once. */
+.intake-done .intake-done-check {
+  inline-size: 40px;
+  block-size: 40px;
+  color: var(--brand-primary, var(--green));
+}
+
+/* Bookings (member): the slot's details, then its action as a full-width
+   button under them on phones; side by side from 640 px. */
+.booking-slot {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+.booking-slot > .button-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+.booking-slot > .button-row .button {
+  inline-size: 100%;
+  white-space: nowrap;
+}
+@media (min-width: 640px) {
+  .booking-slot {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+}
+
+/* Notifications: Refresh is a small icon control beside the heading. */
+.member-shell .page-heading:has(.notifications-refresh) {
+  flex-direction: row;
+  align-items: flex-start;
+}
+.notifications-refresh {
+  flex: none;
+  inline-size: 44px;
+  block-size: 44px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+.notifications-refresh[aria-busy] svg {
+  opacity: 0.5;
+}
+
+/* Coach-authored words (exercise, session and meal names, notes) keep
+   their own direction (dir="auto") but line up with the row they sit in,
+   so an English name in an Arabic row is not left-aligned against it. */
+.member-shell [dir="auto"] {
+  text-align: match-parent;
+}
+
+/* Leaving a coach reads as the one destructive action on Profile. */
+.member-shell .button.secondary.acct-leave-open:not(:disabled) {
+  color: var(--error);
+  border-color: var(--error-line);
+}

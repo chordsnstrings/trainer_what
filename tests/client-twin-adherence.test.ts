@@ -138,11 +138,18 @@ test("schedule uses each local calendar day and credits only verified completion
   assert.match(html, /Planned training and progress/);
   assert.match(html, /Evidence needs review/);
   assert.match(html, new RegExp(`/app/workouts/${completedWorkout.id}`));
-  assert.match(html, /2026-03-08/);
-  assert.match(html, /America\/New_York/);
+  // Members read dates and time zone names, never ISO dates or zone ids
+  // (docs/features/phone-first.md copy rules; docs/features/arabic.md).
+  assert.match(html, /8 Mar 2026/);
+  assert.doesNotMatch(html, /2026-03-08/);
+  assert.match(html, /Eastern (Daylight|Standard) Time/);
+  assert.doesNotMatch(html, /America\/New_York/);
   const trainerHtml = renderToStaticMarkup(
     createElement(TrainingScheduleSummary, { adherence: result }),
   );
+  // The coach's view keeps the exact dates and zone ids.
+  assert.match(trainerHtml, /2026-03-08/);
+  assert.match(trainerHtml, /America\/New_York/);
   assert.match(trainerHtml, /Completed workout:/);
   assert.doesNotMatch(trainerHtml, /href="\/app\/workouts\//);
 });

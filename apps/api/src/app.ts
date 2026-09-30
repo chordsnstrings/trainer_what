@@ -81,7 +81,7 @@ import {
   workspaceLock,
 } from "./privacy-lifecycle.ts";
 import { privacyHooks } from "./privacy-hooks.ts";
-import { legalAcceptanceVersion } from "./legal.ts";
+import { legalAcceptanceVersion, registerLegalStatus } from "./legal.ts";
 import { registerAdminOperations } from "./admin-operations.ts";
 import { screenForSafety } from "./safety-policy.ts";
 import { registerMessaging } from "./messaging-admin.ts";
@@ -97,7 +97,7 @@ import { registerHostOperations, TLS_ASK_PATH } from "./host-operations.ts";
 import type { PlatformDnsDeps } from "./platform-dns.ts";
 import { registerAcquisition, recordSignupAcquisition } from "./acquisition.ts";
 import { registerFinanceBilling } from "./finance-billing.ts";
-import { hasMemberAccess } from "./entitlements.ts";
+import { hasMemberAccess, hasNutritionAccess } from "./entitlements.ts";
 import {
   announceFollowerJoined,
   completeInvitationAcceptance,
@@ -218,6 +218,8 @@ import {
   compileTrainerRules,
   requireCommerce,
   stripeClient,
+  stripeKeyLive,
+  STRIPE_WEBHOOK_API_VERSIONS,
   LeanGateway,
   providerSandboxStatus,
 } from "@trainer/providers";
@@ -670,6 +672,7 @@ export async function buildApp(
   registerInfrastructureActions(app, db, identity);
   registerBookingPayments(app, db);
   registerAdminOperations(app, db, identity);
+  registerLegalStatus(app, db);
   registerMessaging(app, db, identity);
   registerSupportPreview(app, db, identity);
   registerWorkspacePages(app, db, identity);
@@ -811,7 +814,9 @@ export async function buildApp(
     async (req, reply) => {
       const b = z
         .object({
-          name: z.string().min(2).max(100),
+          // An existing account joins with its own password; only a new
+          // account needs a name (as on /invitations/accept).
+          name: z.string().trim().min(2).max(100).optional(),
           email: z.email().transform((x) => x.toLowerCase()),
           password: z.string().min(12).max(128),
           coachSlug: z.string().max(40),
@@ -892,6 +897,12 @@ export async function buildApp(
         if (existing) await assertSignInAllowed(tx, existing.id);
         if (existing) await assertMayRejoin(tx, tenant.id, existing.id);
         const uid = existing?.id ?? randomUUID();
+        if (!existing && !b.name)
+          throw fail(
+            400,
+            "NAME_REQUIRED",
+            "Enter your name to create your account",
+          );
         if (!existing)
           await tx.query(
             "INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,$3,$4)",
@@ -1056,6 +1067,11 @@ export async function buildApp(
         records,
         integrations: integrationStatus(),
         ...collections,
+        // The member app's bottom tabs: Nutrition takes a tab only when this
+        // member's coaching includes it; Progress takes the slot otherwise.
+        ...(a.role === "subscriber"
+          ? { memberApp: { nutrition: await hasNutritionAccess(tx, a.userId) } }
+          : {}),
       };
     });
   });
@@ -1607,6 +1623,7 @@ export async function buildApp(
         citedText: cited
           .map((r) => [r.data.title, r.data.condition, r.data.directive].join(". "))
           .join(" "),
+        requestText: String(c.data.prompt ?? ""),
       });
       outcomes.push({
         scenarioId: c.id,
@@ -1921,134 +1938,19 @@ export async function buildApp(
   });
   registerOfferVoiceAddOn(app, db, owner, commerceProvider);
   registerSubscriptionCheckout(app, db, requireNutritionReady);
+  // Owner decision, 30 September 2026: "There's no existing members. Once
+  // they pay they can't switch." A member's plan is fixed once paid, so this
+  // route no longer opens the Stripe-hosted change confirmation; it answers
+  // every member with a plain refusal. It never served trainers or operators.
   app.post("/api/v1/membership/change-plan", async (req) => {
-    const a = identity(req),
-      b = z.object({ productId: id }).strict().parse(req.body);
+    const a = identity(req);
     if (a.role !== "subscriber")
       throw fail(403, "SUBSCRIBER_REQUIRED", "Subscriber access required");
-    if (runtimeConfig().BUNDLE_CHANGES_APPROVED !== "true")
-      throw fail(
-        503,
-        "PLAN_CHANGES_PENDING",
-        "Plan changes await activation of the reviewed billing policy.",
-      );
-    const stripe = stripeProvider();
-    const context = await db.tenant(a, async (tx) => {
-      const [subscription] = await tx.query(
-        "SELECT * FROM subscriptions WHERE user_id=$1 AND status IN ('active','trialing') AND period_end>now()",
-        [a.userId],
-      );
-      if (!subscription?.provider_id)
-        throw fail(
-          409,
-          "SUBSCRIPTION_REQUIRED",
-          "No current provider subscription is available.",
-        );
-      const product = await findRecord(tx, b.productId, "product");
-      if (product.status !== "published" || !product.data.stripePriceId)
-        throw fail(409, "PRODUCT_UNAVAILABLE", "This offer is not active.");
-      // An upfront programme is bought as its own payment, never a plan change.
-      if (offerBilling(product.data) !== "monthly")
-        throw fail(
-          409,
-          "UPFRONT_PLAN",
-          "An upfront programme is bought separately once your current access ends.",
-        );
-      if (product.data.tier === "workout_nutrition")
-        await requireNutritionReady(tx);
-      if (subscription.data.productId === product.id)
-        throw fail(409, "SAME_PLAN", "You already have this offer.");
-      const current = subscription.data.productId
-        ? await findRecord(tx, subscription.data.productId, "product")
-        : null;
-      if (
-        !current ||
-        !(
-          product.data.baseProductId === current.id ||
-          current.data.baseProductId === product.id
-        )
-      )
-        throw fail(
-          409,
-          "PLAN_PAIR",
-          "Choose the paired workout-only or workout + nutrition offer.",
-        );
-      return { subscription, product, current };
-    });
-    const remote = await stripe.subscriptions.retrieve(
-      context.subscription.provider_id,
+    throw fail(
+      409,
+      "PLAN_CHANGE_NOT_ALLOWED",
+      "Your plan can't be changed after you've paid.",
     );
-    if (remote.items.data.length !== 1)
-      throw fail(
-        409,
-        "BILLING_REVIEW",
-        "This subscription needs a billing review before changing plans.",
-      );
-    const customer =
-      typeof remote.customer === "string"
-        ? remote.customer
-        : remote.customer.id;
-    const products = [context.current, context.product].map((p) => ({
-      product: p.data.stripeProductId,
-      prices: [p.data.stripePriceId],
-    }));
-    const config = await stripe.billingPortal.configurations.create(
-      {
-        business_profile: {
-          headline: "Review your coaching membership change",
-        },
-        features: {
-          subscription_update: {
-            enabled: true,
-            default_allowed_updates: ["price"],
-            products,
-            proration_behavior: "always_invoice",
-            schedule_at_period_end: {
-              conditions: [{ type: "decreasing_item_amount" }],
-            },
-          },
-        },
-      },
-      {
-        idempotencyKey:
-          "membership-portal:" +
-          createHash("sha256")
-            .update(JSON.stringify({ tenant: a.tenantId, products }))
-            .digest("hex"),
-      },
-    );
-    const portal = await stripe.billingPortal.sessions.create({
-      customer,
-      configuration: config.id,
-      return_url: publicUrl() + "/app/membership",
-      flow_data: {
-        type: "subscription_update_confirm",
-        subscription_update_confirm: {
-          subscription: remote.id,
-          items: [
-            {
-              id: remote.items.data[0].id,
-              price: context.product.data.stripePriceId,
-              quantity: 1,
-            },
-          ],
-        },
-        after_completion: {
-          type: "redirect",
-          redirect: { return_url: publicUrl() + "/app/membership" },
-        },
-      },
-    });
-    await db.tenant(a, (tx) =>
-      event(
-        tx,
-        a,
-        "subscription.change_confirmation_opened",
-        context.subscription.id,
-        { productId: context.product.id },
-      ),
-    );
-    return { url: portal.url };
   });
   app.post("/api/v1/payout-beneficiaries", async (req) => {
     const a = owner(req);
@@ -2550,7 +2452,8 @@ export async function buildApp(
     config: { rateLimit: { max: 600, timeWindow: "1 minute" } },
   };
   app.post("/api/v1/webhooks/stripe", webhookRate, async (req, reply) => {
-    const webhookSecret = runtimeConfig().STRIPE_WEBHOOK_SECRET;
+    const config = runtimeConfig();
+    const webhookSecret = config.STRIPE_WEBHOOK_SECRET;
     if (!webhookSecret) throw new ProviderUnavailable("stripe");
     let stripeEvent: any, stripe: ReturnType<typeof stripeClient>;
     try {
@@ -2567,6 +2470,29 @@ export async function buildApp(
         "Webhook signature verification failed",
       );
     }
+    // The key and the webhook secret are separate settings: an event from
+    // the other mode (a sandbox endpoint's secret beside a live key, or the
+    // reverse) must never grant paid access, so it is refused unstored.
+    if (
+      typeof stripeEvent.livemode === "boolean" &&
+      stripeEvent.livemode !== stripeKeyLive(String(config.STRIPE_SECRET_KEY))
+    )
+      throw fail(
+        400,
+        "STRIPE_MODE_MISMATCH",
+        "The event's Stripe mode does not match the configured Stripe key",
+      );
+    // Payloads follow the endpoint's API version (the account default when
+    // the endpoint has none). Another version is still processed, as every
+    // projection fails closed on shapes it does not know, and operators are
+    // alerted (stripe.webhook_api_version in stripe-alerts.ts).
+    if (
+      stripeEvent.api_version &&
+      !STRIPE_WEBHOOK_API_VERSIONS.includes(stripeEvent.api_version)
+    )
+      console.warn(
+        `Stripe event ${stripeEvent.id} uses API version ${stripeEvent.api_version}`,
+      );
     const [receipt] = await db.system((tx) =>
       tx.query(
         "INSERT INTO provider_events(provider,external_id,payload) VALUES('stripe',$1,$2) ON CONFLICT DO NOTHING RETURNING external_id",
@@ -2583,7 +2509,21 @@ export async function buildApp(
       if (existing.status === "processed")
         return { received: true, duplicate: true };
     }
-    await processStripeEvent(db, stripeEvent, { stripe });
+    try {
+      await processStripeEvent(db, stripeEvent, { stripe });
+    } catch (error) {
+      // An event for an object this platform did not create is acknowledged
+      // and parked (its receipt stays for review and the daily replay), so
+      // Stripe does not retry it for three days (stripe-events.ts).
+      if ((error as { unmatched?: unknown })?.unmatched !== true) throw error;
+      await db.system((tx) =>
+        tx.query(
+          "UPDATE provider_events SET status='parked' WHERE provider='stripe' AND external_id=$1 AND status<>'processed'",
+          [stripeEvent.id],
+        ),
+      );
+      return reply.send({ received: true, parked: true });
+    }
     await db.system((tx) =>
       tx.query(
         "UPDATE provider_events SET status='processed' WHERE provider='stripe' AND external_id=$1",

@@ -11,10 +11,16 @@
 // logo's edge (one shared container). The home page also gets a first
 // screen pass as a new visitor sees it (the analytics notice in its default
 // state must cover neither the primary action nor the relay; all three relay
-// steps on the first screen at 390x844 and 1440x900), and a reduced-motion,
+// steps on the first screen at 390x844 and 1440x900; after a scroll the
+// analytics bar is slim with 48 px controls and covers nothing at the end of
+// the page; after an answer, No thanks or Close, no analytics control floats,
+// after a reload too), and a reduced-motion,
 // animation, right-to-left and word-count pass. It
 // also checks that a subscriber's member app and a coach website show their
-// trainer's branding, never the platform's. Start it through
+// trainer's branding, never the platform's, follow the device into dark mode
+// with every text at AA, and set the trainer's browser colour for each
+// scheme (docs/features/dark-mode.md; scripts/dark-check.mjs covers every
+// member screen at phone size). Start it through
 // scripts/run-brand-check.mjs, which seeds data and starts the servers.
 import { createRequire } from "node:module";
 import { existsSync } from "node:fs";
@@ -102,6 +108,24 @@ async function settle(page) {
 async function visit(page, path) {
   await page.goto(base + path, { waitUntil: "load" });
   await settle(page);
+}
+/**
+ * Marketing pages reveal their lower sections as they scroll into view
+ * (components/marketing/motion.tsx): scroll through once so the contrast
+ * pass reads every section, and report any that never appeared.
+ */
+async function revealAll(page) {
+  return page.evaluate(async () => {
+    if (!document.querySelector(".mk")) return 0;
+    const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+    for (let y = 0; y <= document.documentElement.scrollHeight; y += Math.max(200, innerHeight - 100)) {
+      scrollTo(0, y);
+      await pause(80);
+    }
+    scrollTo(0, 0);
+    await pause(700);
+    return document.querySelectorAll("[data-mk-reveal='pending']").length;
+  });
 }
 async function signIn(page, email) {
   await visit(page, "/login");
@@ -378,6 +402,71 @@ function firstScreen(page) {
 }
 
 /**
+ * The optional-analytics bar on a phone: its height, controls under 48 px,
+ * and by how much it covers the end of the page after a full scroll (it
+ * reserves its own space, so 0).
+ */
+async function consentBarLayout(page) {
+  const bar = await page.evaluate(() => {
+    const el = document.querySelector(".consent-bar");
+    const r = el.getBoundingClientRect();
+    return {
+      height: Math.round(r.height),
+      small: [...el.querySelectorAll("button")]
+        .map((b) => [b.getAttribute("aria-label") || b.textContent.trim(), b.getBoundingClientRect()])
+        .filter(([, box]) => box.height < 48 || box.width < 48)
+        .map(([name, box]) => `${name} ${Math.round(box.width)}x${Math.round(box.height)}`),
+    };
+  });
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  await page.waitForTimeout(250);
+  const endCovered = await page.evaluate(() => {
+    const top = document.querySelector(".consent-bar").getBoundingClientRect().top;
+    const end = Math.max(
+      ...[...document.querySelectorAll("footer, main")].map((el) => el.getBoundingClientRect().bottom),
+    );
+    return Math.max(0, Math.round(end - top));
+  });
+  return { ...bar, endCovered };
+}
+/**
+ * Answers the bar, then fails if the bar or any analytics control still
+ * floats (fixed or sticky) on the page or after a reload.
+ */
+async function consentAnswerChecks(page, label, answer) {
+  await page
+    .locator(".consent-bar")
+    .getByRole("button", { name: answer, exact: true })
+    .click();
+  const floating = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll(".acquisition-consent, button, a")]
+        .filter(
+          (el) =>
+            el.matches(".acquisition-consent") ||
+            /analytics/i.test(`${el.textContent} ${el.getAttribute("aria-label") ?? ""}`),
+        )
+        .filter((el) => {
+          const r = el.getBoundingClientRect();
+          if (!r.width || !r.height) return false;
+          for (let n = el; n && n !== document.body; n = n.parentElement)
+            if (["fixed", "sticky"].includes(getComputedStyle(n).position)) return true;
+          return false;
+        })
+        .map((el) => (el.getAttribute("aria-label") || el.textContent).trim().slice(0, 40)),
+    );
+  await page.waitForTimeout(800);
+  let left = await floating();
+  if (left.length) fail(label, `after "${answer}" analytics controls still float: ${left.join("; ")}`);
+  await page.reload({ waitUntil: "load" });
+  await settle(page);
+  await page.mouse.wheel(0, 600);
+  await page.waitForTimeout(1200);
+  left = await floating();
+  if (left.length) fail(label, `after "${answer}" and a reload analytics controls float: ${left.join("; ")}`);
+}
+
+/**
  * The home page: the first screen at 1440x900 and 390x844, the word count,
  * the relay's motion with and without reduced motion, and the relay in
  * right to left.
@@ -425,7 +514,9 @@ async function homeChecks(scheme) {
       .locator(".consent-bar")
       .waitFor({ timeout: 10_000 })
       .then(() => page.locator(".consent-bar").boundingBox());
-    if (!bar || bar.height > 64) fail(label, `the analytics bar after a scroll is ${bar?.height}px tall (limit 64)`);
+    // One row: the sentence, two 48 px choices and a 48 px Close.
+    if (!bar || bar.height > 72) fail(label, `the analytics bar after a scroll is ${bar?.height}px tall (limit 72)`);
+    await consentAnswerChecks(page, label, "No thanks");
     console.log(
       `home 1440x900 ${scheme}: hero bottom ${Math.round(f.heroBottom)}px, titles at ${f.titleTops.join("/")}px, edges ${JSON.stringify(f.edges)}, ${f.notices} notice(s) before scrolling, bar ${Math.round(bar?.height ?? 0)}px after, ${m.words} words in main outside the calculator (limit 400), ${m.calcWords} in the calculator, ${m.words + m.calcWords} in total, ${m.h2} H2`,
     );
@@ -447,8 +538,19 @@ async function homeChecks(scheme) {
     if (f.covered) fail(label, "the analytics notice covers the primary action or a relay step");
     if (new Set(Object.values(f.edges)).size !== 1)
       fail(label, `regions start at different edges: ${JSON.stringify(f.edges)}`);
+    // After a scroll: the slim bar, 48 px controls, the end of the page
+    // clear of it; Close is an answer like any other.
+    await page.mouse.wheel(0, 600);
+    await page.locator(".consent-bar").waitFor({ timeout: 10_000 });
+    const phoneBar = await consentBarLayout(page);
+    if (phoneBar.small.length)
+      fail(label, `analytics controls below 48px: ${phoneBar.small.join(", ")}`);
+    if (phoneBar.height > 180) fail(label, `the analytics bar is ${phoneBar.height}px tall on a phone (limit 180)`);
+    if (phoneBar.endCovered)
+      fail(label, `the analytics bar covers the end of the page by ${phoneBar.endCovered}px`);
+    await consentAnswerChecks(page, label, "Close");
     console.log(
-      `home 390x844 ${scheme}: H1 bottom ${Math.round(f.h1)}px, CTA bottom ${Math.round(f.cta)}px, relay titles end ${Math.round(f.titlesBottom)}px, one row ${f.oneRow}, ${f.notices} notice(s) before scrolling`,
+      `home 390x844 ${scheme}: H1 bottom ${Math.round(f.h1)}px, CTA bottom ${Math.round(f.cta)}px, relay titles end ${Math.round(f.titlesBottom)}px, one row ${f.oneRow}, ${f.notices} notice(s) before scrolling, bar ${phoneBar.height}px after`,
     );
     await ctx.close();
   });
@@ -615,6 +717,8 @@ try {
         const label = `${scheme} ${viewport.name} ${route}`;
         await screen(label, async () => {
           await visit(page, route);
+          const waiting = await revealAll(page);
+          if (waiting) fail(label, `${waiting} section(s) never revealed after a scroll-through`);
           assertPlatform(label, await measure(page), scheme, true);
           await shot(page, label);
         });
@@ -691,20 +795,48 @@ try {
           if (m.platformUi || m.anyBrandAsset)
             fail(label, "shows the platform identity on a trainer-branded surface");
           if (m.overflow > 1) fail(label, `horizontal overflow of ${m.overflow}px`);
-          // The browser colour is the trainer's in both schemes: every
-          // theme-color copy (the root layout has one per scheme) changes.
+          // Subscriber surfaces follow the device (docs/features/dark-mode.md):
+          // in dark the page is dark and every text reaches AA against it.
+          if (scheme === "dark") {
+            const surface = await memberPage.evaluate(() => {
+              const el = document.querySelector("[data-color-scheme]");
+              return el
+                ? { choice: el.getAttribute("data-color-scheme"), colorScheme: getComputedStyle(el).colorScheme }
+                : null;
+            });
+            if (surface?.choice !== "system" || surface.colorScheme !== "dark")
+              fail(label, `does not follow the dark device: ${JSON.stringify(surface)}`);
+            if (m.low.length)
+              fail(label, `${m.low.length} low-contrast text in dark: ${m.low.slice(0, 5).join("; ")}`);
+          }
+          // The browser colour is the trainer's: the Design Studio primary in
+          // light and the dark top bar colour in dark, one copy per scheme,
+          // never the platform's paper and ink.
           const unified = () => {
             const metas = [...document.querySelectorAll("meta[name='theme-color']")];
+            const of = (word) =>
+              metas.find((meta) => (meta.getAttribute("media") ?? "").includes(word))
+                ?.getAttribute("content")
+                ?.toLowerCase();
+            const light = of("light"),
+              dark = of("dark");
+            const lum = (hex) => {
+              const n = parseInt(hex.slice(1), 16);
+              const f = (v) => {
+                const c = v / 255;
+                return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+              };
+              return 0.2126 * f(n >> 16) + 0.7152 * f((n >> 8) & 255) + 0.0722 * f(n & 255);
+            };
             return (
-              metas.length > 0 &&
-              metas.every(
-                (meta) =>
-                  !meta.getAttribute("media") &&
-                  meta.getAttribute("content") === metas[0].getAttribute("content"),
-              ) &&
-              !["#f3f4f0", "#171917"].includes(
-                metas[0].getAttribute("content").toLowerCase(),
-              )
+              metas.length === 2 &&
+              !!light &&
+              !!dark &&
+              /^#[0-9a-f]{6}$/.test(light) &&
+              /^#[0-9a-f]{6}$/.test(dark) &&
+              !["#f3f4f0", "#171917"].includes(light) &&
+              !["#f3f4f0", "#171917"].includes(dark) &&
+              lum(dark) < 0.05
             );
           };
           await memberPage

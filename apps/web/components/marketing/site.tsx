@@ -55,6 +55,8 @@ import {
 } from "./islands";
 import { availabilityChip, Chip } from "./chip";
 import { HeroFlow } from "./hero-flow";
+import { Journey, JourneyBand, journeyAvailable } from "./journey";
+import { MarketingMotion } from "./motion";
 import type { PublicPlatform } from "./platform";
 import {
   FeatureMatrix,
@@ -441,7 +443,7 @@ function WorkedExample() {
         plus {aed(e.bands[1].commissionMinor)} (20% on the next 50):{" "}
         <strong>{aed(e.commissionMinor)}</strong>. That leaves{" "}
         <strong>{aed(e.beforeOtherCostsMinor)}</strong> before payment
-        processing, AI usage and other costs, about {e.equivalentSessions}{" "}
+        processing and other costs, about {e.equivalentSessions}{" "}
         sessions at AED 250.
       </p>
       <p className="fine-print muted">
@@ -1143,6 +1145,14 @@ function StandardPage({ page, platform, origin }: Ctx) {
               />
               {section.note && <p className="fine-print muted">{t(section.note)}</p>}
             </section>
+          ) : page.path === "/how-it-works" &&
+            section.id === "steps" &&
+            journeyAvailable(platform) ? (
+            // The coach-to-subscriber journey player, with the same heading
+            // and steps (components/marketing/journey.tsx).
+            <div key={section.id}>
+              <Journey section={section} platform={platform} t={t} />
+            </div>
           ) : (
             <div key={section.id}>
               <Section section={section} t={t} />
@@ -1453,6 +1463,8 @@ function Home({ page, platform }: Ctx) {
           <HeroFlow platform={platform} t={t} />
         </div>
       </section>
+      {/* The whole workflow, coach to subscriber, once a coach can launch. */}
+      {journeyAvailable(platform) && <JourneyBand platform={platform} t={t} />}
       <HomeSection
         page={page}
         id="subscribers"
@@ -1531,6 +1543,9 @@ export function MarketingSite({ page, platform, origin }: Ctx) {
         )}
       </main>
       <MarketingFooter appName={platform.name} initials={platform.initials} />
+      {/* The section reveal (renders nothing; app/marketing.css holds the
+          motion). */}
+      <MarketingMotion path={page.path} />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: jsonLdScript(jsonLd) }}

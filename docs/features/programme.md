@@ -16,7 +16,8 @@ compensate.
    `billing` (`monthly` | `upfront`; upfront needs a length). Activation creates a recurring
    monthly Stripe price (monthly) or a one-time price (upfront), plus a separate monthly voice
    add-on product/price when `voiceAddOnMinor` is set. The workout + nutrition pair must share
-   billing and length. Plan changes stay monthly-only.
+   billing and length. Members cannot change plan after paying (owner decision,
+   30 September 2026).
 2. **Upfront payment**: the same checkout admission and business intent as memberships, a
    Stripe Checkout in `payment` mode, a `stripe-programme:<intent>` journal with the membership
    commission method and stable rank, and an access window on the member's `subscriptions` row.
@@ -49,7 +50,8 @@ compensate.
   price of an offer. A published offer gets a new provider price; earlier prices stay in
   `voicePriceIds`, so members keep the price they bought and their events still verify. Refused
   (`VOICE_INCLUDED`) on an older offer that already includes voice.
-- `POST /api/v1/membership/change-plan` refuses an upfront target (`UPFRONT_PLAN`).
+- `POST /api/v1/membership/change-plan` refuses every member (`PLAN_CHANGE_NOT_ALLOWED`):
+  no plan changes after payment (owner decision, 30 September 2026).
 - Monthly offers renew exactly as before; their `programmeDays` is the block length. When a
   provider projection maps the membership to a different block length (an edited offer), a new
   block starts (Day 1) at that event instead of renumbering the current block.
@@ -160,6 +162,12 @@ compensate.
   changed, and a re-enabled add-on found under the exit lock refuses it (`VOICE_ADDON_ACTIVE`).
   The preview reports `voiceAddOnRenewing`; the result and the `membership.left/removed` event
   carry `voiceAddOn: 'ends' | 'none'`. After the exit the worker cancels the add-on at once.
+- The worker's orphan sweep never ends an add-on by the clock while Stripe still bills the
+  membership (active, trialing or past due): the renewal is mirrored only after the period end,
+  and Smart Retries may recover a payment after the app's grace (29 September 2026,
+  `payments-stripe.md`). A lost chargeback of the whole add-on charge ends voice like a full
+  refund; a late add-on subscription event is applied from Stripe's current object; a
+  `cancel_at` end counts as not renewing, and resuming clears it.
 - `memberAccess(...).premiumVoice` = paid access and (an older offer that included voice, or an
   active verified add-on whose period has not ended); `voiceSource` is `included` | `add_on` |
   `null`. Complimentary access never has voice.
@@ -189,18 +197,28 @@ scopes (row security limits both reads).
   sessions neither break nor extend a streak; today's session counts once done),
   `endOfProgramme` (next block / renews / ends with renew window / ended).
 - `GET /api/v1/programme/today?timezone=` (subscriber): programme position, `planState`
-  (`none` | `awaiting_coach` | `ready` | `ended`), today's session (or rest day, only when the
+  (`none` | `awaiting_coach` | `ready` | `self_paced` | `ended`), `intakeDone`, today's session
+  with its `programId` and started `workoutId` (or rest day, only when the
   block has a plan), what's next, streak/adherence, today's nutrition target and diary progress
   (permission / set-up states when missing; review-due flag), and the end-of-programme state
   with the offer to renew when it is still published. Time zone: the device's (validated), else
   the member's notification preference, else the latest planned session's, else Asia/Dubai.
   `planState` is `awaiting_coach` while the member has access but the current block has no
   planned session (the coach or the Brain is still preparing it, or it waits for the coach's
-  review), `ended` once access has ended or the programme is complete. With a queued renewal
+  review), `ended` once access has ended or the programme is complete. Planned sessions dated
+  after the current block also count as a plan (`ready`, the days before them are rest).
+  `self_paced` (29 September 2026, member screens track): an assigned programme with no
+  training calendar at all (assigned before calendars existed) is followed at the member's own
+  pace, and `plan` describes it (`programId`, `title`, `daysPerWeek`, up to 7 `sessions` with
+  their exercise counts, `completedThisWeek`), so Today, the programme tab and the timeline
+  show its sessions and a "Start a workout" instead of "Your coach is preparing your plan".
+  `scripts/seed-demo.ts` now assigns the demo programme with its calendar (`scheduleProgram`),
+  the way `POST /api/v1/programs` does. With a queued renewal
   the end state is `next_block` at the queued start and `nextProgramme` gives its length.
 - `GET /api/v1/programme/timeline?timezone=`: one entry per day of the current programme
   (upfront) or block (monthly): session or rest, done / missed / today / planned / canceled;
-  without a plan for the block, days are `unplanned` (not rest) and `planState` is returned.
+  without a plan for the block, days are `unplanned` (not rest) and `planState` (and `plan`
+  when self-paced) is returned.
 - Worker `sweepProgrammes` (new `programmes` step of the tenant cycle, skipped while suspended):
   promotes queued upfront programmes whose start passed, closes upfront programmes whose
   access ended once (`programme.ended`, notice `programme-ended`), sends `programme-ending` 3
@@ -216,7 +234,12 @@ scopes (row security limits both reads).
 
 ### UI (new components; `workspace.tsx` only mounts them)
 
-- `programme-today.tsx`: `ProgrammeToday` on the member's Today screen (Day N of M with a
+- Since 29 September 2026 the member's Today screen is `member-today.tsx` (one "what to do
+  now" with one primary action, a compact status and the coach's note; see
+  `docs/features/member-screens.md`); it replaced `ProgrammeToday` described below, and
+  `programme-today.tsx` keeps `EndOfProgramme` and `ProgrammeTimeline`. The timeline groups
+  days by week (the current week open) and names the self-paced plan's sessions.
+- Before 29 September 2026, `programme-today.tsx`: `ProgrammeToday` on the member's Today screen (Day N of M with a
   progress bar, block badge for rolling offers, today's session or rest day with a start link,
   "Your coach is preparing your plan" while `planState` is `awaiting_coach`, no day tiles once
   it is `ended`, "Choose your next plan" linking to `/app/membership#offers`,

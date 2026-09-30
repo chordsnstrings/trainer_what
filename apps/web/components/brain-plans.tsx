@@ -1,4 +1,6 @@
 "use client";
+import { useLocale, useT } from "../lib/i18n/react";
+import { formatDate, formatDateRange, formatSetsReps } from "../lib/format";
 import { Field } from "./field";
 import { useEffect, useState } from "react";
 import {
@@ -97,6 +99,8 @@ function ExerciseRows({
   onChange?: (next: ExerciseRow[]) => void;
   legend: string;
 }) {
+  const tr = useT("training"),
+    locale = useLocale();
   const replace = (i: number, next: ExerciseRow) =>
     onChange?.(exercises.map((e, j) => (j === i ? next : e)));
   const patch = (i: number, key: keyof ExerciseRow, value: unknown) =>
@@ -106,8 +110,19 @@ function ExerciseRows({
       <ul className="plan-exercises">
         {exercises.map((e) => (
           <li key={e.name}>
-            <strong>{e.name}</strong>{" "}
-            <span className="muted">{prescriptionText(e)}</span>
+            <strong dir="auto">{e.name}</strong>{" "}
+            <span className="muted">
+              {/* Timed and distance work has no translated row yet: the
+                  domain's prescription line (English) keeps it correct. */}
+              {workMeasure(e) === "reps"
+                ? tr("exerciseRow", {
+                    setsReps: formatSetsReps(e.sets, e.reps ?? "", locale),
+                    load: e.loadKg,
+                    rir: e.rir,
+                    rest: e.restSeconds,
+                  })
+                : prescriptionText(e)}
+            </span>
           </li>
         ))}
       </ul>
@@ -1200,15 +1215,22 @@ export function BrainPlans({ role }: { role: string }) {
   );
 }
 
-const MEMBER_STATE: Record<string, string> = {
-  preparing: "Your trainer's Brain is preparing your plan from your profile.",
-  in_review: "Your trainer is reviewing your plan before it reaches you.",
-  delivered: "Your plan is ready.",
-  with_trainer: "Your trainer is preparing your plan personally.",
-};
-/** The subscriber's generated plan and its state. */
+const MEMBER_STATE = [
+  "preparing",
+  "in_review",
+  "delivered",
+  "with_trainer",
+] as const;
+/**
+ * The member's plan from their coach: its state while it is prepared, then
+ * its summary and the focus of each week. The sessions themselves are on
+ * the programme page and the timeline (member-program.tsx). In the
+ * member's language (docs/features/arabic.md).
+ */
 export function MemberPlan() {
   const [data, setData] = useState<any>();
+  const tr = useT("training"),
+    locale = useLocale();
   useEffect(() => {
     void api("/brain/plans/mine")
       .then(setData)
@@ -1216,45 +1238,47 @@ export function MemberPlan() {
   }, []);
   if (!data || (!data.status && !data.program)) return null;
   const p = data.program;
+  const state = data.status?.state;
+  // Once delivered, the plan card below already says it is ready.
+  if (!p && state === "delivered") return null;
   return (
     <section className="card member-plan">
-      <h2>{p ? p.title : "Your plan"}</h2>
-      {data.status && (
-        <p role="status">{MEMBER_STATE[data.status.state] ?? MEMBER_STATE.preparing}</p>
+      {!p && <h2>{tr("yourPlan")}</h2>}
+      {state && state !== "delivered" && (
+        <p role="status">
+          {tr(
+            `plan_${(MEMBER_STATE as readonly string[]).includes(state) ? (state as (typeof MEMBER_STATE)[number]) : "preparing"}`,
+          )}
+        </p>
       )}
       {p && (
         <>
-          {p.summary && <p className="muted">{p.summary}</p>}
-          <p className="muted">
-            {p.startDate} to {p.endDate} · {p.programmeDays} days
-          </p>
-          <ol className="plan-weeks">
-            {p.weeks.map((w: any) => (
-              <li key={w.week}>
-                Week {w.week}: {w.focus}
-                {w.deload ? " (lighter recovery week)" : ""}
-              </li>
-            ))}
-          </ol>
-          <h3>Coming up</h3>
-          {!data.upcoming.length && (
-            <p className="muted">No sessions left in this block.</p>
+          <p className="small-label">{tr("fromCoach")}</p>
+          <h2 dir="auto">{p.title}</h2>
+          {p.summary && (
+            <p className="muted" dir="auto">
+              {p.summary}
+            </p>
           )}
-          {data.upcoming.map((s: any) => (
-            <div key={s.id} className="plan-session">
-              <h4>
-                {s.date} · {s.label} · week {s.week}
-              </h4>
-              <ExerciseRows
-                legend={s.label}
-                exercises={(s.exercises ?? []).map((e: any) => ({
-                  ...e,
-                  alternatives: (e.alternatives ?? []).map((a: any) => a.name ?? a),
-                }))}
-                names={[]}
-              />
-            </div>
-          ))}
+          <p className="muted">
+            {tr("planDates", {
+              range: formatDateRange(p.startDate, p.endDate, { locale }),
+              count: p.programmeDays,
+            })}
+          </p>
+          {p.weeks?.length > 0 && (
+            <details>
+              <summary>{tr("weekFocus")}</summary>
+              <ol className="plan-weeks">
+                {p.weeks.map((w: any) => (
+                  <li key={w.week}>
+                    {tr("planWeek", { week: w.week, focus: w.focus })}
+                    {w.deload ? tr("lighterWeek") : ""}
+                  </li>
+                ))}
+              </ol>
+            </details>
+          )}
         </>
       )}
     </section>
@@ -1263,13 +1287,6 @@ export function MemberPlan() {
 
 /** Shown with the intake form: what happens after the subscriber saves it. */
 export function PlanIntakeNotice() {
-  return (
-    <p className="muted plan-intake-notice">
-      When you save this, your trainer&rsquo;s Brain prepares your training
-      plan from it: your goal, experience, training days and equipment. Your
-      trainer reviews it whenever the Brain is not sure. Anything you list as a
-      limitation, and any pain you report later, always goes to your trainer
-      personally.
-    </p>
-  );
+  const t = useT("profile");
+  return <p className="muted plan-intake-notice">{t("intakeNotice")}</p>;
 }

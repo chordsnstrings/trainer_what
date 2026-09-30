@@ -1,0 +1,158 @@
+import { defineMessages } from "../core";
+
+/** The installable app: offline screen, update toast, install, queue labels. */
+export default defineMessages(
+  {
+    offlineTitle: "You're offline",
+    notSavedYet: "This phone has not saved your coaching yet.",
+    connectThenRetry: "Connect to Wi-Fi or mobile data, then try again.",
+    whatStillWorks: "What still works",
+    worksWorkout:
+      "A workout you opened on this phone: the sets you log are saved here and sync when you are back online.",
+    worksMeals: "Meals you log are saved here and sync later too.",
+    updatedJustNow: "Last updated just now.",
+    updatedMinutes: {
+      one: "Last updated # minute ago.",
+      other: "Last updated # minutes ago.",
+    },
+    updatedHours: {
+      one: "Last updated # hour ago.",
+      other: "Last updated # hours ago.",
+    },
+    updatedOn: "Last updated {date}.",
+    queuedLabel: "Saved on this phone — will sync",
+    queuedWhenOnline: "Saved on this phone — will sync when you are back online.",
+    queuedSets: {
+      one: "# set log saved on this phone — will sync",
+      other: "# set logs saved on this phone — will sync",
+    },
+    queuedMeals: {
+      one: "# meal saved on this phone — will sync",
+      other: "# meals saved on this phone — will sync",
+    },
+    newVersion: "New version ready",
+    saveFirst: "Save or clear what you typed first, then reload.",
+    reload: "Reload",
+    later: "Later",
+    step: "Step {n}",
+    linkCopied: "Link copied",
+    copyLink: "Copy link",
+    addToHomeTitle: "Add {coach} to your home screen",
+    onHomeTitle: "{coach} is on your home screen",
+    openFromHome:
+      "Open it from your home screen: it starts on Today and works on a weak connection.",
+    iosShare: "Tap <b>Share</b> in Safari's toolbar.",
+    iosAdd: "Scroll down and choose <b>Add to Home Screen</b>.",
+    iosConfirm: "Tap <b>Add</b>. {coach} appears on your home screen.",
+    iosAddWord: "Add",
+    iosNotifications:
+      "Notifications work once you open {coach} from your home screen (iOS 16.4 or later).",
+    openInSafari: "Open this page in Safari",
+    openInBrowser: "Open this page in your browser",
+    inAppCannot:
+      "{app}'s built-in browser cannot add {coach} to your home screen. Copy the link, then paste it into Safari on iPhone or Chrome on Android.",
+    thisApp: "This app",
+    iosOtherBrowser:
+      "On iPhone, Safari adds {coach} to your home screen. Copy the link and paste it into Safari.",
+    inAppMenu: "Or tap <menu></menu> and choose Open in browser.",
+    theMenu: "the menu",
+    copyFailed: "The link could not be copied. Open {link} in your browser.",
+    menuOpen: "Open your browser's menu.",
+    menuInstall: "Choose <b>Install app</b> or <b>Add to Home screen</b>.",
+    installApp: "Install the app",
+    installCardText:
+      "Open {coach} from your home screen in one tap. It starts on Today and works on a weak connection.",
+    installRowDetail: "Open {coach} from your home screen",
+    installTodayText:
+      "Open today's training in one tap. It works on a weak connection too.",
+    pushTitle: "Know when {coach} replies",
+    pushIos:
+      "On iPhone, notifications work in the app on your home screen (iOS 16.4 or later). Add it first, then turn them on in Profile and settings.",
+    pushShort: "A short notice on this phone. The message itself stays in the app.",
+    turnOnNotifications: "Turn on notifications",
+  },
+  {
+    offlineTitle: "أنت غير متصل",
+    notSavedYet: "لم يحفظ هذا الهاتف بيانات تدريبك بعد.",
+    connectThenRetry: "يُرجى الاتصال بشبكة Wi-Fi أو بيانات الجوال ثم المحاولة مرة أخرى.",
+    whatStillWorks: "ما يعمل دون اتصال",
+    worksWorkout:
+      "تمرين فتحته على هذا الهاتف: المجموعات التي تسجلها تُحفظ هنا وتُزامَن عند عودة الاتصال.",
+    worksMeals: "الوجبات التي تسجلها تُحفظ هنا وتُزامَن لاحقًا أيضًا.",
+    updatedJustNow: "آخر تحديث قبل لحظات.",
+    updatedMinutes: {
+      zero: "آخر تحديث قبل أقل من دقيقة.",
+      one: "آخر تحديث قبل دقيقة واحدة.",
+      two: "آخر تحديث قبل دقيقتين.",
+      few: "آخر تحديث قبل # دقائق.",
+      many: "آخر تحديث قبل # دقيقة.",
+      other: "آخر تحديث قبل # دقيقة.",
+    },
+    updatedHours: {
+      zero: "آخر تحديث قبل أقل من ساعة.",
+      one: "آخر تحديث قبل ساعة واحدة.",
+      two: "آخر تحديث قبل ساعتين.",
+      few: "آخر تحديث قبل # ساعات.",
+      many: "آخر تحديث قبل # ساعة.",
+      other: "آخر تحديث قبل # ساعة.",
+    },
+    updatedOn: "آخر تحديث في {date}.",
+    queuedLabel: "محفوظ على هذا الهاتف، وستتم مزامنته",
+    queuedWhenOnline: "محفوظ على هذا الهاتف، وستتم مزامنته عند عودة الاتصال.",
+    queuedSets: {
+      zero: "لا توجد مجموعات محفوظة على هذا الهاتف",
+      one: "مجموعة واحدة محفوظة على هذا الهاتف، وستتم مزامنتها",
+      two: "مجموعتان محفوظتان على هذا الهاتف، وستتم مزامنتهما",
+      few: "# مجموعات محفوظة على هذا الهاتف، وستتم مزامنتها",
+      many: "# مجموعة محفوظة على هذا الهاتف، وستتم مزامنتها",
+      other: "# مجموعة محفوظة على هذا الهاتف، وستتم مزامنتها",
+    },
+    queuedMeals: {
+      zero: "لا توجد وجبات محفوظة على هذا الهاتف",
+      one: "وجبة واحدة محفوظة على هذا الهاتف، وستتم مزامنتها",
+      two: "وجبتان محفوظتان على هذا الهاتف، وستتم مزامنتهما",
+      few: "# وجبات محفوظة على هذا الهاتف، وستتم مزامنتها",
+      many: "# وجبة محفوظة على هذا الهاتف، وستتم مزامنتها",
+      other: "# وجبة محفوظة على هذا الهاتف، وستتم مزامنتها",
+    },
+    newVersion: "إصدار جديد جاهز",
+    saveFirst: "يُرجى حفظ ما كتبته أو مسحه أولًا، ثم إعادة التحميل.",
+    reload: "إعادة التحميل",
+    later: "لاحقًا",
+    step: "الخطوة {n}",
+    linkCopied: "تم نسخ الرابط",
+    copyLink: "نسخ الرابط",
+    addToHomeTitle: "إضافة {coach} إلى الشاشة الرئيسية",
+    onHomeTitle: "{coach} على شاشتك الرئيسية",
+    openFromHome:
+      "يمكنك فتحه من الشاشة الرئيسية: يبدأ من «اليوم» ويعمل حتى مع اتصال ضعيف.",
+    iosShare: "الضغط على <b>مشاركة</b> في شريط أدوات Safari.",
+    iosAdd: "التمرير للأسفل واختيار <b>إضافة إلى الشاشة الرئيسية</b>.",
+    iosConfirm: "الضغط على <b>إضافة</b>. سيظهر {coach} على شاشتك الرئيسية.",
+    iosAddWord: "إضافة",
+    iosNotifications:
+      "تعمل الإشعارات بعد فتح {coach} من الشاشة الرئيسية (iOS 16.4 أو أحدث).",
+    openInSafari: "فتح هذه الصفحة في Safari",
+    openInBrowser: "فتح هذه الصفحة في متصفحك",
+    inAppCannot:
+      "لا يستطيع المتصفح المدمج في {app} إضافة {coach} إلى الشاشة الرئيسية. يمكنك نسخ الرابط ثم لصقه في Safari على iPhone أو Chrome على Android.",
+    thisApp: "هذا التطبيق",
+    iosOtherBrowser:
+      "على iPhone، يضيف Safari {coach} إلى الشاشة الرئيسية. يمكنك نسخ الرابط ولصقه في Safari.",
+    inAppMenu: "أو الضغط على <menu></menu> واختيار «فتح في المتصفح».",
+    theMenu: "القائمة",
+    copyFailed: "تعذّر نسخ الرابط. يمكنك فتح {link} في متصفحك.",
+    menuOpen: "فتح قائمة المتصفح.",
+    menuInstall: "اختيار <b>تثبيت التطبيق</b> أو <b>إضافة إلى الشاشة الرئيسية</b>.",
+    installApp: "تثبيت التطبيق",
+    installCardText:
+      "يمكنك فتح {coach} من الشاشة الرئيسية بلمسة واحدة. يبدأ من «اليوم» ويعمل حتى مع اتصال ضعيف.",
+    installRowDetail: "فتح {coach} من الشاشة الرئيسية",
+    installTodayText: "تدريب اليوم بلمسة واحدة، ويعمل حتى مع اتصال ضعيف.",
+    pushTitle: "إشعار عندما يرد {coach}",
+    pushIos:
+      "على iPhone، تعمل الإشعارات في التطبيق المثبّت على الشاشة الرئيسية (iOS 16.4 أو أحدث). يمكنك إضافته أولًا ثم تفعيل الإشعارات من «الملف الشخصي والإعدادات».",
+    pushShort: "تنبيه قصير على هذا الهاتف، وتبقى الرسالة نفسها داخل التطبيق.",
+    turnOnNotifications: "تفعيل الإشعارات",
+  },
+);

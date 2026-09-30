@@ -10,7 +10,12 @@ import {
   type Database,
   type Tx,
 } from "@trainer/db";
-import { brandSchema, resolveBrandDesign } from "@trainer/contracts";
+import {
+  brandSchema,
+  coachSiteManifest,
+  resolveBrandDesign,
+} from "@trainer/contracts";
+import { renderAppIcon } from "./app-icons.ts";
 import { notifyUser } from "./notifications.ts";
 import { inquiryAttribution, recordLeadAcquisition } from "./acquisition.ts";
 
@@ -934,33 +939,26 @@ export function registerCoachSite(app: FastifyInstance, db: Database) {
     "/api/v1/public/sites/:slug/manifest.webmanifest",
     async (req, reply) => {
       publicHost(req, (req.params as any).slug);
-      const { tenant } = await publicCoachSite(db, (req.params as any).slug),
+      const { tenant, site } = await publicCoachSite(
+          db,
+          (req.params as any).slug,
+        ),
         design = resolveBrandDesign(tenant.theme);
       reply.type("application/manifest+json");
-      return {
-        id: `/coach/${tenant.slug}`,
+      return coachSiteManifest({
+        slug: tenant.slug,
         name: tenant.name,
-        short_name: tenant.name.slice(0, 30),
-        start_url: "/app",
-        scope: "/",
-        display: "standalone",
-        background_color: design.surface,
-        theme_color: design.primary,
-        icons: [192, 512].map((size) => ({
-          src: `/api/v1/public/sites/${tenant.slug}/icon/${size}`,
-          sizes: `${size}x${size}`,
-          type: "image/png",
-          purpose: "any",
-        })),
-      };
+        primary: design.primary,
+        surface: design.surface,
+        language: (site as { language?: string }).language,
+      });
     },
   );
   app.get("/api/v1/public/sites/:slug/icon/:size", async (req, reply) => {
     publicHost(req, (req.params as any).slug);
     const { tenant } = await publicCoachSite(db, (req.params as any).slug),
-      size = z.coerce
-        .number()
-        .refine((v) => [192, 512].includes(v))
+      file = z
+        .enum(["180", "192", "512", "maskable-512"])
         .parse((req.params as any).size),
       design = resolveBrandDesign(tenant.theme);
     let source: Buffer | undefined;
@@ -975,17 +973,16 @@ export function registerCoachSite(app: FastifyInstance, db: Database) {
         );
         return m ? Buffer.from(m.media) : undefined;
       });
-    const initials = tenant.name
-      .split(/\s+/)
-      .map((s: string) => s[0])
-      .join("")
-      .slice(0, 2)
-      .replace(/[<>&"']/g, "");
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512"><rect width="512" height="512" rx="80" fill="${design.primary}"/><text x="256" y="310" text-anchor="middle" font-family="sans-serif" font-size="190" fill="white">${initials}</text></svg>`;
+    // The same opaque icons as the member app: the logo on the brand
+    // surface (inside the safe zone for the maskable one), else initials.
     reply.type("image/png");
-    return sharp(source ?? Buffer.from(svg))
-      .resize(size, size, { fit: "contain", background: design.primary })
-      .png()
-      .toBuffer();
+    return renderAppIcon({
+      name: tenant.name,
+      design,
+      size: file === "maskable-512" ? 512 : Number(file),
+      variant:
+        file === "maskable-512" ? "maskable" : file === "180" ? "apple" : "any",
+      logo: source,
+    });
   });
 }

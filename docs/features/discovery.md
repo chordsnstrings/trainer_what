@@ -174,6 +174,16 @@ website editor, `trainer_brand_tenant()` owner check), `packages/contracts`
   published; the public website manifest and icon still return 404 until
   launch. It replaces the previous subscriber-only `ClientCoachManifest` mount,
   which only branded published workspaces.
+- **Update (branch `ui/pwa`, [pwa.md](pwa.md)):** the manifest is now built
+  by `memberAppManifest()` in `packages/contracts`: `start_url` is
+  `/app?source=pwa` (`/trainer?source=pwa` for the team), with a description
+  that names the coach, `lang`/`dir` from the member's saved language,
+  `categories`, `launch_handler` and, for subscribers, shortcuts for the
+  features they can use (96 px icons, new `APP_ICON_FILES` entries). The coach
+  website manifest (`coachSiteManifest()`) has the same id and start URL and
+  now uses `renderAppIcon()` (opaque, with a maskable 512 and a 180 for iOS);
+  `renderAppIcon()` moved to `apps/api/src/app-icons.ts` (re-exported from
+  `discovery.ts`). The platform manifest gained `id` `/app`.
 - Icons are rendered by `renderAppIcon()` at exactly the declared size, always
   opaque and without an alpha channel: a platform-hosted logo is inset on the
   Design Studio surface colour (for the maskable icon in a square of 56% of the

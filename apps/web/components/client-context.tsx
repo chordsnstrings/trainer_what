@@ -1,4 +1,9 @@
 "use client";
+import { useLocale } from "../lib/i18n/react";
+import { translator, type Locale } from "../lib/i18n/core";
+import contextMessages from "../lib/i18n/messages/context";
+import { errorText } from "../lib/i18n/errors";
+import { formatDateTime, timeZoneChoices } from "../lib/format";
 import { useCallback, useEffect, useState } from "react";
 import {
   communicationStyles,
@@ -21,6 +26,11 @@ export function ClientContext({
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [notice, setNotice] = useState("");
+  // The member edits their own context in their language; the coach's view
+  // (read only) stays English.
+  const page = useLocale();
+  const locale: Locale = editable ? page : "en";
+  const t = translator(contextMessages, locale);
   const load = useCallback(async () => {
     setBusy(true);
     setError("");
@@ -31,16 +41,19 @@ export function ClientContext({
       });
       const body = await r.json();
       if (!r.ok)
-        throw new Error(body.message ?? "Preferences could not be loaded");
+        throw Object.assign(new Error(body.message ?? t("loadFailed")), {
+          status: r.status,
+          code: body.code,
+        });
       setSaved(body);
       setDraft(body.data);
     } catch (e) {
       setSaved(null);
-      setError((e as Error).message);
+      setError(locale === "en" ? (e as Error).message : errorText(e, locale));
     } finally {
       setBusy(false);
     }
-  }, [userId]);
+  }, [userId, locale]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -57,12 +70,15 @@ export function ClientContext({
       });
       const body = await r.json();
       if (!r.ok)
-        throw new Error(body.message ?? "Preferences could not be saved");
+        throw Object.assign(new Error(body.message ?? t("saveFailed")), {
+          status: r.status,
+          code: body.code,
+        });
       setSaved(body);
       setDraft(body.data);
-      setNotice("Preferences saved.");
+      setNotice(t("saved"));
     } catch (e) {
-      setError((e as Error).message);
+      setError(locale === "en" ? (e as Error).message : errorText(e, locale));
     } finally {
       setBusy(false);
     }
@@ -71,24 +87,23 @@ export function ClientContext({
     setDraft((d) => ({ ...d, ...patch }));
   return (
     <section className="card">
-      <h2>Preferences and upcoming changes</h2>
-      <p>
-        Optional, self-reported context for your trainer. These notes do not
-        automatically change your training or nutrition plan.
-      </p>
+      <h2>{editable ? t("prefsTitleMember") : t("prefsTitle")}</h2>
+      <p>{editable ? t("prefsIntroMember") : t("prefsIntro")}</p>
       {error && (
         <p className="notice" role="alert">
           {error}
         </p>
       )}
       {notice && <p role="status">{notice}</p>}
-      <button
-        className="button secondary"
-        disabled={busy}
-        onClick={() => void load()}
-      >
-        Reload saved preferences
-      </button>
+      {!editable && (
+        <button
+          className="button secondary"
+          disabled={busy}
+          onClick={() => void load()}
+        >
+          {t("reload")}
+        </button>
+      )}
       {saved && (
         <form
           onSubmit={(e) => {
@@ -96,9 +111,9 @@ export function ClientContext({
             void save();
           }}
         >
-          <fieldset disabled={!editable || busy}>
-            <label>
-              Communication style
+          <fieldset className="context-fieldset" disabled={!editable || busy}>
+            <label className="field">
+              <span>{t("style")}</span>
               <select
                 value={draft.communicationStyle}
                 onChange={(e) =>
@@ -108,33 +123,30 @@ export function ClientContext({
                   })
                 }
               >
-                {Object.entries(communicationStyles).map(([value, label]) => (
+                {Object.keys(communicationStyles).map((value) => (
                   <option key={value} value={value}>
-                    {label}
+                    {t(`style_${value as keyof typeof communicationStyles}`)}
                   </option>
                 ))}
               </select>
             </label>
-            <label>
-              Communication preferences
+            <label className="field">
+              <span>{t("notes")}</span>
               <textarea
-                aria-label="Communication preferences"
+                aria-label={t("notes")}
                 maxLength={1000}
                 value={draft.communicationNotes}
                 onChange={(e) => change({ communicationNotes: e.target.value })}
               />
             </label>
             {(["exerciseLikes", "exerciseDislikes"] as const).map((key) => (
-              <label key={key}>
-                {key === "exerciseLikes"
-                  ? "Exercises you enjoy"
-                  : "Exercises you prefer to avoid"}{" "}
-                (one per line)
+              <label className="field" key={key}>
+                <span>
+                  {key === "exerciseLikes" ? t("likes") : t("dislikes")}
+                </span>
                 <textarea
                   aria-label={
-                    key === "exerciseLikes"
-                      ? "Exercises you enjoy (one per line)"
-                      : "Exercises you prefer to avoid (one per line)"
+                    key === "exerciseLikes" ? t("likes") : t("dislikes")
                   }
                   value={draft[key].join("\n")}
                   onChange={(e) =>
@@ -158,17 +170,19 @@ export function ClientContext({
               return (
                 <fieldset key={item.id}>
                   <legend>
-                    Change {index + 1} ·{" "}
-                    {(() => {
-                      try {
-                        return datedContextState(item);
-                      } catch {
-                        return "Choose a valid timezone";
-                      }
-                    })()}
+                    {t("change", {
+                      n: index + 1,
+                      state: (() => {
+                        try {
+                          return t(`change_${datedContextState(item)}`);
+                        } catch {
+                          return t("invalidZone");
+                        }
+                      })(),
+                    })}
                   </legend>
-                  <label>
-                    Type
+                  <label className="field">
+                    <span>{t("type")}</span>
                     <select
                       value={item.kind}
                       onChange={(e) =>
@@ -177,12 +191,12 @@ export function ClientContext({
                         })
                       }
                     >
-                      <option value="travel">Travel</option>
-                      <option value="schedule">Schedule change</option>
+                      <option value="travel">{t("travel")}</option>
+                      <option value="schedule">{t("schedule")}</option>
                     </select>
                   </label>
-                  <label>
-                    Title
+                  <label className="field">
+                    <span>{t("changeTitle")}</span>
                     <input
                       required
                       maxLength={120}
@@ -190,8 +204,8 @@ export function ClientContext({
                       onChange={(e) => update({ title: e.target.value })}
                     />
                   </label>
-                  <label>
-                    From
+                  <label className="field">
+                    <span>{t("from")}</span>
                     <input
                       required
                       type="date"
@@ -199,8 +213,8 @@ export function ClientContext({
                       onChange={(e) => update({ startsOn: e.target.value })}
                     />
                   </label>
-                  <label>
-                    Through
+                  <label className="field">
+                    <span>{t("through")}</span>
                     <input
                       required
                       type="date"
@@ -209,19 +223,25 @@ export function ClientContext({
                       onChange={(e) => update({ endsOn: e.target.value })}
                     />
                   </label>
-                  <label>
-                    Timezone
-                    <input
+                  <label className="field">
+                    <span>{t("zone")}</span>
+                    {/* A place and its zone name, never a raw zone id. */}
+                    <select
                       required
-                      maxLength={80}
                       value={item.timezone}
                       onChange={(e) => update({ timezone: e.target.value })}
-                    />
+                    >
+                      {timeZoneChoices(item.timezone, locale).map((zone) => (
+                        <option key={zone.value} value={zone.value}>
+                          {zone.label}
+                        </option>
+                      ))}
+                    </select>
                   </label>
-                  <label>
-                    Availability
+                  <label className="field">
+                    <span>{t("availability")}</span>
                     <textarea
-                      aria-label="Availability"
+                      aria-label={t("availability")}
                       maxLength={500}
                       value={item.availabilityNotes}
                       onChange={(e) =>
@@ -229,10 +249,10 @@ export function ClientContext({
                       }
                     />
                   </label>
-                  <label>
-                    Available equipment
+                  <label className="field">
+                    <span>{t("equipment")}</span>
                     <textarea
-                      aria-label="Available equipment"
+                      aria-label={t("equipment")}
                       maxLength={500}
                       value={item.equipmentNotes}
                       onChange={(e) =>
@@ -252,14 +272,14 @@ export function ClientContext({
                         })
                       }
                     >
-                      Remove change
+                      {t("removeChange")}
                     </button>
                   )}
                 </fieldset>
               );
             })}
             {editable && (
-              <>
+              <div className="button-row context-actions">
                 <button
                   type="button"
                   className="button secondary"
@@ -286,25 +306,27 @@ export function ClientContext({
                     });
                   }}
                 >
-                  Add dated change
+                  {editable ? t("addChangeMember") : t("addChange")}
                 </button>
                 <button
                   type="button"
                   className="button secondary"
                   onClick={() => setDraft(emptyClientContext())}
                 >
-                  Clear all fields
+                  {t("clearAll")}
                 </button>
                 <button type="submit" className="button">
-                  {busy ? "Saving…" : "Save preferences"}
+                  {busy ? t("saving") : t("save")}
                 </button>
-              </>
+              </div>
             )}
           </fieldset>
           <small>
             {saved.provenance.updatedAt
-              ? `Updated ${new Date(saved.provenance.updatedAt).toLocaleString()}`
-              : "No preferences saved yet."}
+              ? t("updated", {
+                  when: formatDateTime(saved.provenance.updatedAt, { locale }),
+                })
+              : t("none")}
             {!editable && " · Only the client can edit these preferences."}
           </small>
         </form>

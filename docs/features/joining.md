@@ -28,7 +28,8 @@ Existing code read first: `apps/api/src/app.ts` (invitation create/accept, publi
 - **Joining page** `/join/<link>` (`InvitationJoin`) first previews the invitation (coach name, masked invited address, expiry, status). Closed invitations explain why (used, expired, cancelled, replaced by a newer link).
   - Signed in with the invited address: one click "Join <coach>" after accepting the terms. No password, no new account; the browser session moves to the new coach and the account keeps its other coaches.
   - Signed in with a different address: explained, with "Sign out and continue".
-  - Signed out: "I'm new here" (name, email, password) or "I already have an account" (email, password, authenticator code; no name, no new account).
+  - Signed out: "I'm new here" (name, email, password) or "I already have an account" (email, password; the authenticator code only once the API answers `MFA_REQUIRED`; no name, no new account).
+  - Since the phone-first pass (`ui/public`) `/join/<link>` and a coach's join page `/join-coach/<name>` share `AccountJoinForm`: "Join <coach>" with the coach's header, the choice as two full-width cards, one column of fields, the terms checkbox for published documents only (`GET /api/v1/public/legal-status`), and "Join <coach>" in a sticky bar on phones. No "Welcome back", no forgotten-password link and no trainer copy. See docs/features/phone-first.md, "Public, joining and sign-in pages".
 - **Switching coaches**: a "Your coaches" card on the Today page lists every coach with "Switch to …" buttons, a compact "Coach" switcher sits in the top bar (visible on phones where the sidebar is collapsed), and the sidebar label reads "Switch coach" for followers. After a one-click join the Today page confirms "You joined …". Switching replays offline workout/meal queues first, like the existing sidebar switcher.
 - **Membership page** shows a "Your coach has given you access" card with the tier and end date (or "until your coach ends it"). The trainer's free-text reason is not shown to the follower. Paid plans remain available.
 - Notifications when complimentary access is granted, three days before a fixed end date (only for grants longer than three days), and when it ends — whether the coach or an operator ended it or the period ran out. Dates in these notices use the member's saved time zone (notification preferences), otherwise Asia/Dubai; invitation emails use Asia/Dubai because the invitee has no saved zone yet.
@@ -90,7 +91,8 @@ Grants create no `subscriptions` row, no Stripe object and no journal, so revenu
 | `POST /api/v1/invitations/preview` | anyone with the link | Invitation summary and signed-in viewer state (including the viewer's own current workspace and user id, used to replay the device queue before leaving); 30/10 min |
 | `POST /api/v1/invitations/accept-signed-in` | signed-in account | One-click follower acceptance; replaces the browser session with one for the new coach; 10/10 min |
 | `POST /api/v1/invitations/accept` | anyone with the link | Existing route; `name` now optional for existing accounts (`NAME_REQUIRED` for new ones); records the outcome and alerts the coach |
-| `POST /api/v1/auth/enroll` | public | Existing route; now alerts the coach when a membership is created |
+| `POST /api/v1/auth/enroll` | public | Existing route; now alerts the coach when a membership is created; `name` is optional for an existing account (`NAME_REQUIRED` for a new one), like `/invitations/accept` |
+| `GET /api/v1/public/legal-status` | public | `{joiningOpen, documents:[{key,published,version}]}` for terms, privacy and the digital coaching disclosure, decided as acceptance is recorded (`legalStatus` in `apps/api/src/legal.ts`); joining forms ask people to accept only published documents |
 | `GET /api/v1/complimentary-access` | owner, staff | Grants, followers, limits, nutrition-tier availability |
 | `POST /api/v1/complimentary-access` | owner + fresh MFA | Grant `{userId,tier,days|null,reason,replaceId?}` |
 | `POST /api/v1/complimentary-access/:id/revoke` | owner + fresh MFA | End `{version,reason}` |
@@ -164,3 +166,16 @@ The invitation tests use synthetic email settings (`https://email.invalid/send`)
 | Dates in grant notice and invitation email printed as UTC dates | Fixed. Member's saved zone, otherwise Asia/Dubai. Tests added. |
 | No tests for digital coach, follow-ups and program nudges with complimentary access | Added (coaching-runtime and joining-complimentary suites). |
 | "Your coaches" section referenced a heading that was not rendered | Fixed (`aria-label` when the heading is absent). Test added. |
+
+## Verification round (30 September 2026)
+
+- While the legal status loads, the form shows no box to tick and the main
+  action waits with "Getting the joining terms ready…" (never "Tick the box
+  above" with no box on screen); if the status cannot be read, all three
+  documents are asked for and the API decides, as before.
+- Documents not published yet are not mentioned to joiners (the note about
+  the platform's unpublished terms is gone).
+- A coach's join page no longer repeats "Already coaching with …? Sign in":
+  "I already have an account" in the form is the way in.
+- The ended-membership notice on sign-in keeps its link secondary, so Sign
+  in is the one primary action.

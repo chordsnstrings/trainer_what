@@ -285,12 +285,8 @@ export function ProductScreens({ t }: { t: (s: string) => string }) {
                 <dt>Payment processing</dt>
                 <dd>itemised</dd>
               </div>
-              <div>
-                <dt>AI usage at cost</dt>
-                <dd>itemised</dd>
-              </div>
               <div className="total">
-                <dt>Before processing and AI usage</dt>
+                <dt>Before processing</dt>
                 <dd>{aed(e.beforeOtherCostsMinor)}</dd>
               </div>
             </dl>

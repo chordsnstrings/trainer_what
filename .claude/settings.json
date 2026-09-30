@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(scripts/watch-release.sh:*)",
+      "Bash(sh scripts/watch-release.sh:*)",
+      "Bash(curl -s -o /dev/null -D - https://trainsyou.com/api/v1/ready:*)"
+    ]
+  }
+}

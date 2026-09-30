@@ -574,8 +574,9 @@ test("home: one H1 that says what happens, a short hero, the relay and five sect
     assert.ok(pills[i].startsWith(`${band.bps / 100}% · ${from === 1 ? "first " + band.count : from.toLocaleString("en-GB")}`));
     from += band.count;
   });
-  // The economics band names card processing as well as AI usage.
-  assert.match(text, /Card processing is itemised; AI usage is passed on at cost\./);
+  // The economics band names card processing; the site does not talk about
+  // AI costs (owner, 30 September 2026: "it's integrated").
+  assert.match(text, /Card processing is itemised\./);
   // At most six H2s (five sections and the FAQ) plus the closing heading.
   const h2s = [...html.matchAll(/<h2[^>]*>([\s\S]*?)<\/h2>/g)].map((m) => decode(m[1]).trim());
   assert.ok(h2s.length - 1 <= 6, h2s.join(" | "));
@@ -950,7 +951,7 @@ test("calculators and pages carry their estimate disclaimers", () => {
   assert.match(follower, /no industry benchmark exists/);
   const earnings = decode(renderToStaticMarkup(createElement(EarningsCalculator, {})));
   assert.match(earnings, /Not an earnings promise/);
-  assert.match(earnings, /AI usage at cost/);
+  assert.match(earnings, /Excludes payment processing, your own domain/);
   const pricing = decode(render(marketingPage("/pricing")!));
   assert.match(pricing, /An arithmetic example, not a forecast or promise/);
   const methodology = decode(render(marketingPage("/methodology")!));
@@ -961,6 +962,16 @@ test("calculators and pages carry their estimate disclaimers", () => {
   assert.equal(slugFromName("Layla Strength!"), "layla-strength");
   assert.equal(slugFromName("  99 Élan  Fit "), "elan-fit");
   assert.equal(slugFromName("ab"), "");
+});
+
+test("the marketing site does not talk about AI costs (owner, 30 September 2026: \"it's integrated\")", () => {
+  const aiCost = /\bAI (usage|costs?)\b|at cost|passed (through|on)|usage cost|voice usage|model costs?/i;
+  for (const page of MARKETING_PAGES) assert.doesNotMatch(allText(page), aiCost, page.path);
+  for (const page of site) assert.doesNotMatch(decode(render(page)), aiCost, page.path);
+  for (const group of FEATURE_MATRIX) {
+    for (const item of group.items) assert.doesNotMatch(`${item.name} ${item.detail}`, aiCost, item.name);
+  }
+  assert.doesNotMatch(decode(renderToStaticMarkup(createElement(EarningsCalculator, {}))), aiCost);
 });
 
 test("the assumptions shown are the assumptions used: settings change the pages, FAQ JSON-LD and llms-full.txt", () => {

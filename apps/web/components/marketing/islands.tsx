@@ -4,7 +4,7 @@
 // in packages/domain/src/marketing-calculators.ts. The follower calculator
 // headlines the strong case; cautious and typical sit under How we estimate.
 import Link from "next/link";
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   DEFAULT_EARNINGS_INPUTS,
   DEFAULT_FOLLOWER_INPUTS,
@@ -25,6 +25,7 @@ import {
   type FollowerRateKey,
   type FollowerScenario,
 } from "../../../../packages/domain/src/marketing-calculators";
+import { SETTLE_ADDRESS, SETTLE_RESULT, useSettle } from "./motion";
 
 /** Early access keeps the visitor's numbers: they travel in the address. */
 export function withEarlyAccessContext(
@@ -271,6 +272,9 @@ export function FollowerCalculator({
   const rates = model.scenarios;
   const rateList = (key: FollowerRateKey) =>
     `${pct(rates.cautious[key])}, ${pct(rates.typical[key])} and ${pct(rates.strong[key])}`;
+  // The result settles 150ms after the last change (marketing site only).
+  const result = useRef<HTMLDivElement>(null);
+  useSettle(result, SETTLE_RESULT, 150);
   return (
     <section className="mk-calculator card" aria-label="Follower calculator">
       <div className="mk-calculator-grid">
@@ -370,7 +374,7 @@ export function FollowerCalculator({
             </>
           )}
         </div>
-        <div className="mk-result" aria-live="polite">
+        <div className="mk-result" aria-live="polite" ref={result}>
           <p className="eyebrow">ESTIMATE, NOT A PROMISE</p>
           <p className="mk-scenario">
             <span className="badge green">Strong case</span>{" "}
@@ -653,8 +657,11 @@ export function AddressPreview({
           name: name.trim() || undefined,
           slug: slug || undefined,
         });
+  // The preview settles once typing pauses.
+  const preview = useRef<HTMLDivElement>(null);
+  useSettle(preview, SETTLE_ADDRESS, 120);
   return (
-    <div className="mk-address">
+    <div className="mk-address" ref={preview}>
       <label htmlFor={id}>Your coaching name</label>
       <input
         id={id}
@@ -700,6 +707,9 @@ export function EarningsCalculator({ compact = false }: { compact?: boolean }) {
   };
   const e = estimateEarnings(inputs);
   const billingId = useId();
+  // The result settles 150ms after the last change (marketing site only).
+  const result = useRef<HTMLDivElement>(null);
+  useSettle(result, SETTLE_RESULT, 150);
   return (
     <section className="mk-calculator card" aria-label="Earnings calculator">
       <div className="mk-calculator-grid">
@@ -807,7 +817,7 @@ export function EarningsCalculator({ compact = false }: { compact?: boolean }) {
             max={EARNINGS_LIMITS.priceAed[1]}
           />
         </div>
-        <div className="mk-result" aria-live="polite">
+        <div className="mk-result" aria-live="polite" ref={result}>
           <p className="eyebrow">ILLUSTRATIVE ARITHMETIC</p>
           <p className="mk-result-figure">{aed(e.beforeOtherCostsMinor)}</p>
           <p className="mk-result-label">
@@ -862,8 +872,7 @@ export function EarningsCalculator({ compact = false }: { compact?: boolean }) {
         </div>
       </div>
       <p className="fine-print mk-disclaimer">
-        Not an earnings promise. Excludes payment processing, AI usage at cost,
-        voice usage, your own domain, refunds, disputes, any booking fee in
+        Not an earnings promise. Excludes payment processing, your own domain, refunds, disputes, any booking fee in
         your finance policy, and tax.{" "}
         <Link href="/methodology">Assumptions</Link>
       </p>
@@ -878,9 +887,12 @@ export function DemoScenarios({
   scenarios: Array<{ title: string; label: string; body: string }>;
 }) {
   const [selected, setSelected] = useState(0);
+  // The chosen decision rises into place only after a visitor picks one
+  // (app/marketing.css); the first shows at once.
+  const [picked, setPicked] = useState(false);
   const base = useId();
   return (
-    <div className="mk-demo">
+    <div className="mk-demo" data-mk-played={picked ? "" : undefined}>
       <div className="mk-demo-tabs" role="tablist" aria-label="Sample decisions">
         {scenarios.map((s, i) => (
           <button
@@ -891,7 +903,10 @@ export function DemoScenarios({
             aria-controls={`${base}-panel-${i}`}
             aria-selected={i === selected}
             className={"button " + (i === selected ? "" : "secondary")}
-            onClick={() => setSelected(i)}
+            onClick={() => {
+              if (i !== selected) setPicked(true);
+              setSelected(i);
+            }}
           >
             {s.title}
           </button>
@@ -906,7 +921,13 @@ export function DemoScenarios({
           hidden={i !== selected}
           className="card mk-demo-panel"
         >
-          <span className="badge green">{s.label}</span>
+          {/* The automatic outcomes pop as a success; hand-offs stamp. */}
+          <span
+            className="badge green"
+            data-mk-success={/automatically/i.test(s.label) ? "" : undefined}
+          >
+            {s.label}
+          </span>
           <h3>{s.title}</h3>
           <p>{s.body}</p>
         </section>

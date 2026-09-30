@@ -117,7 +117,7 @@ export async function prepareScreenshotFixtures() {
         estimate: {
           items: [
             {
-              name: "Synthetic chicken and rice",
+              name: "Chicken and rice",
               portion: "One bowl, approximately 350 g",
               amount: 350,
               unit: "g",
@@ -126,13 +126,13 @@ export async function prepareScreenshotFixtures() {
               carbohydrate: 58,
               fat: 15,
               preparation: "cooked",
-              uncertainty:
-                "Synthetic UI fixture. No image analysis was performed.",
+              uncertainty: "Portion estimated from the photo.",
             },
           ],
           questions: ["Was any cooking oil or dressing added?"],
-          notes:
-            "Synthetic photo-estimate fixture for interface verification. No photo was sent to a provider.",
+          // Made-up example data (synthetic: true); the wording is what a
+          // member would read, so screenshots show the real screen.
+          notes: "Estimated from one photo. Check the portion before saving.",
         },
       };
       const barcode = {
@@ -140,11 +140,11 @@ export async function prepareScreenshotFixtures() {
         source: "synthetic_screenshot_fixture",
         product: {
           code: "4006381333931",
-          name: "Synthetic oat drink",
-          brand: "UI fixture · no provider lookup",
+          name: "Oat drink, unsweetened",
+          brand: "Oat drink",
           servingLabel: "250 ml",
           ingredients:
-            "Synthetic example: water, oats. Check your real package.",
+            "Water, oats. Check your own package.",
           allergens: null,
           nutrientsPer100: { kcal: 48, protein: 1, carbohydrate: 7, fat: 1.5 },
           preparation: "as_sold",

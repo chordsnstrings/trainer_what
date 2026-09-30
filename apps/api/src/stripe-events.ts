@@ -15,6 +15,7 @@ import {
   elevated,
 } from "@trainer/db";
 import { stripeClient } from "@trainer/providers";
+import "./stripe-alerts.ts";
 import { recordCharge, journal, assignCommissionRank } from "./finance.ts";
 import { recordFirstPaidAcquisition } from "./acquisition.ts";
 import {
@@ -68,9 +69,130 @@ export async function resolveInvoicePayment(object: any, stripe?: StripeLike) {
     );
   return { chargeId, paymentIntentId };
 }
+/**
+ * How long an event that matches no object of this platform is answered with
+ * an error (so Stripe retries while the object it refers to may still be
+ * arriving) before it is acknowledged and parked for an operator.
+ */
+export const UNMATCHED_RETRY_SECONDS = 3600;
+/**
+ * An event for a Stripe object the platform did not create (a Payment Link,
+ * a Dashboard invoice, a refund of someone else's charge). `foreign` is set
+ * when the object's own shape proves it: membership, add-on and web address
+ * invoices and subscriptions always carry the platform's metadata. Otherwise
+ * it is parked only after UNMATCHED_RETRY_SECONDS, because the object it
+ * refers to may still be arriving; until then it fails as before. The
+ * webhook route answers a parked event with 2xx and keeps its receipt.
+ */
+export function unmatchedStripeEvent(
+  e: any,
+  message: string,
+  foreign = false,
+): Error {
+  const created = Number(e?.created ?? 0);
+  const aged =
+    created > 0 && Date.now() / 1000 - created > UNMATCHED_RETRY_SECONDS;
+  return foreign || aged
+    ? Object.assign(new Error(message), {
+        statusCode: 409,
+        code: "STRIPE_EVENT_UNMATCHED",
+        unmatched: true,
+      })
+    : new Error(message);
+}
+/** Whether an event is old enough that data it refers to is no longer arriving. */
+export const eventAged = (e: any) =>
+  Number(e?.created ?? 0) > 0 &&
+  Date.now() / 1000 - Number(e.created) > UNMATCHED_RETRY_SECONDS;
+const INVOICE_CLOSED = new Set(["invoice.voided", "invoice.marked_uncollectible"]);
+/** Invoice record states in the order they may replace each other. */
+const invoiceRank: Record<string, number> = {
+  open: 0,
+  uncollectible: 1,
+  void: 2,
+  paid: 3,
+};
+/**
+ * Stores an invoice's state on its billing_invoice record. Paid wins over
+ * everything; void and uncollectible end an open invoice (Stripe stops
+ * collecting it, so it no longer holds a month close); an older event never
+ * reopens a closed invoice.
+ */
+export async function projectBillingInvoice(
+  tx: Tx,
+  a: Actor,
+  memberId: string,
+  e: any,
+  snapshot: Record<string, unknown>,
+) {
+  const status =
+    e.type === "invoice.paid"
+      ? "paid"
+      : e.type === "invoice.voided"
+        ? "void"
+        : e.type === "invoice.marked_uncollectible"
+          ? "uncollectible"
+          : "open";
+  const data = {
+    ...snapshot,
+    ...(status === "uncollectible"
+      ? { writtenOff: true, writtenOffReason: "stripe_marked_uncollectible" }
+      : {}),
+  };
+  const [invoice] = await tx.query(
+    "SELECT * FROM records WHERE kind='billing_invoice' AND data->>'invoiceId'=$1",
+    [snapshot.invoiceId],
+  );
+  if (!invoice) {
+    await putRecord(tx, a, "billing_invoice", data, {
+      ownerId: memberId,
+      status,
+    });
+    return;
+  }
+  const from = invoiceRank[invoice.status] ?? 0,
+    to = invoiceRank[status];
+  if (
+    invoice.status !== "paid" &&
+    (to > from ||
+      (to === from &&
+        Number(snapshot.eventTime ?? 0) >= Number(invoice.data.eventTime ?? 0)))
+  )
+    await tx.query(
+      "UPDATE records SET status=$2,data=$3,version=version+1,updated_at=now() WHERE id=$1",
+      [invoice.id, status, JSON.stringify(data)],
+    );
+}
+/**
+ * A subscription that ended (canceled, unpaid or expired) leaves its failed
+ * invoices open at Stripe with collection stopped: they no longer hold the
+ * trainer's month close or the member's erasure. A later payment of one of
+ * them still arrives as invoice.paid and is posted then.
+ */
+export async function closeEndedSubscriptionInvoices(
+  tx: Tx,
+  subscriptionId: string,
+  status: string,
+  eventId: string,
+) {
+  if (!["canceled", "unpaid", "incomplete_expired"].includes(status)) return;
+  await tx.query(
+    "UPDATE records SET status='uncollectible',data=data||$2::jsonb,version=version+1,updated_at=now() WHERE kind='billing_invoice' AND status='open' AND data->>'subscriptionId'=$1",
+    [
+      subscriptionId,
+      JSON.stringify({
+        writtenOff: true,
+        writtenOffReason: "subscription_ended",
+        closedByEvent: eventId,
+      }),
+    ],
+  );
+}
 const supported = new Set([
   "invoice.paid",
   "invoice.payment_failed",
+  "invoice.voided",
+  "invoice.marked_uncollectible",
   "customer.subscription.created",
   "customer.subscription.updated",
   "customer.subscription.deleted",
@@ -138,8 +260,13 @@ export async function processStripeEvent(
     userId = mapping?.metadata?.user_id;
   }
   if (!tenantId || !userId)
-    throw new Error(
+    throw unmatchedStripeEvent(
+      e,
       "Payment event mapping unresolved; retain receipt for reconciliation",
+      // Every invoice and subscription this platform creates carries its
+      // metadata; one without it (a Dashboard invoice, a Payment Link
+      // subscription) is not the platform's.
+      object.object === "invoice" || object.object === "subscription",
     );
   const [member] = await db.system((tx) =>
     tx.query(
@@ -166,6 +293,10 @@ export async function processStripeEvent(
   // service identity; the member is the subject of its rows.
   const a = elevated("provider-callback", { tenantId, role: "finance" });
   const eventTime = Number(e.created ?? 0);
+  // Paid without an identifiable Stripe payment (marked paid outside Stripe,
+  // or split across several payments): access follows the invoice, the money
+  // is left to an operator (a reconciliation record), never guessed.
+  let outOfBand = false;
   if (e.type === "invoice.paid" && !chargeId && object.amount_paid > 0) {
     // Journals are immutable, so the charge link must be known before money is posted.
     const [posted] = await db.tenant(a, (tx) =>
@@ -181,11 +312,17 @@ export async function processStripeEvent(
       : await resolveInvoicePayment(object, deps.stripe ?? optionalStripe());
     chargeId = resolved.chargeId;
     paymentIntentId ??= resolved.paymentIntentId;
-    if (!chargeId && !posted)
-      throw new Error(
-        "Invoice payment identity unresolved; retain receipt for reconciliation",
-      );
+    if (!chargeId && !posted) {
+      if (!eventAged(e))
+        throw new Error(
+          "Invoice payment identity unresolved; retain receipt for reconciliation",
+        );
+      outOfBand = true;
+    }
   }
+  // Set when a subscription event is applied from the provider's current
+  // object instead of its own (possibly stale) payload.
+  let authoritative = false;
   if (e.type.startsWith("customer.subscription.") && eventTime) {
     const [row] = await db.tenant(a, (tx) =>
       tx.query(
@@ -193,14 +330,18 @@ export async function processStripeEvent(
         [userId],
       ),
     );
-    if (Number(row?.last ?? 0) === eventTime) {
-      // Stripe timestamps have one-second resolution and delivery order is not guaranteed;
-      // a same-second subscription event is applied only from the provider's current object.
-      const stripe = deps.stripe ?? optionalStripe();
-      if (!stripe)
-        throw new Error(
-          "Same-second subscription events need provider confirmation; retain receipt for reconciliation",
-        );
+    const last = Number(row?.last ?? 0);
+    // Stripe timestamps have one-second resolution and delivery order is not
+    // guaranteed (an invoice event may be newer than a plan change delivered
+    // late): a subscription event that is not newer than the last applied
+    // event is applied only from the provider's current object.
+    const stripe =
+      eventTime <= last ? (deps.stripe ?? optionalStripe()) : undefined;
+    if (eventTime === last && !stripe)
+      throw new Error(
+        "Same-second subscription events need provider confirmation; retain receipt for reconciliation",
+      );
+    if (stripe) {
       const remote: any = await stripe.subscriptions.retrieve(object.id);
       if (
         remote.id !== object.id ||
@@ -218,6 +359,7 @@ export async function processStripeEvent(
           user_id: userId,
         },
       };
+      authoritative = true;
     }
   }
   await db.system(async (tx) => {
@@ -247,7 +389,7 @@ export async function processStripeEvent(
       [userId],
     );
     const lastTime = Number(current?.data?.lastStripeEventAt ?? 0);
-    const newer = !eventTime || eventTime >= lastTime;
+    const newer = authoritative || !eventTime || eventTime >= lastTime;
     // An upfront programme has no provider subscription: a subscription event
     // for this member then concerns an older (or unexpected) membership.
     const differentSubscription = !!(
@@ -277,6 +419,8 @@ export async function processStripeEvent(
         ? line.price
         : (line?.price?.id ?? line?.pricing?.price_details?.price);
     let productAccess: any = {};
+    // The offer's own price: the membership's list price.
+    let offerPriceMinor: number | undefined;
     if (
       newer &&
       priceId &&
@@ -289,6 +433,8 @@ export async function processStripeEvent(
         "SELECT id,data FROM records WHERE kind='product' AND data->>'stripePriceId'=$1",
         [priceId],
       );
+      if (Number.isSafeInteger(offer?.data?.priceMinor))
+        offerPriceMinor = offer.data.priceMinor;
       productAccess = offer
         ? {
             productId: offer.id,
@@ -367,7 +513,10 @@ export async function processStripeEvent(
                   current.data?.firstPaidAt ??
                   new Date(startSeconds * 1000).toISOString(),
               };
-    if (["invoice.paid", "invoice.payment_failed"].includes(e.type)) {
+    if (
+      ["invoice.paid", "invoice.payment_failed"].includes(e.type) ||
+      INVOICE_CLOSED.has(e.type)
+    ) {
       const safeLink = (value: unknown) => {
         try {
           const url = new URL(String(value));
@@ -380,11 +529,7 @@ export async function processStripeEvent(
           return null;
         }
       };
-      const [invoice] = await tx.query(
-        "SELECT * FROM records WHERE kind='billing_invoice' AND data->>'invoiceId'=$1",
-        [object.id],
-      );
-      const snapshot = {
+      await projectBillingInvoice(tx, a, userId, e, {
         invoiceId: object.id,
         subscriptionId,
         chargeId: chargeId ?? null,
@@ -398,24 +543,8 @@ export async function processStripeEvent(
         issuedAt: new Date((object.created ?? eventTime) * 1000).toISOString(),
         providerEventId: e.id,
         eventTime,
-      };
-      if (!invoice)
-        await putRecord(tx, a, "billing_invoice", snapshot, {
-          ownerId: userId,
-          status: e.type === "invoice.paid" ? "paid" : "open",
-        });
-      else if (
-        eventTime >= Number(invoice.data.eventTime ?? 0) &&
-        invoice.status !== "paid"
-      )
-        await tx.query(
-          "UPDATE records SET status=$2,data=$3,version=version+1,updated_at=now() WHERE id=$1",
-          [
-            invoice.id,
-            e.type === "invoice.paid" ? "paid" : "open",
-            JSON.stringify(snapshot),
-          ],
-        );
+        ...(outOfBand ? { outOfBand: true } : {}),
+      });
     }
     if (e.type === "invoice.paid") {
       const amount = object.amount_paid;
@@ -447,6 +576,17 @@ export async function processStripeEvent(
         lastStripeEventAt: Math.max(lastTime, eventTime),
         ...(newer ? { graceUntil: null, pastDueSince: null } : {}),
       };
+      // The membership's price is its offer's list price. An invoice amount
+      // (a free trial, a discounted month, a plan-change proration) is only
+      // the fallback for a membership whose price is not known yet.
+      const sameSubscription =
+        !!current &&
+        (!subscriptionId || current.provider_id === subscriptionId);
+      const priceMinor =
+        offerPriceMinor ??
+        (sameSubscription && current.price_minor != null
+          ? current.price_minor
+          : amount);
       // A late invoice from an older membership still posts money, but cannot replace current access.
       if (!differentSubscription || (newer && currentTerminal))
         await tx.query(
@@ -458,11 +598,35 @@ export async function processStripeEvent(
             subscriptionId ?? current?.provider_id,
             status,
             new Date(end * 1000),
-            amount,
+            priceMinor,
             JSON.stringify(metadata),
           ],
         );
-      if (amount > 0) {
+      if (outOfBand) {
+        // Once per invoice, however often the event or a sync replays it.
+        const [open] = await tx.query(
+          "SELECT id FROM records WHERE kind='reconciliation' AND data->>'invoiceId'=$1",
+          [object.id],
+        );
+        if (!open) {
+          await putRecord(
+            tx,
+            a,
+            "reconciliation",
+            {
+              reason:
+                "A membership invoice was marked paid without a Stripe payment the platform can identify; record the money outside Stripe or correct the invoice in Stripe",
+              invoiceId: object.id,
+              userId,
+              amountMinor: amount,
+            },
+            { ownerId: userId, status: "open" },
+          );
+          await event(tx, a, "invoice.paid_out_of_band", object.id, {
+            providerEventId: e.id,
+          });
+        }
+      } else if (amount > 0) {
         // The commission rank is assigned once, at the first positive charge, and reused for every
         // later charge, so churn or a late invoice never re-ranks a payer. Under the tenant lock held
         // above, ranks are issued in sequence after every stored rank, so no two payers share one in
@@ -499,6 +663,7 @@ export async function processStripeEvent(
             "A different active provider subscription requires reconciliation before replacing the current membership",
           );
         await settleCheckoutSubscription(tx, userId, object);
+        await closeEndedSubscriptionInvoices(tx, object.id, object.status, e.id);
         await event(tx, a, "subscription.historical_terminal", object.id, {
           providerEventId: e.id,
           status: object.status,
@@ -508,11 +673,24 @@ export async function processStripeEvent(
       const period =
         object.current_period_end ??
         object.items?.data?.[0]?.current_period_end;
+      // In flexible billing mode the Dashboard (and Customer Portal) schedule
+      // an end with cancel_at and leave cancel_at_period_end false; either
+      // one means the membership does not renew. A cancel_at-only schedule
+      // is kept so switching renewal back on clears that field.
+      const scheduledCancelAt =
+        !object.cancel_at_period_end && Number(object.cancel_at) > 0
+          ? Number(object.cancel_at)
+          : null;
+      const itemPrice = object.items?.data?.[0]?.price?.unit_amount;
+      const priceMinor =
+        offerPriceMinor ??
+        (Number.isSafeInteger(itemPrice) ? itemPrice : null);
       const data = {
         ...current?.data,
         ...productAccess,
         ...programme,
-        lastStripeEventAt: eventTime,
+        lastStripeEventAt: Math.max(lastTime, eventTime),
+        scheduledCancelAt,
         ...([
           "active",
           "trialing",
@@ -526,7 +704,7 @@ export async function processStripeEvent(
             : {}),
       };
       await tx.query(
-        "INSERT INTO subscriptions(id,tenant_id,user_id,provider_id,status,period_end,cancel_at_period_end,data) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(tenant_id,user_id) DO UPDATE SET provider_id=excluded.provider_id,status=excluded.status,period_end=coalesce(excluded.period_end,subscriptions.period_end),cancel_at_period_end=excluded.cancel_at_period_end,data=excluded.data",
+        "INSERT INTO subscriptions(id,tenant_id,user_id,provider_id,status,period_end,cancel_at_period_end,price_minor,data) VALUES($1,$2,$3,$4,$5,$6,$7,coalesce($8::bigint,0),$9) ON CONFLICT(tenant_id,user_id) DO UPDATE SET provider_id=excluded.provider_id,status=excluded.status,period_end=coalesce(excluded.period_end,subscriptions.period_end),cancel_at_period_end=excluded.cancel_at_period_end,price_minor=CASE WHEN $8::bigint IS NULL THEN subscriptions.price_minor ELSE excluded.price_minor END,data=excluded.data",
         [
           randomUUID(),
           tenantId,
@@ -534,10 +712,12 @@ export async function processStripeEvent(
           object.id,
           object.status,
           period ? new Date(period * 1000) : null,
-          !!object.cancel_at_period_end,
+          !!object.cancel_at_period_end || scheduledCancelAt !== null,
+          priceMinor,
           JSON.stringify(data),
         ],
       );
+      await closeEndedSubscriptionInvoices(tx, object.id, object.status, e.id);
       await settleCheckoutSubscription(tx, userId, object);
       await event(tx, a, "subscription.updated", object.id, {
         status: object.status,
@@ -617,9 +797,51 @@ export async function processStripeEvent(
             { disputeId: object.id, status: object.status },
           );
         else if (object.status === "lost") {
-          const fee = Math.round(
-            (original.data.commissionMinor * amount) / original.data.grossMinor,
+          // A lost dispute takes back what Stripe did not already return:
+          // never more than the charge less its refunds and earlier losses,
+          // nor more than the dispute's own balance transactions withdrew
+          // net of any reinstatement (a dispute of a partly refunded charge
+          // closes as lost while Stripe returns the refunded part).
+          // Commission is reversed at most once across refunds and disputes.
+          const [prior] = await tx.query(
+            "SELECT coalesce(sum((data->>'refundAmountMinor')::bigint),0)::text AS refunded,coalesce(sum((data->>'disputeLossMinor')::bigint),0)::text AS lost,coalesce(sum((data->>'commissionReversalMinor')::bigint),0)::text AS reversed FROM journals WHERE data->>'originalJournalId'=$1 OR ($2::text IS NOT NULL AND source_key LIKE 'booking-refund%' AND data->>'bookingId'=$2)",
+            [
+              original.id,
+              original.source_key.startsWith("booking-charge:")
+                ? (original.data.bookingId ?? null)
+                : null,
+            ],
           );
+          const gross = Number(original.data.grossMinor),
+            commission = Number(original.data.commissionMinor ?? 0);
+          const transactions = Array.isArray(object.balance_transactions)
+            ? object.balance_transactions
+            : [];
+          const withdrawn =
+            transactions.length &&
+            transactions.every(
+              (t: any) =>
+                t?.currency === "aed" && Number.isSafeInteger(t.amount),
+            )
+              ? Math.max(
+                  0,
+                  -transactions.reduce((n: number, t: any) => n + t.amount, 0),
+                )
+              : amount;
+          const lost = Math.max(
+            0,
+            Math.min(
+              amount,
+              withdrawn,
+              gross - Number(prior.refunded) - Number(prior.lost),
+            ),
+          );
+          const unreversed = Math.max(0, commission - Number(prior.reversed));
+          const final =
+            Number(prior.refunded) + Number(prior.lost) + lost >= gross;
+          const fee = final
+            ? unreversed
+            : Math.min(unreversed, Math.round((commission * lost) / gross));
           await journal(
             tx,
             a,
@@ -627,12 +849,33 @@ export async function processStripeEvent(
             "Dispute lost",
             [
               { account: "dispute_reserve", amount },
-              { account: "stripe_receivable", amount: -amount },
+              { account: "stripe_receivable", amount: -lost },
               { account: "platform_commission", amount: fee },
-              { account: "trainer_payable", amount: -fee },
+              { account: "trainer_payable", amount: -fee - (amount - lost) },
             ],
-            { disputeId: object.id },
+            {
+              disputeId: object.id,
+              originalJournalId: original.id,
+              disputeLossMinor: lost,
+              commissionReversalMinor: fee,
+              chargeId: chargeId ?? null,
+            },
           );
+          // Money taken back by a lost dispute ends what it paid for, as a
+          // full refund does: an upfront programme, or the voice add-on.
+          if (final && lost > 0) {
+            if (original.source_key.startsWith("stripe-programme:"))
+              await endRefundedProgramme(tx, a, userId, original, object.id);
+            else if (original.data.purpose === "voice_addon")
+              await tx.query(
+                "UPDATE subscriptions SET data=jsonb_set(data,'{voiceAddOn,endRequested}',to_jsonb($2::text)) WHERE user_id=$1 AND data->'voiceAddOn'->>'providerId'=$3 AND data->'voiceAddOn'->>'status' NOT IN ('canceled','incomplete_expired','unpaid')",
+                [
+                  userId,
+                  "disputed:" + object.id,
+                  original.data.subscriptionId ?? "",
+                ],
+              );
+          }
         } else throw new Error("Dispute final outcome is unresolved");
       }
       await event(tx, a, "dispute.updated", object.id, {
@@ -659,15 +902,20 @@ async function applyRefund(
   chargeId: string | undefined,
   eventId: string,
 ) {
+  // A canceled refund moved no money, as a failed one: both are final and
+  // free the charge for a new refund request. A refund can fail after it
+  // succeeded (the bank returned it); a failed one never succeeds again.
+  const status =
+    refund.status === "succeeded"
+      ? "succeeded"
+      : ["failed", "canceled"].includes(refund.status)
+        ? "failed"
+        : "submitted";
   await tx.query(
-    "UPDATE records SET status=$2,data=data||$3::jsonb,updated_at=now() WHERE kind='refund' AND data->>'chargeId'=$4 AND (data->>'providerRefundId'=$1 OR id::text=$5) AND (status<>'succeeded' OR $2='succeeded')",
+    "UPDATE records SET status=$2,data=data||$3::jsonb,updated_at=now() WHERE kind='refund' AND data->>'chargeId'=$4 AND (data->>'providerRefundId'=$1 OR id::text=$5) AND NOT coalesce(data->'failedRefundIds','[]'::jsonb) ? $1 AND status<>'failed' AND (status<>'succeeded' OR $2='failed')",
     [
       refund.id,
-      refund.status === "succeeded"
-        ? "succeeded"
-        : refund.status === "failed"
-          ? "failed"
-          : "submitted",
+      status,
       JSON.stringify({
         providerRefundId: refund.id,
         providerStatus: refund.status,
@@ -676,10 +924,48 @@ async function applyRefund(
       refund.metadata?.refund_request_id ?? "",
     ],
   );
+  if (status === "failed") {
+    // Money a posted refund sent back returned to the Stripe balance: the
+    // refund journal is compensated, so the charge counts as unrefunded
+    // again (its commission is earned again).
+    const [posted] = await tx.query(
+      "SELECT * FROM journals WHERE source_key=$1",
+      [`stripe-refund:${refund.id}`],
+    );
+    if (posted) {
+      const amount = Number(posted.data.refundAmountMinor),
+        fee = Number(posted.data.commissionReversalMinor ?? 0);
+      await journal(
+        tx,
+        a,
+        `stripe-refund-reversal:${refund.id}`,
+        "Refund returned; charge restored",
+        [
+          { account: "stripe_receivable", amount },
+          { account: "trainer_payable", amount: -(amount - fee) },
+          { account: "platform_commission", amount: -fee },
+        ],
+        {
+          originalJournalId: posted.data.originalJournalId,
+          refundAmountMinor: -amount,
+          commissionReversalMinor: -fee,
+          reversedRefundId: refund.id,
+          chargeId,
+          userId: memberId,
+          ...(posted.data.purpose ? { purpose: posted.data.purpose } : {}),
+        },
+      );
+      await event(tx, a, "refund.reversed", refund.id, {
+        providerEventId: eventId,
+        status: refund.status,
+      });
+    }
+    return;
+  }
   if (refund.status !== "succeeded") return;
   const [exists] = await tx.query(
-    "SELECT id FROM journals WHERE source_key=$1",
-    [`stripe-refund:${refund.id}`],
+    "SELECT id FROM journals WHERE source_key=$1 OR source_key=$2",
+    [`stripe-refund:${refund.id}`, `stripe-refund-reversal:${refund.id}`],
   );
   if (exists) return;
   const [original] = await tx.query(

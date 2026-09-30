@@ -1,10 +1,12 @@
 "use client";
 import { useEffect } from "react";
+import { rememberLaunchColour } from "./pwa";
 
 type Install = {
   name: string;
   shortName: string;
   themeColor: string;
+  backgroundColor: string;
   manifestUrl: string;
   icons: { apple: string; icon: string };
 };
@@ -105,6 +107,8 @@ export function MemberAppManifest({
         if (!response.ok || cancelled) return;
         const install = (await response.json()) as Install;
         if (cancelled) return;
+        // The installed app's next launch paints the coach's surface first.
+        if (role === "subscriber") rememberLaunchColour(install.backgroundColor);
         undo.push(
           swapLinks('link[rel="manifest"]', "manifest", install.manifestUrl, {
             crossorigin: "use-credentials",
@@ -119,9 +123,13 @@ export function MemberAppManifest({
             type: "image/png",
             sizes: "192x192",
           }),
-          swapMeta("theme-color", install.themeColor),
           swapMeta("apple-mobile-web-app-title", install.shortName),
         );
+        // A member's browser colour follows their appearance choice
+        // (MemberAppearance in components/appearance.tsx); the trainer
+        // workspace keeps the trainer's colour in both schemes.
+        if (role !== "subscriber")
+          undo.push(swapMeta("theme-color", install.themeColor));
         if (role === "subscriber") {
           const original = document.title,
             title = `${install.name} · Coaching`;

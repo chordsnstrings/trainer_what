@@ -96,6 +96,11 @@ erasure through the existing privacy rules; support view and worker maintenance.
     revoked or wearable permission was withdrawn (those days are kept display-only and the
     panel says so); `synced.days` counts every stored day and `synced.restrictedDays` the
     display-only ones.
+- The status read has a 15-second limit; a status that cannot be read shows "Automatic sync
+  status could not be checked just now" with **Check again** instead of a lasting "Loading
+  sync status…" (member screens track, `docs/features/member-screens.md`). Times read
+  `Today, 14:05` and days `Tue 29 Sep` (`apps/web/lib/format.ts`); the panel's wording says
+  the readings are shown to the member and the coach and never reach the digital coach.
 - Pairing sends an account notification (in-app and email when email is configured)
   naming the device.
 - The member's Client Twin ("Coaching context", `/app/twin`) and Progress page

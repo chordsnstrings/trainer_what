@@ -64,72 +64,378 @@
   border: 1px solid var(--line, #ddd);
   border-radius: 12px;
 }
-.site-prose {
-  white-space: pre-wrap;
-  line-height: 1.8;
-  overflow-wrap: anywhere;
-  max-width: 72ch;
-}
+/* A coach's public website (coach-site.tsx CoachWebsite), phone first:
+   base rules are the phone layout, 640 and 768 px add room. No max-width
+   queries (docs/features/phone-first.md). */
 .coach-website {
-  min-height: 100vh;
-  background: var(--brand-surface);
+  display: flex;
+  flex-direction: column;
+  min-block-size: 100vh;
+  min-block-size: 100dvh;
+  background: var(--paper);
   color: var(--ink);
 }
-.site-header,
-.site-footer {
-  padding: 1.4rem max(5vw, 1rem);
-  display: flex;
-  justify-content: space-between;
-  gap: 1.5rem;
-  align-items: center;
-  border-bottom: 1px solid var(--line, #ddd);
-}
-.site-header nav,
-.site-footer nav {
-  display: flex;
-  gap: 1.2rem;
-  flex-wrap: wrap;
-}
-.site-header a {
-  text-decoration: none;
-}
 .coach-website main {
-  max-width: 1200px;
-  margin: auto;
-  padding: 0 5vw 4rem;
+  flex: 1;
+  inline-size: 100%;
+  max-inline-size: 1120px;
+  margin-inline: auto;
+  padding-block: 0 40px;
+  padding-inline: max(
+    var(--member-gutter),
+    env(safe-area-inset-left, 0px),
+    env(safe-area-inset-right, 0px)
+  );
 }
 .coach-website main > section {
-  padding: 3rem 0;
+  padding-block: 24px;
 }
-.site-hero {
-  max-width: 800px;
+.coach-website main > section + section {
+  border-block-start: 1px solid var(--line);
+}
+.coach-website h1 {
+  margin: 0 0 12px;
+  font-size: 30px;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+}
+.coach-website main h2 {
+  margin: 0 0 10px;
+  font-size: 21px;
+  line-height: 1.3;
+}
+.site-prose {
+  white-space: pre-wrap;
+  line-height: 1.7;
+  font-size: 16px;
+  overflow-wrap: anywhere;
+  max-inline-size: 68ch;
+}
+.site-subtitle {
+  margin-block: 0 16px;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+/* Header: the coach, then the pages as one row that scrolls sideways. */
+.site-header {
+  display: flex;
+  flex-direction: column;
+  padding-block: calc(8px + env(safe-area-inset-top, 0px)) 0;
+  padding-inline: max(
+    var(--member-gutter),
+    env(safe-area-inset-left, 0px),
+    env(safe-area-inset-right, 0px)
+  );
+  background: var(--white);
+  border-block-end: 1px solid var(--line);
+}
+.site-identity {
+  display: flex;
+  align-items: center;
+  align-self: flex-start;
+  max-inline-size: 100%;
+  min-block-size: 48px;
+}
+.site-header .coach-identity strong {
+  font-size: 16px;
+}
+.site-header .coach-identity small {
+  display: none;
+}
+.site-nav {
+  display: flex;
+  gap: 4px;
+  margin-inline: calc(-1 * var(--member-gutter));
+  padding-inline: var(--member-gutter);
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: none;
+}
+.site-nav::-webkit-scrollbar {
+  display: none;
+}
+.site-nav a {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  min-block-size: 44px;
+  padding-inline: 10px;
+  font-size: 15px;
+  color: var(--ink);
+  border-block-end: 2px solid transparent;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.site-nav a[aria-current="page"] {
+  font-weight: 600;
+  border-block-end-color: var(--brand-primary, var(--green));
+}
+.site-header-action {
+  display: none;
+}
+.site-preview-note {
+  margin-block: 12px 0;
+  margin-inline: var(--member-gutter);
+}
+
+/* Home */
+.site-cover {
+  display: block;
+  inline-size: 100%;
+  block-size: auto;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  margin-block-end: 20px;
+  border-radius: var(--radius, 12px);
+  background: var(--brand-tint, var(--mint));
+}
+.site-hero .eyebrow {
+  margin-block-end: 10px;
 }
 .site-hero h1 {
-  font-size: clamp(2.5rem, 5vw, 4.8rem);
-  letter-spacing: -0.045em;
-  line-height: 1.06;
+  font-size: 34px;
+  line-height: 1.1;
+  letter-spacing: -0.04em;
 }
-.site-hero .button {
-  margin-top: 1.8rem;
+.site-lead {
+  font-size: 17px;
+  line-height: 1.6;
 }
-.site-split,
-.site-contact {
+/* In-page actions: the sticky bar carries them on phones. */
+.site-actions {
+  display: none;
+}
+.site-actions.is-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-block-start: 20px;
+}
+.site-meet {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 3rem;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
 }
-.site-split img {
-  width: 100%;
-  max-height: 520px;
+.site-meet .site-portrait {
+  inline-size: 96px;
+}
+.site-meet-text > :last-child {
+  margin-block-end: 0;
+}
+.site-excerpt {
+  font-size: 15px;
+  line-height: 1.6;
+  margin-block-end: 4px;
+}
+.site-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-block-size: 44px;
+  font-weight: 600;
+  color: var(--brand-link, var(--ink));
+}
+/* A coach photo, or an intentional placeholder in the coach's colours. */
+.site-portrait {
+  display: block;
+  inline-size: 100%;
+  block-size: auto;
+  aspect-ratio: 4 / 5;
   object-fit: cover;
-  border-radius: var(--brand-radius, 12px);
+  border-radius: var(--radius, 12px);
+  background: var(--brand-tint, var(--mint));
+}
+.site-portrait.is-placeholder {
+  display: grid;
+  place-items: center;
+  background: linear-gradient(
+    to bottom,
+    var(--brand-tint, var(--mint)),
+    color-mix(in srgb, var(--brand-primary, var(--green)) 24%, var(--white))
+  );
+  color: var(--brand-primary, var(--green));
+  font-family: var(--brand-heading-font, inherit);
+  font-size: 32px;
+  font-weight: 700;
+}
+.site-portrait.is-placeholder span {
+  display: grid;
+  place-items: center;
+  inline-size: 64%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+}
+.site-steps ol {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: site-step;
+}
+.site-steps li {
+  position: relative;
+  min-block-size: 32px;
+  padding-inline-start: 44px;
+  font-size: 15px;
+  line-height: 1.5;
+  counter-increment: site-step;
+}
+.site-steps li::before {
+  content: counter(site-step);
+  position: absolute;
+  inset-inline-start: 0;
+  inset-block-start: 0;
+  display: grid;
+  place-items: center;
+  inline-size: 30px;
+  block-size: 30px;
+  border-radius: 50%;
+  background: var(--brand-tint, var(--mint));
+  color: var(--brand-on-tint, var(--ink));
+  font-size: 14px;
+  font-weight: 700;
+}
+
+/* About */
+.site-about {
+  display: grid;
+  gap: 20px;
+}
+.site-about .site-portrait.is-large {
+  inline-size: min(100%, 280px);
+}
+/* Without a photo, a small placeholder is enough on a phone. */
+.site-about .site-portrait.is-large.is-placeholder {
+  inline-size: 112px;
+  font-size: 26px;
+}
+.site-tagline {
+  margin-block: 0 12px;
+  font-size: 17px;
+  color: var(--muted);
+}
+
+/* Memberships */
+.site-plans {
+  display: grid;
+  gap: 12px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+.site-plan {
+  block-size: 100%;
+  margin: 0;
+  padding: 18px;
+}
+.site-plan h2 {
+  font-size: 21px;
+}
+.site-plan p {
+  margin-block: 0 8px;
 }
 .site-price {
-  font-size: 1.6rem;
+  margin-block: 8px 4px;
+  font-size: 24px;
+  font-weight: 600;
 }
 .site-price small {
   font-size: 1rem;
   color: var(--muted);
+}
+/* Empty states that still say what to do next. */
+.site-empty {
+  padding-block: 20px;
+  padding-inline: 16px;
+  background: var(--white);
+  border: 1px dashed var(--line);
+  border-radius: var(--radius, 12px);
+}
+.site-empty h2 {
+  font-size: 20px;
+}
+.site-empty p {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.55;
+}
+.site-empty-art {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-block-end: 16px;
+}
+.site-empty-art span {
+  aspect-ratio: 4 / 3;
+  border-radius: 8px;
+  background: var(--brand-tint, var(--mint));
+}
+.site-empty-art span:nth-child(2) {
+  background: color-mix(
+    in srgb,
+    var(--brand-primary, var(--green)) 18%,
+    var(--brand-tint, var(--mint))
+  );
+}
+
+/* Galleries: two columns of 4:3 photos on phones. */
+.site-gallery {
+  margin-block-end: 24px;
+}
+.site-gallery p {
+  margin-block: 0 8px;
+}
+.photo-grid.site-photos {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-block: 12px 0;
+}
+.site-photos img {
+  block-size: auto;
+}
+.site-more-galleries {
+  inline-size: 100%;
+}
+
+/* Contact */
+.site-contact {
+  max-inline-size: 640px;
+}
+.site-contact-links {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+.site-contact-links a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-block-size: 48px;
+  padding-inline: 14px;
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-weight: 550;
+  color: var(--brand-link, var(--ink));
+  overflow-wrap: anywhere;
+}
+.site-contact-form,
+.site-sent {
+  margin: 0;
+  padding-block: 18px;
+  padding-inline: 16px;
+}
+.site-contact-form .field {
+  margin-block-end: 16px;
+}
+.site-contact-form .notice {
+  margin-block: 8px;
 }
 .site-honeypot {
   position: absolute;
@@ -138,10 +444,109 @@
   width: 1px;
   height: 1px;
 }
-.site-footer {
-  border-top: 1px solid var(--line, #ddd);
-  border-bottom: 0;
-  font-size: 0.85rem;
+
+@media (min-width: 640px) {
+  .site-header {
+    flex-direction: row;
+    align-items: center;
+    gap: 16px;
+    padding-block: calc(10px + env(safe-area-inset-top, 0px)) 10px;
+  }
+  .site-identity {
+    flex: none;
+    align-self: center;
+  }
+  .site-nav {
+    flex: 1;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    margin: 0;
+    padding: 0;
+    overflow: visible;
+  }
+}
+@media (min-width: 768px) {
+  .coach-website main {
+    padding-inline: 32px;
+    padding-block-end: 64px;
+  }
+  .coach-website main > section {
+    padding-block: 40px;
+  }
+  .coach-website h1 {
+    font-size: 40px;
+  }
+  .site-header {
+    position: sticky;
+    inset-block-start: 0;
+    z-index: 20;
+    padding-inline: 32px;
+  }
+  .site-header .coach-identity small {
+    display: block;
+  }
+  .site-header-action {
+    display: inline-flex;
+    flex: none;
+  }
+  .site-hero h1 {
+    font-size: clamp(44px, 5vw, 64px);
+  }
+  .site-hero {
+    max-inline-size: 860px;
+  }
+  .site-cover {
+    aspect-ratio: 21 / 9;
+  }
+  .site-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-block-start: 24px;
+  }
+  .site-meet {
+    grid-template-columns: 240px minmax(0, 1fr);
+    gap: 32px;
+  }
+  .site-meet .site-portrait {
+    inline-size: 240px;
+  }
+  .site-meet .site-portrait.is-placeholder {
+    inline-size: 160px;
+  }
+  .site-steps ol {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 24px;
+  }
+  .site-about {
+    grid-template-columns: 300px minmax(0, 1fr);
+    gap: 40px;
+    align-items: start;
+  }
+  .site-about .site-portrait.is-large,
+  .site-about .site-portrait.is-large.is-placeholder {
+    inline-size: 100%;
+    font-size: 40px;
+  }
+  .site-plans {
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 20px;
+  }
+  .site-plan {
+    padding: var(--brand-space, 24px);
+  }
+  .photo-grid.site-photos {
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 16px;
+  }
+  .site-more-galleries {
+    inline-size: auto;
+  }
+  .site-empty,
+  .site-contact-form,
+  .site-sent {
+    padding: 28px;
+  }
 }
 .actions {
   display: flex;
@@ -158,28 +563,44 @@
   flex: none;
   margin-top: 0.25rem;
 }
+/* Trainer studio only (the website editor); the public website above is
+   phone first. */
 @media (max-width: 700px) {
-  .site-header,
-  .site-footer {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-  .site-header nav {
-    gap: 0.7rem;
-    font-size: 0.9rem;
-  }
-  .site-split,
-  .site-contact {
-    grid-template-columns: 1fr;
-    gap: 1.5rem;
-  }
   .photo-edit-list li {
     grid-template-columns: 80px 1fr;
   }
-  .site-header {
-    position: static;
+}
+
+/* No photo yet: the initials sit inline as a small round tile, so neither
+   "Meet your coach" nor About opens a large empty column. */
+.site-meet:has(> .site-portrait.is-placeholder) {
+  grid-template-columns: 56px minmax(0, 1fr);
+  align-items: center;
+}
+.site-meet .site-portrait.is-placeholder,
+.site-about .site-portrait.is-large.is-placeholder {
+  inline-size: 56px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  font-size: 18px;
+}
+.site-portrait.is-placeholder span {
+  inline-size: auto;
+  aspect-ratio: auto;
+  border: 0;
+}
+@media (min-width: 768px) {
+  .site-meet:has(> .site-portrait.is-placeholder) {
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: 20px;
   }
-  .coach-website main > section {
-    padding: 2rem 0;
+  .site-meet .site-portrait.is-placeholder,
+  .site-about .site-portrait.is-large.is-placeholder {
+    inline-size: 72px;
+    font-size: 22px;
+  }
+  .site-about:has(> .site-portrait.is-placeholder) {
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: 24px;
   }
 }

@@ -2,6 +2,8 @@
 
 Generated from `2026-09-27T23-35-07-873Z` and `2026-09-27T23-44-32-198Z` by `scripts/e2e/coverage-table.mjs`.
 
+Since 30 September 2026 (owner decision: members cannot change plan after paying) the step "Switch between workout-only and workout + nutrition" is "Plan cannot be switched after payment": it expects `409 PLAN_CHANGE_NOT_ALLOWED` and an unchanged tier. The rows below are the earlier runs' results and are not regenerated until the harness runs again.
+
 Inventory status comes from the inventory file given to the run, a snapshot: a feature built after it (for example one marked not_built) keeps its snapshot status here. "pass (same flow)" means another audience's step runs exactly this flow (`EQUIVALENT_FEATURES` in `tests/e2e/harness/report.ts`). A local limit names the part of a feature the sandbox cannot exercise (`LOCAL_LIMITS`).
 
 | Run | Steps | Passed | Failed | Skipped | Duration |

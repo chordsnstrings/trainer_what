@@ -164,12 +164,59 @@ test("the Stripe mock retrieves refunds, loses applied responses on request, che
       for (let i = 0; i < 100 && !events.some((e) => e.type === "charge.refunded"); i++) await new Promise((r) => setTimeout(r, 20));
       return events.find((e) => e.type === "charge.refunded");
     })();
-    assert.equal(charged.api_version, "2025-09-30.clover");
+    assert.equal(charged.api_version, "2026-06-24.dahlia", "the live account default");
     assert.equal(charged.data.object.refunds, undefined, "no embedded refunds from 2022-11-15");
     await mock.sendEvent("charge.refunded", mock.chargeEventObject(paid.charge, "2022-08-01"), { apiVersion: "2022-08-01" });
     const legacy = events.at(-1);
     assert.equal(legacy.api_version, "2022-08-01");
     assert.equal(legacy.data.object.refunds.data[0].id, refund.id, "older endpoint versions embed the refunds");
+  } finally {
+    delete process.env.STRIPE_API_BASE_URL;
+    await mock.stop();
+    receiver.close();
+  }
+});
+
+test("the Stripe mock sends live dahlia shapes and follows Stripe's billing modes for an anchor reset", async () => {
+  const events: any[] = [];
+  const receiver = createServer((req, res) => {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      events.push(JSON.parse(body));
+      res.writeHead(200).end("{}");
+    });
+  });
+  await new Promise<void>((r) => receiver.listen(0, "127.0.0.1", () => r()));
+  const mock = new StripeMock({ key: tls.key, cert: tls.cert }, "sk_test_mock_fixture", "whsec_test_fixture");
+  await mock.start();
+  mock.webhookUrl = `http://127.0.0.1:${(receiver.address() as any).port}/hook`;
+  process.env.STRIPE_API_BASE_URL = mock.url;
+  try {
+    const stripe = withRuntimeConfig({ STRIPE_SECRET_KEY: "sk_test_mock_fixture" }, () => stripeClient());
+    const product = await stripe.products.create({ name: "Yearly" });
+    const price = await stripe.prices.create({ product: product.id, currency: "usd", unit_amount: 2499, recurring: { interval: "year" } });
+    const base = { mode: "subscription" as const, line_items: [{ price: price.id, quantity: 1 }], success_url: "https://localhost:8443/ok", cancel_url: "https://localhost:8443/cancel" };
+    const flexible = await mock.completeCheckout((await stripe.checkout.sessions.create(base)).id);
+    const classic = await mock.completeCheckout(
+      (await stripe.checkout.sessions.create({ ...base, subscription_data: { billing_mode: { type: "classic" } } })).id,
+    );
+    assert.equal(flexible.subscription.billing_mode.type, "flexible", "the default since 2025-09-30.clover");
+    assert.equal(classic.subscription.billing_mode.type, "classic");
+    // Events use the live account's API version and omit invoice payments.
+    const paid = events.find((e) => e.type === "invoice.paid");
+    assert.equal(paid.api_version, "2026-06-24.dahlia");
+    assert.equal(paid.data.object.payments, undefined, "read from /v1/invoice_payments instead");
+    assert.equal(paid.data.object.charge, undefined);
+    assert.equal(paid.data.object.parent.subscription_details.subscription, flexible.subscription.id);
+    const invoices = () => [...mock.invoices.values()].length;
+    const before = invoices();
+    await stripe.subscriptions.update(flexible.subscription.id, { billing_cycle_anchor: "now", proration_behavior: "none" });
+    assert.equal(invoices(), before, "flexible mode: an anchor reset without proration invoices nothing");
+    await stripe.subscriptions.update(classic.subscription.id, { billing_cycle_anchor: "now", proration_behavior: "none" });
+    assert.equal(invoices(), before + 1, "classic mode: the full new period is invoiced at once");
+    const renewal = [...mock.invoices.values()].at(-1)!;
+    assert.equal(renewal.amount_paid, 2499);
   } finally {
     delete process.env.STRIPE_API_BASE_URL;
     await mock.stop();

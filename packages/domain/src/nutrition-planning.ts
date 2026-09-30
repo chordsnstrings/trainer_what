@@ -147,7 +147,7 @@ export function nutritionWeekInstruction(limits: NutritionWeekLimits) {
     ...macroLines,
     `Repeats: one recipe may be used at most ${limits.maxRecipeRepeats} times in the week, counting every slot.`,
     "Recipes: use a recipe only in a slot listed in its slots, and only one of its listed options (its key is the variantKey); never use anything else. The supplied options were filtered for the client's diet, allergies, exclusions, equipment, time and budget only; that filtering does not check the coach's boundaries.",
-    `A meal's nutrients are its servings times the option's perServing values. Before answering, add up each day's kcal${limits.macros.length ? " and " + limits.macros.map((m) => m.key).join(", ") : ""} from those numbers and change servings until every day is inside its range.`,
+    `A meal's nutrients are its servings times the option's perServing values. Before answering, add up each day's kcal${limits.macros.length ? " and " + limits.macros.map((m) => m.key).join(", ") : ""} from those numbers and change servings until every day is inside its range. Then count each recipe's uses across the week (at most ${limits.maxRecipeRepeats}) and check that every meal's slot is one of that recipe's listed slots.`,
     "batchKey is null, or a short key shared by meals cooked in one batch; one batch uses one recipe and option.",
     "caseIds: the references of the coach teaching cases that support this week.",
     "explanation: one to three plain sentences for the client, with no IDs or references and no medical, supplement or dosage advice; any calorie number must be the target or a day's total.",

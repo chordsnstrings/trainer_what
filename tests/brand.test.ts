@@ -286,15 +286,33 @@ test("sign-in and joining pages on a trainer's own address show the trainer, nev
   assert.match(page, /<Workspace[\s\S]*coachSlug=\{coachSlug\}/);
   const workspace = await source("components/workspace.tsx");
   assert.match(workspace, /<Public\s+path=\{path\}\s+platform=\{platform\}\s+coachSlug=\{coachSlug\}/);
-  assert.match(workspace, /<PublicHeader/);
   assert.doesNotMatch(workspace, /<MarketingHeader/);
+  // The public pages moved to components/public-pages.tsx.
+  const publicPages = await source("components/public-pages.tsx");
+  assert.match(publicPages, /<PublicHeader/);
+  assert.doesNotMatch(publicPages, /<MarketingHeader/);
+  // Joining pages drop "Join coaching" (the page is the join flow).
+  for (const path of ["/join-coach/alex-morgan", "/join/" + "t".repeat(40)]) {
+    const joining = render({ slug: "alex-morgan", host: false, trainer }, path);
+    assert.doesNotMatch(joining, /Join coaching|\/brand\/|trainsyou/, path);
+    assert.match(joining, /Alex Morgan/);
+  }
+  // An invitation still being read: a coach header without a home link.
+  const reading = render({ slug: "", host: false, trainer: null }, "/join/" + "t".repeat(40));
+  assert.doesNotMatch(reading, /Teach your AI|href="\/join-coach\//);
   assert.match(await source("components/discovery-server.ts"), /x-trainer-site-slug/);
 });
 
 test("platform surfaces carry .platform-ui; trainer-branded ones never show the platform identity", async () => {
   const workspace = await source("components/workspace.tsx");
-  assert.match(workspace, /subscriber \? "workspace" : "workspace platform-ui"/);
-  assert.match(workspace, /coach \? "public" : "public platform-ui"/);
+  // Members get their trainer's brand in the member shell; everyone else
+  // works in the platform identity.
+  assert.match(workspace, /<TrainerTheme\s+className="workspace member-shell"/);
+  assert.match(workspace, /<PlainShell className="workspace platform-ui">/);
+  assert.match(
+    await source("components/public-pages.tsx"),
+    /coach \? "public" : "public platform-ui"/,
+  );
   assert.match(workspace, /<PlatformLogo name=\{platformName\} \/>/);
   // The loading screen may belong to a trainer's member app: no platform mark.
   assert.doesNotMatch(workspace, /brand-mark">b\./);
@@ -350,7 +368,7 @@ function resolver(...layers: Record<string, string>[]) {
   return (name: string) => resolve(`var(${name})`);
 }
 
-const platformCssFiles = ["globals.css", "marketing.css", "platform-settings.css", "governance.css", "host-operations.css"];
+const platformCssFiles = ["globals.css", "marketing.css", "analytics-consent.css", "platform-settings.css", "governance.css", "host-operations.css"];
 
 test("design tokens are the supplied palette and meet the contrast checks in light and dark", async () => {
   const css = await readFile(web("app/globals.css"), "utf8");
@@ -452,7 +470,11 @@ test("design tokens are the supplied palette and meet the contrast checks in lig
   assert.match(cta[2], /font-size:\s*15px;/);
   assert.match(cta[2], /font-weight:\s*600;/);
   assert.ok(contrast(light("--ink"), light("--white")) >= 3);
-  const hover = marketing.match(/\n\.button\.mk-cta:hover:not\(:disabled\)[^{]*\{\s*background:\s*([^;]+);/);
+  // The hover tint applies where the pointer can hover (the motion pass
+  // keeps every hover effect inside @media (hover: hover)).
+  const hover = marketing.match(
+    /\n@media \(hover: hover\) \{\s*\.button\.mk-cta:hover:not\(:disabled\)[^{]*\{\s*background:\s*([^;]+);/,
+  );
   assert.ok(hover, "the primary action hover rule");
   const hovered = resolver(root, { "--hover": hover[1].trim() });
   assert.ok(contrast(hovered("--on-lime"), hovered("--hover")) >= 4.5, "hover contrast");

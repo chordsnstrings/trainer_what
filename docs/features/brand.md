@@ -82,7 +82,8 @@ sample manifest assumed `/icons/`; the paths are adapted to `/brand/`.
   classes.
 - **Workspace** (`components/workspace.tsx`): trainers, their team and
   operators get the lockup in the sidebar and `.platform-ui`; subscribers
-  keep `TrainerTheme` with their coach's identity. The loading screen, which
+  keep `TrainerTheme` with their coach's identity, inside the phone-first
+  member shell (`.workspace.member-shell`, docs/features/phone-first.md). The loading screen, which
   a member app also shows before it knows its trainer, now has a neutral
   indicator instead of the old "b." mark.
 - **Favicons, touch icon and manifest**: `platformIcons(name)` and
@@ -94,18 +95,33 @@ sample manifest assumed `/icons/`; the paths are adapted to `/brand/`.
   `theme-color` and `color-scheme: light` (`generateViewport` in
   `app/[[...path]]/page.tsx`, `isPublicPlatformRoute`). Coach
   websites keep their own icons, manifest and colour; a signed-in member
-  app (`components/member-app-install.tsx`) sets every `theme-color` meta
-  to the trainer's colour and drops the media queries, so dark mode shows
-  the trainer's colour too, and restores both on sign-out.
+  app sets the trainer's colour for light and the trainer's dark top bar
+  colour for dark (one colour for both when the member chose Light or
+  Dark), and restores the originals on sign-out
+  (`components/appearance.tsx`, docs/features/dark-mode.md; before
+  `ui/dark` it set one trainer colour for both schemes). The trainer
+  workspace keeps the trainer's colour in both
+  (`components/member-app-install.tsx`).
+- **Subscriber dark mode** (`ui/dark`, docs/features/dark-mode.md): the
+  member app, the coach website and a coach's own sign-in and joining pages
+  now follow the device, or the member's Light or Dark choice, with a dark
+  palette derived from the trainer's Design Studio colours. The platform's
+  public pages above stay light, and `.trainer-theme` surfaces without a
+  choice (the Design Studio preview) stay light.
 - **Trainers' own addresses** (custom domain or subdomain): sign-in,
   recovery, joining and legal pages there (`/login`, `/forgot-password`,
   `/join/*`, `/terms`, …) render through the workspace's public screens.
   The page passes the proxy's `x-trainer-site-slug` down
   (`requestOrigin().coachSlug`), and `components/public-header.tsx` then
-  shows the trainer's identity inside `TrainerTheme`, "Sign in" and "Join
-  coaching" (`/join-coach/<slug>`), never the trainsyou lockup or the
-  "Teach your AI" sign-up link that coach addresses refuse; the card's
-  "New to …? Get started" becomes "New here? Join coaching". Those pages'
+  shows the trainer's identity inside `TrainerTheme` in a compact bar with
+  "Sign in" and "Join coaching" (`/join-coach/<slug>`), never the trainsyou
+  lockup or the "Teach your AI" sign-up link that coach addresses refuse;
+  the sign-in page ends with "New here? Join <coach>". A coach's join page
+  and an invitation on the platform address get the same coach header
+  (joining pages leave out "Join coaching"), and every subscriber page has
+  the subscriber footer (`components/subscriber-footer.tsx`), never the
+  trainer-marketing footer (docs/features/phone-first.md, "Public, joining
+  and sign-in pages"). Those pages'
   title, description, icons and browser colour are the trainer's, not the
   platform's B2B description.
 - **Social previews**: the brand's home page uses the supplied share card;
@@ -200,7 +216,8 @@ onto it, so every existing rule follows the brand:
 - Primary call to action "Teach your AI" (sign-up and the guided setup);
   "Join early access" while registration is closed. It is the Pace button
   (`button mk-cta`: Pace fill, ink text, 1 px ink edge; hover mixes 15% ink
-  into Pace, about 10:1). Hero secondary action "See how it works" (an ink
+  into Pace, about 10:1, on devices that hover; the colour change is
+  instant). Hero secondary action "See how it works" (an ink
   text link to How it works); `BRAND_COPY.secondaryAction` is kept but no
   longer shown.
 - `llms.txt` and `llms-full.txt` add the descriptor, audience, line and the
@@ -238,7 +255,9 @@ onto it, so every existing rule follows the brand:
   every visible focusable element's ring colour (`--focus`) at 3:1 against
   the surface behind it (trainer themes draw their own double ring), and
   that the coach website and the member app have every `theme-color` meta
-  set to the trainer's colour. It does not visit a trainer's own address
+  set to the trainer's colour (since `ui/dark`: the trainer's primary for
+  light and a dark colour for dark, and every text at AA on a dark
+  device). It does not visit a trainer's own address
   (that needs host mapping); the rendered-header test covers it.
 
 Results of this package's run are recorded under "Checks run" below.
@@ -372,12 +391,16 @@ Review fixes (same stage, second pass):
 - Navigation: the current page (or the dropdown group holding it) is
   semibold with a 2 px ink underline; hover underlines (header, footer and
   breadcrumbs). The old hover colour `var(--green)` equalled ink and showed
-  nothing.
+  nothing. Since the 29 September motion pass the underline is a 1 px ink
+  bar that slides in from the inline start on hover (hover devices only)
+  and shows at once on keyboard focus; the current page keeps it at 2 px
+  ([marketing-site.md](marketing-site.md) "Sitewide microanimations").
 - Text links and the mobile Menu button are at least 44 px tall on phones.
 - The optional-analytics prompt on marketing pages is a white bottom bar
   with ink text and two equal secondary buttons, opened only after a
   scroll; the footer's "Analytics preferences" replaces the floating
-  button.
+  button. (29 September 2026: the floating button is gone everywhere and
+  any answer ends the bar for good; see `docs/features/analytics-consent.md`.)
 - The /features strip keeps two figures (capabilities, tools replaced);
   the home subscriber tiles are flat links without shadows or amber
   "Available soon" badges.

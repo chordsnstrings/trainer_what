@@ -1,4 +1,5 @@
 "use client";
+import { useT } from "../lib/i18n/react";
 import { useEffect, useState } from "react";
 
 async function api(path: string, method = "GET", body?: unknown) {
@@ -109,17 +110,14 @@ export function TrainingHoldNotice({ records }: { records: any[] }) {
   const hold = records.find(
     (r) => r.kind === "training_hold" && r.status === "active",
   );
+  const t = useT("profile");
   if (!hold) return null;
   return (
     <section className="notice" role="status">
-      <strong>Your training is paused.</strong>
-      <p>{hold.data.reason}</p>
-      <p>
-        Your trainer must review this hold before another session can begin. You
-        can still send them a message. Seek urgent local medical help for severe
-        or urgent symptoms.
-      </p>
-      <a href="/app/chat">Message your trainer</a>
+      <strong>{t("holdTitle")}</strong>
+      <p dir="auto">{hold.data.reason}</p>
+      <p>{t("holdText")}</p>
+      <a href="/app/chat">{t("messageTrainer")}</a>
     </section>
   );
 }

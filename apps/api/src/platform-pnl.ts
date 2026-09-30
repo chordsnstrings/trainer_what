@@ -262,7 +262,7 @@ const SOURCE = `CASE
  WHEN j.source_key LIKE 'stripe-invoice:%' THEN 'membership'
  WHEN j.source_key LIKE 'stripe-programme:%' THEN 'programme'
  WHEN j.source_key LIKE 'booking-charge:%' THEN 'booking'
- WHEN j.source_key LIKE 'stripe-refund:%' OR j.source_key LIKE 'booking-refund:%' THEN 'refund'
+ WHEN j.source_key LIKE 'stripe-refund:%' OR j.source_key LIKE 'booking-refund:%' OR j.source_key LIKE 'stripe-refund-reversal:%' OR j.source_key LIKE 'booking-refund-reversal:%' THEN 'refund'
  WHEN j.source_key LIKE 'dispute-reserve:%' THEN 'dispute_reserve'
  WHEN j.source_key LIKE 'dispute-resolution:%' THEN 'dispute_resolution'
  WHEN j.source_key LIKE 'affiliate:%' THEN 'affiliate'

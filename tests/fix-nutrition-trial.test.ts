@@ -115,7 +115,7 @@ test("every nutrition task gets a budget and timeout above the trial's slowest r
   const web = (nextConfig as any).default ?? nextConfig;
   const proxy = web.experimental?.proxyTimeout;
   assert.ok(proxy >= largest.timeoutMs + 10000, String(proxy));
-  assert.equal(NUTRITION_PROMPT_VERSION, "nutrition-cases-v3");
+  assert.equal(NUTRITION_PROMPT_VERSION, "nutrition-cases-v4");
 });
 
 // ---------------------------------------------------------------------------
@@ -139,6 +139,9 @@ test("the week prompt states the daily range, portions, slots and repeats the va
     "only in a slot listed in its slots",
     "perServing",
     "Before answering, add up each day's kcal",
+    // v4: the self-check also covers repeats and slots.
+    "Then count each recipe's uses across the week (at most 5)",
+    "every meal's slot is one of that recipe's listed slots",
     '{"days":[],"caseIds":[...],"explanation":"the reason, for the coach"}',
   ])
     assert.ok(text.includes(expected), expected);
@@ -718,7 +721,7 @@ test("a meal-week request carries no full IDs and a reply in references decodes 
   const sent = JSON.stringify(seen.body.messages[1].content);
   assert.ok(!UUID_TEXT.test(sent), "no UUID reaches the model");
   const payload = JSON.parse(seen.body.messages[1].content);
-  assert.equal(payload.promptVersion, "nutrition-cases-v3");
+  assert.equal(payload.promptVersion, "nutrition-cases-v4");
   assert.ok(payload.input.recipes.every((r: any) => /^M\d+$/.test(r.id)));
   assert.ok(payload.input.foods.every((f: any) => /^G\d+$/.test(f.id)));
   assert.ok(payload.input.cases.every((c: any) => /^X\d+$/.test(c.id)));

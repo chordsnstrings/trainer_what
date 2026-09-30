@@ -41,6 +41,12 @@ type StripeProvider = () => ReturnType<typeof stripeClient>;
 const fail = (statusCode: number, code: string, message: string) =>
   Object.assign(new Error(message), { statusCode, code });
 const renewable = ["active", "trialing", "past_due", "incomplete"];
+/**
+ * A membership with an unpaid invoice: leaving ends it at Stripe now, which
+ * stops Stripe collecting that invoice (cancel_at_period_end would let a
+ * later retry charge someone who is no longer a member).
+ */
+const unpaidAtStripe = ["past_due", "incomplete", "unpaid"];
 /** A premium voice add-on that would take another payment. */
 const voiceAddOnRenews = (s: any) => {
   const v = s?.data?.voiceAddOn;
@@ -158,16 +164,20 @@ export async function exitPreview(
       // still process it for a former member (eraseMember accepts a recorded
       // exit), so the screens only say that it stays open.
       const { blockers, openPrivacy } = await exitCounts(tx, followerId);
+      const endsNow = !!s?.provider_id && unpaidAtStripe.includes(s.status);
       const renewing =
-        !!s?.provider_id &&
-        renewable.includes(s.status) &&
-        !s.cancel_at_period_end;
+        endsNow ||
+        (!!s?.provider_id &&
+          renewable.includes(s.status) &&
+          !s.cancel_at_period_end);
       const access = subscriptionHasAccess(s);
       return {
         subscription: s
           ? {
               status: s.status as string,
               renewing,
+              /** Ended at once (an unpaid invoice stops being collected). */
+              endsNow,
               accessUntil: access ? s.period_end : null,
               providerBilled: !!s.provider_id,
             }
@@ -268,6 +278,7 @@ export async function endFollowerMembership(
       input.kind === "removed"
         ? { tenantId: input.tenantId, userId: input.actorId, role: "owner" }
         : undefined,
+      { immediate: !!preview.subscription?.endsNow },
     );
   }
   return db.system(async (tx) => {
@@ -307,8 +318,8 @@ export async function endFollowerMembership(
       // restart billing for someone without access; stop instead.
       if (
         s?.provider_id &&
-        renewable.includes(s.status) &&
-        !s.cancel_at_period_end
+        (unpaidAtStripe.includes(s.status) ||
+          (renewable.includes(s.status) && !s.cancel_at_period_end))
       )
         throw fail(
           409,
@@ -411,8 +422,9 @@ export async function endFollowerMembership(
       "DELETE FROM oidc_sign_in_requests WHERE user_id=$1 AND tenant_id=$2",
       [input.followerId, input.tenantId],
     );
-    const until =
-      accessUntil || voiceAddOn === "ends"
+    const until = preview.subscription?.endsNow
+      ? ` The subscription with its unpaid payment is cancelled; no further payments will be taken.`
+      : accessUntil || voiceAddOn === "ends"
         ? ` Renewal is cancelled; no further payments will be taken.`
         : "";
     await addAccountNotice(

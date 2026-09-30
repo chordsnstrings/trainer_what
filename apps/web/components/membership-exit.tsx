@@ -1,10 +1,14 @@
 "use client";
+import { clearPersonalCaches } from "./pwa";
 import { useEffect, useState, type FormEvent } from "react";
 import {
   accountRequest,
   formatDate,
   type AccountError,
 } from "./account-request";
+import { BottomSheet } from "./phone-ui";
+import { useErrorText, useLocale, useT } from "../lib/i18n/react";
+import { formatDate as formatDay } from "../lib/format";
 
 type Preview = {
   subscription: {
@@ -25,11 +29,39 @@ function Consequences({
   follower: boolean;
 }) {
   const you = follower ? "your" : "their";
+  const t = useT("prefs"),
+    locale = useLocale();
+  // A member reads this in their language; the trainer's view is unchanged.
+  if (follower)
+    return (
+      <ul className="acct-points">
+        <li>{t("accessEndsFollower")}</li>
+        {preview.action === "renewal_cancelled" && (
+          <li>
+            {t("renewalCancelledFirst", {
+              date:
+                locale === "en"
+                  ? formatDate(preview.subscription?.accessUntil)
+                  : formatDay(preview.subscription?.accessUntil, { locale }),
+            })}
+          </li>
+        )}
+        {preview.action === "already_cancelled" && (
+          <li>{t("alreadyCancelled")}</li>
+        )}
+        <li>
+          {t("recordsStay")}
+          {preview.openDeletionRequests ? t("deletionStaysOpen") : t("toErase")}
+        </li>
+        <li>{t("notAffected")}</li>
+      </ul>
+    );
   return (
     <ul className="acct-points">
       <li>
-        Access to this coaching workspace ends immediately and {you} sessions
-        here are signed out.
+        {follower
+          ? "Your access to this coaching ends immediately and you are signed out here."
+          : `Access to this coaching workspace ends immediately and ${you} sessions here are signed out.`}
       </li>
       {preview.action === "renewal_cancelled" && (
         <li>
@@ -47,7 +79,8 @@ function Consequences({
         </li>
       )}
       <li>
-        Coaching records stay with this trainer under the retention policy.
+        Coaching records stay with this {follower ? "coach" : "trainer"} under
+        the retention policy.
         {preview.openDeletionRequests
           ? follower
             ? " Your deletion request stays open; the platform privacy team still processes it after you leave."
@@ -64,35 +97,100 @@ function Consequences({
   );
 }
 function Blockers({ preview }: { preview: Preview }) {
+  const t = useT("prefs");
   if (!preview.blockers.length) return null;
   return (
     <div className="notice error" role="alert">
       <span>
-        This membership cannot end yet:{" "}
-        {preview.blockers.map((b) => b.message).join(" ")}
+        {t("cannotEnd", {
+          reasons: preview.blockers.map((b) => b.message).join(" "),
+        })}
       </span>
     </div>
   );
 }
 
-/** A follower ends their own membership with the current trainer. */
+/**
+ * Where a member lands after leaving with no other coach: the sign-in page
+ * shows "You left <coach>" from this note (components/public-pages.tsx).
+ */
+export function rememberLeftCoach(
+  storage: Pick<Storage, "setItem">,
+  coach: string,
+  renewalCancelled: boolean,
+  now = Date.now(),
+) {
+  try {
+    storage.setItem(
+      "account:left-coach",
+      JSON.stringify({ coach, renewalCancelled, at: now }),
+    );
+  } catch {}
+}
+
+/**
+ * A follower ends their own membership with the current coach. The card
+ * says what leaving means in one line; "Leave <coach>" opens an in-app
+ * bottom sheet with the full consequences, an optional note for the coach
+ * and the confirmation, never the browser's own "Please check this box"
+ * tooltip.
+ */
 export function LeaveTrainer() {
   const [preview, setPreview] = useState<
       | (Preview & { workspace: { name: string }; otherWorkspaces: number })
       | null
     >(null),
     [message, setMessage] = useState(""),
+    [sheetError, setSheetError] = useState(""),
     [done, setDone] = useState(false),
+    [open, setOpen] = useState(false),
     [busy, setBusy] = useState(false);
+  const t = useT("prefs"),
+    toError = useErrorText();
   useEffect(() => {
     accountRequest("/membership/leave")
       .then(setPreview)
-      .catch((e) => setMessage((e as Error).message));
-  }, []);
+      .catch((e) => setMessage(toError(e)));
+  }, [toError]);
   if (!preview && !message) return null;
+  const name = preview?.workspace.name ?? t("thisCoach");
+  const blocked = (preview?.blockers.length ?? 0) > 0;
+  async function leave(form: HTMLFormElement) {
+    const f = new FormData(form);
+    setBusy(true);
+    setSheetError("");
+    try {
+      const r = await accountRequest("/membership/leave", "POST", {
+        confirm: true,
+        ...(String(f.get("reason") ?? "").trim()
+          ? { reason: String(f.get("reason")).trim() }
+          : {}),
+      });
+      const renewalCancelled = r.subscriptionAction === "renewal_cancelled";
+      setOpen(false);
+      setDone(true);
+      // This coach's pages must not stay on a shared phone.
+      void clearPersonalCaches();
+      if (r.nextWorkspace) {
+        setMessage(
+          t(renewalCancelled ? "leftRenewal" : "leftOpening", { name }),
+        );
+        window.setTimeout(() => window.location.assign("/app"), 1500);
+      } else {
+        // Signed out: the sign-in page confirms it (?left=1).
+        rememberLeftCoach(window.sessionStorage, name, renewalCancelled);
+        setMessage(t("left", { name }));
+        window.location.assign("/login?left=1");
+      }
+    } catch (error) {
+      setSheetError(toError(error as AccountError));
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <section className="card acct-danger" aria-labelledby="acct-leave">
-      <h2 id="acct-leave">Leave {preview?.workspace.name ?? "this trainer"}</h2>
+      <h2 id="acct-leave">{t("leave", { name })}</h2>
       {message && (
         <p className={`notice ${done ? "success" : "error"}`} role="status">
           {message}
@@ -100,56 +198,76 @@ export function LeaveTrainer() {
       )}
       {preview && !done && (
         <>
-          <Consequences preview={preview} follower />
+          {/* One line here; the full consequences are in the sheet. */}
+          <p className="muted">{t("leaveSummary", { name })}</p>
           <Blockers preview={preview} />
-          <form
-            onSubmit={async (e: FormEvent<HTMLFormElement>) => {
-              e.preventDefault();
-              const f = new FormData(e.currentTarget);
-              setBusy(true);
-              setMessage("");
-              try {
-                const r = await accountRequest("/membership/leave", "POST", {
-                  confirm: true,
-                  ...(String(f.get("reason") ?? "").trim()
-                    ? { reason: String(f.get("reason")).trim() }
-                    : {}),
-                });
-                setDone(true);
-                setMessage(
-                  r.nextWorkspace
-                    ? "You left this trainer. Opening your other coaching space…"
-                    : "You left this trainer. Your account remains; join another coach any time.",
-                );
-                window.setTimeout(
-                  () => window.location.assign(r.nextWorkspace ? "/app" : "/"),
-                  1500,
-                );
-              } catch (error) {
-                setMessage((error as AccountError).message);
-              } finally {
-                setBusy(false);
-              }
+          <button
+            type="button"
+            className="button secondary acct-leave-open"
+            disabled={blocked}
+            aria-haspopup="dialog"
+            onClick={() => {
+              setSheetError("");
+              setOpen(true);
             }}
           >
-            <label className="field">
-              <span>Note for your trainer (optional)</span>
-              <textarea name="reason" maxLength={500} rows={3} />
-              <small className="muted">
-                Shared with your trainer. Leave out health details.
-              </small>
-            </label>
-            <label className="check-field">
-              <input type="checkbox" required />I understand my access to this
-              trainer ends now.
-            </label>
-            <button
-              className="button"
-              disabled={busy || preview.blockers.length > 0}
+            {t("leave", { name })}
+          </button>
+          {blocked && <p className="control-reason">{t("settleFirst")}</p>}
+          <BottomSheet
+            open={open}
+            onClose={() => !busy && setOpen(false)}
+            title={t("leaveQuestion", { name })}
+            // The points below say what happens; no intro repeating them.
+            footer={
+              <>
+                <button
+                  type="button"
+                  className="button secondary"
+                  disabled={busy}
+                  onClick={() => setOpen(false)}
+                >
+                  {t("stayShort")}
+                </button>
+                <button
+                  type="submit"
+                  form="leave-coach-form"
+                  className="button acct-leave-confirm"
+                  disabled={busy}
+                >
+                  {busy ? t("leaving") : t("leaveShort")}
+                </button>
+              </>
+            }
+          >
+            <Consequences preview={preview} follower />
+            <form
+              id="leave-coach-form"
+              onSubmit={(e: FormEvent<HTMLFormElement>) => {
+                e.preventDefault();
+                void leave(e.currentTarget);
+              }}
             >
-              Leave this trainer
-            </button>
-          </form>
+              {sheetError && (
+                <p className="notice error" role="alert">
+                  {sheetError}
+                </p>
+              )}
+              <label className="field">
+                <span>{t("noteFor", { name })}</span>
+                <textarea
+                  name="reason"
+                  maxLength={500}
+                  rows={3}
+                  enterKeyHint="done"
+                  aria-describedby="leave-note-hint"
+                />
+              </label>
+              <small className="muted" id="leave-note-hint">
+                {t("noteHint", { name })}
+              </small>
+            </form>
+          </BottomSheet>
         </>
       )}
     </section>

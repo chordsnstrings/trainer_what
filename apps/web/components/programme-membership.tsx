@@ -1,7 +1,8 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { money } from "@trainer/domain";
 import { OfferTerms } from "./programme-offers";
+import { formatDate, formatMoney } from "../lib/format";
+import { useErrorText, useLocale, useT } from "../lib/i18n/react";
 
 /**
  * Membership page parts for programmes (docs/features/programme.md): an
@@ -24,14 +25,8 @@ async function api(path: string, method = "GET", body?: unknown) {
     });
   return data;
 }
-const day = (value?: string | null) =>
-  value
-    ? new Date(value).toLocaleDateString(undefined, {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-      })
-    : "—";
+const day = (value: string | null | undefined, locale: "en" | "ar") =>
+  formatDate(value, { locale, fallback: "—" });
 
 /** Days before an upfront programme ends when the next one may be bought (the API's RENEWAL_WINDOW_DAYS). */
 const RENEWAL_WINDOW_DAYS = 7;
@@ -62,6 +57,9 @@ export function UpfrontMembership({
 }) {
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
+  const t = useT("membership"),
+    locale = useLocale(),
+    toError = useErrorText();
   const purchase = upfrontPurchase(membership);
   const ended = purchase === "any";
   const next = membership.data?.nextProgramme;
@@ -79,37 +77,40 @@ export function UpfrontMembership({
       const r = await api("/payments/checkout", "POST", { productId });
       if (r?.url) window.location.assign(r.url);
     } catch (e: any) {
-      setError(e.message);
+      setError(toError(e));
     } finally {
       setBusy(false);
     }
   };
+  const days = Number(membership.data?.programmeDays);
   return (
     <>
       <div className="membership-price">
-        <span dir="ltr">{money(membership.price_minor)}</span>
-        <span> for {membership.data?.programmeDays ?? "—"} days</span>
+        <span>{formatMoney(membership.price_minor, locale)}</span>
+        {days > 0 && <span> {t("forDays", { count: days })}</span>}
       </div>
       <span className={"badge" + (ended ? "" : " green")}>
-        {ended ? "Programme ended" : "Paid in full"}
+        {ended ? t("programmeEnded") : t("paidInFull")}
       </span>
       <p>
         {membership.data?.modules?.includes("nutrition")
-          ? "Workout + nutrition"
-          : "Workout only"}
+          ? t("workoutNutrition")
+          : t("workoutOnly")}
       </p>
       <p className="muted">
         {ended
-          ? `Access ended ${day(membership.period_end)}.`
+          ? t("accessEnded", { date: day(membership.period_end, locale) })
           : next
-            ? `This programme ends ${day(current?.endsAt ?? next.startsAt)}. Your next ${next.programmeDays}-day programme starts then and runs until ${day(next.endsAt)}.`
-            : `Access until ${day(membership.period_end)}. An upfront programme does not renew; you can buy the next one in its final week and it starts when this one ends.`}
+            ? t("nextProgramme", {
+                count: Number(next.programmeDays) || 0,
+                end: day(current?.endsAt ?? next.startsAt, locale),
+                date: day(next.endsAt, locale),
+              })
+            : t("accessUntil", { date: day(membership.period_end, locale) })}
       </p>
       {available.length > 0 && (
         <div id="offers" className="programme-offer-list">
-          <h3>
-            {ended ? "Choose your next plan" : "Start your next programme"}
-          </h3>
+          <h3>{ended ? t("chooseNext") : t("startNext")}</h3>
           {available.map((p) => (
             <div className="list-row" key={p.id}>
               <div>
@@ -122,8 +123,8 @@ export function UpfrontMembership({
                 onClick={() => void buy(p.id)}
               >
                 {p.data.billing === "upfront"
-                  ? "Buy this programme"
-                  : "Join this plan"}
+                  ? t("buyProgramme")
+                  : t("joinPlan")}
               </button>
             </div>
           ))}
@@ -144,6 +145,9 @@ export function VoiceAddOnCard() {
     [busy, setBusy] = useState(false),
     [message, setMessage] = useState(""),
     [error, setError] = useState("");
+  const t = useT("membership"),
+    locale = useLocale(),
+    toError = useErrorText();
   const load = useCallback(
     () => api("/membership/voice-addon").then(setData, () => setData(null)),
     [],
@@ -169,24 +173,28 @@ export function VoiceAddOnCard() {
       setMessage(done);
       await load();
     } catch (e: any) {
-      setError(e.message);
+      setError(toError(e));
     } finally {
       setBusy(false);
     }
   };
   return (
     <section className="card voice-addon" aria-labelledby="voice-addon-title">
-      <p className="eyebrow">PREMIUM VOICE</p>
-      <h2 id="voice-addon-title">Your coach&apos;s voice runs your session</h2>
+      <p className="eyebrow">{t("voiceEyebrow")}</p>
+      <h2 id="voice-addon-title">{t("voiceTitle")}</h2>
       {data.included ? (
-        <p>Premium guided voice is included in your membership.</p>
+        <p>{t("voiceInMembership")}</p>
       ) : data.active ? (
         <>
           <p>
-            <span className="badge green">On your membership</span>{" "}
+            <span className="badge green">{t("onMembership")}</span>{" "}
             {data.cancelAtPeriodEnd
-              ? `Voice ends on ${day(data.periodEnd)}.`
-              : `Renews with ${data.priceMinor ? money(data.priceMinor) : "its price"} / month.`}
+              ? t("voiceEnds", { date: day(data.periodEnd, locale) })
+              : t("voiceRenews", {
+                  price: data.priceMinor
+                    ? formatMoney(data.priceMinor, locale)
+                    : t("itsPrice"),
+                })}
           </p>
           <div className="button-row">
             {data.cancelAtPeriodEnd ? (
@@ -196,11 +204,11 @@ export function VoiceAddOnCard() {
                 onClick={() =>
                   void act(
                     () => api("/membership/voice-addon", "POST", {}),
-                    "Premium voice continues",
+                    t("voiceContinues"),
                   )
                 }
               >
-                Keep premium voice
+                {t("keepVoice")}
               </button>
             ) : (
               <button
@@ -209,11 +217,11 @@ export function VoiceAddOnCard() {
                 onClick={() =>
                   void act(
                     () => api("/membership/voice-addon/cancel", "POST", {}),
-                    "Premium voice will end at the close of this period",
+                    t("voiceWillEnd"),
                   )
                 }
               >
-                Remove premium voice
+                {t("removeVoice")}
               </button>
             )}
           </div>
@@ -221,13 +229,13 @@ export function VoiceAddOnCard() {
       ) : (
         <>
           <p>
-            A guided voice session in your coach&apos;s style, for{" "}
-            <span dir="ltr">{money(data.priceMinor ?? 0)}</span> a month. It
-            ends with your membership.
+            {t("voiceOffer", {
+              price: formatMoney(data.priceMinor ?? 0, locale),
+            })}
           </p>
           {data.pending?.status === "confirming" && (
             <p className="muted" role="status">
-              Your premium voice purchase is being confirmed.
+              {t("voiceConfirming")}
             </p>
           )}
           <div className="button-row">
@@ -237,13 +245,11 @@ export function VoiceAddOnCard() {
               onClick={() =>
                 void act(
                   () => api("/membership/voice-addon", "POST", {}),
-                  "Premium voice added",
+                  t("voiceAdded"),
                 )
               }
             >
-              {data.pending?.url
-                ? "Continue voice checkout"
-                : "Add premium voice"}
+              {data.pending?.url ? t("continueVoice") : t("addVoice")}
             </button>
             {data.pending && (
               <button
@@ -252,11 +258,11 @@ export function VoiceAddOnCard() {
                 onClick={() =>
                   void act(
                     () => api("/membership/voice-addon/reconcile", "POST", {}),
-                    "Voice purchase checked",
+                    t("voiceChecked"),
                   )
                 }
               >
-                Check voice purchase
+                {t("checkVoice")}
               </button>
             )}
           </div>

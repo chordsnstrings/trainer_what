@@ -726,7 +726,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         heading: "Your site. Your price.",
         body: [
           "Your own coaching site and app, under your name. You set the price in AED.",
-          "Our share starts at 25% and falls as you grow. Card processing is itemised; AI usage is passed on at cost.",
+          "Our share starts at 25% and falls as you grow. Card processing is itemised.",
         ],
       },
       {
@@ -1344,7 +1344,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
     does: [
       "Runs the guided session in your voice: exercise cues, sets and rest.",
       "Follows the same plan and safety rules as the written workout.",
-      "Records voice usage cost and shows it on your statement.",
+      "Uses your voice only for your own subscribers who add it.",
       "Plays the session your plan already contains, so there is nothing extra to write.",
     ],
     subscriberSees: [
@@ -1373,12 +1373,12 @@ export const MARKETING_CONTENT: MarketingPage[] = [
             body: "Subscribers who add it hear the guided workout in your voice: each exercise, the sets and the rest periods."
           },
           {
-            title: "Same safety",
-            body: "The pause and pain report work exactly as in every workout, and pain still comes straight to you."
+            title: "Yours to withdraw",
+            body: "Withdraw your consent at any time, and your voice is no longer used for your subscribers."
           },
           {
-            title: "Your statement",
-            body: "Voice usage cost is passed through and itemised, so you can see what the add-on costs to run."
+            title: "Same safety",
+            body: "The pause and pain report work exactly as in every workout, and pain still comes straight to you."
           }
         ]
       },
@@ -1399,7 +1399,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
       },
       {
         q: "Does voice cost extra?",
-        a: "Voice is an add-on you price for subscribers. The voice usage cost is passed through and itemised on your statement.",
+        a: "Voice is an add-on you price for subscribers. Only subscribers who add it hear the session in your voice.",
       },
     ],
     related: ["/features/subscriber-app", "/earnings-calculator"],
@@ -1628,7 +1628,6 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         bullets: [
           "Gross subscription revenue and commission by band.",
           "Payment processing fees.",
-          "AI usage, passed through at cost, line by line.",
           "Optional services such as voice and your own domain.",
           "Refunds, disputes and any payout holds.",
         ],
@@ -1803,12 +1802,12 @@ export const MARKETING_CONTENT: MarketingPage[] = [
     navLabel: "Pricing",
     title: "Online coaching platform fees and commission",
     description:
-      "You set your price in AED. {APP_NAME} takes a marginal commission of 25%, 20%, 15% and 10% of subscription revenue; AI usage is passed through at cost.",
+      "You set your price in AED. {APP_NAME} takes a marginal commission of 25%, 20%, 15% and 10% of subscription revenue.",
     h1: "Your price, our transparent share",
     eyebrow: "PRICING",
     lede: "You set your price in AED. Our commission starts at 25% and falls in bands as you grow.",
     intro:
-      "You choose your price in AED, the programme length and monthly or upfront billing. {APP_NAME} takes a commission on subscription revenue in marginal bands of 25%, 20%, 15% and 10%. AI usage is passed through at cost and itemised.",
+      "You choose your price in AED, the programme length and monthly or upfront billing. {APP_NAME} takes a commission on subscription revenue in marginal bands of 25%, 20%, 15% and 10%. Payment processing and optional services are itemised on your statement.",
     primaryKeyword: "online coaching platform fees",
     sections: [
       {
@@ -1852,8 +1851,6 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         heading: "What else appears on your statement",
         bullets: [
           "Payment processing fees.",
-          "AI usage, passed through at cost and listed line by line.",
-          "Voice usage, if you offer the voice add-on.",
           "Your own domain, if you choose one.",
           "Refunds, disputes and any booking fee in your finance policy.",
         ],
@@ -1877,11 +1874,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
       PRICE_FAQ,
       {
         q: "What will I pay?",
-        a: "Commission on subscription revenue by band, payment processing and AI usage at cost. Optional services you choose, such as the voice add-on or your own domain, are extra. Every item appears on your monthly statement.",
-      },
-      {
-        q: "Why is AI usage passed through?",
-        a: "So you pay only for what your subscribers use, at cost. You see it line by line instead of paying a hidden margin.",
+        a: "Commission on subscription revenue by band and payment processing. Optional services you choose, such as the voice add-on or your own domain, are extra. Every item appears on your monthly statement.",
       },
       {
         q: "How is commission counted when I have different prices?",
@@ -1917,7 +1910,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
           "The tier mix and add-ons are assumed to be the same across all bands.",
           "The voice add-on is treated like subscription revenue in this estimate.",
           "Sessions are shown before any booking fee in your finance policy.",
-          "Not included: payment processing, AI usage at cost, voice usage, domain, refunds, disputes and tax.",
+          "Not included: payment processing, domain, refunds, disputes and tax.",
         ],
       },
       {
@@ -1946,7 +1939,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         id: "example",
         heading: "A worked example",
         body: [
-          "120 subscribers at AED 199 a month bring AED 23,880 in subscriptions. Commission is 25% on the first 100 subscribers and 20% on the next 20: AED 5,771 in total, 24.17% overall. That leaves AED 18,109 before payment processing, AI usage at cost and tax, about 72 sessions at AED 250."
+          "120 subscribers at AED 199 a month bring AED 23,880 in subscriptions. Commission is 25% on the first 100 subscribers and 20% on the next 20: AED 5,771 in total, 24.17% overall. That leaves AED 18,109 before payment processing and tax, about 72 sessions at AED 250."
         ],
         note: "Arithmetic with the commission bands, not a forecast or promise."
       },
@@ -2253,7 +2246,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         id: "money",
         heading: "How we make money",
         body: [
-          "A commission on trainers’ subscription revenue in marginal bands of 25%, 20%, 15% and 10%. AI usage is passed through at cost, and optional services are itemised.",
+          "A commission on trainers’ subscription revenue in marginal bands of 25%, 20%, 15% and 10%. Optional services are itemised.",
         ],
       },
       {
@@ -2278,7 +2271,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
     faqs: [
       {
         q: "How does {APP_NAME} make money?",
-        a: "A commission on trainers’ subscription revenue in marginal bands of 25%, 20%, 15% and 10%. AI usage is passed through at cost, and optional services are itemised."
+        a: "A commission on trainers’ subscription revenue in marginal bands of 25%, 20%, 15% and 10%. Optional services are itemised."
       },
       {
         q: "Does {APP_NAME} own my method?",
@@ -2368,7 +2361,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
           "Commission follows the standard marginal bands: 25% (1-100), 20% (101-300), 15% (301-1,000), 10% (above 1,000).",
           "Upfront programmes are converted to a monthly equivalent: price divided by months.",
           "The tier mix and add-ons are assumed to be the same in every band.",
-          "Excluded: payment processing, AI usage at cost, voice usage, domain, refunds, disputes, booking fees and tax."
+          "Excluded: payment processing, domain, refunds, disputes, booking fees and tax."
         ]
       },
     ],
@@ -2983,7 +2976,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
             ]
           ]
         },
-        note: "Arithmetic with the commission bands, not a forecast or promise; before payment processing, AI usage at cost, refunds and tax. The last column divides the amount by a AED 250 session rate."
+        note: "Arithmetic with the commission bands, not a forecast or promise; before payment processing, refunds and tax. The last column divides the amount by a AED 250 session rate."
       },
       {
         id: "upfront",
@@ -2998,7 +2991,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         heading: "Tiers and add-ons",
         body: [
           "A nutrition tier lets a subscriber buy workout and nutrition together at a higher price. If 30 of 100 subscribers choose a AED 299 nutrition tier and 70 stay on a AED 199 workout tier, the average is AED 229 a month and subscriptions total AED 22,900; commission at 25% on the first 100 is AED 5,725.",
-          "The voice add-on, where a voice in your own verified voice runs the session, is priced separately. Its usage cost is passed through and itemised on your statement, so set its price with that cost in mind."
+          "The voice add-on, where a voice in your own verified voice runs the session, is priced separately. Subscribers choose whether to add it, so price it as a clear extra for those who want to hear your own voice run every session."
         ]
       },
       {
@@ -3016,7 +3009,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         heading: "Include commission and costs",
         body: [
           "Commission is a share of subscription revenue in marginal bands: 25% for your first 100 paying subscribers, 20% for the next 200, 15% up to 1,000 and 10% beyond. Each band keeps its own rate, so growing never raises the rate on earlier subscribers.",
-          "Your statement also lists payment processing, AI usage at cost and any optional services you choose, such as the voice add-on or your own domain. Use the earnings calculator to see what remains before these costs at your price."
+          "Your statement also lists payment processing and any optional services you choose, such as the voice add-on or your own domain. Use the earnings calculator to see what remains before these costs at your price."
         ]
       },
       {
@@ -3026,7 +3019,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
           "Pricing the subscription like a session: followers who cannot book you weekly will not pay a session price every month.",
           "Launching at a price you plan to double later: add value with tiers instead.",
           "Leaving the offer vague: say who it is for, what they get each day and the price.",
-          "Forgetting costs: commission, processing and AI usage come out before your payout.",
+          "Forgetting costs: commission and processing come out before your payout.",
           "Promising outcomes: describe what the coaching includes, not a result you cannot control."
         ]
       }

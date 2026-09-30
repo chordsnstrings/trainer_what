@@ -353,9 +353,29 @@ export function platformIcons(appName: string = BRAND_NAME) {
   };
 }
 /**
+ * Installed-app launch marker. Every install manifest opens its start page
+ * with `?source=pwa` and its shortcuts with `?source=shortcut`, so a launch
+ * from the home screen can be told apart from a visit (the query string is
+ * ignored by the app itself).
+ */
+export const PWA_SOURCE = "pwa";
+export const PWA_SHORTCUT_SOURCE = "shortcut";
+/** App-store categories for every install manifest. */
+export const APP_CATEGORIES = ["health", "fitness", "lifestyle"] as const;
+/**
+ * An open window of the installed app is reused when it is launched again
+ * (home-screen icon, shortcut or notification), instead of a second copy.
+ */
+export const APP_LAUNCH_HANDLER: {
+  client_mode: Array<"navigate-existing" | "auto">;
+} = { client_mode: ["navigate-existing", "auto"] };
+
+/**
  * The platform install manifest, served by apps/web/app/manifest.ts at
  * /manifest.webmanifest and by the API to anonymous visitors. The name is
- * the configured APP_NAME (trainsyou when unset); see platformIcons.
+ * the configured APP_NAME (trainsyou when unset); see platformIcons. Its
+ * `id` is "/app", the id browsers derived from the earlier start_url, so
+ * apps installed before the launch marker keep their identity.
  */
 export function platformManifest(appName: string = BRAND_NAME) {
   const name = appName.trim() || BRAND_NAME;
@@ -367,14 +387,19 @@ export function platformManifest(appName: string = BRAND_NAME) {
     purpose,
   });
   return {
+    id: "/app",
     name,
     short_name: shortAppName(name, 15),
     ...(usesBrandIdentity(name) ? { description: BRAND_COPY.descriptor } : {}),
-    start_url: "/app",
+    start_url: `/app?source=${PWA_SOURCE}`,
     scope: "/",
     display: "standalone",
     background_color: PLATFORM_THEME.background,
     theme_color: PLATFORM_THEME.theme,
+    lang: "en",
+    dir: "ltr",
+    categories: [...APP_CATEGORIES],
+    launch_handler: APP_LAUNCH_HANDLER,
     icons: [
       icon(icons.icon192, "192x192", "any"),
       icon(icons.icon512, "512x512", "any"),
@@ -383,11 +408,234 @@ export function platformManifest(appName: string = BRAND_NAME) {
   };
 }
 
-/** Member install icon files and their pixel sizes. */
+/** The home-screen shortcuts a member app can offer (long-press the icon). */
+export const APP_SHORTCUTS = {
+  workout: {
+    name: "Today's workout",
+    short_name: "Workout",
+    description: "Open today's session",
+    path: "/app/program",
+  },
+  meal: {
+    name: "Log a meal",
+    short_name: "Log a meal",
+    description: "A photo, a barcode or a note",
+    path: "/app/nutrition/log",
+  },
+  chat: {
+    name: "Coach chat",
+    short_name: "Chat",
+    description: "Message your coach",
+    path: "/app/chat",
+  },
+  booking: {
+    name: "Book a session",
+    short_name: "Book",
+    description: "Book time with your coach",
+    path: "/app/bookings",
+  },
+} as const;
+export type AppShortcut = keyof typeof APP_SHORTCUTS;
+/**
+ * The same shortcuts for a member whose saved language is Arabic (the
+ * manifest's `lang`), in the words the member app uses
+ * (apps/web/lib/i18n/messages/nav.ts).
+ */
+export const APP_SHORTCUTS_AR: Record<
+  AppShortcut,
+  { name: string; short_name: string; description: string }
+> = {
+  workout: {
+    name: "تمرين اليوم",
+    short_name: "التمرين",
+    description: "فتح جلسة اليوم",
+  },
+  meal: {
+    name: "تسجيل وجبة",
+    short_name: "تسجيل وجبة",
+    description: "صورة أو باركود أو ملاحظة",
+  },
+  chat: {
+    name: "محادثة المدرب",
+    short_name: "المحادثة",
+    description: "مراسلة مدربك",
+  },
+  booking: {
+    name: "حجز جلسة",
+    short_name: "حجز",
+    description: "حجز موعد مع مدربك",
+  },
+};
+
+/**
+ * Member install icon files and their pixel sizes. Shortcut icons draw the
+ * feature's symbol on the coach's primary colour.
+ */
 export const APP_ICON_FILES = {
   "180.png": { size: 180, variant: "apple" },
   "192.png": { size: 192, variant: "any" },
   "512.png": { size: 512, variant: "any" },
   "maskable-512.png": { size: 512, variant: "maskable" },
-} as const;
+  "shortcut-workout-96.png": {
+    size: 96,
+    variant: "shortcut",
+    shortcut: "workout",
+  },
+  "shortcut-meal-96.png": { size: 96, variant: "shortcut", shortcut: "meal" },
+  "shortcut-chat-96.png": { size: 96, variant: "shortcut", shortcut: "chat" },
+  "shortcut-booking-96.png": {
+    size: 96,
+    variant: "shortcut",
+    shortcut: "booking",
+  },
+} as const satisfies Record<
+  string,
+  {
+    size: number;
+    variant: "any" | "apple" | "maskable" | "shortcut";
+    shortcut?: AppShortcut;
+  }
+>;
 export type AppIconFile = keyof typeof APP_ICON_FILES;
+
+/** What the member app manifest is built from (apps/api/src/discovery.ts). */
+export type MemberManifestInput = {
+  slug: string;
+  name: string;
+  role: string;
+  primary: string;
+  surface: string;
+  /** The member's saved language; English otherwise. */
+  language?: string | null;
+  /** Coaching features on for this member (shortcuts only for these). */
+  features: { nutrition: boolean; bookings: boolean };
+  /** The address of one icon file (per-workspace key and revision). */
+  icon: (file: AppIconFile) => string;
+};
+/** A short plain description that names the coach. */
+export function memberAppDescription(
+  name: string,
+  nutrition: boolean,
+  language: "en" | "ar" = "en",
+) {
+  // U+2068/U+2069 keep a Latin coach name in place inside the Arabic line.
+  if (language === "ar")
+    return nutrition
+      ? `تدريبك ووجباتك ورسائلك مع \u2068${name}\u2069.`
+      : `تدريبك ورسائلك مع \u2068${name}\u2069.`;
+  return nutrition
+    ? `Your training, meals and messages with ${name}.`
+    : `Your training and messages with ${name}.`;
+}
+/**
+ * The coach-branded install manifest for a signed-in member. One stable id
+ * per coach (`/coach/<slug>`, the same as the coach website's manifest), so
+ * two coaches' apps install side by side and a reinstall is the same app.
+ * Subscribers open Today; the coach's team opens the trainer workspace and
+ * gets no shortcuts (the trainer workspace is unchanged).
+ */
+export function memberAppManifest(input: MemberManifestInput) {
+  const subscriber = input.role === "subscriber";
+  const lang = input.language === "ar" ? "ar" : "en";
+  const icon = (
+    file: AppIconFile,
+    sizes: string,
+    purpose: "any" | "maskable",
+  ) => ({ src: input.icon(file), sizes, type: "image/png", purpose });
+  const shortcuts: AppShortcut[] = subscriber
+    ? [
+        "workout",
+        ...(input.features.nutrition ? (["meal"] as const) : []),
+        "chat",
+        ...(input.features.bookings ? (["booking"] as const) : []),
+      ]
+    : [];
+  return {
+    id: `/coach/${input.slug}`,
+    name: input.name,
+    short_name: shortAppName(input.name),
+    description: subscriber
+      ? memberAppDescription(input.name, input.features.nutrition, lang)
+      : `The coaching workspace of ${input.name}.`,
+    start_url: `${subscriber ? "/app" : "/trainer"}?source=${PWA_SOURCE}`,
+    scope: "/",
+    display: "standalone",
+    background_color: input.surface,
+    theme_color: input.primary,
+    lang,
+    dir: lang === "ar" ? "rtl" : "ltr",
+    categories: [...APP_CATEGORIES],
+    launch_handler: APP_LAUNCH_HANDLER,
+    icons: [
+      icon("192.png", "192x192", "any"),
+      icon("512.png", "512x512", "any"),
+      icon("maskable-512.png", "512x512", "maskable"),
+    ],
+    ...(shortcuts.length
+      ? {
+          shortcuts: shortcuts.map((id) => {
+            const { path, ...english } = APP_SHORTCUTS[id];
+            const shortcut = lang === "ar" ? APP_SHORTCUTS_AR[id] : english;
+            return {
+              ...shortcut,
+              url: `${path}?source=${PWA_SHORTCUT_SOURCE}`,
+              icons: [
+                {
+                  src: input.icon(`shortcut-${id}-96.png`),
+                  sizes: "96x96",
+                  type: "image/png",
+                  purpose: "any",
+                },
+              ],
+            };
+          }),
+        }
+      : {}),
+  };
+}
+
+/**
+ * The install manifest of a launched coach website
+ * (`/api/v1/public/sites/<slug>/manifest.webmanifest`). It has the same id
+ * as the member app of that coach, so installing from the website and
+ * installing after sign-in give one app, which opens the member app.
+ */
+export function coachSiteManifest(input: {
+  slug: string;
+  name: string;
+  primary: string;
+  surface: string;
+  language?: string | null;
+}) {
+  const lang = input.language === "ar" ? "ar" : "en";
+  const base = `/api/v1/public/sites/${input.slug}/icon/`;
+  const icon = (file: string, sizes: string, purpose: "any" | "maskable") => ({
+    src: base + file,
+    sizes,
+    type: "image/png",
+    purpose,
+  });
+  return {
+    id: `/coach/${input.slug}`,
+    name: input.name,
+    short_name: shortAppName(input.name),
+    description:
+      lang === "ar"
+        ? `تدريب شخصي مع \u2068${input.name}\u2069.`
+        : `Personal coaching with ${input.name}.`,
+    start_url: `/app?source=${PWA_SOURCE}`,
+    scope: "/",
+    display: "standalone",
+    background_color: input.surface,
+    theme_color: input.primary,
+    lang,
+    dir: lang === "ar" ? "rtl" : "ltr",
+    categories: [...APP_CATEGORIES],
+    launch_handler: APP_LAUNCH_HANDLER,
+    icons: [
+      icon("192", "192x192", "any"),
+      icon("512", "512x512", "any"),
+      icon("maskable-512", "512x512", "maskable"),
+    ],
+  };
+}

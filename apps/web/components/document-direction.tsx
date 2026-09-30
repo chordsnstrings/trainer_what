@@ -10,6 +10,7 @@ import {
   resolveDocumentLanguage,
   type Language,
 } from "../document-language";
+import { memberPreferences } from "./appearance";
 
 /** Sets `<html lang dir>` without a reload (client-side navigation). */
 export function applyDocumentLanguage(language: Language) {
@@ -67,15 +68,11 @@ export function MemberLanguage({ member }: { member: string }) {
       MEMBER_LANGUAGE_COOKIE,
     );
     if (mirrored) applyDocumentLanguage(mirrored);
-    void fetch("/api/v1/notifications/preferences", {
-      credentials: "same-origin",
-    })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((value) => {
-        const language = parseLanguage(value?.data?.language);
-        if (current && language) rememberMemberLanguage(language);
-      })
-      .catch(() => {});
+    // One request with the member app's appearance (components/appearance).
+    void memberPreferences(member).then((value) => {
+      const language = parseLanguage(value?.data?.language);
+      if (current && language) rememberMemberLanguage(language);
+    });
     return () => {
       current = false;
     };

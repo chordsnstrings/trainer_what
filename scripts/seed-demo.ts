@@ -3,6 +3,8 @@ import { createDatabase, putRecord } from "@trainer/db";
 import { buildApp } from "../apps/api/src/app.ts";
 import { passwordHash } from "../apps/api/src/auth.ts";
 import { recordCharge } from "../apps/api/src/finance.ts";
+import { scheduleProgram } from "../apps/api/src/training-programs.ts";
+import { dateIn } from "../packages/domain/src/programme.ts";
 import { seedNutritionDemo } from "./seed-nutrition-demo.ts";
 import { assertLocalSyntheticTarget } from "./synthetic-guard.ts";
 assertLocalSyntheticTarget("Synthetic seed");
@@ -86,7 +88,9 @@ if (r.statusCode === 409) {
       );
     });
     await db.tenant(a, async (tx) => {
-      await putRecord(
+      // Assigned the way a coach assigns it (POST /api/v1/programs): with its
+      // training calendar, so Today, the timeline and progress agree.
+      const program = await putRecord(
         tx,
         a,
         "program",
@@ -122,6 +126,13 @@ if (r.statusCode === 409) {
           ],
         },
         { ownerId: uid, status: "assigned" },
+      );
+      await scheduleProgram(
+        tx,
+        a,
+        program,
+        dateIn("Asia/Dubai", new Date()),
+        "Asia/Dubai",
       );
       await tx.query(
         "INSERT INTO subscriptions(id,tenant_id,user_id,status,price_minor,period_end,data) VALUES($1,$2,$3,'active',19900,now()+interval '30 days',$4)",

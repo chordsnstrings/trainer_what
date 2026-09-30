@@ -46,6 +46,8 @@ const saved = Object.fromEntries(
   [...Object.keys(env), "MODEL_BASE_URL", "MODEL_API_KEY", "MODEL_NAME"].map((k) => [k, process.env[k]]),
 );
 let modelReply: unknown = null;
+/** When set, the model's reply content as written (for example in a code fence). */
+let modelContent: string | null = null;
 const modelPrompts: any[] = [];
 
 async function request(url: string, method: any = "GET", body?: any, actor?: any) {
@@ -132,7 +134,7 @@ before(async () => {
       modelPrompts.push(JSON.parse(String(init?.body)));
       return Response.json({
         id: "chatcmpl-fixture",
-        choices: [{ message: { content: JSON.stringify(modelReply) } }],
+        choices: [{ message: { content: modelContent ?? JSON.stringify(modelReply) } }],
         usage: { prompt_tokens: 10, completion_tokens: 10 },
       });
     }
@@ -660,6 +662,38 @@ test("Brain wording suggestions are checked and kept for the trainer's review; n
     assert.equal(refusedAnswer.json().code, "MODEL_UNCONFIRMED");
     await ok("/voice-sessions/style/suggestions", "DELETE", undefined, coach);
   } finally {
+    for (const k of ["MODEL_BASE_URL", "MODEL_API_KEY", "MODEL_NAME"])
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+  }
+});
+
+test("model gateway (C7): voice wording sends its budget's time limit and reads one ```json fence, for a reasoning model", async () => {
+  Object.assign(process.env, { MODEL_BASE_URL: "https://model.test/v1", MODEL_API_KEY: "fixture", MODEL_NAME: "gpt-5-mini" });
+  const limits: number[] = [];
+  const timeout = AbortSignal.timeout;
+  AbortSignal.timeout = ((ms: number) => {
+    limits.push(ms);
+    return timeout.call(AbortSignal, ms);
+  }) as typeof AbortSignal.timeout;
+  modelContent = "```json\n" + JSON.stringify({ intro: ["Let's begin gently together."] }) + "\n```";
+  try {
+    const made = await ok("/voice-sessions/style/suggestions", "POST", undefined, coach);
+    assert.deepEqual(made.suggestions.intro, ["Let's begin gently together."]);
+    // The reasoning family's wording limit (60 s by default), never the 30 s default.
+    assert.ok(limits.includes(60000), JSON.stringify(limits));
+    assert.equal(limits.includes(30000), false, JSON.stringify(limits));
+    // The reasoning request: no temperature for gpt-5-mini, the automatic
+    // effort, and still no output limit for this call.
+    const body = modelPrompts.at(-1);
+    assert.equal("temperature" in body, false);
+    assert.equal(body.reasoning_effort, "low");
+    assert.equal("max_tokens" in body, false);
+    assert.equal("max_completion_tokens" in body, false);
+  } finally {
+    AbortSignal.timeout = timeout;
+    modelContent = null;
+    await ok("/voice-sessions/style/suggestions", "DELETE", undefined, coach);
     for (const k of ["MODEL_BASE_URL", "MODEL_API_KEY", "MODEL_NAME"])
       if (saved[k] === undefined) delete process.env[k];
       else process.env[k] = saved[k];

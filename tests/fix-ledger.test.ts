@@ -773,7 +773,7 @@ test("quality-delivery:G2 tenant refund routes enforce roles and reconcile an un
   }
 });
 
-test("quality-delivery:G4 product activation and plan change use the injected Stripe provider behind their gates", async () => {
+test("quality-delivery:G4 product activation uses the injected Stripe provider behind its gate; members cannot change plan after paying", async () => {
   const { buildApp } = await import("../apps/api/src/app.ts");
   const { tokenHash } = await import("../apps/api/src/auth.ts");
   const owner = await workspace(),
@@ -947,6 +947,9 @@ test("quality-delivery:G4 product activation and plan change use the injected St
         );
       return [b, c, u];
     });
+    // Owner decision, 30 September 2026: "Once they pay they can't switch."
+    // Every member request is refused before any Stripe call, whatever the
+    // Bundle changes setting says; anyone who is not a member still gets 403.
     const change = (token: string, productId: string, allowed = "true") =>
       withEnv({ BUNDLE_CHANGES_APPROVED: allowed }, () =>
         post("/membership/change-plan", token, { productId }),
@@ -954,47 +957,33 @@ test("quality-delivery:G4 product activation and plan change use the injected St
     const byOwner = await change(ownerToken, base.id);
     assert.equal(byOwner.statusCode, 403);
     assert.equal(byOwner.json().code, "SUBSCRIBER_REQUIRED");
-    const pending = await change(clientToken, base.id, "false");
-    assert.equal(pending.statusCode, 503);
-    assert.equal(pending.json().code, "PLAN_CHANGES_PENDING");
-    const pair = await change(clientToken, unpaired.id);
-    assert.equal(pair.statusCode, 409, pair.body);
-    assert.equal(pair.json().code, "PLAN_PAIR");
-    // The combined offer stays behind nutrition readiness before any other plan check.
-    const notReadyPlan = await change(clientToken, combined.id);
-    assert.equal(notReadyPlan.statusCode, 409, notReadyPlan.body);
-    assert.equal(notReadyPlan.json().code, "NUTRITION_NOT_READY");
-    const same = await change(baseToken, base.id);
-    assert.equal(same.statusCode, 409, same.body);
-    assert.equal(same.json().code, "SAME_PLAN");
-    items = [{ id: "si_one" }, { id: "si_two" }];
-    const review = await change(clientToken, base.id);
-    assert.equal(review.statusCode, 409, review.body);
-    assert.equal(review.json().code, "BILLING_REVIEW");
+    const portalCalls = () =>
+      calls.filter((c) => c.call.startsWith("portal-")).length;
+    const portalBefore = portalCalls();
     items = [{ id: "si_one" }];
-    const keys: string[] = [];
-    for (let i = 0; i < 2; i++) {
-      const opened = await change(clientToken, base.id);
-      assert.equal(opened.statusCode, 200, opened.body);
-      assert.equal(
-        opened.json().url,
-        "https://billing.stripe.com/p/session/fixture",
-      );
-      keys.push(calls.filter((c) => c.call === "portal-config").at(-1)!.key!);
-    }
-    assert.match(keys[0], /^membership-portal:[0-9a-f]{64}$/);
-    assert.equal(keys[0], keys[1]);
-    const session = calls.filter((c) => c.call === "portal-session").at(-1)!;
-    assert.equal(
-      session.body.flow_data.subscription_update_confirm.items[0].price,
-      base.data.stripePriceId,
-    );
+    for (const [token, productId] of [
+      [clientToken, base.id],
+      [clientToken, unpaired.id],
+      [clientToken, combined.id],
+      [baseToken, base.id],
+      [baseToken, combined.id],
+    ] as const)
+      for (const allowed of ["true", "false"]) {
+        const refused = await change(token, productId, allowed);
+        assert.equal(refused.statusCode, 409, refused.body);
+        assert.equal(refused.json().code, "PLAN_CHANGE_NOT_ALLOWED");
+        assert.equal(
+          refused.json().message,
+          "Your plan can't be changed after you've paid.",
+        );
+      }
+    assert.equal(portalCalls(), portalBefore);
     const [opened] = await db.tenant(owner, (tx) =>
       tx.query(
         "SELECT count(*)::int AS n FROM events WHERE name='subscription.change_confirmation_opened'",
       ),
     );
-    assert.equal(opened.n, 2);
+    assert.equal(opened.n, 0);
   } finally {
     await app.close();
   }
