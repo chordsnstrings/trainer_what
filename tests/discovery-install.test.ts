@@ -337,8 +337,11 @@ test("a member's manifest names the coach, installs per coach, opens Today and o
       [["96x96", "image/png"]],
     );
   }
-  // The coach opens bookings and the member saved Arabic.
-  await h.db.system(async (tx) => {
+  // The coach opens bookings and the member saved Arabic. Written in the
+  // coach's own workspace scope: the restricted service role used by the
+  // PostgreSQL suite may not write these workspace tables.
+  const coachActor = { tenantId: a.tenantId, userId: a.userId, role: "owner" };
+  await h.db.tenant(coachActor, async (tx) => {
     await tx.query(
       "INSERT INTO booking_slots(id,tenant_id,trainer_id,starts_at,ends_at,capacity,title,location) VALUES(gen_random_uuid(),$1,$2,now()+interval '1 day',now()+interval '25 hours',1,'Check-in','Online')",
       [a.tenantId, a.userId],

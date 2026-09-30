@@ -66,9 +66,9 @@ async function noOverflow(page: Page) {
   }));
   assert.ok(scroll <= width + 1, `horizontal overflow at ${width}px: content is ${scroll}px wide`);
 }
-async function visible(page: Page, text: string | RegExp, timeout = 20000) {
+async function visible(page: Page, text: string | RegExp, timeout = 20000, within?: string) {
   try {
-    await page.getByText(text).first().waitFor({ state: "visible", timeout });
+    await (within ? page.locator(within) : page).getByText(text).first().waitFor({ state: "visible", timeout });
   } catch (error) {
     // Say what the page showed instead, so a failure is diagnosable from the report.
     const shown = await page
@@ -147,7 +147,10 @@ export async function browserScenarios(ctx: E2EContext) {
         const page = await context.newPage();
         track(page);
         await page.goto(ctx.publicUrl + "/app");
-        await visible(page, /Layla|Strength that fits/);
+        // The phone top bar names the coach; the desktop side nav comes first in
+        // the page but is hidden at phone width, so look where a phone shows it.
+        await visible(page, /Layla|Strength that fits/, 20000, ".member-topbar, #member-main");
+        await visible(page, /Good to see you/, 20000, "#member-main");
         await noOverflow(page);
       });
       await offlineWorkout(ctx, browser, member, opened, track);
