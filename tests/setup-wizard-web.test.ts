@@ -255,7 +255,14 @@ test("the workspace opens the wizard, redirects the older checklist and lands si
   assert.match(workspace, /isSetupPath\(path\) \?/);
   assert.match(workspace, /<SetupWizard path=\{path\} tenant=\{state\.tenant\} onSaved=\{load\} \/>/);
   assert.match(workspace, /legacySetupRedirect\(path\) \?/);
-  assert.match(workspace, /\["Setup", SETUP_PATH, CheckCircle\]/);
+  // One navigation: the four-section menu shows "Finish setup" (the wizard)
+  // until the page is live, and every setup link uses the wizard's address.
+  assert.match(workspace, /setupOpen && \(\s*<Link\s+href=\{SETUP_HREF\}[\s\S]{0,300}Finish setup/);
+  const nav = await source("components/workspace-nav.tsx");
+  assert.match(nav, /export const SETUP_HREF = SETUP_PATH;/);
+  // After the wizard, My Brain leads to "Keep training".
+  const brain = await source("components/workspace-brain.tsx");
+  assert.match(brain, /href=\{setupHref\(KEEP_TRAINING\)\}/);
   assert.match(workspace, /path === "\/signup"\s*\?\s*SETUP_PATH/);
   const layout = await source("app/layout.tsx");
   assert.match(layout, /import "\.\/setup-wizard\.css";/);

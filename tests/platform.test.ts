@@ -552,7 +552,7 @@ test("subscribers cannot read internal decisions, teaching rules or another tena
 test("authenticator verification is required for login and cannot be replayed through invitations", async () => {
   const { totpAt } = await import("../apps/api/src/security.ts");
   process.env.SECURITY_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64");
-  const secure = await register("secure-coach");
+  const secure = await register("safe-coach");
   const enrollment = await request(
     "/auth/mfa/enroll",
     "POST",

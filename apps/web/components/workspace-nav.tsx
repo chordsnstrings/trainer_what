@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { SETUP_PATH } from "./setup-wizard-model";
 import {
   Inbox as InboxIcon,
   Users,
@@ -48,8 +49,8 @@ export type MoreGroup = { title: string; links: MoreLink[] };
 /** Fired on window when an inbox card is handled. */
 export const INBOX_CHANGED = "trainer-inbox-changed";
 
-/** Where the setup wizard lives (built separately). */
-export const SETUP_HREF = "/setup";
+/** Where the setup wizard lives: one address for every setup link. */
+export const SETUP_HREF = SETUP_PATH;
 
 const SECTIONS: Section[] = [
   { key: "inbox", label: "Inbox", href: "/trainer", icon: InboxIcon },
