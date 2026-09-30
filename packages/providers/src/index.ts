@@ -100,10 +100,8 @@ export function integrationStatus() {
       id: "email",
       name: "Transactional email",
       purpose: "Invitations, security and lifecycle messages",
-      configured:
-        !!config.EMAIL_API_KEY && !!config.EMAIL_API_URL && !!config.EMAIL_FROM,
-      approved:
-        !!config.EMAIL_API_KEY && !!config.EMAIL_API_URL && !!config.EMAIL_FROM,
+      configured: !!emailTransport(config),
+      approved: !!emailTransport(config),
     },
     {
       id: "push",
@@ -412,6 +410,33 @@ export class LeanGateway {
     );
   }
 }
+export const RESEND_EMAIL_URL = "https://api.resend.com/emails";
+/**
+ * Where email goes: Resend when its key and sender are saved in Super admin
+ * (owner decision, 30 September 2026), otherwise the generic transactional
+ * email API; null when neither is configured.
+ */
+export function emailTransport(config: Record<string, string | undefined> = runtimeConfig()) {
+  if (config.RESEND_API_KEY?.trim() && config.RESEND_FROM?.trim())
+    return {
+      provider: "resend" as const,
+      url: RESEND_EMAIL_URL,
+      key: config.RESEND_API_KEY.trim(),
+      from: config.RESEND_FROM.trim(),
+    };
+  if (config.EMAIL_API_URL && config.EMAIL_API_KEY && config.EMAIL_FROM)
+    return {
+      provider: "generic" as const,
+      url: config.EMAIL_API_URL,
+      key: config.EMAIL_API_KEY,
+      from: config.EMAIL_FROM,
+    };
+  return null;
+}
+/** Email sign-up codes are on only once a Resend key is saved. */
+export function emailCodesEnabled(config: Record<string, string | undefined> = runtimeConfig()) {
+  return emailTransport(config)?.provider === "resend";
+}
 /** `html`, when given, is already escaped by its producer (message templates). */
 export async function sendEmail(
   to: string,
@@ -419,17 +444,16 @@ export async function sendEmail(
   text: string,
   html?: string,
 ) {
-  const config = runtimeConfig();
-  if (!config.EMAIL_API_URL || !config.EMAIL_API_KEY || !config.EMAIL_FROM)
-    throw new ProviderUnavailable("email");
-  const r = await providerRequest(config.EMAIL_API_URL, {
+  const transport = emailTransport();
+  if (!transport) throw new ProviderUnavailable("email");
+  const r = await providerRequest(transport.url, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${config.EMAIL_API_KEY}`,
+      Authorization: `Bearer ${transport.key}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      from: config.EMAIL_FROM,
+      from: transport.from,
       to,
       subject,
       text,

@@ -104,7 +104,6 @@ async function setupTrainer(ctx: E2EContext, plan: TrainerPlan, seed: TrainerSee
         audience: plan.audience,
       },
     });
-    await t.put("/api/v1/onboarding/brain-intro", { version: 0, values: { understood: true } });
     // Imports plus the companion app's automatic Apple Health sync.
     await t.put("/api/v1/onboarding/wearables", { version: 0, values: { policy: "permitted_imports_and_sync" } });
     if (!plan.voice) await t.put("/api/v1/onboarding/voice", { version: 0, values: {}, defer: true });

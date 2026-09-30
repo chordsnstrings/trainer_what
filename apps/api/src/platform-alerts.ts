@@ -6,6 +6,7 @@ import { requireRecentMfa } from "./security.ts";
 import { notifyUser } from "./notifications.ts";
 import { platformWorkspaceSql } from "./workspace-state.ts";
 import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
+import { emailTransport } from "@trainer/providers";
 import { pushAvailable } from "../../../packages/providers/src/push.ts";
 import { readHostHealth } from "./host-operations.ts";
 
@@ -512,7 +513,7 @@ export async function clearPlatformAlert(db: Database, dedupeKey: string) {
 
 const emailConfigured = () => {
   const c = runtimeConfig();
-  return !!(c.EMAIL_API_KEY && c.EMAIL_API_URL && c.EMAIL_FROM);
+  return !!emailTransport(c);
 };
 /**
  * Delivers every open alert to each eligible, unlocked operator who has not

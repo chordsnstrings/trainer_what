@@ -8,7 +8,7 @@ import {
   type SystemTx,
   type Tx,
 } from "@trainer/db";
-import { ProviderUnavailable } from "@trainer/providers";
+import { emailTransport, ProviderUnavailable } from "@trainer/providers";
 import {
   runtimeConfig,
   strictSecurity,
@@ -48,7 +48,7 @@ export function accountHost(req: FastifyRequest): HostContext {
 export function requireEmailConfiguration() {
   if (
     strictSecurity() &&
-    (!runtimeConfig().EMAIL_API_KEY || !runtimeConfig().EMAIL_API_URL)
+    !emailTransport()
   )
     throw new ProviderUnavailable(
       "email",
