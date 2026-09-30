@@ -533,10 +533,19 @@ test("model decisions send every evidence item and fail closed above the limit",
         accounting,
       );
       assert.equal(sent.length, 1);
+      // Every item is sent, in order, under its short reference; no full ID
+      // leaves the app.
       assert.deepEqual(
         sent[0].evidence.map((e) => e.id),
-        items.map((e) => e.id),
+        items.map((_, i) => `EV${i + 1}`),
       );
+      assert.deepEqual(
+        sent[0].evidence.map((e) => e.data.position),
+        items.map((e) => e.data.position),
+      );
+      for (const item of items)
+        assert.ok(!JSON.stringify(sent[0]).includes(item.id));
+      // A full ID the request showed is still accepted.
       assert.deepEqual(result.decision.evidenceIds, [items[22].id]);
       await assert.rejects(
         modelDecision(
@@ -703,8 +712,15 @@ test("legacy Brain pipeline evaluates every rule, gates publishing and rolls bac
     adversarial = false;
   const evaluator = (input: ModelInput) => {
     if (input.task !== "held_out_evaluation") return coachAnswer(input);
-    const target = input.request.match(/[0-9a-f-]{36}/)?.[0];
-    const cited = input.evidence.find((e) => e.id === target)?.id;
+    // The rule ID in the scenario text reaches the model as its evidence
+    // reference (EV1...), the same one the evidence item carries.
+    const cited = input.evidence.find(
+      (e) => e.id === input.request.match(/\bEV\d+\b/)?.[0],
+    )?.id;
+    const target = rules.find(
+      (r) =>
+        r.data.title === input.evidence.find((e) => e.id === cited)?.data.title,
+    )?.id;
     // adversarial-s2: a malformed answer (0747756c9ea1) used to abort the
     // whole run with 503; a guarantee citing the right rule (fe9282752f76)
     // used to pass.

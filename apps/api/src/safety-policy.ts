@@ -62,7 +62,12 @@ export async function screenForSafety(
 /** The pinned policy data stored on every safety decision record. */
 export function safetyDecisionData(
   decision: Pick<SafetyDecision, "policy"> &
-    Partial<Pick<SafetyDecision, "floor" | "policyTerms" | "reviewCategories">>,
+    Partial<
+      Pick<
+        SafetyDecision,
+        "floor" | "floorCategories" | "policyTerms" | "reviewCategories"
+      >
+    >,
   kind: "hold" | "personal_review",
   now = new Date(),
 ) {
@@ -75,6 +80,7 @@ export function safetyDecisionData(
     reviewDueAt: new Date(now.getTime() + hours * HOUR).toISOString(),
     screening: {
       floor: decision.floor ?? null,
+      floorCategories: decision.floorCategories ?? [],
       policyTerms: decision.policyTerms ?? [],
       reviewCategories: decision.reviewCategories ?? [],
     },

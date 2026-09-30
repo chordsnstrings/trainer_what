@@ -4,6 +4,7 @@ import { ProviderUnavailable } from "@trainer/providers";
 import { executeEmailDelivery } from "./email-delivery.ts";
 import { executePushDelivery } from "./push-delivery.ts";
 import { executeNutritionJob } from "../../api/src/nutrition-schedule.ts";
+import { NUTRITION_WEEK_LEASE_SECONDS } from "../../../packages/providers/src/nutrition.ts";
 import { executeBrainPlanJob } from "../../api/src/brain-plans.ts";
 
 type Handler = (db: Database, tenantId: string, job: any) => Promise<any>;
@@ -33,7 +34,8 @@ const NUTRITION_BACKOFF =
   "now()+least(interval '15 minutes'*power(2,least(greatest(attempts,1),10)-1),interval '6 hours')";
 
 /**
- * Claims one due job with a two-minute lease; the returned row carries the CAS
+ * Claims one due job with a two-minute lease (a weekly meal plan: its model
+ * timeout plus a margin); the returned row carries the CAS
  * token. A suspended workspace claims only critical account and safety emails
  * and transactional money confirmations (payment and refund notices), since
  * billing continues; its other jobs stay pending until reinstatement.
@@ -49,8 +51,10 @@ export async function claimJob(
       [options.criticalEmailOnly === true],
     );
     if (!j) return null;
+    // A weekly meal plan's model call may take longer than two minutes; its
+    // lease covers the call's timeout so no second worker claims it meanwhile.
     const [claimed] = await tx.query(
-      "UPDATE jobs SET leased_until=now()+interval '2 minutes',attempts=attempts+1 WHERE id=$1 RETURNING *",
+      `UPDATE jobs SET leased_until=now()+CASE WHEN kind='nutrition_week' THEN interval '${NUTRITION_WEEK_LEASE_SECONDS} seconds' ELSE interval '2 minutes' END,attempts=attempts+1 WHERE id=$1 RETURNING *`,
       [j.id],
     );
     return claimed;

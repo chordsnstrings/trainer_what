@@ -430,7 +430,10 @@ prompt kind from the run capture and judged the rule-based answers and the app's
   (`requiresHumanReview`), which is the correct outcome. The reviewed replay answer cites the rule
   and the intake and asks the coach to confirm how it applies; in the replay run the trainer sees
   exactly that held reply with its evidence. A scripted reply citing invented evidence is withheld
-  from the member (guardrail step).
+  from the member (guardrail step). Since `coach-decision-v1` (stage 2026-09-29b) the member gets
+  HTTP 200 with the holding reply "Your trainer will review this coaching request." instead of a
+  503, and the trainer gets an open `human_review` item with `cause: model_output_invalid`; the
+  step asserts all three and that no decision carrying the withheld text is stored.
 - Meal photo: the rule responder is not image-aware and "estimated" chicken and rice for a
   flat-colour sample image. The app requires the member to edit and confirm, so nothing enters the
   diary unreviewed, but it cannot detect a hallucinated estimate. The reviewed replay answer

@@ -17,9 +17,10 @@ async function api(path: string, method = "GET", body?: unknown) {
 }
 
 const label = (value: string) => value.replaceAll("_", " ");
+// Phrases are separated by a Latin or an Arabic comma.
 const list = (value: FormDataEntryValue | null) =>
   String(value ?? "")
-    .split(",")
+    .split(/[,\u060C]/)
     .map((s) => s.trim())
     .filter(Boolean);
 const number = (f: FormData, key: string, fallback = 0) =>
@@ -266,6 +267,9 @@ export function CoachingStudio({ path }: { path: string }) {
                   type,
                   requestTerms: list(f.get("requestTerms")),
                   response: f.get("response"),
+                  ...(String(f.get("responseAr") ?? "").trim()
+                    ? { responseAr: f.get("responseAr") }
+                    : {}),
                   rationale: f.get("rationale"),
                   evidenceIds: f.getAll("evidenceIds"),
                   experience: f.getAll("experience"),
@@ -326,7 +330,8 @@ export function CoachingStudio({ path }: { path: string }) {
                 />
                 <small>
                   The request must contain one of these phrases. The model must
-                  still understand and match the client's intent.
+                  still understand and match the client's intent. Add Arabic
+                  phrases too if your clients write in Arabic.
                 </small>
               </Field>
               <Field label="Your approved response">
@@ -337,6 +342,20 @@ export function CoachingStudio({ path }: { path: string }) {
                   maxLength={4000}
                   rows={3}
                 />
+              </Field>
+              <Field label="Arabic reply (optional)">
+                <textarea
+                  name="responseAr"
+                  dir="rtl"
+                  lang="ar"
+                  minLength={10}
+                  maxLength={4000}
+                  rows={3}
+                />
+                <small>
+                  Clients who write in Arabic receive this wording. Without it,
+                  their requests become drafts in Arabic for your review.
+                </small>
               </Field>
               <Field label="Why this action fits">
                 <textarea
@@ -492,8 +511,13 @@ export function CoachingStudio({ path }: { path: string }) {
                 <summary>
                   {a.data.title} · {label(a.data.type)}
                 </summary>
-                <p>{a.data.response}</p>
-                <p className="muted">
+                <p dir="auto">{a.data.response}</p>
+                {a.data.responseAr && (
+                  <p dir="rtl" lang="ar">
+                    {a.data.responseAr}
+                  </p>
+                )}
+                <p className="muted" dir="auto">
                   Request phrases: {a.data.requestTerms.join(", ")}
                 </p>
                 <button
@@ -807,6 +831,14 @@ export function CoachingStudio({ path }: { path: string }) {
                   ? "Qualification is stale — responses require review"
                   : "Trainer review"}
             </p>
+            {!qualified &&
+              active?.data.pin?.promptVersion &&
+              active.data.pin.promptVersion !== data.modelPin.promptVersion && (
+                <p className="muted">
+                  The action selector was updated since your last qualification.
+                  Run a fresh evaluation, then activate again.
+                </p>
+              )}
             <p>
               The model selects among the actions you confirmed. Routine replies
               use your approved wording; code checks program changes, safety,
@@ -821,6 +853,8 @@ export function CoachingStudio({ path }: { path: string }) {
             <dl>
               <dt>Model</dt>
               <dd>{data.modelPin.model ?? "Not configured"}</dd>
+              <dt>Selector version</dt>
+              <dd>{data.modelPin.promptVersion}</dd>
               <dt>Teaching cases</dt>
               <dd>{data.cases.length}</dd>
               <dt>Confirmed actions</dt>
@@ -860,8 +894,13 @@ export function CoachingStudio({ path }: { path: string }) {
                   {e.data.total} passed · {e.status}
                 </summary>
                 {e.data.outcomes.map((o: any) => (
-                  <p key={o.scenarioId}>
-                    {o.passed ? "Passed" : "Needs work"}:{" "}
+                  <p key={o.scenarioId} dir="auto">
+                    {o.passed
+                      ? "Passed"
+                      : o.gate === "reply_language"
+                        ? "Needs an Arabic reply on the matching action"
+                        : "Needs work"}
+                    :{" "}
                     {scenarios.find((s: any) => s.id === o.scenarioId)?.data
                       .prompt ?? "Stored scenario"}
                   </p>

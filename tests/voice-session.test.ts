@@ -221,35 +221,36 @@ test("premium voice needs playback consent; the worker makes the audio ahead of 
   assert.equal(mock.syntheses.length, 0, "nothing is generated in the request");
   const result = await processVoiceSessionAudio(db, coach.tenantId, { limit: 500 });
   assert.equal(result.capped, false);
-  assert.equal(result.generated, 18 + 121);
-  assert.equal(mock.syntheses.length, 139);
+  // 18 session lines and 122 shared clips (numbers 1-100 and 22 phrases, "Time." for timed rounds included).
+  assert.equal(result.generated, 18 + 122);
+  assert.equal(mock.syntheses.length, 140);
   assert.ok(mock.syntheses.every((s) => s.voiceId === "mock-trainer-voice" && s.model === "eleven_multilingual_v2"));
   assert.ok(mock.syntheses.some((s) => s.text === "Set 2 of 3. 8 reps at 60 kilograms. Say done when you finish, or tell me how many reps you did."));
   const view = await ok(`/voice-sessions/${alexSession.id}`, "GET", undefined, alex);
   assert.equal(view.audioStatus, "ready");
-  assert.deepEqual([view.audio.ready, view.audio.total, view.audio.sharedReady], [18, 18, 121]);
-  assert.equal(view.audio.readyKeys.length, 18 + 121);
+  assert.deepEqual([view.audio.ready, view.audio.total, view.audio.sharedReady], [18, 18, 122]);
+  assert.equal(view.audio.readyKeys.length, 18 + 122);
   assert.ok(view.audio.readyKeys.includes("l:intro:0") && view.audio.readyKeys.includes("s:num:8"));
   const usage = await scalar(
     "SELECT count(*)::int AS n,count(*) FILTER (WHERE status='estimated' AND cost_usd=estimated_cost_usd)::int AS estimated,min((pricing->>'reservedCostUsd')::numeric) AS least FROM cost_events WHERE task='voice.session'",
   );
-  assert.equal(usage.n, 139);
+  assert.equal(usage.n, 140);
   // Delivered clips are priced at their reserved estimate when made; the
   // provider invoice can correct them later (docs/features/platform-finance.md).
-  assert.equal(usage.estimated, 139, "delivered clips are priced at their estimate");
+  assert.equal(usage.estimated, 140, "delivered clips are priced at their estimate");
   assert.ok(Number(usage.least) > 0);
   // Cached per session: preparing again neither re-queues nor re-sends.
   await ok("/voice-sessions", "POST", { workoutId: alexWorkout }, alex);
   await processVoiceSessionAudio(db, coach.tenantId, { limit: 500 });
-  assert.equal(mock.syntheses.length, 139);
+  assert.equal(mock.syntheses.length, 140);
   // The runner downloads everything in pages and plays from memory.
   const page = await ok(`/voice-sessions/${alexSession.id}/audio`, "GET", undefined, alex);
   assert.equal(page.type, "audio/mpeg");
-  assert.equal(page.clips.length, 139);
+  assert.equal(page.clips.length, 140);
   assert.equal(page.next, null);
   assert.equal(Buffer.from(page.clips[0].audio, "base64").toString("ascii", 0, 3), "ID3");
   const tail = await ok(`/voice-sessions/${alexSession.id}/audio?after=1num:50`, "GET", undefined, alex);
-  assert.ok(tail.clips.length < 139 && tail.clips.every((c: any) => c.shared));
+  assert.ok(tail.clips.length < 140 && tail.clips.every((c: any) => c.shared));
   // Newly ready clips are fetched by key while the rest is still being made.
   const named = await ok(`/voice-sessions/${alexSession.id}/audio?keys=${encodeURIComponent("l:intro:0,s:num:8,l:not:a:line")}`, "GET", undefined, alex);
   assert.deepEqual(named.clips.map((c: any) => (c.shared ? "s:" : "l:") + c.key).sort(), ["l:intro:0", "s:num:8"]);
@@ -349,7 +350,7 @@ test("the daily voice budget caps generation; the session continues as text and 
   const visible = await db.tenant(bea, (tx) =>
     tx.query("SELECT count(*) FILTER (WHERE user_id IS NULL)::int AS shared,count(*) FILTER (WHERE session_id=$1)::int AS others FROM voice_session_clips", [alexSession.id]),
   );
-  assert.equal(visible[0].shared, 121);
+  assert.equal(visible[0].shared, 122);
   assert.equal(visible[0].others, 0);
   assert.equal((await db.tenant(bea, (tx) => tx.query("SELECT id FROM voice_sessions WHERE id=$1", [alexSession.id]))).length, 0);
 });
@@ -619,6 +620,45 @@ test("Brain wording suggestions are checked and kept for the trainer's review; n
     // Dismissing clears what is left.
     await ok("/voice-sessions/style/suggestions", "DELETE", undefined, coach);
     assert.equal((await ok("/voice-sessions/style", "GET", undefined, coach)).suggestions.encouragement.length, 0);
+    // Model trial, 29 September 2026: a bilingual answer with five warm-up
+    // lines (four are kept) was refused whole. v2 states the keys and limits
+    // and reads the answer leniently; every line is still checked.
+    const system = modelPrompts.at(-1).messages[0].content;
+    assert.match(system, /voice-session-suggestions-v2/);
+    assert.match(system, /At most 4 lines for intro, 4 for warmup, 8 for encouragement, 4 for cooldown and 4 for finish/);
+    // The contract names exactly the five keys, each a list of strings.
+    assert.ok(
+      system.includes('exactly these five keys, each a list of strings, and nothing else (no other keys, no nesting): {"intro": [], "warmup": [], "encouragement": [], "cooldown": [], "finish": []}'),
+      system,
+    );
+    modelReply = {
+      intro: ["Welcome back, let's move gently together.", "أهلاً بك، لنبدأ بهدوء."],
+      warmup: ["Breathe in, and slowly out.", "Let your body wake up gently.", "Settle into an easy rhythm.", "خذي نفساً عميقاً، ثم أخرجيه ببطء.", "دعي جسمك يستيقظ بهدوء."],
+      encouragement: "You're doing beautifully.",
+      feedback: ["Nice form; you're stronger each session."],
+    };
+    const lenient = await ok("/voice-sessions/style/suggestions", "POST", undefined, coach);
+    assert.equal(lenient.suggestions.warmup.length, 4);
+    assert.deepEqual(lenient.suggestions.encouragement, ["You're doing beautifully."]);
+    assert.ok(lenient.suggestions.intro.includes("أهلاً بك، لنبدأ بهدوء."));
+    assert.equal(JSON.stringify(lenient).includes("stronger each session"), false, "unknown keys are dropped");
+    // Model trial, Haiku T1 shape: the kinds under "suggestions" with other
+    // names are read (review 2), and still checked line by line.
+    modelReply = {
+      suggestions: { opening: "Glad you came back today.", coolDown: ["Do 5 more reps"], signOff: "See you next time." },
+      requiresReview: true,
+    };
+    const nested = await ok("/voice-sessions/style/suggestions", "POST", undefined, coach);
+    assert.ok(nested.suggestions.intro.includes("Glad you came back today."));
+    assert.ok(nested.suggestions.finish.includes("See you next time."));
+    assert.equal(nested.suggestions.cooldown.includes("Do 5 more reps"), false, "a line that fails the checks is not kept");
+    assert.ok(nested.rejected.some((r: any) => r.field === "cooldown"));
+    // An answer with none of the kinds (Haiku T3 shape) is still refused.
+    modelReply = { wording: "You are doing great.", script: "Voice cue for workout", emotion: "encouraging" };
+    const refusedAnswer = await request("/voice-sessions/style/suggestions", "POST", undefined, coach);
+    assert.equal(refusedAnswer.statusCode, 502);
+    assert.equal(refusedAnswer.json().code, "MODEL_UNCONFIRMED");
+    await ok("/voice-sessions/style/suggestions", "DELETE", undefined, coach);
   } finally {
     for (const k of ["MODEL_BASE_URL", "MODEL_API_KEY", "MODEL_NAME"])
       if (saved[k] === undefined) delete process.env[k];

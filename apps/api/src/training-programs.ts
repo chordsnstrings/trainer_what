@@ -3,6 +3,7 @@ import { z } from "zod";
 import { event, putRecord, type Actor, type Database, type Tx } from "@trainer/db";
 import { trainingExerciseSchema, trainingProgramSchema, trainingDateSchema, trainingSchedule, effectiveWorkoutSets } from "../../../packages/domain/src/coaching-completion.ts";
 import { lockTraining, assertTrainingOpen } from "./coaching-completion.ts";
+import { workMeasure } from "../../../packages/domain/src/prescription.ts";
 import { hasMemberAccess } from "./entitlements.ts";
 
 const id = z.string().uuid();
@@ -29,9 +30,24 @@ export async function scheduleProgram(tx: Tx, a: Actor, program: any, startDate:
   await event(tx, a, "program.scheduled", program.id, { subscriberId: program.owner_user_id, startDate, timezone, sessions: slots.length });
   return slots.length;
 }
+/**
+ * An exercise after a revision keeps exactly one measure: a substitution (a
+ * whole replacement exercise) brings its own reps, time or distance, and a
+ * load, reps or RIR revision of timed or distance work (a Brain plan's run or
+ * hold) keeps its time or distance and ignores reps.
+ */
+export function revisedExercise(e: any, replacement: any) {
+  const { reps: _r, durationSeconds: _d, distanceMeters: _m, paceSecondsPerKm: _p, effort: _e, ...rest } = e;
+  if (typeof replacement?.name === "string") return { ...rest, ...replacement };
+  if (workMeasure(e) !== "reps") {
+    const { reps: _ignored, ...kept } = replacement ?? {};
+    return { ...e, ...kept };
+  }
+  return { ...e, ...replacement };
+}
 export async function reviseExercise(tx: Tx, a: Actor, program: any, exercise: string, replacement: any, note: string, decisionId?: string) {
   if (!program.data.exercises.some((e: any) => e.name === exercise) && !(program.data.sessions ?? []).some((s: any) => s.exercises.some((e: any) => e.name === exercise))) throw fail(400, "This exercise is not in the assigned program");
-  const replace = (items: any[]) => items.map((e) => e.name === exercise ? { ...e, ...replacement } : e);
+  const replace = (items: any[]) => items.map((e) => e.name === exercise ? revisedExercise(e, replacement) : e);
   const next = await putRecord(tx, a, "program", { ...program.data, exercises: replace(program.data.exercises), ...(program.data.sessions ? { sessions: program.data.sessions.map((s: any) => ({ ...s, exercises: replace(s.exercises) })) } : {}), previousProgramId: program.id, revisionNote: note, sourceDecisionId: decisionId ?? null }, { ownerId: program.owner_user_id, status: "assigned" });
   await tx.query("UPDATE records SET status='archived',version=version+1,updated_at=now() WHERE id=$1", [program.id]);
   const future = await tx.query("SELECT * FROM records WHERE kind='planned_session' AND owner_user_id=$1 AND status='planned' AND data->>'programId'=$2", [program.owner_user_id, program.id]);

@@ -76,6 +76,13 @@ const saved = Object.fromEntries(
   Object.keys(settings).map((key) => [key, process.env[key]]),
 );
 
+/**
+ * Response text without ISO timestamps: a price pattern such as /20\.18/ also
+ * matches the seconds of a time written at hh:mm:20.18x (CI failed this way).
+ */
+const withoutTimestamps = (text: string) =>
+  text.replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/g, "<time>");
+
 /** Stripe double: records every call; idempotency keys replay. */
 class FakeStripe {
   calls: Array<{ method: string; params: any; key?: string }> = [];
@@ -2067,7 +2074,10 @@ test("a premium name within USD 100 is bought and renewed at its checked premium
   const trainerView = await request(`/web-address/orders/${o.id}`, {
     cookie: owner.cookie,
   });
-  assert.doesNotMatch(trainerView.body, /55\.00|60\.00|premium|registerUsd/i);
+  assert.doesNotMatch(
+    withoutTimestamps(trainerView.body),
+    /55\.00|60\.00|premium|registerUsd/i,
+  );
   await activate(owner.tenantId, o.id);
   assert.deepEqual(
     mock
@@ -2386,9 +2396,12 @@ test("trainer-facing finance never carries the registrar's cost; operators still
   assert.equal(trainer.accounts.registrar_cost, undefined);
 });
 
-test("a registration cost that rose after payment is held for an operator; Retry buys at that cost", async () => {
+test("a registration cost that rose after payment is held for an operator; Retry buys at that cost", async (t) => {
   const nadia = omar;
   const saved = { ...mock.prices.com };
+  t.after(() => {
+    mock.prices.com = saved;
+  });
   const o = await buy(nadia, "nadia-strength.com");
   // The first-year promotion ends while the order waits: 20.18 is USD 29.99
   // under the rule, above the USD 19.99 the trainer paid.
@@ -2409,7 +2422,10 @@ test("a registration cost that rose after payment is held for an operator; Retry
     cookie: nadia.cookie,
   });
   assert.equal(view.json().needsReview, true);
-  assert.doesNotMatch(view.body, /20\.18|10\.46|registrar|namecheap/i);
+  assert.doesNotMatch(
+    withoutTimestamps(view.body),
+    /20\.18|10\.46|registrar|namecheap/i,
+  );
   // The operator accepts the cost with Retry; the name is bought once.
   const retry = await request(`/admin/web-addresses/${o.id}/retry`, {
     method: "POST",
@@ -2423,7 +2439,7 @@ test("a registration cost that rose after payment is held for an operator; Retry
   // The workspace's own event list never carries the registrar's cost.
   const boot = (await request("/bootstrap", { cookie: nadia.cookie })).json();
   assert.doesNotMatch(
-    JSON.stringify(boot.events),
+    withoutTimestamps(JSON.stringify(boot.events)),
     /20\.18|10\.46|acceptedCost|priceHold/,
   );
   row = await step(nadia.tenantId, o.id);
@@ -2437,9 +2453,12 @@ test("a registration cost that rose after payment is held for an operator; Retry
   mock.prices.com = saved;
 });
 
-test("a registrar charge above what the trainer's price covers is flagged for operators, never shown to the trainer", async () => {
+test("a registrar charge above what the trainer's price covers is flagged for operators, never shown to the trainer", async (t) => {
   const rana = sara;
   const saved = { ...mock.prices.com };
+  t.after(() => {
+    mock.prices.com = saved;
+  });
   const o = await buy(rana, "rana-fit.com");
   // The price moves between the check before buying and the purchase itself.
   const held = holdNext("domains.create");
@@ -2467,7 +2486,7 @@ test("a registrar charge above what the trainer's price covers is flagged for op
   const view = await request("/web-address/orders/" + o.id, {
     cookie: rana.cookie,
   });
-  assert.doesNotMatch(view.body, /20\.18|cost/i);
+  assert.doesNotMatch(withoutTimestamps(view.body), /20\.18|cost/i);
   // Retry acknowledges it.
   await request(`/admin/web-addresses/${o.id}/retry`, {
     method: "POST",
@@ -2480,10 +2499,13 @@ test("a registrar charge above what the trainer's price covers is flagged for op
   );
 });
 
-test("a renewal cost rise is flagged two months ahead and when charged; the domain still renews", async () => {
+test("a renewal cost rise is flagged two months ahead and when charged; the domain still renews", async (t) => {
   // (Each owner may start 10 checkouts in 10 minutes.)
   const hala = layla;
   const saved = { ...mock.prices.com };
+  t.after(() => {
+    mock.prices.com = saved;
+  });
   const o = await buy(hala, "hala-coach.com");
   let row = await step(hala.tenantId, o.id);
   for (let i = 0; i < 8 && row.status !== "active"; i++)

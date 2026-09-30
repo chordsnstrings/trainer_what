@@ -10,7 +10,7 @@ import {
   type Tx,
 } from "@trainer/db";
 import { setSchema } from "@trainer/contracts";
-import { modelDecision } from "@trainer/providers";
+import { modelDecision, ModelOutputInvalid } from "@trainer/providers";
 import { currentClientTwin } from "./client-twin.ts";
 import { modelAccounting } from "./model-accounting.ts";
 import { hasMemberAccess } from "./entitlements.ts";
@@ -812,12 +812,44 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
       { id: material.intake!.id, data: material.intake!.data },
       ...material.release!.data.rules,
     ];
-    const generated = await modelDecision(
-      "coaching",
-      b.message,
-      evidence,
-      modelAccounting(db, a, "coaching"),
-    );
+    let generated: Awaited<ReturnType<typeof modelDecision>>;
+    try {
+      generated = await modelDecision(
+        "coaching",
+        b.message,
+        evidence,
+        modelAccounting(db, a, "coaching"),
+      );
+    } catch (error) {
+      if (!(error instanceof ModelOutputInvalid)) throw error;
+      // The draft was withheld (an invented type, a missing field, an
+      // identifier it was not shown). The question goes to the trainer as a
+      // review item and the member gets the holding reply, never an error or
+      // the model's output. Provider usage stays recorded.
+      return db.tenant(a, async (tx) => {
+        await lockTraining(tx, a);
+        const item = await putPrivateRecord(
+          tx,
+          a,
+          "exception",
+          {
+            category: "human_review",
+            subscriberId: a.userId,
+            description: b.message,
+            cause: "model_output_invalid",
+            brainVersionId: material.release!.id,
+          },
+          { ownerId: a.userId, status: "open" },
+        );
+        await event(tx, a, "coaching.review_required", item.id, {
+          cause: "model_output_invalid",
+        });
+        return {
+          pendingReview: true,
+          message: "Your trainer will review this coaching request.",
+        };
+      });
+    }
     return db.tenant(a, async (tx) => {
       await lockTraining(tx, a);
       await activeMembership(tx, a);
@@ -851,6 +883,7 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
         "decision",
         {
           ...generated.decision,
+          promptVersion: generated.promptVersion,
           request: b.message,
           brainVersionId: material.release!.id,
           clientSnapshotId: material.twin!.id,

@@ -33,6 +33,9 @@ export type WorkoutQueueItem = {
     reps: number;
     loadKg: number;
     rir?: number;
+    /** A round of timed or distance work: what was done (reps 0). */
+    durationSeconds?: number;
+    distanceMeters?: number;
     notes?: string;
   };
 };

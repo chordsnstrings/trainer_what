@@ -17,6 +17,11 @@ off with Cartesia (it cannot be requested); the member's transcription consent n
 provider (`gate.speechProvider`) and says whose retention terms apply; speech is sent with the
 text's language, not the voice's recording language.
 
+Update 29 September 2026 (branch `core/fix-voice`, base `core/fix-refs`): talk-back and language
+fixes after the first live run of the whole chain against Cartesia (a real Quick clone, cues in
+English and Arabic, spoken replies through ink-whisper, the parser and the runner). See "Talk-back
+and language (29 September 2026)" below.
+
 ## Plan (written before implementation)
 
 Today a member can only ask for one fixed sentence per exercise in the trainer's voice
@@ -83,7 +88,8 @@ optional on-device speech commands).
   false): the voice coach keeps the plan until the trainer opts in and saves a style version.
 - Brain wording suggestions (owner rule "hand it to the trainer when not confident"): the
   trainer asks the Brain for lines (`POST /voice-sessions/style/suggestions`, prompt
-  `voice-session-suggestions-v1`, accounted as `voice_session_suggestions`). The prompt carries
+  `voice-session-suggestions-v2` since 29 September 2026, accounted as
+  `voice_session_suggestions`). The prompt carries
   the tone, the trainer's phrases and the published `communication` rules only: no exercises
   (technique stays the trainer's own words), no member data, no numbers. Returned lines are
   checked with `phraseIssues`; the passing ones are stored as pending suggestions on the style
@@ -96,8 +102,10 @@ optional on-device speech commands).
 
 - `parseVoiceCommand` maps a reply to `done`, `reps n` (digits, English number words, Arabic
   digits and basic Arabic words), `too_heavy`, `too_easy`, `pause`, `resume`, `ack`, `skip`,
-  `repeat`, `pain` or `unknown`. Pain and red flags (`safetySignal`, which honours routine
-  negations such as "no pain") always win. Only explicit completion words (done, finished,
+  `repeat`, `not_done` (since 29 September 2026), `pain` or `unknown`. Pain and red flags
+  (`safetySignal`, which honours routine negations such as "no pain"; see
+  `docs/features/safety-floor.md` for the readings and combinations it also holds, such as
+  "my knee gave way" or a blood-sugar reading of 65) always win. Only explicit completion words (done, finished,
   complete, that's it, تم, خلصت...) or a rep count log a set; "okay", "yes", "sure" are `ack`
   and "go", "ready", "next", "let's go" are `resume`, which never log a set (during a set they
   get a "say done when you finish" hint; `ack` never skips a rest or resumes a pause). Negated
@@ -120,6 +128,22 @@ optional on-device speech commands).
   follows the trainer's rule; pain stops from any phase; the plan's set count is never
   exceeded. "Too heavy" in the rest after an exercise's final set is noted for the trainer
   (`too_heavy_kept`) and never changes the finished or the next exercise.
+
+- **Timed and distance work** (29 September 2026, `core/fix-plans`; see
+  `docs/features/brain-plans.md` "Model trial fixes"): a plan exercise with `durationSeconds` or
+  `distanceMeters` (sets are rounds) is voiced as rounds. `planExercises` accepts it without reps
+  (reps 0), the setup line says "3 rounds of 30 seconds, hard effort" (or "20 minutes, easy
+  effort" for one continuous bout, with a pace when given) and each round line says "Round 2 of 3.
+  30 seconds. The clock starts now. Say done if you stop early." The runner starts the round's
+  clock (`workLeft`) when that prompt has been spoken, cues "Ten seconds." (rounds of 20 s or
+  more) and "Three. Two. One.", then plays the shared clip "Time." (`time_up`, new) and logs the
+  round (`log_set` with `reps: 0` and `durationSeconds`), then rests or moves on (no rest after a
+  continuous bout). "Done" ends a round early and logs the seconds it lasted; a pause stops the
+  clock and "resume" carries on from where it stopped ("Resuming. Go."). A distance round waits
+  for "done" (a spoken number is not reps there) and logs `distanceMeters`. The on-screen status
+  shows the time left. `scriptIssues` also compares duration, distance, pace and effort; rep lines
+  are unchanged, so `voice-session-script-v1` stays and stored scripts remain valid. The shared
+  clip set is now 122 (numbers 1–100 and 22 phrases).
 
 ### Data (migration `065_voice_sessions.sql`)
 
@@ -161,7 +185,7 @@ Member routes (the member's own scope; no elevation):
 | `GET /api/v1/voice-sessions/:id` | Session view with gate, audio progress (`readyKeys`), `stale` (checked against the current plan) and `runnable` (current and ready or running) |
 | `GET /api/v1/voice-sessions/:id/audio?after=` or `?keys=l:…,s:…` | Ready audio by key order in pages of about 1.5 MB (base64), or up to 60 named clips as they become ready; sizes are read first and audio only for the chosen page; re-checks premium, playback consent, verified voice version and holds; `private,no-store` |
 | `POST /api/v1/voice-sessions/:id/utterance` `{transcript}` | Parse a device transcript and re-screen it with the trainer's published safety policy; a red flag or pain opens the existing training hold and stops the session |
-| `POST /api/v1/voice-sessions/:id/transcribe` `{audio, type, durationMs}` | Server speech-to-text for one short chunk (webm, ogg, mp4, mpeg or wav; at most 500 KB; 40 per minute); needs premium voice, transcription consent and budget; the cost is reserved at the larger of the declared duration and a byte-derived upper bound (exact for PCM WAV headers, otherwise the bytes at a 6 kbit/s floor), so a long clip declared short cannot slip under the cap; the provider's timing (last word end) is written to a `voice_session.transcribed` audit event and any excess is reserved as a supplement row; the audio is held in memory only and zeroed after the call; same parse and screening as above |
+| `POST /api/v1/voice-sessions/:id/transcribe` `{audio, type, durationMs, language?}` | Server speech-to-text for one short chunk (webm, ogg, mp4, mpeg or wav; at most 500 KB; 40 per minute); needs premium voice, transcription consent and budget; the cost is reserved at the larger of the declared duration and a byte-derived upper bound (exact for PCM WAV headers, otherwise the bytes at a 6 kbit/s floor), so a long clip declared short cannot slip under the cap; the provider's timing (last word end) is written to a `voice_session.transcribed` audit event and any excess is reserved as a supplement row; the audio is held in memory only and zeroed after the call; same parse and screening as above. `language` (`en` or `ar`) is the reply language the member chose on the runner (default: their saved language); with Cartesia the reply is also read in the other language, each reading with its own cost row, and pain in either stops the session (29 September 2026) |
 | `POST /api/v1/voice-sessions/:id/events` `{status?, outcomes[]}` | Append runner outcomes (adjustments validated against the script's rule), mark running/completed/stopped (running needs a bound workout) |
 | `POST /api/v1/voice-sessions/consent` `{playback?, transcription?}` | Record consent; withdrawing playback revokes the member's stored clips and turns sessions to text |
 
@@ -287,6 +311,406 @@ Declined: the optional "at least 3 s before a bare done logs" rule. The set cloc
 the set announcement, which lasts longer than 3 s, so the rule would add nothing beyond the
 echo guard, and the Done button must work at once.
 
+## Talk-back and language (29 September 2026)
+
+Branch `core/fix-voice` (base `core/fix-refs`). What the app did before this, what it does now,
+and what it still cannot do. The live run behind it is in "Live check of the whole chain" below.
+
+### Spoken replies (`packages/domain/src/voice-runner.ts`)
+
+Found by reading the chain and by the live transcripts:
+
+- "I didn't do the last one" logged a set of **1 rep** (the pronoun "one" was read as a count),
+  and so did "the last one was too heavy", "that one was easy", "next one", "done with this one"
+  and "one more". "One" is now a count only on its own or after a word that reports a count
+  ("just one", "that was one"), never after "the/this/that/last/next/..." or before
+  "more/of/moment/...".
+- A negated completion was read as a completion: "I didn't finish that set", "not done yet",
+  "I'm not done", "ما خلصت" (I haven't finished) all **logged the set**. Negated completions
+  never complete a set now.
+- New command `not_done` for a set the member says was not done, in the past tense: "I didn't
+  do the last one", "I couldn't do it", "I missed the last one", "I missed 3 reps", "لم أكمل
+  المجموعة الأخيرة", "لم أقم بالمجموعة الأخيرة", "لم أستطع إكمال المجموعة", "لم أتمكن من
+  إكمالها", "لم أقدر على إكمالها", "ما استطعت", "ما سويتها", "ما سويت الأخيرة", "ما خلصتها",
+  "ما قدرت أكملها". `previous` is set when the reply points back ("last", "previous",
+  "الأخيرة", "السابقة", "اللي فاتت"), but not for "the last two reps", "the last few" or "the
+  last reps", which are reps of the set, not an earlier set ("the last one" and "the last 2
+  sets" still point back); `heavy` when it also says too heavy. Still-going forms ("not done
+  yet", "almost there", "لسا ما خلصت", "لم أنته بعد") are an acknowledgement: never logged,
+  never reported. Gulf present "ما اقدر اكمل" (I can't finish) stays a load complaint.
+- A number inside a negated clause is never a rep count (review of this branch): "I didn't do
+  the last 2 reps", "I couldn't do the last two reps", "couldn't finish the last 3", "I did not
+  complete 10", "ما سويت آخر ثنتين", "ما قدرت اكمل آخر ثلاث" each **logged a set** with the
+  number the member did not do. The clause (the negated verb and what it governs, up to
+  punctuation or a word that starts what was done instead: "but", "only", "just", "did", "بس",
+  "لكن", "سويت"...) is removed before the count is read, so these are `not_done`, "I can't do
+  10" earns the help line, "ما اقدر اكمل ثلاث" is too heavy and "I haven't finished 8 yet" is
+  an acknowledgement; a count said after the clause is still logged as said ("I didn't finish,
+  did 6", "I didn't do 8, only 6", "ما قدرت اكمل بس سويت ست" log 6).
+- Arabic coverage, Modern Standard and Gulf: completion (أنهيت، أكملت، كملت، خلصتها، خلصنا،
+  تمت، سويتها), counts (MSA teens "اثنا عشر", "ثلاثة عشر"; unit-and-tens "خمسة وعشرون"; tens
+  60-90 and the -ون forms; Gulf one-word teens "اثنعش", "خمسطعش"...; a joined "و"/"ب" as in
+  "بثماني"), effort ("تقيل", "ما اقدر ارفعه", negated "مو ثقيل وايد"), pause ("استنى",
+  "اصبر", "مهلا"), repeat ("مرة ثانية", "شنو", "وش", "ما سمعتك"), carry on ("نكمل", "هيا",
+  "التالي" alone, like English "next"), skip ("التمرين التالي", "نتخطى", "طوفها") and
+  acknowledgements ("زين", "ماشي", "حاضر", "إن شاء الله"). Before, "التالي" skipped the set
+  (English "next" only carried on) and "اثنا عشر" logged 10, "ثلاثة عشر" logged 3.
+- Pain: MSA "أشعر بدوار" (I feel dizzy) was not a stop before; the runner's own stop list now
+  adds dizziness (دوار), nausea and vomiting (غثيان، أستفرغ، throw up, vomit), spasm and cramp,
+  "something is wrong" (في شي غلط) and "I am not well" in the first person ("I'm not okay",
+  "I don't feel well", "انا مو زين", "ماني زين", "مو بخير", "احس اني مو زين"). This list only adds
+  stops; the code floor (`safetySignal`) and the trainer's policy are unchanged. "الوزن مو زين"
+  (the weight is not good) is not a stop. "انا مو تمام", "ماني تمام" and "احس اني مو تمام" (I'm
+  not okay) stop the session like "I'm not okay" (review of this branch: they were
+  acknowledgements).
+- A negated acknowledgement is not one: "مو زين", "مب زين", "مو تمام", "not okay", "not fine",
+  "I'm not sure" earn the help line, which names pain. Before the review the new Arabic
+  acknowledgement words made "مو زين" (not good) a silent acknowledgement, where it had been
+  unknown before this branch.
+- "Thank you" (and "شكراً", "يعطيك العافية") is an acknowledgement: polite, and also what the
+  speech model returned for a reply it could not read ("Thank you." for Arabic "ثمان تكرارات"
+  read as English), so it never earns the help line.
+
+Review round 2 of this branch (same day):
+
+- A negated or hedged completion logged the set at the full target. This branch had added "did
+  it", "made it" and "nailed it" as completion words, so "I never made it", "I almost made it",
+  "I nearly made it", "I never did it", "I almost did it", "I never nailed it" and "not quite made
+  it" each **logged the set** (on the base they were the help line). The same happened with words
+  that were completions before this branch: "it wasn't done", "wasn't finished", "nowhere near
+  done", "nearly done", "ما تم", "ما تمت", "ما انجزت", "مو خلاص". Now past-tense forms ("never
+  did/made/nailed", "almost/nearly/not quite made/did", "wasn't done", "didn't get it done", "لم
+  يتم", "ما انجزتها") are `not_done`, and any completion word after a negation in the same clause
+  (no punctuation between, at most three English or two Arabic filler words such as "it", "quite",
+  "بعد") is not a completion: the reply is a still-going acknowledgement ("I haven't made it",
+  "nearly done", "ما تم", "مو خلاص"). Arabic "لا" does not negate a completion ("لا خلصت" is "no,
+  I finished"). "Did it", "made it", "nailed it", "barely made it", "ما شاء الله خلصت" and "ما في
+  ألم خلصت" still complete the set.
+- A negated request to carry on moved the session on. This branch had added "مستعد", "جاهزه",
+  "نكمل", "هيا" and "التالي" to the carry-on words without negation, so "مو مستعد", "لست مستعدة",
+  "مب جاهزه", "ما ني مستعد", "ما نكمل", "ما ابي نكمل" and "هيا لا" **resumed**: in a rest the
+  next set started at once, in the set-up set 1 started. The English forms ("I'm not ready", "I
+  can't continue", "I can't go on", "don't start yet", "I don't want to continue") resumed on the
+  base too, and "don't skip" and "I'm not ready for the next exercise" skipped. A carry-on or skip
+  word after a negation in the same clause (English negations, and Arabic "ما/مو/مب/مش/لست/ماني/
+  ليس/غير"; "لا" and "لن" only before a verb: "لا تبدا", "لن أكمل", "لا تتخطى"), or followed by a
+  final "no"/"لا" ("ready? no", "هيا لا"), is now a **pause**: the rest clock stops and nothing
+  starts until the member says to carry on. Gulf "ما اكمل" (I'm not carrying on) was a silent
+  acknowledgement and is now a pause; "ما اقدر اكمل" stays a load complaint. "What's next" in
+  Arabic ("ما التالي") repeats the prompt, like English "what's next".
+- "آخر وحدة" / "آخر واحدة" (the last one, the usual Gulf and MSA form) did not point back, so in a
+  set "ما سويت آخر وحدة" named the current, unlogged set instead of the set just logged, and the
+  member was not told to correct the log. "آخر" now points back, except before a rep number or
+  "تكرار" ("آخر ثنتين", "آخر تكرارين"), which are reps of the set, and "التكرارات الأخيرة" no
+  longer points back either. "واحد/واحدة" after "آخر", "هذي", "هذا", "كل", "نفس"... or before
+  "ثانية", "كمان"... is a pronoun, not a count: "آخر واحدة كانت ثقيلة" and "هذي واحدة صعبة"
+  logged **a set of 1 rep** (on the base too; the Arabic of "the last one was too heavy") and are
+  now too heavy; "آخر واحدة ما سويتها" logged 1 rep and is now `not_done` pointing back. A number
+  after "last", "first", "آخر" or "أول" is never a count ("the last two were hard" logged 2 reps,
+  "the first 5 were easy" logged 5).
+
+### "Not done" in the runner
+
+`not_done` never logs, never skips and never moves the session on. The runner says "Noted. Your
+trainer will review it." (the existing shared clip) and records the outcome `not_done` with the
+set it is about: the set just finished during a rest or the cool-down; the set before the current
+one when the reply points back ("the last one" during set 2 is set 1); otherwise the current set.
+The outcome says whether the runner had logged that set (`logged`). A logged set stays logged:
+the page tells the member to correct it on the workout log (`POST /workouts/:id/sets/:eventId/correct`
+already exists) and the trainer sees "not done to review" in Recent voice sessions. With "too
+heavy" in the same reply the load rule applies as for "too heavy". Before the session starts it
+does nothing; while paused it is noted and the pause holds. The events route accepts `not_done`
+and `logged` (`outcomeSchema`).
+
+### Which language each line is spoken in
+
+- Before, every session line, shared phrase and guided segment was sent to Cartesia with
+  `language: "en"` (the worker passed no `textLanguage`), including the trainer's Arabic phrases
+  and Arabic plan cues. `generateTrainerVoice` now sends the line's own language when the caller
+  does not fix it (`speechLanguage`, `packages/domain/src/speech-language.ts`: Arabic when a line
+  has more Arabic than Latin letters). The preview line still fixes English.
+- Code-owned lines (setup, set, rest, rest over, the safety line) and the shared clips are
+  English templates and are always sent as English (`lineLanguage`), even when an exercise name
+  in them is Arabic. Review of this branch: "Last exercise: تمرين الضغط على الأرض مع رفع القدمين.
+  3 sets of 12 reps." has more Arabic than Latin letters and was sent as Arabic, template and
+  numbers included. The worker passes the language (`textLanguage`) for every clip. A guided
+  segment's language is decided without its exercise name (`guidedSegmentLanguage`): English
+  unless the trainer's cue in it outweighs the template.
+- The clip fingerprint (session clips) and the guided-audio fingerprint take the language the
+  line is sent in and include it when it is not English, so audio made the old way is never
+  reused; a code line with an Arabic exercise name keeps its old (English) fingerprint.
+- A bilingual trainer's phrases follow the member's language: `buildSessionScript` takes the
+  member's saved language (`notification_preferences.data.language`, read when a session is
+  prepared) and uses the trainer's phrases of each kind in that language first; phrases in the
+  other language are used only when the trainer wrote none of that kind in it. Before, an English
+  member heard the trainer's English and Arabic intro lines back to back and encouragement
+  alternated between the languages. The plan cue is the trainer's own and is spoken to everyone.
+  Stored scripts stay valid (`voice-session-script-v1` unchanged; `scriptIssues` does not check
+  the choice).
+
+### Speech-to-text in two languages (Cartesia)
+
+Cartesia's batch ink-whisper is told the language and cannot detect it. Live, a reply in the
+other language came back as unrelated words: English "Pain." read as Arabic was "أمي", "My knee
+hurts." was "أمي أمي", Arabic "ألم" read as English was "I", "يعورني ظهري" was "Ia ur ni vahri".
+So a member whose saved language was English and who reported pain in Arabic (or the reverse,
+including the English word "pain" the safety line asks for) was **not stopped**. Now:
+
+- With Cartesia the transcribe route reads each reply twice, in the member's reply language and
+  in the other language, in parallel (each reading reserves and prices its own
+  `voice.transcription` row; the second carries `screening: true`; the budget check covers
+  both). ElevenLabs detects the language itself and is read once.
+- Every reading is screened (trainer policy and code floor, `heldByScreen`): pain in either
+  opens the hold and stops the session.
+- Otherwise the reply-language reading is acted on, or the other reading when only that one was
+  understood (`replyTranscript`: the first reading was unknown or a bare acknowledgement).
+- When the reply-language reading fails and the other succeeds (review of this branch), the
+  other reading is screened for pain (and opens the hold when flagged) but never acted on: the
+  route answers 502 `SPEECH_UNCONFIRMED` and the member says it again, as when every reading
+  fails. Before the review it acted on the other reading, which for speech in the reply
+  language is often unrelated words ("It wasn't the gay light." for Gulf "too heavy"). The
+  failed reading's cost row stays `unknown` (it was sent); the other is `estimated`. A failed
+  screening reading changes nothing: the reply reading is used.
+- The runner has "I reply in" (the app's language, English or العربية), kept per device; it sets
+  the on-device recognition language (`ar-AE`/`en-US`) and is sent as `language` to the
+  transcribe route.
+
+Replaying the 18 live cross-language readings through this rule: all 8 pain reports stop the
+session (4 were missed before) and 5 more replies are understood. The one conflict left: Gulf
+"الوزن ثقيل وايد" read as English was "It wasn't the gay light." (too easy); with English as the
+reply language the English reading wins and it is only noted as "too easy" (no load change).
+Choosing Arabic on the runner reads it correctly.
+
+### Brain wording suggestions
+
+In the model trial the voice wording call was refused as "not in the expected form" for Claude
+Opus 5.5 and Sonnet 5 on the bilingual trainer (five warm-up lines where four are kept; the
+prompt never said four) and for Claude Haiku 4.5 on all three trainers (one line as a plain
+string; other key names). Prompt `voice-session-suggestions-v2` states the exact keys, that each
+is a list, the per-kind limits (4, 4, 8, 4, 4; `SUGGESTION_LIMITS`) and English or Arabic
+following the trainer's phrases. `readVoiceSuggestions` reads leniently: a kind may be a list or
+one line; lines past a kind's limit, non-text items and unknown keys are dropped; an answer with
+none of the kinds is still refused. Every line still goes through `checkedSuggestions` and the
+trainer's review; nothing is spoken until the trainer saves it. With the trial's raw answers
+(regression tests): Opus and Sonnet T2 are accepted with Arabic lines; Haiku T2 gives four
+lines. The payload carries no IDs, so no short references (`prompt-refs`) are needed here.
+
+Review round 2: Haiku T1 put the kinds under `suggestions` with other names ("opening", "warmUp",
+"coolDown", "signOff"). The reader now also takes a known other name of a kind (compared without
+case, spaces, dashes or underscores: opening/welcome/greeting for intro, sign-off/closing/farewell
+for finish, warm-up, cool-down, encouragements) and, only when the top level has no kind, the
+kinds one level down under `suggestions`. Haiku T1 is now read (all five kinds, six lines; none
+fails the checks). Haiku T3 (`{"wording", "script", "emotion"}`: one line with no kind) is
+still refused, because reading a kind from it would be a guess. The prompt contract (the five keys, each a list, and the
+limits 4/4/8/4/4) is pinned by `tests/voice-session.test.ts` on the system prompt actually sent.
+Not done: the three Haiku voice wording tasks were **not re-run** against v2 (this worktree has no
+model provider configured), so whether Haiku now follows the stated keys is unverified; only its
+recorded T1 and T2 answers are known to be read. The call still sends `response_format: {type:
+"json_object"}`, not a JSON schema: no model call in the app sends a schema (they all send
+`json_object` to an OpenAI-compatible endpoint), and schema support differs by provider (one that
+refuses the parameter would fail the call outright); the lenient reader, the line checks and the
+trainer's review already cover a wrong shape.
+
+### Live check of the whole chain (29 September 2026)
+
+A scratchpad script (not in the repository) ran the app's own functions from this worktree
+against api.cartesia.ai: `generateTrainerVoice`, `transcribeSpeech`, `CartesiaClient.cloneVoice`
+through `cartesiaVoiceClient(voiceContract())`, `checkSample`, `buildSessionScript`,
+`parseVoiceCommand`, `heardReply` and `stepRunner`. It ran under `node --test` so the app's test
+transport hook could send the requests through this sandbox's HTTPS proxy (`providerRequest`
+pins DNS and connects directly, which the sandbox does not allow); everything above the transport
+was the app's code. Model `sonic-3.6`, API version `2026-08-14`, key read from a file and never
+printed. Rates used for estimates: text to speech about 1 credit per character, batch
+speech-to-text 1 credit per 2 seconds (Cartesia's credits page); 5 USD per 100,000 credits (Pro
+plan) and 49 USD per 1,250,000 (Startup).
+
+| Step | Latency | Billed | Result |
+| --- | --- | --- | --- |
+| Sample, stock voice "Skylar" (273 characters) | 2.1 s | 273 credits | 15.1 s MP3; passes the app's Quick clone recording check |
+| Quick clone (`POST /voices/clone`, name `trainsyou-<uuid>`, `en`) | 3.4 s | not shown by the API | voice made; the name look-up found it 95 ms later |
+| Cue EN: setup line (62) / set line (95) / countdown "Three. Two. One." (16) | 1.4 / 1.3 / 0.5 s | 173 | 5.9 / 6.6 / 2.4 s of audio in the clone |
+| Cue AR: intro phrase (21) / plan cue (35) / encouragement (14), sent as `ar` | 0.4-0.5 s | 70 | 2.2 / 3.3 / 2.0 s; read back as Arabic almost word for word |
+| The Arabic plan cue sent as `en` (the old behaviour) | 0.6 s | 35 | read back with "ذهركي" for "ظهرك" |
+| Talk-back, stock voices "Daniel" (en) and "Raed" (ar), 6 replies | 0.3-0.6 s each | 118 | "Done. 8 reps.", "That was too heavy.", "I didn't do the last one.", "خلصت سويت ثمان", "الوزن ثقيل وايد", "لم أكمل المجموعة الأخيرة": every one transcribed exactly and parsed to reps 8, too heavy, not done (English), reps 8, too heavy, not done (Arabic) |
+| ink-whisper, 10 readings | 0.19-0.38 s each | 21.8 s of audio | the same Gulf reply read as English: "It wasn't the gay light." |
+| Runner, English and Arabic members | - | - | set 1 logged with 8 reps at 60 kg; too heavy lowered set 2 to 54 kg (trainer rule 10%); not done noted for set 1 with `logged: true`, nothing logged; after the rest, set 2 announced at 54 kg |
+| Delete the clone, then the name look-up | 1.2 s | - | deleted; look-up empty |
+
+Totals: 669 characters and 21.8 s of transcription, about 680 credits: 0.034 USD at the Pro plan
+rate (0.027 at Startup). A first attempt stopped before sending the clone request (the script's
+own clone description had a semicolon, which the app's form check refuses) after one 273-character
+sample. A second scratchpad script then read 9 replies in both languages and 4 Arabic lines in an
+English stock voice with `ar` and `en` (345 characters, 26 readings): with `en` the English voice
+said "مستكيماً" for "مستقيماً" and "الحسل" for "الحصة"; with `ar` every line came back correctly.
+`GET /usage/credits` answered 401 (it needs an admin key), so the credits are estimates.
+
+Timing: the countdown clip lasts 2.35 s. It starts when three seconds of rest are left, so the
+counts land about 0.8 s apart and it ends about 0.6 s before the rest does. Left as is.
+
+### Music under the cues: sunoapi.org probe (not built)
+
+The app has no music. One instrumental track was generated through sunoapi.org's documented API
+from a scratchpad script (no app code; key read from a file, never printed): `POST
+/api/v1/generate` with `customMode: true`, `instrumental: true`, `model: "V6"`, a style of "upbeat
+electronic workout music, 128 bpm ...", `negativeTags` "vocals, singing, spoken word, slow tempo",
+`duration: 60` and the required `callBackUrl` (an example.com address; the task was polled with
+`GET /api/v1/generate/record-info`).
+
+| Measure | Result |
+| --- | --- |
+| Request accepted | 162 ms, one task id |
+| Ready (`SUCCESS`, polled every 5 s) | 45 s after the request; `FIRST_SUCCESS` was not seen between polls |
+| Output | two variations of the one request, model `chirp-hawk`: 73.2 s (1.7 MB) and 59.0 s (1.4 MB) MP3, 60 s asked for; files on `tempfile.aiquickdraw.com` (the docs say files are kept 14 days) |
+| Credits | 2,965.6 before, 2,953.6 after: 12 credits for the request, 0.06 USD at the published 5 USD per 1,000 or 50 USD per 10,000 credits |
+
+What integrating it would take:
+
+- **Terms first (owner decision).** sunoapi.org is run by MIRA MUSE LLC, not Suno Inc., and its
+  terms say nothing about rights in the music. Suno's own terms (effective 3 September 2026)
+  forbid robots and scraping and limit commercial use of output to what Suno's paid tiers allow.
+  Using this music in a paid product needs a legal review, or a licensed source instead.
+- **A library, not per-session generation.** 45 s and 0.06 USD per request, two variations each:
+  generate a small set per mood and tempo (warm-up about 110 bpm, work about 128 bpm, cool-down
+  about 90 bpm) once per workspace or for the platform, download it at once (the provider keeps
+  files 14 days) and store it like session clips; a new integration contract and settings
+  (provider, key, price, rights), a `music.generation` cost row under a budget, and a callback
+  endpoint or worker polling.
+- **Timed music under the cues.** A second audio chain in the runner (Web Audio, started by the
+  Start button's tap so iOS allows it), looping the phase's track; every `say` effect ducks it
+  (about 25% gain, 150-250 ms ramps) and restores it when the clip ends; music during sets,
+  lower during rest; its own mute. Track length and tempo do not follow set length, so it is a
+  bed, not a score.
+- **Talk-back conflict.** The speaker's music reaches the microphone: the speech service's voice
+  activity threshold would trigger on it and send music for transcription (cost, nonsense
+  replies). Music must be ducked hard or paused while the member may reply, or replies become
+  push-to-talk while music plays; browser echo cancellation does not reliably remove the page's
+  own music.
+
+### Checks actually run (29 September 2026)
+
+Node 24.19, in the `core/fix-voice` worktree with its own `node_modules` (a first run without it
+resolved `@trainer/*` to the main checkout and failed 4 unrelated tests; they pass here).
+
+- `npx tsc --noEmit` and `npx tsc --noEmit -p apps/web/tsconfig.json`: pass.
+- New `tests/voice-talkback.test.ts`: 15/15 (live transcripts, English, MSA and Gulf replies, pain,
+  both-language readings, the runner's "not done", line language, fingerprints, the bilingual
+  script and the trial's raw Brain answers).
+- Related PGlite files, run together: `voice-talkback`, `voice-session-domain`, `voice-session`,
+  `voice-clones`, `programme-voice`, `integrations-completion`, `joining-complimentary`,
+  `platform-finance`, `platform-finance-bcd`, `prompt-refs`, `fix-keys`,
+  `e2e-harness-import-history`, the six `web-address-*` files, `provider-configuration`,
+  `e2e-harness-mocks`, `privacy-lifecycle`, `messaging-safety-policy`: 278 tests, 278 pass.
+- Whole PGlite suite (`node --import tsx --test tests/*.test.ts`): 1,120 tests, 1,119 pass,
+  0 fail, 1 skipped.
+- PostgreSQL restricted role, `/opt/tools/pg-sandbox.sh 56543` with `voice-session`,
+  `voice-clones`, `integrations-completion`, `programme-voice`, `privacy-lifecycle`,
+  `platform-finance`, `voice-talkback`: 68 migrations, `runtimeAccess: verified` (44 scoped
+  tables, 46 helpers), 96 tests pass, `PG_SELECTED_FAILED_FILES=0`.
+- Mutation check: ten deliberate breaks (English again as the speech language, "one" as a count,
+  no "not done", screening only the first reading, a strict suggestion reader, no member-language
+  choice, one transcription language, negated completions completing, "not done" logging a set,
+  no language in the clip fingerprint) each made at least one of these tests fail; the files were
+  restored after each.
+- Live: the Cartesia chain and the cross-language check above (run once each, plus the first
+  attempt that stopped before the clone), and the sunoapi.org probe.
+
+Not run: `next build`, the e2e harness, a browser check of the runner (microphone, playback,
+the reply-language control), and the live chain after the last changes (the "thank you"
+acknowledgement, the parser's non-global test patterns and the two-language transcribe route are
+covered by the tests above, using the live transcripts).
+
+After the review fixes (numbers in a negated clause, negated acknowledgements, "انا مو تمام", MSA
+"لم أستطع", English code lines, a failed reply-language reading), same day and worktree:
+
+- `npx tsc --noEmit` and `npx tsc --noEmit -p apps/web/tsconfig.json`: pass.
+- `tests/voice-talkback.test.ts`: 20/20 (5 new tests for the review findings).
+  `tests/voice-clones.test.ts`: 27/27 (new: a failed reading in either language, with the
+  Cartesia double failing one language; the worker sends a code line with an Arabic exercise
+  name as English). The budget check there now counts rows whose outcome is unknown at their
+  full reservation, as `voice_guidance_spent_today()` does.
+- Related PGlite files together (`e2e-harness-import-history`, `fix-keys`,
+  `integrations-completion`, `voice-clones`, `voice-session-domain`, `voice-session`,
+  `voice-talkback`, `web-address-moat`, `web-address-subdomains`, `programme-voice`,
+  `e2e-harness-mocks`, `provider-configuration`, `privacy-lifecycle`, `platform-finance`,
+  `messaging-safety-policy`): 163/163.
+- Whole PGlite suite: 1,126 tests, 1,125 pass, 0 fail, 1 skipped.
+- `/opt/tools/pg-sandbox.sh 56577` with `voice-session`, `voice-clones`,
+  `integrations-completion`, `programme-voice`, `privacy-lifecycle`, `platform-finance`,
+  `voice-talkback`: 68 migrations, `runtimeAccess: verified` (44 scoped tables, 46 helpers),
+  102 tests pass, `PG_SELECTED_FAILED_FILES=0`.
+- Parser outputs before and after on every quoted string of the voice test files (963) and the
+  180 live transcripts: the only change is "الوزن مو زين" (acknowledgement, now the help line).
+- Mutation check: nine breaks (the count read from the whole reply, no "last N reps" rule,
+  negated acknowledgements kept, no "تمام" in the first-person stop, no MSA "could not", code
+  lines by letters, the worker sending no language, acting on the screening reading, the guided
+  exercise name deciding the language) each failed at least one test; files restored after each.
+
+Not run after the review fixes: the live Cartesia chain, `next build`, the e2e harness and a
+browser check.
+
+After review round 2 (negated and hedged completions, negated carry-on and skip, "آخر وحدة" and
+Arabic "one", the lenient reader's other names), same day and worktree:
+
+- `npx tsc --noEmit` and `npx tsc --noEmit -p apps/web/tsconfig.json`: pass.
+- `tests/voice-talkback.test.ts`: 23/23 (3 new tests with parser and runner cases; the trial test
+  now reads Haiku T1). `tests/voice-session.test.ts` pins the five keys of the prompt and reads a
+  nested answer through the route.
+- Related files together (`voice-talkback`, `voice-session-domain`, `voice-session`,
+  `voice-clones`, `programme-voice`, `integrations-completion`, `e2e-harness-mocks`): 107/107.
+- Whole PGlite suite: 1,129 tests, 1,128 pass, 0 fail, 1 skipped.
+- `/opt/tools/pg-sandbox.sh 56592` with `voice-session`, `voice-talkback`, `voice-clones`,
+  `programme-voice`, `integrations-completion`, `voice-session-domain`: 68 migrations,
+  `runtimeAccess: verified` (44 scoped tables, 46 helpers), 96 tests pass,
+  `PG_SELECTED_FAILED_FILES=0` (also on port 56591 before the last change).
+- Parser outputs before and after on every quoted string of the voice test files and the live
+  transcripts (1,261 strings): 52 changed, all of them the new review cases; none of the 48 live
+  transcripts changed. A corpus of 166 ordinary replies (completions, counts, carry-on, skip,
+  pause, effort, acknowledgements in English and Arabic, with "no pain", "ما في ألم", "ما شاء
+  الله", "ما عليه" before them) changed only for "I'm not ready", "not ready yet" and "I can't
+  continue".
+- Mutation check: 16 breaks (no past-tense "did/made/nail", no hedged past, no "wasn't done", no
+  negated-completion rule, the negated completion not removed, "لا" negating a completion, no
+  negated carry-on rule, no final "no", skip not held back, no "لا/لن" before a verb, "آخر" not
+  pointing back, Arabic "one" read as a count, no Arabic "last N reps" rule, a number after
+  "last" read as a count, no other names for kinds, no nested kinds) each failed at least one
+  test; files restored after each. (Run before the name lookup became a `Map`, which also stops
+  keys such as "constructor" from matching; tested.)
+
+Not run after round 2: the live Cartesia chain, the Haiku voice wording tasks, `next build`, the
+e2e harness and a browser check.
+
+### Still not done
+
+- **Arabic code lines.** Every number, set, rest and safety line (the code-owned lines and the
+  shared clips) is English. An Arabic member hears the trainer's Arabic phrases and cues in
+  Arabic and the plan in English. Arabic code lines need Arabic templates validated like the
+  English ones, an Arabic shared clip set per voice version (about 120 more clips, about 1,000
+  characters), Arabic runner texts and on-screen text.
+- The runner's screen text is English.
+- A guided-audio segment that mixes the English template with an Arabic cue is sent in the
+  majority language of template and cue (the exercise name does not count); session scripts do
+  not have this problem (one line each).
+- On-device recognition reads one language (the reply-language choice); only the speech service
+  reads both.
+- A `not_done` reply keeps no count: "I didn't do the last 2 reps" names the set for the trainer
+  but not how many reps were missed (the number is ambiguous: "the last 2" is the missed count,
+  "I didn't do 8" is the target). Present-tense "I can't do 10" earns the help line, not "too
+  heavy".
+- The other-language reading is screened for pain too. In the live readings it never produced a
+  red flag from a reply that had none (a translation such as "لا ألم" could, and would then stop
+  the session for the trainer to review); none was seen.
+- Two exercises with the same name share set logs (the workout log keys sets by exercise name).
+- ink-whisper returns "Thank you." for noise; it is now ignored as an acknowledgement.
+- Negation is read only in the same clause and within a few words (review round 2): "I don't think
+  that I am really ready" (four words between) still resumes, and punctuation in a transcript
+  ends the clause. On-device recognition adds no punctuation, so "not sure I'm done" is read as
+  a negated completion (an acknowledgement; the member says "done" again), where "not sure, done"
+  completes the set. Pausing on "I'm not
+  ready" means the member must say "resume" to go on; "not now" / "مو الحين" still earn the help
+  line.
+- Not live-tested: a Pro clone, a real browser (microphone, echo, playback), iOS background audio,
+  and per-clone credit charges (the usage endpoint needs an admin key).
+
 ## Checks actually run
 
 All on 28 September 2026 in this worktree, after the review fixes.
@@ -338,5 +762,8 @@ loading are untested in a real browser.
   trained).
 - Adjustments are limited to one load reduction per exercise within the trainer's rule (off by
   default); the runner never raises load, reps or sets.
+- A timed round is timed by the page's clock from the end of its prompt; a distance round is not
+  measured (the member says done and the prescribed distance is logged). Time or distance logs
+  cannot yet be corrected on the workout log's correction form (reps, load and RIR only).
 - The session plays in the trainer's voice only while the page is open; iOS background audio
   and screen-lock behaviour were not tested.

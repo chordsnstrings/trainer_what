@@ -47,6 +47,7 @@ import {
 } from "../packages/domain/src/voice-clone.ts";
 import { createMockTls, trustMockCa, type MockTls } from "./e2e/mocks/tls.ts";
 import { CartesiaMock } from "./e2e/mocks/cartesia.ts";
+import { spokenLines, type SessionScript } from "../packages/domain/src/voice-session.ts";
 import { privacyOperator, seedScope } from "./scope-fixtures.ts";
 
 const KEY = "sk_car_fixture_" + randomBytes(8).toString("hex");
@@ -466,11 +467,165 @@ test("voice sessions speak with the trainer's active clone; spoken replies go to
   assert.equal(heard.transcript, "eight reps");
   assert.deepEqual(heard.command, { type: "reps", reps: 8 });
   assert.deepEqual(mock.transcriptions.at(-1)!.model, "ink-whisper");
-  assert.equal(mock.transcriptions.at(-1)!.language, "en", "an English-speaking member's replies are read as English");
+  // Cartesia cannot detect the language: the reply is read as the member's
+  // language (English) and, for safety screening, as Arabic too.
+  assert.deepEqual(mock.transcriptions.slice(-2).map((t) => t.language).sort(), ["ar", "en"]);
+  const readAs = await rows(coach, "SELECT pricing->>'language' AS language,pricing->>'screening' AS screening FROM cost_events WHERE task='voice.transcription' ORDER BY pricing->>'language'");
+  assert.deepEqual(readAs, [{ language: "ar", screening: "true" }, { language: "en", screening: null }], "an English-speaking member's replies are read as English first");
   const gate = (await ok(`/voice-sessions/workout/${workout}`, "GET", undefined, alex)).gate;
   assert.deepEqual(gate.speechProvider, { name: "Cartesia", zeroRetention: false }, "the member is told who transcribes and on whose terms");
   const [stt] = await rows(coach, "SELECT provider,model FROM cost_events WHERE task='voice.transcription' LIMIT 1");
   assert.deepEqual(stt, { provider: "cartesia", model: "ink-whisper" });
+});
+
+test("Arabic lines are spoken as Arabic, a bilingual trainer's phrases follow the member's language, and pain is heard in either language", async () => {
+  // The model trial's bilingual trainer phrases and an Arabic plan cue.
+  const style = await ok("/voice-sessions/style", "GET", undefined, coach);
+  await ok("/voice-sessions/style", "PUT", {
+    revision: style.version,
+    style: {
+      ...style.style,
+      intro: ["Welcome back, let's move gently together.", "أهلاً بك، لنبدأ بهدوء"],
+      encouragement: ["You're doing beautifully.", "أحسنتِ، استمري"],
+    },
+  }, coach);
+  const dana = await member(coach, "dana-voice@example.test", "Dana Arabic");
+  const evan = await member(coach, "evan-voice@example.test", "Evan English");
+  await db.tenant({ tenantId: coach.tenantId, userId: dana.userId, role: "subscriber" }, (tx) =>
+    tx.query("INSERT INTO notification_preferences(tenant_id,user_id,data) VALUES($1,$2,'{\"language\":\"ar\"}')", [coach.tenantId, dana.userId]),
+  );
+  const sessions: Record<string, any> = {};
+  for (const [who, user] of [["dana", dana], ["evan", evan]] as const) {
+    await subscribeVoice(coach, user);
+    const program = await ok("/programs", "POST", {
+      subscriberId: user.userId,
+      program: {
+        title: "Bilingual strength",
+        goal: "Strength",
+        daysPerWeek: 3,
+        exercises: [
+          { name: "Goblet squat", sets: 2, reps: 8, restSeconds: 30, loadKg: 16, cue: "انزلي ببطء وحافظي على ظهرك مستقيما." },
+          // A long Arabic exercise name inside the English setup template.
+          { name: "تمرين الضغط على الأرض مع رفع القدمين", sets: 1, reps: 12, restSeconds: 0 },
+        ],
+      },
+    }, coach);
+    const workout = (await ok("/workouts/start", "POST", { programId: program.id }, user)).id;
+    sessions[who] = await ok("/voice-sessions", "POST", { workoutId: workout, playbackConsent: true }, user);
+    assert.equal(sessions[who].mode, "voice", JSON.stringify(sessions[who].unavailableReason));
+  }
+  // Each member hears the trainer's phrases in their own language.
+  assert.equal(sessions.dana.script.intro[0].text, "أهلاً بك، لنبدأ بهدوء");
+  assert.equal(sessions.evan.script.intro[0].text, "Welcome back, let's move gently together.");
+  assert.equal(sessions.dana.script.intro.filter((l: any) => l.kind === "intro").length, 1);
+  const before = mock.syntheses.length;
+  await processVoiceSessionAudio(db, coach.tenantId, { limit: 500 });
+  const spoken = mock.syntheses.slice(before);
+  const language = (text: string) => spoken.find((s) => s.text === text)?.language;
+  // Before: every line, Arabic or not, was sent as English.
+  assert.equal(language("أهلاً بك، لنبدأ بهدوء"), "ar");
+  assert.equal(language("أحسنتِ، استمري"), "ar");
+  assert.equal(language("انزلي ببطء وحافظي على ظهرك مستقيما."), "ar", "the Arabic plan cue, for both members");
+  assert.equal(language("Welcome back, let's move gently together."), "en");
+  assert.equal(language(sessions.dana.script.exercises[0].setLines[0].text), "en");
+  // Review of F5: a code-owned line is an English template even with an
+  // Arabic exercise name (it was sent as Arabic, sets and reps included).
+  const setup = sessions.dana.script.exercises[1].setup.text;
+  assert.match(setup, /^Last exercise: تمرين الضغط/);
+  assert.equal(language(setup), "en");
+  // Only the trainer's own Arabic phrases and cues are spoken as Arabic.
+  const trainerArabic = new Set(
+    [sessions.dana, sessions.evan].flatMap((x) =>
+      spokenLines(x.script as SessionScript)
+        .filter((l) => l.owner === "trainer" && /[\u0600-\u06FF]/.test(l.text))
+        .map((l) => l.text),
+    ),
+  );
+  assert.ok(trainerArabic.size >= 3);
+  for (const s of spoken) assert.equal(s.language, trainerArabic.has(s.text) ? "ar" : "en", s.text);
+  // "I didn't do the last one" reaches the trainer as its own outcome.
+  await ok(`/voice-sessions/${sessions.evan.id}/events`, "POST", {
+    status: "running",
+    outcomes: [{ type: "set_logged", exercise: 0, set: 1, reps: 8, toKg: 16 }, { type: "not_done", exercise: 0, set: 1, logged: true }],
+  }, evan);
+  const trainerView = await ok("/voice-sessions/outcomes", "GET", undefined, coach);
+  const evanRow = trainerView.sessions.find((r: any) => r.id === sessions.evan.id);
+  assert.equal(evanRow.outcomes.totals.not_done, 1);
+  await refused(`/voice-sessions/${sessions.evan.id}/events`, "POST", { outcomes: [{ type: "not_done", exercise: 5 }] }, evan, 400, "VOICE_OUTCOME");
+  // Spoken replies: both members consent to transcription.
+  for (const user of [dana, evan]) await ok("/voice-sessions/consent", "POST", { transcription: true }, user);
+  // Dana (Arabic) says the weight is too heavy; read as English it was nonsense.
+  mock.nextTranscripts.push({ text: "الوزن ثقيل وايد", language: "ar", otherwise: "It wasn't the gay light." });
+  const heavy = await ok(`/voice-sessions/${sessions.dana.id}/transcribe`, "POST", { audio: wavOf(1.5).toString("base64"), type: "audio/wav", durationMs: 1500 }, dana);
+  assert.deepEqual([heavy.transcript, heavy.command, heavy.trainingHeld], ["الوزن ثقيل وايد", { type: "too_heavy" }, false]);
+  // Evan (English app) counts in Arabic: English reads nothing useful, the
+  // Arabic reading is understood.
+  mock.nextTranscripts.push({ text: "ثمان تكرارات", language: "ar", otherwise: "Thank you." });
+  const count = await ok(`/voice-sessions/${sessions.evan.id}/transcribe`, "POST", { audio: wavOf(1).toString("base64"), type: "audio/wav", durationMs: 1000 }, evan);
+  assert.deepEqual([count.transcript, count.command], ["ثمان تكرارات", { type: "reps", reps: 8 }]);
+  // Evan chooses Arabic replies on the runner: Arabic is read first.
+  mock.nextTranscripts.push({ text: "خلصت", language: "ar", otherwise: "Close." });
+  const done = await ok(`/voice-sessions/${sessions.evan.id}/transcribe`, "POST", { audio: wavOf(1).toString("base64"), type: "audio/wav", durationMs: 1000, language: "ar" }, evan);
+  assert.deepEqual([done.transcript, done.command], ["خلصت", { type: "done" }]);
+  const [chosen] = await rows(coach, "SELECT pricing->>'language' AS language FROM cost_events WHERE task='voice.transcription' AND member_id=$1 AND pricing->>'screening' IS NULL AND pricing->>'supplementOf' IS NULL ORDER BY created_at DESC LIMIT 1", [evan.userId]);
+  assert.equal(chosen.language, "ar");
+  // Evan says it hurts in Arabic. Before: read only as English ("Ia ur ni
+  // vahri", live), the pain report was missed. Now the session stops.
+  mock.nextTranscripts.push({ text: "يعورني ظهري", language: "ar", otherwise: "Ia ur ni vahri" });
+  const pain = await ok(`/voice-sessions/${sessions.evan.id}/transcribe`, "POST", { audio: wavOf(1).toString("base64"), type: "audio/wav", durationMs: 1000 }, evan);
+  assert.deepEqual([pain.transcript, pain.command.type, pain.trainingHeld], ["يعورني ظهري", "pain", true]);
+  const [held] = await rows(coach, "SELECT status,end_reason FROM voice_sessions WHERE id=$1", [sessions.evan.id]);
+  assert.deepEqual(held, { status: "stopped", end_reason: "pain" });
+  // Each reading has its own cost row; both are estimated.
+  const costs = await rows(coach, "SELECT status,pricing->>'language' AS language FROM cost_events WHERE task='voice.transcription' AND member_id=$1 AND pricing->>'supplementOf' IS NULL", [evan.userId]);
+  assert.equal(costs.length, 6);
+  assert.ok(costs.every((c: any) => c.status === "estimated"));
+  // The trainer's style goes back to what it was.
+  const now = await ok("/voice-sessions/style", "GET", undefined, coach);
+  await ok("/voice-sessions/style", "PUT", { revision: now.version, style: style.style }, coach);
+});
+
+test("when the reply-language reading fails, the other reading is screened for pain but never acted on", async () => {
+  const fay = await member(coach, "fay-voice@example.test", "Fay Partial");
+  await subscribeVoice(coach, fay);
+  const program = await ok("/programs", "POST", {
+    subscriberId: fay.userId,
+    program: { title: "Partial readings", goal: "Strength", daysPerWeek: 3, exercises: [{ name: "Goblet squat", sets: 2, reps: 8, restSeconds: 30, loadKg: 16 }] },
+  }, coach);
+  const workout = (await ok("/workouts/start", "POST", { programId: program.id }, fay)).id;
+  const session = await ok("/voice-sessions", "POST", { workoutId: workout, playbackConsent: true }, fay);
+  assert.equal(session.mode, "voice", JSON.stringify(session.unavailableReason));
+  await ok("/voice-sessions/consent", "POST", { transcription: true }, fay);
+  const reply = (language?: "en" | "ar") => ({ audio: wavOf(1).toString("base64"), type: "audio/wav", durationMs: 1000, ...(language ? { language } : {}) });
+  const readings = async () =>
+    (await rows(coach, "SELECT status,pricing->>'language' AS language,pricing->>'screening' AS screening FROM cost_events WHERE task='voice.transcription' AND member_id=$1 AND pricing->>'supplementOf' IS NULL ORDER BY created_at,pricing->>'language'", [fay.userId]))
+      .map((r: any) => [r.language, r.screening === "true" ? "screening" : "reply", r.status]);
+  // Fay replies in Arabic and the Arabic reading fails. Before the review the
+  // English reading of her Gulf "too heavy", "It wasn't the gay light." (live
+  // check), was acted on as "too easy". Now she is asked to say it again.
+  mock.failNextTranscriptionIn.ar = 500;
+  mock.nextTranscripts.push({ text: "الوزن ثقيل وايد", language: "ar", otherwise: "It wasn't the gay light." });
+  await refused(`/voice-sessions/${session.id}/transcribe`, "POST", reply("ar"), fay, 502, "SPEECH_UNCONFIRMED");
+  // The failed call was sent (its outcome is unknown); the other was made and is priced.
+  assert.deepEqual((await readings()).sort(), [["ar", "reply", "unknown"], ["en", "screening", "estimated"]]);
+  const [running] = await rows(coach, "SELECT status FROM voice_sessions WHERE id=$1", [session.id]);
+  assert.notEqual(running.status, "stopped");
+  // The screening reading failing instead changes nothing: the reply reading is used.
+  mock.failNextTranscriptionIn.en = 500;
+  mock.nextTranscripts.push({ text: "خلصت سويت ثمان", language: "ar", otherwise: "Close." });
+  const counted = await ok(`/voice-sessions/${session.id}/transcribe`, "POST", reply("ar"), fay);
+  assert.deepEqual([counted.transcript, counted.command, counted.trainingHeld], ["خلصت سويت ثمان", { type: "reps", reps: 8 }, false]);
+  // English replies, the English reading fails, and Fay says it hurts in
+  // Arabic: the Arabic screening reading still stops the session.
+  mock.failNextTranscriptionIn.en = 500;
+  mock.nextTranscripts.push({ text: "يعورني ظهري", language: "ar", otherwise: "Ia ur ni vahri" });
+  const pain = await ok(`/voice-sessions/${session.id}/transcribe`, "POST", reply("en"), fay);
+  assert.deepEqual([pain.transcript, pain.command.type, pain.trainingHeld], ["يعورني ظهري", "pain", true]);
+  const [held] = await rows(coach, "SELECT status,end_reason FROM voice_sessions WHERE id=$1", [session.id]);
+  assert.deepEqual(held, { status: "stopped", end_reason: "pain" });
+  const all = await readings();
+  assert.equal(all.length, 6);
+  assert.deepEqual(all.filter((r) => r[2] !== "estimated").sort(), [["ar", "reply", "unknown"], ["en", "reply", "unknown"], ["en", "screening", "unknown"]]);
 });
 
 test("another workspace can neither see nor use the clone", async () => {
@@ -528,7 +683,9 @@ test("previews and clones share the workspace voice budget and stay out of model
     process.env.VOICE_DAILY_USD_LIMIT = "5";
     process.env.VOICE_CLONE_USD = "0";
   }
-  const [counts] = await rows(coach, "SELECT (SELECT n FROM model_usage_today(ARRAY[]::text[],NULL)) AS model_calls,(SELECT count(*)::int FROM cost_events WHERE task NOT LIKE 'voice.%') AS model_rows,voice_guidance_spent_today() AS voice_spent,(SELECT sum(round((pricing->>'reservedCostUsd')::numeric,8)) FROM cost_events WHERE task LIKE 'voice.%') AS voice_rows");
+  // Every voice row counts: priced rows at their cost, rows whose outcome is
+  // unknown (a failed transcription reading) at their full reservation.
+  const [counts] = await rows(coach, "SELECT (SELECT n FROM model_usage_today(ARRAY[]::text[],NULL)) AS model_calls,(SELECT count(*)::int FROM cost_events WHERE task NOT LIKE 'voice.%') AS model_rows,voice_guidance_spent_today() AS voice_spent,(SELECT sum(coalesce(cost_usd,(pricing->>'reservedCostUsd')::numeric)) FROM cost_events WHERE task LIKE 'voice.%') AS voice_rows");
   assert.equal(counts.model_calls, counts.model_rows);
   assert.equal(Number(counts.voice_spent), Number(counts.voice_rows));
   const clones = await rows(coach, "SELECT task,provider,status FROM cost_events WHERE task='voice.clone' ORDER BY created_at");
@@ -992,7 +1149,9 @@ test("Arabic replies are transcribed in Arabic by Cartesia, and a spoken pain re
   );
   mock.nextTranscripts.push({ text: "عندي ألم في الركبة", language: "ar" });
   const heard = await ok(`/voice-sessions/${alexSession}/transcribe`, "POST", { audio: wavOf(1).toString("base64"), type: "audio/wav", durationMs: 1500 }, alex);
-  assert.equal(mock.transcriptions.at(-1)!.language, "ar");
+  assert.deepEqual(mock.transcriptions.slice(-2).map((t) => [t.language, t.text]).sort(), [["ar", "عندي ألم في الركبة"], ["en", ""]]);
+  const [primary] = await rows(coach, "SELECT pricing->>'language' AS language FROM cost_events WHERE task='voice.transcription' AND pricing->>'screening' IS NULL AND pricing->>'supplementOf' IS NULL ORDER BY created_at DESC LIMIT 1");
+  assert.equal(primary.language, "ar", "an Arabic-speaking member's replies are read as Arabic first");
   assert.equal(heard.transcript, "عندي ألم في الركبة");
   assert.equal(heard.trainingHeld, true, "the safety hold starts from an Arabic pain report");
 });

@@ -1007,18 +1007,30 @@ test("knowledge ingestion, model drafts, release pause, single-use exception tea
   assert.equal(document.status, "extracted");
   const compiled = await ok("/nutrition/policy/compile", "POST", {});
   assert.equal(compiled.status, "draft");
+  // Identifiers reach the model as short references (prompt-refs), so the
+  // sent sources are recognised by their titles and no full ID is sent.
   const sent = lastInput("nutrition_policy").input.sources.map(
-    (s: any) => s.id,
+    (s: any) => s.data.title,
   );
-  assert.ok(sent.includes(source.id));
-  assert.ok(!sent.includes(document.id));
-  assert.ok(!compiled.data.policy.sourceIds.includes(document.id));
+  assert.ok(sent.includes("Synthetic coach notes"));
+  assert.ok(!sent.includes("Synthetic imported guide"));
+  assert.ok(!JSON.stringify(lastInput("nutrition_policy")).includes(source.id));
+  assert.match(lastInput("nutrition_policy").input.sources[0].id, /^S\d+$/);
+  assert.ok(
+    compiled.data.policy === null ||
+      !compiled.data.policy.sourceIds.includes(document.id),
+  );
+  assert.ok(
+    (compiled.data.policy ?? compiled.data.partialPolicy).sourceIds.includes(
+      source.id,
+    ),
+  );
   await ok(`/nutrition/sources/${document.id}/confirm`, "POST", {});
   await ok("/nutrition/policy/compile", "POST", {});
   assert.ok(
     lastInput("nutrition_policy")
-      .input.sources.map((s: any) => s.id)
-      .includes(document.id),
+      .input.sources.map((s: any) => s.data.title)
+      .includes("Synthetic imported guide"),
   );
   // Drafted recipes may only cite current ingredient facts and are not saved.
   const draft = await ok("/nutrition/recipes/draft", "POST", {

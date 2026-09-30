@@ -164,12 +164,112 @@ export const coachingActions = [
   "substitution",
   "schedule",
 ] as const;
+/**
+ * Text for request-term matching. Case and width are folded; Arabic
+ * diacritics and tatweel are removed and letter variants unified (alef forms,
+ * waw and yeh hamza, alef maqsura and Persian yeh, keheh, ta marbuta);
+ * Arabic-Indic digits become ASCII. Letters and digits of every script are
+ * kept and anything else becomes one space, so Arabic text never folds to
+ * empty text. Arabic letters that touch Latin letters or digits are split
+ * into separate words, so a code-switched English word keeps matching when a
+ * member glues an Arabic article or preposition to it ("الـband" and
+ * "بالband" read as "ال band" and "بال band"), as it did when Arabic
+ * letters were removed.
+ * No lookbehind: this module is also bundled for browsers.
+ */
+export function coachingTermText(value: string) {
+  return value
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[\u064B-\u065F\u0670\u0640]/g, "")
+    .replace(/[\u0622\u0623\u0625\u0671]/g, "\u0627")
+    .replace(/\u0624/g, "\u0648")
+    .replace(/[\u0626\u0649\u06CC]/g, "\u064A")
+    .replace(/\u06A9/g, "\u0643")
+    .replace(/\u0629/g, "\u0647")
+    .replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+    .replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/(\p{Script=Arabic})(?=[\p{Script=Latin}0-9])/gu, "$1 ")
+    .replace(/([\p{Script=Latin}0-9])(?=\p{Script=Arabic})/gu, "$1 ")
+    .trim();
+}
+const arabicLetter = /\p{Script=Arabic}/u;
+/**
+ * Whether the member reads Arabic replies: most of the message's letters are
+ * Arabic (a tie counts as Arabic). A code-switching message that is mostly
+ * English is answered with the trainer's main reply.
+ */
+export function writtenInArabic(text: string) {
+  let arabic = 0,
+    latin = 0;
+  for (const c of text.normalize("NFKC"))
+    if (c === "\u0640" || !/\p{L}/u.test(c)) continue;
+    else if (arabicLetter.test(c)) arabic++;
+    else if (/\p{Script=Latin}/u.test(c)) latin++;
+  return arabic > 0 && arabic >= latin;
+}
+// An optional attached Arabic conjunction, preposition and article
+// (و، ف، ب، ك، ل، ال، لل), for example وتأجيل، بالحصة، للحصة.
+const arabicClitic = "(?:[وف]?(?:[بك]?ال|لل|[بلك])?)";
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/**
+ * A request term as a whole-word pattern over coachingTermText(). English
+ * words must match exactly. An Arabic word may carry an attached clitic in
+ * the request, and a term word's own article is optional (the term "تأجيل
+ * الحصة" matches "تأجيل حصة الغد"). A term that folds to empty text never
+ * matches anything.
+ */
+function requestTermPattern(term: string) {
+  const words = coachingTermText(term).split(" ").filter(Boolean);
+  if (!words.length) return null;
+  return new RegExp(
+    " " +
+      words
+        .map((word) => {
+          if (!arabicLetter.test(word)) return escapeRegExp(word);
+          const stem =
+            word.startsWith("ال") && word.length >= 5 ? word.slice(2) : word;
+          return arabicClitic + escapeRegExp(stem);
+        })
+        .join(" ") +
+      "(?= )",
+    "u",
+  );
+}
+export function requestMatchesTerm(request: string, term: string) {
+  const pattern = requestTermPattern(term);
+  return !!pattern && pattern.test(" " + coachingTermText(request) + " ");
+}
+// Medical and supplement topics stay with the trainer even when a routine
+// term matches (in the trial, "I'm exhausted. Which energy drink should I have
+// before intervals?" matched a fatigue action). The Arabic list is matched on
+// coachingTermText() (so it is written in folded spelling, e.g. دوايي for
+// دوائي) with an optional attached clitic. It includes the Gulf spellings
+// (دوا، دواي) and pills (حبوب). The bare مكمل also reads "continuing" in the
+// Gulf ("مكمل على نفس البرنامج"); it stays excluded because "آخذ مكمل على
+// الريق؟" (a supplement on an empty stomach) is written the same way, and an
+// unclear request goes to the trainer.
+const medicalRequest =
+  /\b(diagnos(?:e|is|ing)|medicat(?:ion|ions)|medicines?|pills?|painkillers?|prescrib(?:e|ing)|blood (?:test|results)|medical treatment|eating disorder|diabetes|supplements?|energy drinks?|pre-?workouts?|creatine|fat burners?)\b/i;
+const arabicMedicalRequest = new RegExp(
+  " " +
+    arabicClitic +
+    "(?:تشخيص|دواء|دوا|دواي|دوايي|ادويه|ادويتي|حبوب|مسكن|مسكنات|وصفه طبيه|تحليل (?:ال)?دم|فحص (?:ال)?دم|علاج|علاجي|اضطراب (?:ال)?اكل|سكري|مرض (?:ال)?سكر|انسولين|مكمل|مكملات|كرياتين|حارق (?:ال)?دهون|حارقات (?:ال)?دهون|مشروب (?:ال)?طاقه|مشروبات (?:ال)?طاقه)(?= )",
+  "u",
+);
 export const coachActionSchema = z
   .object({
     title: z.string().trim().min(3).max(150),
     type: z.enum(coachingActions),
     requestTerms: z.array(z.string().trim().min(3).max(120)).min(1).max(12),
     response: z.string().trim().min(10).max(4000),
+    /**
+     * Optional Arabic wording of the approved reply. A member who writes in
+     * Arabic receives it; without it (and with an English main reply) the
+     * request becomes a reviewed draft in Arabic instead of an automatic reply.
+     */
+    responseAr: z.string().trim().min(10).max(4000).optional(),
     rationale: z.string().trim().min(10).max(2000),
     evidenceIds: z.array(z.string().uuid()).min(1).max(20),
     experience: z
@@ -216,7 +316,80 @@ export const coachActionSchema = z
         message:
           "Schedule change needs a fixed postponement of one to three days",
       });
+    if (a.responseAr !== undefined && !writtenInArabic(a.responseAr))
+      ctx.addIssue({
+        code: "custom",
+        path: ["responseAr"],
+        message: "Write the Arabic reply in Arabic",
+      });
   });
+/**
+ * What a trainer may save as a new action: the stored contract plus request
+ * phrases and equipment that contain letters or digits (a phrase such as
+ * "!!!" folds to empty text and could never be matched). Stored actions are
+ * read with coachActionSchema, so older rows still load.
+ */
+export const coachActionInputSchema = coachActionSchema.superRefine(
+  (a, ctx) => {
+    a.requestTerms.forEach((term, i) => {
+      if (!coachingTermText(term))
+        ctx.addIssue({
+          code: "custom",
+          path: ["requestTerms", i],
+          message: "Each request phrase needs letters or digits",
+        });
+    });
+    a.requiredEquipment.forEach((item, i) => {
+      if (!coachingTermText(item))
+        ctx.addIssue({
+          code: "custom",
+          path: ["requiredEquipment", i],
+          message: "Each equipment item needs letters or digits",
+        });
+    });
+  },
+);
+/**
+ * The approved reply for this request, in the member's language: the main
+ * reply for a member who does not write in Arabic, or when the main reply is
+ * itself Arabic; otherwise the Arabic reply. Null when a member writes in
+ * Arabic and the action has no Arabic wording: the English reply is never
+ * sent to them automatically, and the request becomes a reviewed draft.
+ */
+export function coachActionReply(
+  action: { response: string; responseAr?: string },
+  request: string,
+): { text: string; arabic: boolean } | null {
+  const arabicReply = writtenInArabic(action.response);
+  if (!writtenInArabic(request) || arabicReply)
+    return { text: action.response, arabic: arabicReply };
+  return action.responseAr ? { text: action.responseAr, arabic: true } : null;
+}
+/**
+ * A selected action is delivered automatically only when the model chose it
+ * without asking for review and cited at least one rule the action itself
+ * cites. The chosen actionId is the model's citation of the action (it need
+ * not repeat it in evidenceIds, coach-action-selector-v3); every cited ID was
+ * already checked against the coach's release by selectCoachAction.
+ */
+export function groundedCoachSelection(
+  selection: {
+    actionId: string | null;
+    requiresHumanReview: boolean;
+    evidenceIds: string[];
+  },
+  /** The stored action record ({ id, data: { evidenceIds } }). */
+  action: { id?: unknown; data?: any } | null | undefined,
+) {
+  const cites: unknown = action?.data?.evidenceIds;
+  return (
+    !!action &&
+    selection.actionId === action.id &&
+    !selection.requiresHumanReview &&
+    Array.isArray(cites) &&
+    cites.some((id) => selection.evidenceIds.includes(id))
+  );
+}
 export const teachingCaseSchema = z
   .object({
     scenario: z.string().trim().min(10).max(3000),
@@ -229,7 +402,14 @@ export const teachingCaseSchema = z
     outcomeContext: z.string().trim().min(10).max(2000).optional(),
   })
   .strict();
-export const coachingPromptVersion = "coach-action-selector-v2";
+/**
+ * Pinned by every qualification: the version is part of coachingModelPin(),
+ * so it is in the runtime contract digest. Changing it makes published
+ * automatic releases stale (members' requests go to trainer review) until the
+ * trainer evaluates and activates again. v3: identifiers are short prompt
+ * references, and evidenceIds need a rule the selected action cites.
+ */
+export const coachingPromptVersion = "coach-action-selector-v3";
 export const coachingFactsSchema = z
   .object({
     profile: z
@@ -288,22 +468,13 @@ export function eligibleCoachAction(
   facts: CoachingFacts,
   template?: any,
 ) {
-  const normal = (v: string) =>
-    v
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, " ")
-      .trim();
+  const normal = coachingTermText;
   if (
-    /\b(diagnos(?:e|is|ing)|medicat(?:ion|ions)|prescrib(?:e|ing)|blood (?:test|results)|medical treatment|eating disorder|diabetes)\b/i.test(
-      request,
-    )
+    medicalRequest.test(request) ||
+    arabicMedicalRequest.test(" " + normal(request) + " ")
   )
     return false;
-  if (
-    !action.requestTerms.some((term) =>
-      (" " + normal(request) + " ").includes(" " + normal(term) + " "),
-    )
-  )
+  if (!action.requestTerms.some((term) => requestMatchesTerm(request, term)))
     return false;
   if (!action.experience.includes(facts.profile.experience)) return false;
   if (
@@ -315,7 +486,12 @@ export function eligibleCoachAction(
     ].includes(normal(facts.profile.limitations))
   )
     return false;
-  const equipment = facts.profile.equipment.split(/[,;\n]/).map(normal);
+  // Empty entries (a trailing comma) never satisfy a requirement, and a
+  // requirement that folds to empty text is never met.
+  const equipment = facts.profile.equipment
+    .split(/[,;\n\u060C\u061B]/)
+    .map(normal)
+    .filter(Boolean);
   if (action.requiredEquipment.some((e) => !equipment.includes(normal(e))))
     return false;
   if (action.type === "message") return true;

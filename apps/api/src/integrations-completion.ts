@@ -14,6 +14,11 @@ import {
 } from "@trainer/db";
 import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
 import { cueIssues } from "../../../packages/domain/src/voice-session.ts";
+import { spokenDistance, spokenDuration, workMeasure } from "../../../packages/domain/src/prescription.ts";
+import {
+  speechLanguage,
+  type SpeechLanguage,
+} from "../../../packages/domain/src/speech-language.ts";
 import { sandboxResolver } from "../../../packages/providers/src/sandbox.ts";
 import {
   integrationRequest,
@@ -575,6 +580,49 @@ export async function processIntegrationJobs(db: Database) {
 export const FILE_IMPORT_SOURCES = ["apple_health", "manual_import"];
 export const IMPORT_HISTORY_LIMIT = 50;
 
+/**
+ * The language a guided segment is spoken in. A segment is one request: the
+ * exercise name, the English template (sets, repetitions, rest) and the
+ * trainer's cue. The name is a proper noun inside the template, so it does
+ * not decide the language: without an Arabic cue the segment is English even
+ * when the name is Arabic; with one it is the majority of template and cue.
+ */
+export function guidedSegmentLanguage(segment: {
+  name: string;
+  text: string;
+}): SpeechLanguage {
+  const text = segment.text.startsWith(segment.name)
+    ? segment.text.slice(segment.name.length)
+    : segment.text;
+  return speechLanguage(text);
+}
+/**
+ * What makes a member's guided audio reusable: workout, voice version, text,
+ * provider, model and price, and for a segment spoken in Arabic its language
+ * (`guidedSegmentLanguage`; 29 September 2026: segments were all sent as
+ * English before, so that audio is never reused for them).
+ */
+export function guidedAudioFingerprint(
+  workoutId: string,
+  voice: { id: string; version: number; provider: string },
+  text: string,
+  model: string,
+  priceVersion: string,
+  language: SpeechLanguage,
+) {
+  return hash(
+    [
+      workoutId,
+      voice.id,
+      voice.version,
+      text,
+      voice.provider,
+      model,
+      priceVersion,
+      ...(language !== "en" ? ["language:" + language] : []),
+    ].join(":"),
+  );
+}
 export function registerIntegrationCompletion(
   app: FastifyInstance,
   db: Database,
@@ -904,7 +952,18 @@ async function guidedMaterial(tx: Tx, a: Actor, workoutId: string) {
   const segments = exercises.map((ex: any, index: number) => ({
     index,
     name: String(ex.name ?? "Exercise"),
-    text: `${ex.name}. ${ex.sets} sets of ${ex.reps} repetitions.${spokenCue(ex.cue)} Rest ${Number(ex.restSeconds ?? ex.rest ?? 60)} seconds between sets.`,
+    // Timed and distance work is spoken as rounds of a time or distance.
+    text: `${ex.name}. ${
+      workMeasure(ex) === "time"
+        ? `${ex.sets > 1 ? `${ex.sets} rounds of ` : ""}${spokenDuration(ex.durationSeconds)}`
+        : workMeasure(ex) === "distance"
+          ? `${ex.sets > 1 ? `${ex.sets} rounds of ` : ""}${spokenDistance(ex.distanceMeters)}`
+          : `${ex.sets} sets of ${ex.reps} repetitions`
+    }.${spokenCue(ex.cue)}${
+      Number(ex.restSeconds ?? ex.rest ?? 60) > 0
+        ? ` Rest ${Number(ex.restSeconds ?? ex.rest ?? 60)} seconds between ${workMeasure(ex) === "reps" ? "sets" : "rounds"}.`
+        : ""
+    }`,
     restSeconds: Math.max(
       0,
       Math.min(900, Number(ex.restSeconds ?? ex.rest ?? 60) || 60),
@@ -1216,16 +1275,14 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
           "Trainer voice is awaiting verification or permission.",
         );
       await consent(tx, a, "voice_playback", true, consentVersion);
-      const fingerprint = hash(
-        [
-          workoutId,
-          voice.id,
-          voice.version,
-          segment.text,
-          voice.provider,
-          voice.model ?? pricing.model,
-          pricing.priceVersion,
-        ].join(":"),
+      const language = guidedSegmentLanguage(segment);
+      const fingerprint = guidedAudioFingerprint(
+        workoutId,
+        voice as { id: string; version: number; provider: string },
+        segment.text,
+        voice.model ?? pricing.model,
+        pricing.priceVersion,
+        language,
       );
       const [existing] = await tx.query(
         "SELECT id,status,data FROM guided_audio WHERE user_id=$1 AND fingerprint=$2",
@@ -1278,7 +1335,7 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
           usageId,
         ],
       );
-      return { id: audioId, voice, text: segment.text, usageId };
+      return { id: audioId, voice, text: segment.text, language, usageId };
     });
     if (reservation.existing)
       return {
@@ -1324,6 +1381,8 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
           provider: reservation.voice.provider,
           model: reservation.voice.model,
           language: reservation.voice.language,
+          // The fingerprint's language (`guidedSegmentLanguage`).
+          textLanguage: reservation.language,
         },
       );
       return await db.tenant(internal(a), async (tx) => {

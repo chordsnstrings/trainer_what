@@ -392,9 +392,269 @@ Checks for this section are recorded in `docs/COMPLETION_STAGES.md` stage 2026-0
 PGlite and the restricted PostgreSQL role, a full harness run with the rule responder, and the
 adversarial replays showing each blocked case).
 
+## Model trial fixes (29 September 2026, work package `core/fix-plans`, F3)
+
+The model trial of 29 September 2026 (3 trainers, 24 subscribers; Seed 2.0 Pro, Claude Opus 5.5,
+Sonnet 5 and Haiku 4.5; evidence in the session's scratch `brain-full/`) found four plan problems
+that failed every model. Built on `core/fix-refs` (the prompt-refs helper). No real model was
+called for this work; the trial's own replies are the regression fixtures.
+
+### 1. Time and distance prescriptions
+
+The plan schema could only say sets × reps, so walks, runs, rows, holds and intervals came back as
+`reps: 1, restSeconds: 0`, `reps: 0` or minutes in reps (`reps: 45`), and failed (the endurance
+coach T3 got no valid plan from Seed; T3S01..T3S08, T2S04, T2S08, T2 and T3 qualification).
+
+- **Schema** (`planExerciseSchema`, shared by drafts, trainer edits, adapted weeks and adaptation
+  scenarios): exactly one of `reps` (1–30, unchanged), `durationSeconds` (5–7200, per set) or
+  `distanceMeters` (10–50000, per set); optional `paceSecondsPerKm` (120–1200, timed or distance
+  work only) and `effort` (`easy`, `moderate`, `hard`). For timed and distance work `sets` are
+  rounds: intervals are rounds with `restSeconds` as the recovery (6 × 60 s, 90 s rest); one
+  continuous bout is `sets: 1, restSeconds: 0`. Rest below 15 s is refused except exactly 0 for
+  one continuous bout (`prescriptionIssues`). `rir` stays required for every exercise.
+- **Shared wording** (`packages/domain/src/prescription.ts`, browser-safe): `workMeasure`,
+  `workText` ("3 × 10", "20 min", "6 × 1 min", "4 × 500 m"), `prescriptionText`
+  ("6 × 1 min · hard · 1 min 30 s rest", "20 min · easy · 6:30 /km · continuous"), spoken forms
+  for the voice session, and `workSeconds` for session length.
+- **Expansion** (`expandPlan`): a week's `volumeFactor` scales the sets of rep work (unchanged) and
+  the duration (to 5 s) or distance (to 10 m) of each round of timed and distance work; rounds
+  stay. `loadFactor` scales loads for every measure.
+- **Validator** (`brain-plan-validator-v3`): one measure per exercise (adapted weeks and edits are
+  not reparsed, so it is checked again); rest inside the trainer's bounds except 0 for one
+  continuous bout; session length counts time, distance at its pace (10 min/km without one) and
+  4 s per rep; weekly set volume counts rep work only; timed work and distance rise week to week
+  by at most `maxWeeklyVolumeIncreasePct`, in weekly total and per exercise, with a smallest
+  allowed step of 30 s or 100 m (like the one set rep work may always add). A pace speeds up by at
+  most the same weekly percentage per exercise (speed, so 7:00/km may go to about 6:22/km at 10%),
+  always at least 5 s/km (`MIN_WORK_STEP.paceSecondsPerKm`), with or without a hold; a slower pace
+  is never limited. New metrics `weeklyWorkMinutes` and `weeklyDistanceMeters`.
+- **Template walks written as 1 rep**: the trainer's templates and library
+  (`trainingExerciseSchema`) store only sets and reps, so a copied "Brisk Walk 1 × 1" is valid rep
+  work that the member would see as "1 × 1", hear as "1 set of 1 reps" and that counts about a
+  minute toward the session-length limit (Opus copied it into T2S03, with "Side Plank from Knees
+  2 × 1"). The plan prompt says a template walk, run, ride, row, interval, hold or carry written as
+  1 rep is one bout or round, to be written as time or distance. `oneRepTimedWork` finds exercises
+  whose name is timed or distance work (walk, run, jog, sprint, plank, hold, hang, carry,
+  intervals, bike, ride, row machine, swim, jump rope, sled...; not a walking lunge, hang clean or
+  plank row) prescribed as 1 rep: the validator warns (the trainer may approve it) and a model plan
+  with one is held for the trainer ("The Brain wrote Plank as 1 rep; timed or distance work needs a
+  time or distance..."), live and in qualification.
+- **Adaptation**: changes may set `durationSeconds`, `distanceMeters`, `paceSecondsPerKm`,
+  `effort` and rest 0; an exercise keeps its measure (reps on a timed exercise, or a duration on a
+  rep exercise, is an error). A swap keeps the round. The trainer's "progression" revision of a
+  timed exercise ignores reps, and a coach-action substitution brings its own measure
+  (`revisedExercise`, `apps/api/src/training-programs.ts`).
+- **Logging**: `setSchema` (`@trainer/contracts`) takes optional `durationSeconds` and
+  `distanceMeters`; a round logs `reps: 0` with the time or distance done. The adaptation's
+  outcomes carry the prescribed time or distance and the logged averages
+  (`averageDurationSeconds`, `averageDistanceMeters`). The member's log fields accept any
+  prescribed value: metres in steps of 1 (a 1609 m round is a valid default) and any decimal load
+  (a 61.25 kg adjustment), so the browser never refuses to submit a round or set as prescribed.
+- **Screens**: the trainer's review and edit (a Measure selector per exercise: Reps, Time or
+  Distance, with rounds, seconds or metres, effort, and rest from 0), adaptation scenario lines
+  (`B: Easy run, 1x20 min`, `B: Run intervals, 6x60 s`, `C: Row, 4x500 m`), the member's plan view,
+  the Programs list, the workout log (a seconds or metres field per round, "Round n"), the rejected
+  log notice and the session tools (a work timer for timed work; no rest button when there is no
+  rest). No CSV or export lists plan exercises; the personal data export carries the new fields as
+  stored.
+- **Voice session** (`voice-session.ts`, `voice-runner.ts`; `VOICE_SCRIPT_VERSION` unchanged,
+  because rep lines are unchanged and stored scripts stay valid): timed and distance exercises are
+  spoken in rounds ("Exercise 2 of 4: Run Intervals. 3 rounds of 30 seconds, hard effort.",
+  "Round 2 of 3. 30 seconds. The clock starts now. Say done if you stop early."). The runner starts
+  a round's clock when its prompt has been spoken, says "Ten seconds." and "Three. Two. One.", then
+  "Time." (a new shared clip, `time_up`, queued once per voice like the others), logs the round
+  with the seconds it lasted, and rests. "Done" ends a round early and logs the time so far; a
+  paused round resumes where its clock stopped. Distance rounds wait for "done" and log the
+  distance. `scriptIssues` compares time, distance, pace and effort too. The legacy guided
+  session (`integrations-completion.ts`) speaks rounds of a time or distance, and no rest line when
+  there is none.
+
+### 2. Member-visible summaries
+
+Opus and Sonnet each lost five plans (T1S05, T1S06, T2S01, T2S02, T2S06) because the summary named
+a condition, medication, a doctor or therapy, which the member-text screen withholds. The plan was
+in the trainer's queue with a validator error, and approving it as-is was refused.
+
+- The prompt says the title, summary, week focus, labels and cues are shown to the subscriber: about
+  the training only, never a diagnosis, condition, injury, medication, symptom, doctor, therapist,
+  therapy or treatment, never the trainer's review; notes for the trainer go in `uncertainties`.
+- If the screen still withholds a title, summary, week focus or session label **for health language
+  only**, `neutralPlanText` replaces it with wording written by code from the plan ("3 sessions a
+  week for 4 weeks (Monday, Wednesday and Friday): …. Week 4 is a lighter week.", "4-week training
+  plan", "Session A", "Lighter week"). Links, contact details, approval claims and guarantees are
+  not replaced; they stay errors. The original is stored staff-only (`replacedText`, shown on the
+  review item) and a hold sends the plan to the trainer ("The Brain's summary mentioned health
+  details, so neutral wording replaced it; check the plan suits the subscriber"), live and in
+  qualification. The safety floor (limitations, red flags, pain, minors at intake) is unchanged, so
+  medical, injury, pregnancy and minor members still always go to the trainer; the trainer can now
+  approve such a plan as it is.
+- The neutral wording is written in the plan's own language (`planLanguage`: Arabic when the
+  draft's title, summary, labels and week focus have more Arabic than Latin letters), so an Arabic
+  plan gets "3 حصص في الأسبوع لمدة 4 أسابيع (الاثنين والأربعاء والجمعة): …. الأسبوع 4 أسبوع أخف.",
+  "خطة تدريب لمدة 4 أسابيع", "الحصة A", "أسبوع أخف" and "الأسبوع 2" instead of English (Arabic
+  counts: one, two, 3–10, 11+). Before, Opus's Arabic T2S03 draft with one health sentence got an
+  English summary around Arabic labels.
+
+### 3. Safety of proposals
+
+- **Plan prompt**: leave out every exercise the member's limitations or the trainer's rules exclude,
+  never as an alternative either; in a pregnancy after the first trimester (from week 14, or when
+  the stage is not stated) no exercise lying on the back or front, no breath holding, no jumping.
+- **Pregnancy caution (code)**: `positionCautions` adds a validator warning for a pregnant member
+  past week 13 (or at an unknown stage) when an exercise is usually done lying on the back or front
+  (bridges, flat bench and floor press, dead bug, crunches, sit-ups, leg raises, lying, supine,
+  prone...; incline, seated, standing and side-lying variations are not matched). A warning, not an
+  error: the floor already sends every pregnancy to the trainer, who decides. Trial case: Seed's
+  T2S01 plan with Glute Bridge at 22 weeks. The stage (`pregnancyStage`, a range of weeks) is read
+  only from a week or month count next to a pregnancy term ("pregnant, 24 weeks", "24 weeks
+  pregnant", "week 30 of pregnancy", "5 months pregnant", "حامل في الأسبوع ٢٢", "الأسبوع ٢٤ من
+  الحمل", "الشهر الخامس"), or a trimester anywhere; limitations and goal are read separately.
+  A trimester that is over is not that trimester: "past", "after", "beyond", "finished",
+  "completed", "out of" or "done with the first trimester", "بعد" or "تجاوزت الثلث الأول" is week
+  14 or later (cautioned), and "end of the first trimester" / "نهاية الثلث الأول" is weeks 12 to
+  14 (cautioned); "going through the first trimester" is still the first trimester.
+  Another duration ("knee surgery 6 weeks ago; pregnant, 24 weeks", "back pain for 3 weeks") no
+  longer hides the stage, and stages that disagree are an unknown stage, which is cautioned. A
+  month count may run into the next trimester, so "3 months" is cautioned. Arabic pregnancy is
+  matched only in unambiguous forms (حامل, حبلى, or الحمل with a week, month or trimester count):
+  bare الحمل also means "the load" ("ألم في الركبة عند زيادة الحمل" is not a pregnancy).
+- **No increase after a harder or missed week (code gate)**: `progressionHolds(outcomes)` lists why
+  next week may not go up: nothing logged, sessions missed (adherence below 1), or a harder week (an
+  exercise's average logged RIR below the prescription). Then:
+  - **The planned week is held first** (`heldWeek`): before the model is called, each exercise of
+    next week keeps the lower load, sets, reps, duration or distance, the slower pace, the lower
+    effort, the higher RIR and the longer rest (between sets or rounds) of the planned week and the
+    week just logged (the same session's exercise, else that exercise's hardest this week; sets,
+    work, pace, effort and rest only when both use the same measure). So the
+    plan's own progression (a higher `loadFactor` or `volumeFactor`, a lower `rirDelta`) does not
+    reach the member either; a deload stays as planned. What was lowered is stored on the
+    adjustment (`held`, with `progressionHold`) and shown on the review item ("Next week held at
+    this week's values"); `baseline` keeps the planned week for the diff and a spot-check
+    withdrawal.
+  - The reasons and the held week are sent to the model (`progressionHold`, `nextWeek`), and
+    `adaptationDirectionIssues` turns anything made harder than the held week into a validation
+    error, so the adjustment goes to the trainer (live and in qualification): more load, sets, reps,
+    duration or distance, a faster or newly set pace, a higher effort (easy < moderate < hard), fewer
+    reps in reserve, shorter rest between sets or rounds, or a swap to an alternative.
+  - Trial case T1S07: Seed read "RIR 1 against 2" as spare capacity and raised fifteen loads, which
+    were delivered automatically; now it is an error. Review cases: RIR 2→1 with rest 120→30 s,
+    a run from 7:00 to 2:30/km at hard effort, and a plan with `loadFactor` 1 → 1.05 whose higher
+    week-2 loads went out after a harder week, all passed before.
+  - Pain still skips the model entirely; when progression is also held, the trainer's draft is
+    the held week (not the planned one), so approving it as-is adds nothing harder.
+- The adaptation prompt says so explicitly: next week is already held, keep it or make it easier,
+  and names every lever (load, sets, reps, duration, distance, pace, effort, RIR, rest, swaps); it
+  explains that logged reps in reserve below the prescription means harder than planned, and that
+  a pace may speed up by at most the weekly percentage. The e2e model double follows the hold.
+
+### 4. Short evidence references
+
+`generateTrainingPlan` and `proposePlanAdaptation` build one prompt-refs table per request
+(`planPromptRefs`): rules `R1…`, teaching cases `X1…`, reviewed plan examples `P1…`, templates
+`T1…`, any other identifier (the twin snapshot) `ID1…`. The encoded payload is sent (size limits
+apply to it) and no UUID reaches the model. The reply is decoded before the schema with
+`idKeys: ["evidenceIds"]`; any issue (malformed, unknown or one-character-off UUID, unknown
+reference) makes the reply invalid output for the trainer, never a guess. References in trainer
+notes (`uncertainties`, the adaptation's `reason`) are expanded; a reference or UUID in member
+wording (title, summary, focus, label, cue) is invalid output. A reply wrapped in one extra key
+(`{"program": {...}}`, as Haiku 4.5 did) is read as the object inside; anything else about the
+shape is still invalid. `PROMPT_REFS_UNSAFE` (nothing sent) is a not-sent failure like the daily
+limit. The output contract now says "exactly these keys, not wrapped in another object" and
+`rirDelta` is a whole number.
+
+### Versions
+
+`brain-plan-v3` (plan prompt), `brain-plan-adapt-v2` (adaptation prompt) and
+`brain-plan-validator-v3`. All three are in the pinned plan contract, so every existing plan
+qualification needs a new run; until then plans and adjustments go to the trainer (supervised).
+Route and confidence versions are unchanged (holds are an existing route input). The review round
+changed the v3/adapt-v2 prompt text and the v3 validator (pace bound, one-rep warning) before any
+release, so the version names were kept.
+
+### Tests
+
+- `tests/brain-plans-timed.test.ts` (28 tests, no database): schema and trial replies (T2S04 reps 0,
+  T3S02 reps 45 and rest 0, T3S01 walk as one rep) fail as written and pass as time; the T3S01
+  run-walk plan with T3's library and bounds validates, with per-round scaling, session minutes and
+  metrics; weekly and per-exercise time and distance caps; rest rules; adaptation measure rules;
+  trainer revisions; progression holds for the trial's T1S07, T1S04, T1S08, T3S01, T3S05 and T1S01
+  outcomes and the gate on Seed's T1S07 proposal; the five withheld summaries replaced and the
+  plan validating; pregnancy cautions (T2S01 at 22 weeks, first trimester, unknown stage,
+  postpartum); screen wording; the voice script, runner clock, early stop, distance rounds and
+  pause/resume; the v3 and v2 prompts; no UUID in the request; trial miscopies (T2S06, T3S03, T1S07
+  adaptation) and the one-off copy (T2S02) invalid; identifier leaks in member wording; Haiku's
+  wrapper. Review round (7 tests): RIR, rest, pace, effort, a new pace and a swap after a harder
+  week are increases, easier changes pass; the pace bound (7:00 to 2:30/km refused, 6:22 allowed,
+  5 s/km at 0%); `heldWeek` on the reviewer's plan with rising load and volume factors (held
+  values, the change list, the planned week untouched, restoring the planned numbers is an
+  increase, a deload kept, a moved exercise held at the week's hardest); pregnancy stages (the
+  reviewer's strings, months, conflicts, Arabic digits and forms, "زيادة الحمل" not a pregnancy,
+  "past the first trimester" and "بعد الثلث الأول" cautioned);
+  Opus's Arabic T2S03 draft getting Arabic neutral wording; the workout log's distance and load
+  input steps (read from `workspace.tsx`); one-rep timed work in Opus T2S03 and the trial's T3
+  template, not in heavy singles or lifts that share a word.
+- `tests/brain-plans.test.ts` (5 new database tests): an endurance plan end to end (references in
+  the prompt, approval, planned sessions per week with scaled rounds, the member view, a timed round
+  logged with its seconds, an adaptation that sees time and changes a duration); T1S07 end to end
+  (the hold reaches the model with next week already held at week 1's loads; the plan's higher
+  week-2 loads do not reach the member; the held changes and the planned baseline are stored;
+  increases anyway go to the trainer and nothing reaches the member); a plan with a Plank written
+  as 1 rep held for the trainer with a warning and approved as written; a summary with health
+  language replaced, held, shown to the trainer with the original, and approved as-is; a pain
+  report after a harder week (model not called) whose trainer draft is the held week, with the
+  planned baseline kept and approval delivering week 1's loads.
+
 ## Checks actually run
 
-After the review fixes (this revision):
+Review follow-up (`core/fix-plans`, 29 September 2026: a trimester that is over, the held week as
+the trainer's draft on the pain path):
+
+- `npx tsc --noEmit` and `npx tsc --noEmit -p apps/web/tsconfig.json`: pass.
+- `brain-plans-timed`, `brain-plans`, `prompt-refs`, `e2e-harness-mocks`, `coaching-runtime` and
+  `programme-review`, one process each on PGlite: 106 tests, 106 pass; `brain-plans-timed` again
+  after Prettier: 28/28. The new database test fails with the pain-path draft set back to the
+  planned week ("the trainer's draft is the held week").
+- `/opt/tools/pg-sandbox.sh 56583 <worktree> tests/brain-plans.test.ts
+  tests/coaching-runtime.test.ts tests/programme-review.test.ts`: runtime access verified (68
+  migrations), 30 + 9 + 7 tests pass, `PG_SELECTED_FAILED_FILES=0`.
+- Not run: the whole suite, `next build`, the e2e harness, a browser check, the model trial.
+
+Review round of the model trial fixes (`core/fix-plans`, 29 September 2026):
+
+- `npx tsc --noEmit` (whole tree) and `npx tsc --noEmit -p apps/web/tsconfig.json`: pass, after
+  the last code edit.
+- 31 related test files, one process each on PGlite (the 28 of the first round plus `brand`,
+  `isolation-elevation` and `governance-web`, which read `workspace.tsx`): 370 tests, 370 pass.
+  This run started before the last edits (measure rule in `heldWeek`, one wording change in the
+  adaptation prompt and the e2e double's reason text), so the four files those edits reach were run
+  again on the final tree: `brain-plans-timed` (28), `brain-plans` (29), `e2e-harness-mocks` and
+  `prompt-refs`: 89 tests, 89 pass.
+- PostgreSQL restricted role (`/opt/tools/pg-sandbox.sh 56579 <worktree> tests/brain-plans.test.ts
+  tests/coaching-runtime.test.ts`) on the final tree: runtime access verified (68 migrations),
+  29 + 9 tests pass, `PG_SELECTED_FAILED_FILES=0`. No migration.
+- Not run: the whole suite, `next build`, the e2e harness, a browser or 390px check of the review
+  item's new "Held at this week's values" list, and the model trial itself (no model was called).
+
+Model trial fixes (`core/fix-plans`, 29 September 2026):
+
+- `npx tsc --noEmit` (whole tree) and `npx tsc --noEmit -p apps/web/tsconfig.json`: pass.
+- `node --import tsx --test tests/brain-plans-timed.test.ts`: 21 tests, 21 pass.
+- The 28 test files that touch the changed code (brain plans, voice session and clones, workouts
+  and set logging, coaching runtime and completion, guided sessions, programme views, the e2e
+  model double and mocks, prompt-refs, notifications, isolation, bootstrap), one process each on
+  PGlite: 340 tests, 340 pass (`brain-plans.test.ts` 28, including the 3 new tests). Then
+  `brand`, `fix2-web` and `isolation-elevation` (they read `workspace.tsx`) after the last web
+  edit: 19/19.
+- PostgreSQL restricted role (`/opt/tools/pg-sandbox.sh 56537 <worktree>` with
+  `brain-plans`, `coaching-completion`, `coaching-runtime`, `voice-session` and
+  `integrations-completion`): runtime access verified (68 migrations), 28 + 8 + 9 + 10 + 16 = 71
+  tests pass, `PG_SELECTED_FAILED_FILES=0`. No migration was needed (the new fields live in JSON
+  records; migration number 080 stays unused).
+- Not run: the whole suite, `next build`, the e2e harness, a browser or 390px check of the changed
+  screens, and the model trial itself (no model was called; the trial's replies are replayed as
+  fixtures).
+
+Earlier, after the review fixes:
 
 - `npx tsc --noEmit` (whole tree) and `npx tsc --noEmit -p apps/web`: pass.
 - `node --import tsx --test tests/brain-plans.test.ts` on PGlite: 18 tests, 18 pass. Every
@@ -455,3 +715,23 @@ First version (before review): `brain-plans` 11/11 on PGlite and the sandbox, an
   this branch.
 - The scheduler still examines each member in its batch with a few queries; the SQL pre-filter
   removes members already waiting, not members with nothing due.
+- Timed and distance prescriptions come from the Brain's plans (and the trainer's edits of them).
+  The trainer's own library, templates, hand-written programmes and coach actions
+  (`trainingExerciseSchema`) are still sets × reps; a coach-action substitution into a timed Brain
+  exercise brings its own reps. A model plan that copies a template walk, run, interval or hold as
+  1 rep is held for the trainer (`oneRepTimedWork`, a name match), but templates cannot yet show
+  timed work themselves.
+- Distance work without a pace is timed at 10 min/km for the session-length check; a distance
+  round in the voice session is not measured (the member says done and the prescribed distance is
+  logged). The workout log's correction form still corrects reps, load and RIR only.
+- The pregnancy caution matches exercise names (bridges, bench and floor press, dead bug,
+  crunches...), not a library position tag, and reads the stage from a count next to a pregnancy
+  term or a trimester; anything else is an unknown stage and cautioned. It is a warning for the
+  trainer, whose review the safety floor already requires.
+- The progression hold treats any missed session, or any exercise logged below its prescribed RIR,
+  as a reason to hold the whole week at this week's values; a trainer who wants to progress anyway
+  edits the adjustment. The trainer's own edits are not checked for direction. A safety review
+  (limitation, red flag, pain) still proposes the planned week, which the trainer decides.
+- A reply in any other shape than the contract (other than one wrapper key) is still invalid
+  output; Haiku 4.5's invented shapes (for example `{recommendedProgram, warningFlags}`) are not
+  repaired.

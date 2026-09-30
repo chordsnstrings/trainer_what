@@ -9,6 +9,7 @@ import {
 } from "@trainer/db";
 import { hasNutritionAccess } from "./entitlements.ts";
 import { prepareNutritionWeek } from "./nutrition.ts";
+import { NUTRITION_WEEK_LEASE_SECONDS } from "../../../packages/providers/src/nutrition.ts";
 import {
   localDate,
   dateOffset,
@@ -22,11 +23,12 @@ const AUTOMATIC_RECOVERY_ATTEMPTS = 12;
 async function recoverUnsentWeeks(tx: Tx, a: Actor) {
   // Eligibility is decided in SQL so ineligible history cannot crowd out due weeks:
   // the week's intent is not superseded, its profile is current, its request is absent
-  // or known not_sent (a running one only after its lease), and no request of the
+  // or known not_sent (a running one only after its lease, the same window as
+  // the worker's claim of a nutrition_week job), and no request of the
   // subscriber awaits provider reconciliation. weekStart is prefiltered against the
   // earliest local date anywhere and checked exactly in the profile's timezone below.
   const jobs = await tx.query(
-    "SELECT j.*,r.id AS request_id FROM jobs j LEFT JOIN records r ON r.kind='nutrition_request' AND r.owner_user_id=(j.data->>'userId')::uuid AND r.data->>'requestKey'=coalesce(j.data->>'requestKey',j.id::text) WHERE j.kind='nutrition_week' AND j.status IN ('blocked','failed') AND coalesce(j.data->>'origin','scheduled')<>'manual' AND j.available_at<=now() AND j.attempts<$1 AND (j.leased_until IS NULL OR j.leased_until<now()) AND j.data->>'weekStart'>=to_char(now()-interval '1 day','YYYY-MM-DD') AND (r.id IS NULL OR (r.data->>'providerState'='not_sent' AND (r.status IN ('retryable','failed') OR (r.status='running' AND r.updated_at<now()-interval '2 minutes')))) AND j.data->>'profileId'=(SELECT p.id::text FROM records p WHERE p.kind='nutrition_profile' AND p.owner_user_id=(j.data->>'userId')::uuid ORDER BY p.created_at DESC,p.id DESC LIMIT 1) AND NOT EXISTS(SELECT 1 FROM records u WHERE u.kind='nutrition_request' AND u.owner_user_id=(j.data->>'userId')::uuid AND u.status IN ('running','failed','closed') AND coalesce(u.data->>'providerState','uncertain')='uncertain') AND NOT EXISTS(SELECT 1 FROM jobs n WHERE n.kind='nutrition_week' AND n.data->>'userId'=j.data->>'userId' AND n.data->>'weekStart'=j.data->>'weekStart' AND n.created_at>j.created_at) ORDER BY j.available_at LIMIT 25 FOR UPDATE OF j SKIP LOCKED",
+    `SELECT j.*,r.id AS request_id FROM jobs j LEFT JOIN records r ON r.kind='nutrition_request' AND r.owner_user_id=(j.data->>'userId')::uuid AND r.data->>'requestKey'=coalesce(j.data->>'requestKey',j.id::text) WHERE j.kind='nutrition_week' AND j.status IN ('blocked','failed') AND coalesce(j.data->>'origin','scheduled')<>'manual' AND j.available_at<=now() AND j.attempts<$1 AND (j.leased_until IS NULL OR j.leased_until<now()) AND j.data->>'weekStart'>=to_char(now()-interval '1 day','YYYY-MM-DD') AND (r.id IS NULL OR (r.data->>'providerState'='not_sent' AND (r.status IN ('retryable','failed') OR (r.status='running' AND r.updated_at<now()-interval '${NUTRITION_WEEK_LEASE_SECONDS} seconds')))) AND j.data->>'profileId'=(SELECT p.id::text FROM records p WHERE p.kind='nutrition_profile' AND p.owner_user_id=(j.data->>'userId')::uuid ORDER BY p.created_at DESC,p.id DESC LIMIT 1) AND NOT EXISTS(SELECT 1 FROM records u WHERE u.kind='nutrition_request' AND u.owner_user_id=(j.data->>'userId')::uuid AND u.status IN ('running','failed','closed') AND coalesce(u.data->>'providerState','uncertain')='uncertain') AND NOT EXISTS(SELECT 1 FROM jobs n WHERE n.kind='nutrition_week' AND n.data->>'userId'=j.data->>'userId' AND n.data->>'weekStart'=j.data->>'weekStart' AND n.created_at>j.created_at) ORDER BY j.available_at LIMIT 25 FOR UPDATE OF j SKIP LOCKED`,
     [AUTOMATIC_RECOVERY_ATTEMPTS],
   );
   let recovered = 0;

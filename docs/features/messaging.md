@@ -123,7 +123,10 @@ become `lead` events shown in the funnel, the trainer analytics and the inbox;
 ### Follower (subscriber)
 
 - Messages in chat, support, set notes, pain reports and digital coaching are
-  screened by the code floor plus the published policy's extra red-flag terms;
+  screened by the code floor (`docs/features/safety-floor.md`: since 29 September
+  2026 it also reads blood-pressure and blood-sugar readings, pregnancy warning
+  signs, joint locking or giving way and eating-disorder behaviours, and the
+  exception pins `screening.floorCategories`) plus the published policy's extra red-flag terms;
   a match pauses training exactly like a floor match. The hold and exception
   record the policy key, version, effective time, ignored instructions, the
   review deadline and what triggered it (`code_floor`, `policy_term` or

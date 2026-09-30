@@ -71,6 +71,9 @@ export function SafetyReviewDue({ record }: { record: any }) {
           </>
         )}{" "}
         {policyLabel(data.safetyPolicy?.version)}
+        {data.screening?.floorCategories?.length
+          ? ` · red flags: ${data.screening.floorCategories.join(", ").replaceAll("_", " ")}`
+          : ""}
         {data.screening?.reviewCategories?.length
           ? ` · topics: ${data.screening.reviewCategories.join(", ").replaceAll("_", " ")}`
           : ""}

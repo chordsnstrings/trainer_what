@@ -151,7 +151,11 @@ file of reviewed answers, then the rule-based responder (`model-rules.ts`) unles
 the app sends (Brain decisions, rule compilation, coach action selection, nutrition evaluation,
 weekly plans, recipe drafts, policy compilation, meal-photo estimates, and the Trainer Brain's
 `plan_generation` and `plan_adaptation` prompts from `docs/features/brain-plans.md`) from the
-supplied evidence only. It proves the pipeline, not coaching quality.
+supplied evidence only. It proves the pipeline, not coaching quality. The plan prompts carry short
+evidence references (`R1`, `X1`, `P1`, `T1`) instead of UUIDs; the responder cites the `id` fields
+it is given, so its answers decode. Its weekly adaptation proposes no change when the request's
+`progressionHold` lists a reason (missed sessions, a harder week); the application has then already
+held `nextWeek` at the week's logged values, so that week is what goes out.
 
 Capture: every model request is appended to `tests/e2e/artifacts/<run>/model-capture.jsonl` (or
 `--model-capture=FILE`) with its prompt kind, task, the canonical request and the answer given.
