@@ -16,7 +16,8 @@ compensate.
    `billing` (`monthly` | `upfront`; upfront needs a length). Activation creates a recurring
    monthly Stripe price (monthly) or a one-time price (upfront), plus a separate monthly voice
    add-on product/price when `voiceAddOnMinor` is set. The workout + nutrition pair must share
-   billing and length. Plan changes stay monthly-only.
+   billing and length. Members cannot change plan after paying (owner decision,
+   30 September 2026).
 2. **Upfront payment**: the same checkout admission and business intent as memberships, a
    Stripe Checkout in `payment` mode, a `stripe-programme:<intent>` journal with the membership
    commission method and stable rank, and an access window on the member's `subscriptions` row.
@@ -49,7 +50,8 @@ compensate.
   price of an offer. A published offer gets a new provider price; earlier prices stay in
   `voicePriceIds`, so members keep the price they bought and their events still verify. Refused
   (`VOICE_INCLUDED`) on an older offer that already includes voice.
-- `POST /api/v1/membership/change-plan` refuses an upfront target (`UPFRONT_PLAN`).
+- `POST /api/v1/membership/change-plan` refuses every member (`PLAN_CHANGE_NOT_ALLOWED`):
+  no plan changes after payment (owner decision, 30 September 2026).
 - Monthly offers renew exactly as before; their `programmeDays` is the block length. When a
   provider projection maps the membership to a different block length (an edited offer), a new
   block starts (Day 1) at that event instead of renumbering the current block.

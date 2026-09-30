@@ -1938,134 +1938,19 @@ export async function buildApp(
   });
   registerOfferVoiceAddOn(app, db, owner, commerceProvider);
   registerSubscriptionCheckout(app, db, requireNutritionReady);
+  // Owner decision, 30 September 2026: "There's no existing members. Once
+  // they pay they can't switch." A member's plan is fixed once paid, so this
+  // route no longer opens the Stripe-hosted change confirmation; it answers
+  // every member with a plain refusal. It never served trainers or operators.
   app.post("/api/v1/membership/change-plan", async (req) => {
-    const a = identity(req),
-      b = z.object({ productId: id }).strict().parse(req.body);
+    const a = identity(req);
     if (a.role !== "subscriber")
       throw fail(403, "SUBSCRIBER_REQUIRED", "Subscriber access required");
-    if (runtimeConfig().BUNDLE_CHANGES_APPROVED !== "true")
-      throw fail(
-        503,
-        "PLAN_CHANGES_PENDING",
-        "Plan changes await activation of the reviewed billing policy.",
-      );
-    const stripe = stripeProvider();
-    const context = await db.tenant(a, async (tx) => {
-      const [subscription] = await tx.query(
-        "SELECT * FROM subscriptions WHERE user_id=$1 AND status IN ('active','trialing') AND period_end>now()",
-        [a.userId],
-      );
-      if (!subscription?.provider_id)
-        throw fail(
-          409,
-          "SUBSCRIPTION_REQUIRED",
-          "No current provider subscription is available.",
-        );
-      const product = await findRecord(tx, b.productId, "product");
-      if (product.status !== "published" || !product.data.stripePriceId)
-        throw fail(409, "PRODUCT_UNAVAILABLE", "This offer is not active.");
-      // An upfront programme is bought as its own payment, never a plan change.
-      if (offerBilling(product.data) !== "monthly")
-        throw fail(
-          409,
-          "UPFRONT_PLAN",
-          "An upfront programme is bought separately once your current access ends.",
-        );
-      if (product.data.tier === "workout_nutrition")
-        await requireNutritionReady(tx);
-      if (subscription.data.productId === product.id)
-        throw fail(409, "SAME_PLAN", "You already have this offer.");
-      const current = subscription.data.productId
-        ? await findRecord(tx, subscription.data.productId, "product")
-        : null;
-      if (
-        !current ||
-        !(
-          product.data.baseProductId === current.id ||
-          current.data.baseProductId === product.id
-        )
-      )
-        throw fail(
-          409,
-          "PLAN_PAIR",
-          "Choose the paired workout-only or workout + nutrition offer.",
-        );
-      return { subscription, product, current };
-    });
-    const remote = await stripe.subscriptions.retrieve(
-      context.subscription.provider_id,
+    throw fail(
+      409,
+      "PLAN_CHANGE_NOT_ALLOWED",
+      "Your plan can't be changed after you've paid.",
     );
-    if (remote.items.data.length !== 1)
-      throw fail(
-        409,
-        "BILLING_REVIEW",
-        "This subscription needs a billing review before changing plans.",
-      );
-    const customer =
-      typeof remote.customer === "string"
-        ? remote.customer
-        : remote.customer.id;
-    const products = [context.current, context.product].map((p) => ({
-      product: p.data.stripeProductId,
-      prices: [p.data.stripePriceId],
-    }));
-    const config = await stripe.billingPortal.configurations.create(
-      {
-        business_profile: {
-          headline: "Review your coaching membership change",
-        },
-        features: {
-          subscription_update: {
-            enabled: true,
-            default_allowed_updates: ["price"],
-            products,
-            proration_behavior: "always_invoice",
-            schedule_at_period_end: {
-              conditions: [{ type: "decreasing_item_amount" }],
-            },
-          },
-        },
-      },
-      {
-        idempotencyKey:
-          "membership-portal:" +
-          createHash("sha256")
-            .update(JSON.stringify({ tenant: a.tenantId, products }))
-            .digest("hex"),
-      },
-    );
-    const portal = await stripe.billingPortal.sessions.create({
-      customer,
-      configuration: config.id,
-      return_url: publicUrl() + "/app/membership",
-      flow_data: {
-        type: "subscription_update_confirm",
-        subscription_update_confirm: {
-          subscription: remote.id,
-          items: [
-            {
-              id: remote.items.data[0].id,
-              price: context.product.data.stripePriceId,
-              quantity: 1,
-            },
-          ],
-        },
-        after_completion: {
-          type: "redirect",
-          redirect: { return_url: publicUrl() + "/app/membership" },
-        },
-      },
-    });
-    await db.tenant(a, (tx) =>
-      event(
-        tx,
-        a,
-        "subscription.change_confirmation_opened",
-        context.subscription.id,
-        { productId: context.product.id },
-      ),
-    );
-    return { url: portal.url };
   });
   app.post("/api/v1/payout-beneficiaries", async (req) => {
     const a = owner(req);

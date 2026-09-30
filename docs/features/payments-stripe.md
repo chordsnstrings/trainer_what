@@ -177,14 +177,19 @@ add-on. Without a Stripe client (tests) an older event is still dropped as befor
   subscription item's price); an invoice amount (trial AED 0, discount, proration) is only
   the fallback for a membership whose price is not known yet.
 
-- **Plan changes and Commerce approved (STATE-9, declined: recorded decision).**
-  `POST /membership/change-plan` checks Bundle changes approved but not Commerce approved, so
-  with commerce paused an existing member can still upgrade in the portal and be charged the
-  proration at once (`always_invoice`). This is deliberate: `docs/FINANCE_COMPLETION_HANDOFF.md`
-  (stage 1, item 5) classes plan changes as servicing and moved the route from
-  `requireCommerce()` to `stripeClient()`. Whether a pause of commerce should also stop
-  upgrades is an owner decision; the code change is one line (`commerceProvider()` in that
-  route) if the owner reverses it.
+- **No plan changes after payment (owner decision, 30 September 2026).** "There's no
+  existing members. Once they pay they can't switch." `POST /api/v1/membership/change-plan`
+  now refuses every member with `409 PLAN_CHANGE_NOT_ALLOWED` ("Your plan can't be changed
+  after you've paid.") before any Stripe call, whatever `BUNDLE_CHANGES_APPROVED` says;
+  anyone who is not a member still gets `403 SUBSCRIBER_REQUIRED`. The Stripe billing-portal
+  confirmation flow it used to open (paired workout / workout + nutrition offers, prorated
+  upgrades, period-end downgrades, event `subscription.change_confirmation_opened`) is removed,
+  and the member app (`member-membership.tsx`, the older member view in `workspace.tsx`) has
+  no switch buttons or their English and Arabic strings. `BUNDLE_CHANGES_APPROVED` stays in
+  Settings but no longer opens anything. No trainer or operator tool called this route. This
+  supersedes STATE-9 (plan changes while commerce is paused), which no longer arises.
+  Test: `tests/fix-ledger.test.ts` (G4: every member request refused for both setting values,
+  no portal call, no event).
 
 ## Minimum charge (F2)
 

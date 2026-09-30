@@ -4023,37 +4023,6 @@ function Finance({ state, records, action, busy, path, more }: ViewProps) {
                 {membership.data?.premiumVoice === true && (
                   <p>{mt("voiceIncluded")}</p>
                 )}
-                {records("product")
-                  .filter(
-                    (p) =>
-                      p.status === "published" &&
-                      p.id !== membership.data?.productId &&
-                      (p.data.baseProductId === membership.data?.productId ||
-                        records("product").find(
-                          (c) => c.id === membership.data?.productId,
-                        )?.data.baseProductId === p.id),
-                  )
-                  .map((p) => (
-                    <p key={p.id}>
-                      <Button
-                        secondary
-                        disabled={busy}
-                        onClick={() =>
-                          void action(
-                            () =>
-                              api("/membership/change-plan", "POST", {
-                                productId: p.id,
-                              }),
-                            mt("openingChange"),
-                          ).then((r) => {
-                            if (r?.url) window.location.assign(r.url);
-                          })
-                        }
-                      >
-                        {mt("reviewChange", { name: p.data.name })}
-                      </Button>
-                    </p>
-                  ))}
                 <p className="muted">
                   {mt(
                     membership.cancel_at_period_end

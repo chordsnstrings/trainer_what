@@ -54,7 +54,7 @@ export const EQUIVALENT_FEATURES: Record<string, Array<[Audience, string]>> = {
   "followers:Apple Health export import": [["Trainers", "Apple Health imports"]],
   "followers:Phone and browser push notifications": [["Trainers", "Device push notifications"]],
   "followers:Email copies of notifications": [["Trainers", "Email copies of notifications"]],
-  "followers:Switch between workout-only and workout + nutrition": [["Trainers", "Subscriber plan switching between tiers"]],
+  "followers:Plan cannot be switched after payment": [["Trainers", "Subscriber plan switching between tiers"]],
   "followers:Email sign-in link": [["public-join", "Email sign-in link"]],
   "followers:Forgot-password reset email": [["public-join", "Forgot and reset password"]],
   "Trainers:Email address verification": [["public-join", "Email address verification"]],

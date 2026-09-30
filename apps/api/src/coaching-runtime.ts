@@ -20,6 +20,7 @@ import {
   coachingTermText,
   teachingCaseSchema,
   eligibleCoachAction,
+  moveKeepsSessionSpacing,
   effectiveWorkoutSets,
   groundedCoachSelection,
   addTrainingDays,
@@ -321,6 +322,9 @@ function candidates(
  * qualification: a member who writes in Arabic is never sent an English reply
  * automatically, and without an Arabic reply the request becomes a reviewed
  * draft. Trainer review paths use candidates() and choose themselves.
+ * An automatic move also keeps the trainer's session-spacing and order rules
+ * (moveKeepsSessionSpacing, owner decision N11/E7); when the app cannot tell,
+ * the move is not offered and the request goes to the trainer.
  */
 function deliverable(
   material: Awaited<ReturnType<typeof runtimeMaterial>>,
@@ -328,7 +332,10 @@ function deliverable(
   facts: CoachingFacts,
 ) {
   return candidates(material, request, facts).filter(
-    (a) => !!coachActionReply(a.data, request),
+    (a) =>
+      !!coachActionReply(a.data, request) &&
+      (a.data.type !== "schedule" ||
+        moveKeepsSessionSpacing(facts, a.data.daysOffset, material.rules)),
   );
 }
 async function applyAction(

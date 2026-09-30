@@ -258,16 +258,35 @@ export function proseIssues(text: string, medical: TextTest = MEMBER_MEDICAL): P
   return issues;
 }
 /**
+ * The medical screen for a model-written cue: the sentence-level
+ * givesMedicalAdvice (medicines, doses, diagnoses, training through pain),
+ * plus the spoken-line term list for everything else a cue must not say
+ * (symptoms, treatment, clinicians, "ice it", "keep going if it clicks"),
+ * read with technique push-throughs removed. So "Push through the whole
+ * foot" passes, while "push through the pain" and "if it hurts, push through
+ * it" still fail.
+ */
+const CUE_MEDICAL: TextTest = {
+  test: (text: string) =>
+    givesMedicalAdvice(text) ||
+    MEDICAL.test(screeningText(String(text ?? "")).replace(TECHNIQUE_PUSH, " ")),
+};
+/**
  * Screens a model-written exercise cue a member would read or hear: the
  * spoken-cue checks (numbers only as tempo or timing are not flagged here,
- * the voice session drops those itself) plus approval claims, contact details
- * and guarantees.
+ * the voice session drops those itself) with the medical screen above, plus
+ * approval claims, contact details and guarantees.
  */
 export function modelCueIssues(text: string): Array<PhraseIssue | ProseIssue> {
   const value = String(text ?? "").trim();
   if (!value) return [];
-  const issues: Array<PhraseIssue | ProseIssue> = cueIssues(value).filter((i) => i !== "number");
-  for (const i of proseIssues(value)) if (!issues.includes(i)) issues.push(i);
+  const issues: Array<PhraseIssue | ProseIssue> = cueIssues(value).filter(
+    (i) => i !== "number" && i !== "medical",
+  );
+  // In the place cueIssues lists it: after the length and prescription issues.
+  if (CUE_MEDICAL.test(value))
+    issues.splice(issues.filter((i) => i === "too_long" || i === "prescription_change").length, 0, "medical");
+  for (const i of proseIssues(value, CUE_MEDICAL)) if (!issues.includes(i)) issues.push(i);
   return issues;
 }
 const STOPS = word("stop\\p{L}*|end|ends|pause\\p{L}*|halt\\p{L}*|rest\\s+and\\s+(?:message|contact|tell|call)");

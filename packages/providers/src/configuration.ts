@@ -547,7 +547,10 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
         "BUNDLE_CHANGES_APPROVED",
         "Enable workout and nutrition bundle changes",
         "boolean",
-        { defaultValue: "false" },
+        {
+          defaultValue: "false",
+          help: "No longer has an effect: members cannot change plan after paying (owner decision, 30 September 2026).",
+        },
       ),
     ],
   },

@@ -388,7 +388,12 @@ Related fixes in the legacy Brain and the digital coach (same run):
   referral such as "seek medical help" pass), links, contact numbers, approval claims and
   guarantees in the message or reason (a decoded rule UUID is not a phone number, N3; a technique
   cue such as "push through the whole foot" and a declined topic such as "I made no diagnosis" or
-  "I can't advise on supplements" are not medical advice, N4; a push-through with no technique
+  "I can't advise on supplements" are not medical advice, N4; since 30 September 2026 a
+  model-written plan cue (`modelCueIssues`, the plan text screen and adaptations) uses the same
+  sentence-level check plus the spoken-line term list read with technique push-throughs removed, so
+  the cue "Push through the whole foot" is no longer withheld while "push through the pain", "if it
+  hurts, push through it", medicines, "ice it", a clicking knee and clinicians still fail; the
+  trainer's own spoken cues keep the stricter list; a push-through with no technique
   target fails when pain is named anywhere in the answer or in the scenario's request, "Knee pain?
   Push through it."; a topic list ends with "or" or "and", so "I can't advise on medication,
   painkillers will help" still fails), numbers in the message that the cited rules never state
@@ -449,9 +454,15 @@ coach T3 got no valid plan from Seed; T3S01..T3S08, T2S04, T2S08, T2 and T3 qual
   `brain-plan-validator-v4` (N1, 30 September 2026) the limit between two weeks of a draft is checked
   on the unrounded volume factor (fractional sets, seconds and metres), because the plan rounds sets
   to whole sets and timed rounds to 5 s (1.05 -> 1.1 on a 30 s hold is 30 -> 35 s; 1.1 -> 1.2 on
-  three sets is 3 -> 4); the rounded rise may exceed the limit by at most one rounding unit per
-  exercise (one set, or 5 s or 10 m per round). An adapted week (written out, not scaled) is checked
-  as written. A pace speeds up by at
+  three sets is 3 -> 4). Since `brain-plan-validator-v5` (owner decision, 30 September 2026, the
+  safety review's N1 trade-off) the rounded rise may exceed the limit by at most one rounding unit
+  for the whole week (one set, 5 s or 10 m), and each exercise by at most one unit too; v4 allowed
+  one unit per exercise (and per round), which let a week with several exercises rise several units
+  over the cap. A draft over that fails validation, is not confident, and goes to the trainer for
+  review: three 30 s holds at 1.05 -> 1.1 (4 min 30 s -> 5 min 15 s against a 30 s step) and three
+  three-set exercises at 1.1 -> 1.2 (9 -> 12 sets against a one-set step) now go to the trainer,
+  while two of each still pass (`tests/brain-plans-timed.test.ts`). An adapted week (written out,
+  not scaled) is checked as written. A pace speeds up by at
   most the same weekly percentage per exercise (speed, so 7:00/km may go to about 6:22/km at 10%),
   always at least 5 s/km (`MIN_WORK_STEP.paceSecondsPerKm`), with or without a hold; a slower pace
   is never limited. New metrics `weeklyWorkMinutes` and `weeklyDistanceMeters`.
@@ -601,7 +612,7 @@ release, so the version names were kept.
 Since 30 September 2026 (branch `fix/brain-prompts`): `brain-plan-v4` and `brain-plan-adapt-v3`
 (alternatives, one exercise per session, cues without numbers or warnings, the weekly cap after
 rounding, the session-length estimate and limit, and the notes limit). The validator then became
-`brain-plan-validator-v4` (N1, weekly limit on the unrounded factor), and a plan draft or adaptation
+`brain-plan-validator-v4` (N1, weekly limit on the unrounded factor; v5 on the owner's decision: at most one rounding unit over the limit for the whole week), and a plan draft or adaptation
 whose note exceeds 300 characters, or that has more than 10 notes, is trimmed (the note ends with
 "… [trimmed]"; the last kept note says how many were left out) instead of rejected (N8,
 `fitUncertainties`). A note with a safety point (`carriesSafetyPoint`: the red-flag floor, medical

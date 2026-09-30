@@ -443,7 +443,7 @@ function WorkedExample() {
         plus {aed(e.bands[1].commissionMinor)} (20% on the next 50):{" "}
         <strong>{aed(e.commissionMinor)}</strong>. That leaves{" "}
         <strong>{aed(e.beforeOtherCostsMinor)}</strong> before payment
-        processing, AI usage and other costs, about {e.equivalentSessions}{" "}
+        processing and other costs, about {e.equivalentSessions}{" "}
         sessions at AED 250.
       </p>
       <p className="fine-print muted">

@@ -61,7 +61,6 @@ export const MEMBERSHIP_STATUS: Record<string, string> = Object.fromEntries(
 
 /** What the member was doing, for "we could not …". */
 const DOING = {
-  "open the plan change": "doPlanChange",
   "turn renewal back on": "doRenewOn",
   "stop your renewal": "doStop",
   "open checkout": "doCheckout",
@@ -206,35 +205,6 @@ export function MemberMembership({
                 ? t("mRenewsOn", { date: renewsOn })
                 : t("mRenewsMonthly")}
           </p>
-          {published
-            .filter(
-              (p) =>
-                p.id !== membership.data?.productId &&
-                (p.data.baseProductId === membership.data?.productId ||
-                  current?.data?.baseProductId === p.id),
-            )
-            .map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                className="button secondary"
-                disabled={!!busy}
-                onClick={() =>
-                  void run(
-                    "change",
-                    () =>
-                      api("/membership/change-plan", "POST", {
-                        productId: p.id,
-                      }),
-                    "open the plan change",
-                  ).then((r) => {
-                    if (r?.url) window.location.assign(r.url);
-                  })
-                }
-              >
-                {t("mSwitchTo", { name: p.data.name })}
-              </button>
-            ))}
           {membership.cancel_at_period_end ? (
             <button
               type="button"

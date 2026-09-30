@@ -292,7 +292,9 @@ test("the home band adds no heading, no new sentence and no words in its stage",
 });
 
 // Words the mocks may use that are not elsewhere on the marketing site.
-const NEW_WORDS = new Set(["evaluate", "ls", "layla-strength"]);
+// "passed" (the Scenario lab badge) left the site's own wording when the AI
+// usage lines were removed (owner, 30 September 2026).
+const NEW_WORDS = new Set(["evaluate", "ls", "layla-strength", "passed"]);
 // Controls' accessible names that are not elsewhere either.
 const NEW_NAMES = new Set(["replay", "previous"]);
 test("the mocks: no AI costs, fees, model names or amounts; only the listed new words", async () => {

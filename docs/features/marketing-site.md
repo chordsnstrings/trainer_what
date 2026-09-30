@@ -10,6 +10,25 @@ written to read well as "TrainsYou" but never hard-codes it. Since the
 corporate identity package the default name is `trainsyou` (lowercase), with
 its logo, icons, share card and tokens: see [brand.md](brand.md).
 
+**Owner decision, 30 September 2026: no AI costs on the marketing site.**
+"Let's not talk about AI costs. It's integrated." Every "AI usage at cost",
+"passed through at cost", "voice usage cost" and "Why is AI usage passed
+through?" sentence, bullet, FAQ, statement row and calculator exclusion was
+removed from `marketing-content.ts`, `marketing-features.ts` and the
+marketing components (showcase statement, pricing example, earnings
+calculator). Where a removal left a page under its word floor, the removed
+sentence was replaced with a true one that says nothing about costs (voice
+page: "Uses your voice only for your own subscribers who add it.", a "Yours
+to withdraw" card, "Only subscribers who add it hear the session in your
+voice."; pricing intro: "Payment processing and optional services are
+itemised on your statement."; pricing guide: subscribers choose whether to
+add voice). The voice feature row "Usage on your statement" became "Only
+your subscribers" (same capability count). The trainer-facing billing label
+"AI Coach Service Fee" inside the app is unchanged. `tests/marketing-site.test.ts`
+("the marketing site does not talk about AI costs") scans every registry
+page, every rendered site page, the feature matrix and the earnings
+calculator.
+
 ## What was built
 
 ### One registry, everything derived
@@ -231,8 +250,8 @@ sessions, and the trainer's usual rate. Commission uses the ledger's own
 marginal band function (`commission`, `BANDS`); for one price it equals
 `projectedCommission`. Output: subscriptions, commission by band, amount
 before other costs, and "about N sessions at your usual rate". Excluded and
-stated: processing, AI usage at cost, voice usage, domain, refunds, disputes,
-booking fees, tax.
+stated: processing, domain, refunds, disputes, booking fees, tax (no AI or
+voice usage line since the owner's decision of 30 September 2026, below).
 
 Every result carries "Estimate, not a promise" / "Not an earnings promise",
 the assumptions and a link to `/methodology`, which lists every source with
@@ -559,7 +578,7 @@ the page.
    from the ledger's `BANDS` under "Commission by paying subscriber" (25% ·
    first 100, 20% · 101–300, 15% · 301–1,000, 10% · 1,001+) and "Each rate
    applies only to the subscribers in its band."; the copy names card
-   processing and AI usage at cost; "Pricing in detail".
+   processing ("Card processing is itemised."); "Pricing in detail".
 6. **What are your followers worth?** (paper): "The headline is a strong
    case for an engaged, growing audience, from published benchmarks and our
    stated assumptions. An estimate, not a promise." and the compact follower
@@ -994,7 +1013,9 @@ track.
   follow their `/features` availability). Chapter 1's phone has no Join
   and no address bar (nothing is published yet); chapter 5's follower
   opens the address, joins, pays and answers the intake.
-- New visible words: "Evaluate" (the Scenario lab button), "LS" (the demo
+- New visible words: "Evaluate" (the Scenario lab button), "Passed" (its
+  badge; no longer elsewhere on the site since the AI usage lines were
+  removed on 30 September 2026), "LS" (the demo
   coach's initials) and the slug `layla-strength` inside the address built
   from the platform's `coachAddressTemplate`; control names "Replay" and
   "Previous step" (accessible names only). Everything else is existing

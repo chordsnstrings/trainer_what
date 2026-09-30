@@ -88,12 +88,27 @@ versions stay `coach-decision-v2`, `coach-action-selector-v4`, `brain-plan-v4` a
   90 s and 60 s for the Seed family). On integration with the model gateway work these became the
   base limit that `modelCallBudget` multiplies by the request-style multiplier (one mechanism;
   docs/features/model-gateway.md).
-- A code check for session order on moves (N11) was not added. The only generic check the facts
-  allow is "a moved session never borders another planned session". In the trial it would stop all
-  four development tasks that expect an automatic move (members training three or four days a week),
-  and in general most one-day moves for members who train three or more days a week. That is an
-  owner decision. Until then the
-  selector prompt keeps a spacing rule a move could break as a concrete reason for review.
+- Session order on moves (N11/E7), owner decision of 30 September 2026: an automatic move must
+  respect the trainer's session-spacing and order rules, and when the app cannot tell the request
+  goes to the trainer. Trainer rules are free text (`ruleSchema`: title, category, condition,
+  directive) and a planned session has a label and exercises but no session kind the app can rely
+  on, so the check is kind-agnostic: `sessionSpacingDays` (packages/domain/src/coaching-completion.ts)
+  reads the schedule, recovery and safety rules that talk about spacing or order ("consecutive",
+  "back-to-back", "in a row", "rest day", "48 hours between", "order", Arabic "متتالي", "ورا بعض",
+  "ترتيب"...) and the least number of calendar days they ask between two sessions (2 = never on
+  consecutive days; hours and days rounded up, since session times are unknown); a number it cannot
+  read as a duration, or any Arabic duration, means it cannot tell. `moveKeepsSessionSpacing` then
+  allows the automatic move only when the new date is that many days from every other planned
+  session, no planned session lies between the old and new dates, and the window does not reach back
+  before today (completed sessions are not in the facts). It applies in `deliverable()`
+  (apps/api/src/coaching-runtime.ts), which feeds automatic selection, qualification and automatic
+  delivery; trainer review paths (`candidates()`, including approving a proposed move) are unchanged,
+  so the trainer can still move the session. Without such a rule, moves are automatic as before.
+  In the trial (T3S01 chat 2, three interval runs a week) the one-day move would put two interval
+  runs back to back; under a spacing rule it now goes to the trainer (`tests/session-spacing.test.ts`).
+  As noted above, for members who train three or more days a week most one-day moves border another
+  session, so with a spacing rule most of them go to the trainer. The selector prompt is unchanged
+  (no version bump) and still names a spacing rule as a reason for review.
 - The app and harness fixes found in the same analysis (rounding-aware weekly cap, release-check
   number and contact screens, negation-blind medical screen, scorer and fixture fixes) are separate
   work; the expectation corrections for the harness are kept outside the repository.

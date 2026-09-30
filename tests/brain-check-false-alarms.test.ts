@@ -7,7 +7,9 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import {
   compiledRuleFlags,
+  cueIssues,
   hasContactNumber,
+  modelCueIssues,
   MEDICAL_ADVICE,
   numbersNotGrounded,
 } from "../packages/domain/src/text-screen.ts";
@@ -147,6 +149,44 @@ test("medical advice still fails, also in a sentence that declines a topic (N4)"
       "medical_advice",
     ),
   );
+});
+
+test("a model-written plan cue uses the sentence-level medical check: technique push-throughs pass (N4)", () => {
+  // modelCueIssues used the spoken-line term list, where any "push through"
+  // is medical, so the plan cue "Push through the whole foot" was withheld.
+  for (const cue of [
+    "Push through the whole foot.",
+    "Push through the whole foot as you stand.",
+    "Drive up and push through your heels.",
+    "Stand tall, pushing through the floor.",
+    "Brace, then push through the mid-foot.",
+  ])
+    assert.deepEqual(modelCueIssues(cue), [], cue);
+  // The trainer's own spoken cues keep the stricter term list (unchanged).
+  assert.ok(cueIssues("Push through the whole foot.").includes("medical"));
+});
+
+test("a model-written plan cue with medical wording still fails (N4 must-still-fail)", () => {
+  const mustFail: Array<[string, string]> = [
+    ["Push through the pain.", "training through pain"],
+    ["If it hurts, push through it.", "pain earlier in the sentence"],
+    ["Push through the whole foot even if it hurts.", "technique cue that also says to train through pain"],
+    ["Push through the discomfort, it will ease.", "discomfort"],
+    ["Knee aches? Push through it.", "pain named in another sentence"],
+    ["Ignore the pain and keep the tempo.", "ignore a symptom"],
+    ["No pain, no gain.", "no pain no gain"],
+    ["Take ibuprofen before this set.", "a medicine"],
+    ["Take a supplement after training.", "a supplement"],
+    ["It is just a strain, keep moving.", "a diagnosis"],
+    // The term list still covers what the sentence check does not.
+    ["Ice it after the session.", "treatment"],
+    ["Keep going even if your knee clicks.", "a symptom"],
+    ["See a physio if the knee feels unstable.", "a clinician"],
+    ["This will heal your tendons.", "treatment"],
+    ["Great for rehab after surgery.", "rehabilitation"],
+    ["Push through the whole foot; see a doctor if it tingles.", "a technique cue and a symptom"],
+  ];
+  for (const [cue, why] of mustFail) assert.ok(modelCueIssues(cue).includes("medical"), `${cue} (${why})`);
 });
 
 // ---------------------------------------------------------------------------

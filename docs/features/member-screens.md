@@ -143,8 +143,9 @@ in sessions read "This device" / "Another device or browser" with
   "Memberships are not open yet" with **Message your coach**.
 - Active plan: name, `AED 199.00 a month`, status in words, what it
   includes, renewal date, **Stop renewal…** in a confirmation bottom sheet
-  (or **Turn renewal back on**), and plan switches when the coach offers
-  them.
+  (or **Turn renewal back on**). There is no plan switch: once a member
+  has paid, the plan cannot change (owner decision, 30 September 2026), so
+  the member app has no Change plan entry in English or Arabic.
 - The checkout card appears only while a membership checkout is unfinished
   (`GET /payments/checkout/pending`, read only), in plain words.
 - Errors (`membershipError`) are plain and give the next step: payments

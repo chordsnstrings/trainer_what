@@ -591,6 +591,84 @@ export function eligibleCoachAction(
     )
   );
 }
+/**
+ * The trainer's session-spacing and session-order rules, as far as the app can
+ * read them (owner decision N11/E7, 30 September 2026: an automatic move must
+ * respect them). Rules are free text, so only a schedule, recovery or safety
+ * rule that talks about spacing or order counts ("no intervals on consecutive
+ * days", "48 hours between hard sessions", "keep the session order"). Returns
+ * the least number of calendar days that rule asks between two sessions (2:
+ * never on consecutive days; hours and days are rounded up, since session
+ * times are unknown), 0 when no rule talks about spacing or order, and null
+ * when a rule gives a duration the app cannot read (it cannot tell).
+ */
+export function sessionSpacingDays(rules: unknown[] = []): number | null {
+  const words: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7 };
+  let days = 0;
+  for (const rule of rules as any[]) {
+    const data = rule?.data ?? rule;
+    if (!["schedule", "recovery", "safety"].includes(data?.category)) continue;
+    const text = [data.title, data.condition, data.directive]
+      .filter((v) => typeof v === "string")
+      .join(" ")
+      .toLowerCase();
+    const english = SPACING_RULE.test(text),
+      arabic = SPACING_RULE_AR.test(text);
+    if (!english && !arabic) continue;
+    // Arabic durations (يومين, ٤٨ ساعة) are not read: the app cannot tell.
+    if (arabic && /[0-9\u0660-\u0669]|يومين|ساع|ثلاث|اربع|أربع/u.test(text))
+      return null;
+    let least = 2;
+    for (const m of text.matchAll(SPACING_DURATION)) {
+      const n = words[m[1]] ?? Number(m[1]);
+      least = Math.max(least, m[2].startsWith("hour") ? Math.floor(n / 24) + 1 : n + 1);
+    }
+    // Any other number ("at least 2 between hard sessions") is not read.
+    if (/\d/.test(text.replace(SPACING_DURATION, " "))) return null;
+    days = Math.max(days, least);
+  }
+  return days;
+}
+const SPACING_RULE =
+  /\b(consecutive|back[- ]to[- ]back|in a row|rest days?|days? (?:off|between|apart)|hours? (?:between|apart|of rest)|spac(?:e|ed|ing)|same day|next day|following day|day after|day before|(?<!in )order|sequence)\b/;
+const SPACING_DURATION =
+  /\b(\d+|one|two|three|four|five|six|seven)[\s-]+(?:full\s+)?(?:rest\s+)?(hours?|days?|nights?)\b/g;
+const SPACING_RULE_AR =
+  /(متتالي|متتاليه|متتالية|ورا بعض|وراء بعض|يوم راح|ايام راح|أيام راح|بين الحصص|ترتيب)/u;
+/**
+ * Whether an automatic move of the next session by daysOffset keeps the
+ * trainer's spacing and order rules (sessionSpacingDays). The facts carry
+ * dates, not session kinds (a planned session has a label and exercises but
+ * no kind the app can rely on), so with such a rule the move is automatic
+ * only when the new date is at least that many days from every other planned
+ * session, no planned session lies between the old and new dates (the order
+ * is unchanged) and the spacing window does not reach back before today
+ * (completed sessions are not in the facts). Otherwise the app cannot tell and
+ * the request goes to the trainer.
+ */
+export function moveKeepsSessionSpacing(
+  facts: CoachingFacts,
+  daysOffset: number,
+  rules: unknown[] = [],
+) {
+  const gap = sessionSpacingDays(rules);
+  if (gap === 0) return true;
+  if (gap === null || !facts.nextSession) return false;
+  const from = facts.nextSession.date,
+    to = addTrainingDays(from, daysOffset);
+  if (addTrainingDays(to, 1 - gap) < facts.currentDate) return false;
+  const apart = (d: string) =>
+    Math.abs(
+      Date.parse(d + "T12:00:00Z") - Date.parse(to + "T12:00:00Z"),
+    ) / 86_400_000;
+  let moved = false;
+  return facts.occupiedDates.every((d) => {
+    if (d === from && !moved) return (moved = true);
+    if (d < facts.currentDate) return true;
+    if (d > from && d < to) return false;
+    return apart(d) >= gap;
+  });
+}
 export function canonicalCoaching(value: any): string {
   if (Array.isArray(value))
     return "[" + value.map(canonicalCoaching).join(",") + "]";

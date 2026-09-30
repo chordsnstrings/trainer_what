@@ -54,7 +54,11 @@ export const planAdaptationPromptVersion = "brain-plan-adapt-v3";
 // v4 (N1, 30 September 2026): within a draft the weekly limit is checked on
 // the unrounded volume factor; the rounded rise may exceed it by at most one
 // rounding unit per exercise (one set, 5 s or 10 m per round).
-export const planValidatorVersion = "brain-plan-validator-v4";
+// v5 (owner decision, 30 September 2026): the rounded rise may exceed the
+// limit by at most one rounding unit for the whole week (one set, 5 s or
+// 10 m), and each exercise by at most one unit too; a draft over that goes to
+// the trainer for review.
+export const planValidatorVersion = "brain-plan-validator-v5";
 export const planConfidenceVersion = "brain-plan-confidence-v1";
 export const planRouteVersion = "brain-plan-route-v2";
 
@@ -727,9 +731,12 @@ type TransitionSessions = Array<{ key: string; exercises: ExpandedExercise[] }>;
  * come from volume factors that the plan rounds (whole sets, 5 s and 10 m per
  * round), so `unrounded` carries both weeks before rounding (parallel to
  * `previous` and `next`): the limit is checked on those, and the rounded rise
- * may exceed the limit by at most one rounding unit per exercise (one set, or
- * 5 s or 10 m per round). Without `unrounded` (an adapted week the model
- * wrote out) the rounded values are checked as they are.
+ * may exceed the limit by at most one rounding unit (one set, 5 s or 10 m)
+ * for the whole week, and each exercise by at most one unit as well (owner
+ * decision, 30 September 2026; it was one unit per exercise and per round).
+ * A draft over that fails validation and goes to the trainer. Without
+ * `unrounded` (an adapted week the model wrote out) the rounded values are
+ * checked as they are.
  */
 function checkTransition(
   previous: TransitionSessions,
@@ -744,7 +751,7 @@ function checkTransition(
   // rounded values, exact on unrounded ones.
   const cap = (value: number, minimum: number, exact = false) =>
     Math.max(minimum, exact ? (value * pct) / 100 : Math.floor((value * pct) / 100));
-  /** Whether a rise from `was` to `now` breaks the limit; `slack` is one rounding unit per exercise. */
+  /** Whether a rise from `was` to `now` breaks the limit; `slack` is one rounding unit. */
   const tooMuch = (
     was: number,
     now: number,
@@ -766,7 +773,7 @@ function checkTransition(
       after,
       1,
       unrounded && [volume(unrounded.previous), volume(unrounded.next)],
-      nextExercises.filter((e) => workMeasure(e) === "reps").length * ROUNDING_UNIT.sets,
+      ROUNDING_UNIT.sets,
     )
   )
     result.errors.push(`${where}: weekly volume rises from ${before} to ${after} sets (limit +${pct}%)`);
@@ -779,8 +786,7 @@ function checkTransition(
     const amount = (e: ExpandedExercise) => (measure === "time" ? totalSeconds(e) : totalMeters(e));
     const was = total(previous),
       now = total(next);
-    const weekSlack = nextExercises.reduce((n, e) => n + (workMeasure(e) === measure ? unit * e.sets : 0), 0);
-    if (was > 0 && tooMuch(was, now, minimum, unrounded && [total(unrounded.previous), total(unrounded.next)], weekSlack))
+    if (was > 0 && tooMuch(was, now, minimum, unrounded && [total(unrounded.previous), total(unrounded.next)], unit))
       result.errors.push(`${where}: weekly ${noun} rises from ${format(was)} to ${format(now)} (limit +${pct}%)`);
     const most = (sessions: TransitionSessions) => {
       const out = new Map<string, number>();
@@ -801,7 +807,7 @@ function checkTransition(
       const value = amount(e);
       const exact: [number, number] | undefined =
         mostBeforeExact && nextExact ? [mostBeforeExact.get(key) ?? p, amount(nextExact[i]!)] : undefined;
-      if (tooMuch(p, value, minimum, exact, unit * e.sets))
+      if (tooMuch(p, value, minimum, exact, unit))
         result.errors.push(`${where}: ${e.name} rises from ${format(p)} to ${format(value)} (limit +${pct}%)`);
     });
   }

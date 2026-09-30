@@ -347,10 +347,10 @@ test("the session-length estimate and note limits the plan prompts state are the
   assert.equal(notes.safeParse(["x".repeat(301)]).success, false);
 });
 
-test("versions changed with the contract: plan prompt v4, adaptation prompt v3, validator v4 (N1)", () => {
+test("versions changed with the contract: plan prompt v4, adaptation prompt v3, validator v5 (N1, one rounding unit a week)", () => {
   assert.equal(planPromptVersion, "brain-plan-v4");
   assert.equal(planAdaptationPromptVersion, "brain-plan-adapt-v3");
-  assert.equal(planValidatorVersion, "brain-plan-validator-v4");
+  assert.equal(planValidatorVersion, "brain-plan-validator-v5");
 });
 
 test("an exercise is prescribed by exactly one of reps, a duration or a distance; rest 0 only for one continuous bout", () => {
@@ -2464,10 +2464,13 @@ test("review regression (Opus T2S03, trial T3 template): walks, intervals and ho
 // N1 (model trial, 30 September 2026): the weekly limit is checked on the
 // unrounded volume factor. Rounding (whole sets, 5 s per round) made factor
 // steps inside the limit fail: 1.05 -> 1.1 on 30 s holds is 30 -> 35 s, and
-// 1.1 -> 1.2 on three sets is 3 -> 4 sets.
+// 1.1 -> 1.2 on three sets is 3 -> 4 sets. Owner decision (30 September
+// 2026, the safety review's N1 trade-off): the rounded week may exceed the
+// limit by at most one rounding unit for the whole week (one set, 5 s or
+// 10 m), not one per exercise; a draft over that goes to the trainer.
 
-/** Short holds in one session and three-set strength work in another. */
-const roundingPlan = (factors: number[]): PlanDraft =>
+/** Short holds in one session and three-set strength work in another (`count` of each). */
+const roundingPlan = (factors: number[], count = 3): PlanDraft =>
   planDraftSchema.parse({
     ...runWalkPlan(),
     sessions: [
@@ -2479,7 +2482,7 @@ const roundingPlan = (factors: number[]): PlanDraft =>
           ex("Plank", { sets: 3, durationSeconds: 30, rir: 2, restSeconds: 45 }),
           ex("Jump Rope", { sets: 3, durationSeconds: 30, rir: 2, restSeconds: 45 }),
           ex("Low-Impact Step Jacks", { sets: 3, durationSeconds: 30, rir: 2, restSeconds: 45 }),
-        ],
+        ].slice(0, count),
       },
       {
         key: "B",
@@ -2489,21 +2492,35 @@ const roundingPlan = (factors: number[]): PlanDraft =>
           ex("Goblet Squat", { sets: 3, reps: 12, loadKg: 10, rir: 2, restSeconds: 60 }),
           ex("Push-Up", { sets: 3, reps: 8, rir: 2, restSeconds: 60 }),
           ex("Glute Bridge", { sets: 3, reps: 12, rir: 2, restSeconds: 60 }),
-        ],
+        ].slice(0, count),
       },
     ],
     weeks: weeks(factors),
   });
 const rises = (draft: PlanDraft) => validatePlan(draft, ctx).errors.filter((e) => /rises from/.test(e));
 
-test("a volume factor step inside the weekly limit passes after rounding (N1)", () => {
-  // 1.05 -> 1.1 (+4.8%): the holds round from 30 s to 35 s (weekly 4 min 30 s
-  // -> 5 min 15 s). 1.1 -> 1.2 (+9.1%): three sets round to four (9 -> 12).
-  const draft = roundingPlan([1.05, 1.1, 1.2, 0.7]);
+test("a volume factor step inside the weekly limit passes after rounding when the week is at most one unit over (N1)", () => {
+  // Two holds and two strength exercises. 1.05 -> 1.1 (+4.8%): the holds
+  // round from 30 s to 35 s (weekly 3 min -> 3 min 30 s, the 30 s minimum
+  // step). 1.1 -> 1.2 (+9.1%): three sets round to four (6 -> 8 sets: the
+  // one-set step plus one rounding unit).
+  const draft = roundingPlan([1.05, 1.1, 1.2, 0.7], 2);
   const [, w2, w3] = expandPlan(draft);
   assert.equal(w2!.sessions[0]!.exercises[0]!.durationSeconds, 35);
   assert.equal(w3!.sessions[1]!.exercises[0]!.sets, 4);
   assert.deepEqual(rises(draft), []);
+});
+
+test("a rounded week more than one rounding unit over the limit goes to the trainer (N1, owner decision)", () => {
+  // The same steps with three of each: the holds add 45 s against a 30 s
+  // step (one 5 s unit allowed, not one per round), and the sets go 9 -> 12
+  // against a one-set step (one set allowed, not one per exercise). Before
+  // the owner's decision both passed.
+  const errors = rises(roundingPlan([1.05, 1.1, 1.2, 0.7]));
+  assert.ok(errors.some((e) => /^Week 2: weekly timed work rises from 4 min 30 s to 5 min 15 s/.test(e)), errors.join("\n"));
+  assert.ok(errors.some((e) => /^Week 3: weekly volume rises from 9 to 12 sets/.test(e)), errors.join("\n"));
+  // A validation error makes the draft not confident (planConfidence), so
+  // planRoute never delivers it automatically: the trainer reviews it.
 });
 
 test("a volume factor step over the weekly limit still fails (N1)", () => {
@@ -2515,7 +2532,7 @@ test("a volume factor step over the weekly limit still fails (N1)", () => {
   assert.ok(rises(runWalkPlan([1, 1.15, 1.15, 0.7])).length > 0);
 });
 
-test("a rounded rise never exceeds the limit by more than one rounding unit per exercise (N1)", () => {
+test("a rounded rise never exceeds the limit by more than one rounding unit, for the week and for each exercise (N1)", () => {
   const pct = T3_BOUNDS.maxWeeklyVolumeIncreasePct;
   let checked = 0;
   for (let f = 0.6; f <= 1.45; f += 0.05)
@@ -2526,6 +2543,18 @@ test("a rounded rise never exceeds the limit by more than one rounding unit per 
       if (rises(draft).length) continue;
       checked++;
       const [a, b] = expandPlan(draft);
+      const all = (w: typeof a) => w!.sessions.flatMap((s) => s.exercises);
+      const seconds = (w: typeof a) =>
+        all(w).reduce((n, e) => n + (e.durationSeconds === undefined ? 0 : e.sets * e.durationSeconds), 0);
+      const sets = (w: typeof a) => all(w).reduce((n, e) => n + (e.durationSeconds === undefined ? e.sets : 0), 0);
+      assert.ok(
+        seconds(b) - seconds(a) <= Math.max(30, Math.floor((seconds(a) * pct) / 100)) + ROUNDING_UNIT.seconds,
+        `${first} -> ${second}: week ${seconds(a)} -> ${seconds(b)} s`,
+      );
+      assert.ok(
+        sets(b) - sets(a) <= Math.max(1, Math.floor((sets(a) * pct) / 100)) + ROUNDING_UNIT.sets,
+        `${first} -> ${second}: week ${sets(a)} -> ${sets(b)} sets`,
+      );
       a!.sessions.forEach((s, si) =>
         s.exercises.forEach((e, ei) => {
           const n = b!.sessions[si]!.exercises[ei]!;
@@ -2533,7 +2562,7 @@ test("a rounded rise never exceeds the limit by more than one rounding unit per 
             const was = e.sets * e.durationSeconds,
               now = n.sets * n.durationSeconds!;
             assert.ok(
-              now - was <= Math.max(30, Math.floor((was * pct) / 100)) + ROUNDING_UNIT.seconds * e.sets,
+              now - was <= Math.max(30, Math.floor((was * pct) / 100)) + ROUNDING_UNIT.seconds,
               `${first} -> ${second}: ${e.name} ${was} -> ${now}`,
             );
           } else

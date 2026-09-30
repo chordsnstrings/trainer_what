@@ -872,8 +872,7 @@ export function EarningsCalculator({ compact = false }: { compact?: boolean }) {
         </div>
       </div>
       <p className="fine-print mk-disclaimer">
-        Not an earnings promise. Excludes payment processing, AI usage at cost,
-        voice usage, your own domain, refunds, disputes, any booking fee in
+        Not an earnings promise. Excludes payment processing, your own domain, refunds, disputes, any booking fee in
         your finance policy, and tax.{" "}
         <Link href="/methodology">Assumptions</Link>
       </p>

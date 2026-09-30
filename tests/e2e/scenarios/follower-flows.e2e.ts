@@ -588,14 +588,12 @@ async function billing(ctx: E2EContext, f: FollowerSeed) {
     (x) => x.paid && x.trainer === trainer && trainer.products.nutrition && x.tier === "workout" && x !== f && x !== second && x.checkout?.subscriptionId,
   );
   if (changer)
-    await ctx.reporter.step(F, "Switch between workout-only and workout + nutrition", `${changer.client.label}: upgrade through the billing portal flow`, async () => {
-      const { url } = await changer.client.post("/api/v1/membership/change-plan", { productId: trainer.products.nutrition.id });
-      const portalId = new URL(url).pathname.split("/").pop()!;
-      const result = await stripe.confirmPortalUpdate(portalId);
-      for (const d of result.deliveries) assert.equal(d.status, 200, `${d.type}: ${d.body}`);
+    // Owner decision, 30 September 2026: once a member has paid, the plan cannot change.
+    await ctx.reporter.step(F, "Plan cannot be switched after payment", `${changer.client.label}: a switch to workout + nutrition is refused and the plan stays`, async () => {
+      const refused = await changer.client.fails(409, "POST", "/api/v1/membership/change-plan", { productId: trainer.products.nutrition.id }, "PLAN_CHANGE_NOT_ALLOWED");
+      assert.equal(refused.message, "Your plan can't be changed after you've paid.");
       const sub = (await changer.client.get("/api/v1/bootstrap")).subscriptions[0];
-      assert.equal(sub.data.tier, "workout_nutrition");
-      changer.tier = "workout_nutrition";
+      assert.equal(sub.data.tier, "workout");
     });
 }
 
