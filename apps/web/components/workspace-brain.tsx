@@ -80,14 +80,14 @@ export function BrainView({
       <Heading
         eyebrow="YOUR MOST VALUABLE ASSET"
         title="Your coaching mind, made clear."
-        detail="Teach the decisions behind your method. Confirm the rules. Keep control of every release."
+        detail="Teach it how you coach, check it with a practice quiz, and decide how much it does on its own."
       />
-      <nav className="button-row" aria-label="Qualified coaching">
+      <nav className="button-row" aria-label="My Brain sections">
         {[
-          ["teaching", "Teach through cases"],
+          ["teaching", "Teach with examples"],
           ["actions", "Routine actions"],
-          ["checks", "Independent checks"],
-          ["autonomy", "Activation"],
+          ["checks", "Practice quiz"],
+          ["autonomy", "How much my Brain does alone"],
           ["plans", "Plans"],
         ].map(([key, label]) => (
           <Link
@@ -101,11 +101,11 @@ export function BrainView({
       </nav>
       <div className="tabs">
         {[
-          ["interview", "Interview"],
+          ["interview", "Questions"],
           ["sources", "Knowledge"],
-          ["rules", "Constitution"],
-          ["scenarios", "Scenario lab"],
-          ["releases", "Readiness & releases"],
+          ["rules", "My rules"],
+          ["scenarios", "Quiz questions"],
+          ["releases", "Check my Brain"],
         ].map(([id, label]) => (
           <button
             key={id}
@@ -420,7 +420,7 @@ export function BrainView({
             ) : (
               <Card>
                 <Empty
-                  title="Your Constitution is taking shape"
+                  title="Your rules are taking shape"
                   detail="These are the rules you explicitly stand behind. Confirm a draft when it represents your judgment."
                 />
               </Card>
@@ -439,8 +439,8 @@ export function BrainView({
           <Card>
             <h2>Test the reasoning, not the wording.</h2>
             <p className="muted">
-              Create held-out situations for evaluation. They are kept separate
-              from the Brain’s learning material.
+              Write practice questions your Brain has never seen. They are kept
+              apart from what it learns from, so the quiz stays fair.
             </p>
             <form
               onSubmit={(e) => {
@@ -454,7 +454,7 @@ export function BrainView({
                       expectEscalation: f.get("escalation") === "on",
                       heldOut: true,
                     }),
-                  "Scenario saved",
+                  "Question saved",
                 );
               }}
             >
@@ -478,7 +478,7 @@ export function BrainView({
                 This case must be escalated
               </label>
               <Button type="submit" disabled={busy}>
-                Save held-out scenario
+                Save practice question
               </Button>
             </form>
           </Card>
@@ -494,11 +494,11 @@ export function BrainView({
               more={more}
               collection="records"
               kind="scenario"
-              label="Load older scenarios"
+              label="Load older questions"
             />
             {!records("scenario").length && (
               <Empty
-                title="No scenarios yet"
+                title="No practice questions yet"
                 detail="Vary experience, equipment, schedule and safety conditions to test where your method holds up."
               />
             )}
@@ -508,7 +508,7 @@ export function BrainView({
       {tab === "releases" && (
         <div className="two-columns">
           <Card>
-            <h2>Earn confidence before release.</h2>
+            <h2>Check your Brain before it goes live.</h2>
             <div className="readiness-row">
               <span>Confirmed coaching rules</span>
               <strong>
@@ -520,14 +520,14 @@ export function BrainView({
               </strong>
             </div>
             <div className="readiness-row">
-              <span>Held-out scenarios</span>
+              <span>Practice questions</span>
               <strong>
                 {kindTotal(state, "scenario", records("scenario").length)} / 20
                 minimum
               </strong>
             </div>
             <div className="readiness-row">
-              <span>Model connection</span>
+              <span>Brain service (set up by us)</span>
               <Badge>
                 {state.integrations.find((x) => x.id === "model")?.configured
                   ? "Configured"
@@ -535,8 +535,8 @@ export function BrainView({
               </Badge>
             </div>
             <p className="muted">
-              A passing evaluation unlocks a supervised release. Your trainer
-              reviews generated coaching before it reaches a subscriber.
+              Passing the check lets your Brain start in “Waits for me” mode:
+              you approve every reply before a client sees it.
             </p>
             <Button
               disabled={busy}
@@ -573,22 +573,22 @@ export function BrainView({
                             evaluationId: e.id,
                             notes: "Trainer-approved supervised release",
                           }),
-                        "Brain released",
+                        "Your Brain is live and waits for you",
                       )
                     }
                   >
-                    Publish supervised release
+                    Go live in “Waits for me” mode
                   </Button>
                 )}
               </Card>
             ))}
             {records("brain_release").map((r) => (
               <Card key={r.id}>
-                <h3>Brain release</h3>
+                <h3>Brain version</h3>
                 <Badge>{r.status}</Badge>
                 <p>{r.data.notes}</p>
                 <p className="muted">
-                  Supervised · {new Date(r.created_at).toLocaleString()}
+                  Waits for me · {new Date(r.created_at).toLocaleString()}
                 </p>
                 {r.status === "archived" && (
                   <Button
@@ -597,11 +597,11 @@ export function BrainView({
                       void action(
                         () =>
                           api(`/brain/releases/${r.id}/rollback`, "POST", {}),
-                        "Release restored",
+                        "Earlier version restored",
                       )
                     }
                   >
-                    Restore this release
+                    Go back to this version
                   </Button>
                 )}
               </Card>
@@ -616,7 +616,7 @@ export function BrainView({
               more={more}
               collection="records"
               kind="brain_release"
-              label="Load older releases"
+              label="Load older versions"
             />
           </div>
         </div>

@@ -596,7 +596,8 @@ function FinancialStatementView({ tenant }: { tenant?: string }) {
           ) : (
             data.usage.map((r: any, i: number) => (
               <p key={i}>
-                {r.provider} / {r.model ?? "service"} · {r.status}: {r.calls}{" "}
+                {/* Coaches never see the model or its vendor. */}
+                Brain usage · {r.status}: {r.calls}{" "}
                 calls · USD {r.cost_usd ?? "unresolved"} · {r.unresolved}{" "}
                 unpriced
               </p>

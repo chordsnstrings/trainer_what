@@ -188,9 +188,8 @@ export function Exceptions({ records, state, action, busy, more }: ViewProps) {
         onChange={() => action(async () => {}, "Training review saved")}
       />
       <Heading
-        eyebrow="YOUR JUDGMENT MATTERS"
-        title="The attention list."
-        detail="Review the evidence, make a decision, and help your coaching improve."
+        title="Needs you."
+        detail="Safety reports, questions for you and replies your Brain was unsure about. The inbox shows these too."
       />
       {exceptions.length ? (
         exceptions.map((e) => (
@@ -220,24 +219,26 @@ export function Exceptions({ records, state, action, busy, more }: ViewProps) {
                 void action(
                   () =>
                     api(`/exceptions/${e.id}/resolve`, "POST", {
-                      note: f.get("note"),
+                      ...(String(f.get("note") ?? "").trim()
+                        ? { note: String(f.get("note")).trim() }
+                        : {}),
                       approveDecision: f.get("approve") === "on",
                     }),
                   "Review recorded",
                 );
               }}
             >
-              <Field label="Resolution / trainer note">
-                <textarea name="note" minLength={3} required rows={2} />
+              <Field label="A note for your records (needed only if you close it without sending anything)">
+                <textarea name="note" rows={2} />
               </Field>
               {e.data.decisionId && (
                 <label className="check-field">
                   <input name="approve" type="checkbox" />
-                  Approve and send this digital response
+                  Send your Brain’s reply
                 </label>
               )}
               <Button type="submit" disabled={busy}>
-                Resolve with my review <Check size={16} />
+                Done <Check size={16} />
               </Button>
             </form>
             {e.data.decisionId && (
@@ -253,8 +254,8 @@ export function Exceptions({ records, state, action, busy, more }: ViewProps) {
       ) : (
         <Card>
           <Empty
-            title="Nothing needs your attention right now"
-            detail="Safety reports, uncertain coaching decisions and human review requests will appear here."
+            title="Nothing needs you right now"
+            detail="Safety reports, questions for you and replies your Brain was unsure about will appear here."
           />
         </Card>
       )}

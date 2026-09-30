@@ -1,4 +1,6 @@
 "use client";
+import { CoachingMessages } from "./training-workspace";
+import { formatDate } from "../lib/format";
 import { FollowerInvitations } from "./joining";
 import { ComplimentaryAccessManager } from "./complimentary-access";
 import { ClientTwin } from "./client-twin";
@@ -15,33 +17,206 @@ import {
   type ViewProps,
   total,
 } from "./workspace-ui";
-/** A follower's name, read from the server when outside the first page. */
-export function SubscriberDetail({ state, userId }: { state: State; userId: string }) {
-  const known = state.members?.find((m) => m.id === userId)?.name;
-  const [name, setName] = useState<string | undefined>(known);
+const HUB_TABS = [
+  ["message", "Message"],
+  ["plan", "Plan"],
+  ["notes", "Notes"],
+  ["membership", "Membership"],
+] as const;
+type HubTab = (typeof HUB_TABS)[number][0];
+
+/** The tab a client address opens: /trainer/subscribers/:id[/tab]. */
+export function hubTab(path: string): HubTab {
+  const part = path.split("/")[4];
+  return (HUB_TABS.find(([key]) => key === part)?.[0] ?? "message") as HubTab;
+}
+
+/** One client's plans and upcoming sessions (the full editor stays on the
+ * Programmes page). */
+function ClientPlan({ userId }: { userId: string }) {
+  const [data, setData] = useState<any>(null),
+    [error, setError] = useState("");
   useEffect(() => {
-    if (known) {
-      setName(known);
-      return;
-    }
+    let active = true;
+    api(`/training/overview?subscriberId=${encodeURIComponent(userId)}`).then(
+      (r) => active && setData(r),
+      (e) => active && setError((e as Error).message),
+    );
+    return () => {
+      active = false;
+    };
+  }, [userId]);
+  const records: any[] = data?.records ?? [];
+  const programs = records.filter(
+    (r) => r.kind === "program" && r.status === "assigned" && r.owner_user_id === userId,
+  );
+  const upcoming = records
+    .filter((r) => r.kind === "planned_session" && r.status === "planned")
+    .sort((a, b) => String(a.data.date).localeCompare(String(b.data.date)))
+    .slice(0, 6);
+  return (
+    <>
+      {error && (
+        <p className="notice error" role="alert">
+          {error}
+        </p>
+      )}
+      {!data && !error && <p className="muted">Loading plan…</p>}
+      {data && !programs.length && (
+        <Card>
+          <Empty
+            title="No plan yet"
+            detail="Draft one with your Brain, or assign one of your programmes."
+          />
+        </Card>
+      )}
+      {programs.map((p) => (
+        <Card key={p.id}>
+          <h2 dir="auto">{p.data.title}</h2>
+          <p dir="auto">{p.data.goal}</p>
+          <p className="muted">
+            {p.data.weeks ?? 4} weeks · {p.data.daysPerWeek} sessions a week
+          </p>
+        </Card>
+      ))}
+      {upcoming.length > 0 && (
+        <Card>
+          <h2>Coming up</h2>
+          <ul className="plain-list">
+            {upcoming.map((s) => (
+              <li key={s.id}>
+                <strong>{formatDate(s.data.date, { weekday: true })}</strong>{" "}
+                · <bdi>{s.data.label}</bdi>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+      <div className="button-row">
+        <Link className="button" href="/trainer/brain/plans">
+          Draft a plan with my Brain
+        </Link>
+        <Link className="button secondary" href="/trainer/programs">
+          Programmes
+        </Link>
+      </div>
+    </>
+  );
+}
+
+/** A client's membership: what they pay for, and ending it. */
+function ClientMembership({
+  member,
+  userId,
+  name,
+  owner,
+}: {
+  member: any;
+  userId: string;
+  name?: string;
+  owner: boolean;
+}) {
+  return (
+    <>
+      <Card>
+        <h2>Membership</h2>
+        <p>
+          <Badge>
+            {member?.subscription_status ??
+              (member?.complimentary ? "Complimentary" : "No plan")}
+          </Badge>
+        </p>
+        {member?.email && (
+          <p className="muted">
+            <span dir="ltr">{member.email}</span>
+          </p>
+        )}
+        <p className="muted">
+          Payments and refunds are in{" "}
+          <Link href="/trainer/finance">Earnings and plans</Link>.
+        </p>
+      </Card>
+      {owner && <FollowerRemoval userId={userId} name={name} />}
+    </>
+  );
+}
+
+/** /trainer/subscribers/:id: the client hub (Message, Plan, Notes,
+ * Membership). */
+export function SubscriberDetail({
+  state,
+  userId,
+  path = "",
+}: {
+  state: State;
+  userId: string;
+  path?: string;
+}) {
+  const known = state.members?.find((m) => m.id === userId);
+  const [member, setMember] = useState<any>(known ?? null);
+  const name: string | undefined = member?.name ?? known?.name;
+  const tab = hubTab(path);
+  useEffect(() => {
     let active = true;
     api(
       `/workspace/pages/members?role=subscriber&userId=${encodeURIComponent(userId)}`,
     ).then(
-      (r) => active && setName(r.items[0]?.name),
+      (r) => active && r.items[0] && setMember(r.items[0]),
       () => {},
     );
     return () => {
       active = false;
     };
-  }, [known, userId]);
+  }, [userId]);
+  const base = `/trainer/subscribers/${userId}`;
   return (
-    <>
-      <ClientTwin userId={userId} name={name} />
-      {state.user.role === "owner" && (
-        <FollowerRemoval userId={userId} name={name} />
+    <div className="client-hub">
+      <Link href="/trainer/subscribers" className="text-button">
+        ← All clients
+      </Link>
+      <div className="client-hub-head">
+        <span className="avatar" aria-hidden="true">
+          {(name ?? "?").slice(0, 1)}
+        </span>
+        <div>
+          <h1>{name ?? "Client"}</h1>
+          <p className="muted">
+            {member?.subscription_status ??
+              (member?.complimentary ? "Complimentary" : "")}
+          </p>
+        </div>
+      </div>
+      <nav className="tabs client-hub-tabs" aria-label="Client sections">
+        {HUB_TABS.map(([key, label]) => (
+          <Link
+            key={key}
+            href={key === "message" ? base : `${base}/${key}`}
+            className={tab === key ? "active" : ""}
+            aria-current={tab === key ? "page" : undefined}
+          >
+            {label}
+          </Link>
+        ))}
+      </nav>
+      {tab === "message" && (
+        <CoachingMessages
+          key={userId}
+          state={state}
+          subscriberId={userId}
+          clientName={name}
+        />
       )}
-    </>
+      {tab === "plan" && <ClientPlan userId={userId} />}
+      {tab === "notes" && <ClientTwin userId={userId} name={name} />}
+      {tab === "membership" && (
+        <ClientMembership
+          member={member}
+          userId={userId}
+          name={name}
+          owner={state.user.role === "owner"}
+        />
+      )}
+    </div>
   );
 }
 export type MemberPage = { items: any[]; hasMore: boolean; cursor: string | null };
@@ -126,8 +301,7 @@ export function Members({ state }: ViewProps) {
   return (
     <>
       <Heading
-        eyebrow="THE PEOPLE BEHIND THE NUMBERS"
-        title="Your subscribers."
+                title="Your clients."
         detail="The right context for a more personal kind of coaching."
       />
       <div className="two-columns wide-left">
@@ -135,7 +309,7 @@ export function Members({ state }: ViewProps) {
           <input
             className="search"
             placeholder="Search by name or email"
-            aria-label="Search subscribers"
+            aria-label="Search clients"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -146,7 +320,7 @@ export function Members({ state }: ViewProps) {
           )}
           {list && !query.trim() && subscriberTotal > 0 && (
             <p className="muted" role="status">
-              Showing {members.length} of {subscriberTotal} subscribers
+              Showing {members.length} of {subscriberTotal} clients
             </p>
           )}
           {members.length ? (
@@ -154,8 +328,8 @@ export function Members({ state }: ViewProps) {
               <table>
                 <thead>
                   <tr>
-                    <th>Subscriber</th>
-                    <th>Program</th>
+                    <th>Client</th>
+                    <th>Plan</th>
                     <th>Membership</th>
                   </tr>
                 </thead>

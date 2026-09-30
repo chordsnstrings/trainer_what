@@ -6,6 +6,14 @@ Application implementation and the job audit are complete for the current phase.
 
 The local environment restored an older snapshot. Yesterday's uncommitted completion work is absent. The recovery note on `work-in-progress/completion-2026-09-25` documents intended behavior, not preserved source. Work here starts from published `620eef1` and reconstructs missing features. Previously passing release evidence does not verify these new changes.
 
+## Stage 2026-09-30r4-workspace — daily trainer workspace: four sections, one inbox, chats, client page, plain words (r4/workspace from origin/main `32ed5fe`, not pushed, not merged)
+
+What changed: `apps/web/components/workspace.tsx` split into `workspace-{ui,home,brain,clients,training,messages,finance,settings,admin}.tsx` with no behaviour change (first commit); then four sections (Inbox, Clients, My Brain, More with Business / My page / Account) with a phone bottom bar (`workspace-nav.tsx`, `app/trainer-workspace.css`); `/trainer` is the one inbox (`workspace-inbox.tsx`) over new read-only `GET /api/v1/trainer/inbox` and `GET /api/v1/trainer/chats` (`apps/api/src/trainer-inbox.ts`); `POST /exceptions/:id/resolve` takes `replyText` (Edit & send / Reply in one transaction) and needs a note only when closing without sending; chats list and thread at `/trainer/messages[/:id]`; client page tabs Message / Plan / Notes / Membership; plain words and an Advanced block for plan confidence settings; model id and provider names removed from coach screens; "Finish setup" links to `/setup`. No migration, no prompt change. Docs: `docs/features/trainer-workspace.md`.
+
+Checks run: both typechecks; under PGlite `trainer-inbox`, `trainer-workspace-web`, `coaching-completion`, `coaching-feedback`, `coaching-runtime`, `fix-chat` and the 19 source-reading web test files touched by the split (25 files, 262 tests, all pass); under PostgreSQL with the restricted role `trainer-inbox`, `coaching-completion`, `coaching-feedback`, `fix-chat`, `coaching-runtime` (all pass). Not run: full suite, e2e, build, browser/phone/RTL checks (selectors updated only). No live model runs (no prompt changed).
+
+Remaining: merge with the other round 4 branches (the split moves code other branches may edit in `workspace.tsx`); run `test:browser`, `test:rtl`, `test:phone` on the merged head. Next action: integrate.
+
 ## Stage 2026-09-30c — host-only Superadmin recovery (claude/repository-overview-osejlw from main `5d3ad59`, pushed, no pull request, not deployed)
 
 Owner (30 September) approved a host-only Superadmin recovery command after losing admin access. Email delivery is not configured, the first-admin bootstrap refuses once a Superadmin exists, and `operator:role` needs an existing Superadmin's authenticator code. Root access on the server is the authority (the same trust as the bootstrap and `operator:role reset-mfa`).

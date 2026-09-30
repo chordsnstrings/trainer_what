@@ -1,4 +1,16 @@
 "use client";
+import { Inbox, Chats, ChatThread } from "./workspace-inbox";
+import {
+  CLIENT_TOOLS,
+  SETUP_HREF,
+  TrainerMore,
+  TrainerTabBar,
+  moreGroups,
+  sectionFor,
+  trainerSections,
+  trainerTitle,
+  useInboxCount,
+} from "./workspace-nav";
 import { TeamControls } from "./team-controls";
 import { CoachSwitcher } from "./joining";
 import { AdminComplimentaryAccess } from "./complimentary-access";
@@ -99,7 +111,6 @@ import {
   Check,
   ChevronRight,
   Layers,
-  Users,
   MessageCircle,
   Activity,
   Wallet,
@@ -114,7 +125,6 @@ import {
   AlertCircle,
   CheckCircle,
   Link2,
-  Palette,
   Camera,
 } from "lucide-react";
 import {
@@ -123,39 +133,15 @@ import {
   LoadMore,
   api,
   Heading,
-  openExceptionCount,
 } from "./workspace-ui";
 import { Overview, OnboardingView, Brand } from "./workspace-home";
 import { BrainView } from "./workspace-brain";
 import { SubscriberDetail, Members } from "./workspace-clients";
-import { Programs, Workout } from "./workspace-training";
-import { Messages, Exceptions } from "./workspace-messages";
+import { Workout } from "./workspace-training";
+import { Exceptions } from "./workspace-messages";
 import { Finance } from "./workspace-finance";
-import { Integrations, SettingsView } from "./workspace-settings";
+import { SettingsView } from "./workspace-settings";
 import { Analytics, AdminNotFound, Admin } from "./workspace-admin";
-const nav = [
-  ["Overview", "/trainer", LayoutDashboard],
-  ["Setup", "/trainer/onboarding/account", CheckCircle],
-  ["Followers & growth", "/trainer/growth", Users],
-  ["My Brain", "/trainer/brain", Brain],
-  ["Subscribers", "/trainer/subscribers", Users],
-  ["Programs", "/trainer/programs", Layers],
-  ["Nutrition", "/trainer/nutrition", Activity],
-  ["Messages", "/trainer/messages", MessageCircle],
-  ["Notifications", "/trainer/notifications", MessageCircle],
-  ["Bookings", "/trainer/bookings", Activity],
-  ["Support", "/trainer/support", MessageCircle],
-  ["Exceptions", "/trainer/exceptions", AlertCircle],
-  ["Business", "/trainer/analytics", Activity],
-  ["Finance", "/trainer/finance", Wallet],
-  ["Affiliates", "/trainer/affiliates", Wallet],
-  ["Design studio", "/trainer/design", Palette],
-  ["Photos & galleries", "/trainer/galleries", Camera],
-  ["Website", "/trainer/website", Link2],
-  ["Integrations", "/trainer/integrations", Link2],
-  ["Team", "/trainer/team", Users],
-  ["Settings", "/trainer/settings", Settings],
-] as const;
 const subNav = [
   ["Today", "/app", LayoutDashboard],
   ["Programme", "/app/program", Layers],
@@ -350,6 +336,14 @@ export default function Workspace({
   shownState.current = state;
   // This release's service worker; members choose when a new one reloads.
   const serviceWorker = useAppServiceWorker(path.startsWith("/app"));
+  // Open inbox items for the Inbox tab and the app icon (coaches only);
+  // refreshed with every workspace reload.
+  const inboxCount = useInboxCount(
+    !!state &&
+      ["owner", "staff"].includes(state.user.role) &&
+      path.startsWith("/trainer"),
+    state,
+  );
   const shown = useMemo(
     () => (state ? mergePages(state, extra) : null),
     [state, extra],
@@ -581,25 +575,8 @@ export default function Workspace({
       </main>
     );
   const subscriber = state.user.role === "subscriber";
-  const items = subscriber
-    ? subNav
-    : state.user.role === "finance"
-      ? nav.filter((item) =>
-          ["Overview", "Finance", "Settings"].includes(item[0]),
-        )
-      : state.user.role === "staff"
-        ? nav.filter(
-            (item) =>
-              ![
-                "Finance",
-                "Design studio",
-                "Photos & galleries",
-                "Website",
-                "Team",
-                "Followers & growth",
-              ].includes(item[0]),
-          )
-        : nav;
+  // The member app's pages (the member shell has its own tab bar).
+  const items = subNav;
   const view = shown ?? state;
   const records = (kind: string) => view.records.filter((x) => x.kind === kind);
   const more: More = {
@@ -626,16 +603,16 @@ export default function Workspace({
     },
   };
   const firstName = state.user.name.split(" ")[0];
-  const activeNavUrl = [...items]
-    .sort((a, b) => b[1].length - a[1].length)
-    .find(
-      ([, url]) =>
-        url === path ||
-        (url !== "/trainer" && url !== "/app" && path.startsWith(url + "/")),
-    )?.[1];
   const topTitle = path.startsWith("/admin")
     ? "Platform operations"
-    : (items.find((x) => x[1] === path)?.[0] ?? "Your workspace");
+    : subscriber
+      ? (items.find((x) => x[1] === path)?.[0] ?? "Your workspace")
+      : trainerTitle(path, state.user.role);
+  // The setup wizard (/setup) stays one tap away until the page is live.
+  const setupOpen = state.user.role === "owner" && !state.tenant.published;
+  // The phone's bottom bar shows in the trainer workspace, not /admin.
+  const trainerNav = !subscriber && path.startsWith("/trainer");
+  const activeSection = sectionFor(path);
   const props = {
     state: view,
     records,
@@ -844,6 +821,21 @@ export default function Workspace({
             ) : (
               <AdminNotFound />
             )
+          ) : path === "/trainer" &&
+            ["owner", "staff"].includes(state.user.role) ? (
+            <Inbox state={view} />
+          ) : path === "/trainer/summary" ? (
+            <Overview {...props} />
+          ) : path === "/trainer/more" ? (
+            <TrainerMore
+              role={state.user.role}
+              setupOpen={setupOpen}
+              platformAdmin={state.user.platformRole !== "none"}
+            />
+          ) : path === "/trainer/messages" ? (
+            <Chats />
+          ) : /^\/trainer\/messages\/[^/]+$/.test(path) ? (
+            <ChatThread state={view} clientId={path.split("/")[3]} />
           ) : path.includes("/onboarding") ? (
             <OnboardingView {...props} />
           ) : path.startsWith("/trainer/nutrition/clients/") ? (
@@ -930,8 +922,15 @@ export default function Workspace({
             <BrainPlans role={state.user.role} />
           ) : path.includes("/brain") ? (
             <BrainView {...props} />
-          ) : /^\/trainer\/subscribers\/[^/]+$/.test(path) ? (
-            <SubscriberDetail state={state} userId={path.split("/")[3]} />
+          ) : /^\/trainer\/subscribers\/[^/]+(\/(plan|notes|membership))?$/.test(
+              path,
+            ) ? (
+            <SubscriberDetail
+              key={path.split("/")[3]}
+              state={state}
+              userId={path.split("/")[3]}
+              path={path}
+            />
           ) : path.includes("/subscribers") ? (
             <Members {...props} />
           ) : path === "/app/twin" ? (
@@ -1124,24 +1123,77 @@ export default function Workspace({
           userId={state.user.userId}
         />
         <nav aria-label="Main navigation">
-          {items.map(([label, url, Icon]) => (
-            <Link
-              key={url}
-              className={url === activeNavUrl ? "active" : ""}
-              href={url}
-            >
-              <Icon size={18} />
-              {subscriber && url === "/app/program"
-                ? resolveBrandDesign(state.tenant.theme).programLabel
-                : label}
-              {label === "Exceptions" &&
-                openExceptionCount(state, records) > 0 && (
-                  <span className="nav-count">
-                    {openExceptionCount(state, records)}
-                  </span>
-                )}
-            </Link>
-          ))}
+          {!subscriber && (
+            <>
+              {setupOpen && (
+                <Link
+                  href={SETUP_HREF}
+                  className="nav-setup"
+                >
+                  <CheckCircle size={18} />
+                  Finish setup
+                </Link>
+              )}
+              {trainerSections(state.user.role).map(
+                ({ key, label, href, icon: Icon }) => {
+                  const current =
+                    state.user.role === "finance"
+                      ? path === href
+                      : key === activeSection && key !== "more";
+                  return (
+                    <Link
+                      key={href}
+                      href={href}
+                      className={current ? "active" : ""}
+                      aria-current={current ? "page" : undefined}
+                    >
+                      <Icon size={18} />
+                      {label}
+                      {key === "inbox" &&
+                        state.user.role !== "finance" &&
+                        inboxCount > 0 && (
+                          <span className="nav-count">{inboxCount}</span>
+                        )}
+                    </Link>
+                  );
+                },
+              )}
+              {state.user.role !== "finance" &&
+                CLIENT_TOOLS.map(({ label, href }) => (
+                  <Link
+                    key={href}
+                    href={href}
+                    className={
+                      "nav-sub " +
+                      (path === href || path.startsWith(href + "/")
+                        ? "active"
+                        : "")
+                    }
+                  >
+                    {label}
+                  </Link>
+                ))}
+              {moreGroups(state.user.role).map((group) => (
+                <div key={group.title} className="nav-group">
+                  <span className="nav-group-title">{group.title}</span>
+                  {group.links.map(({ label, href }) => (
+                    <Link
+                      key={href}
+                      href={href}
+                      className={
+                        "nav-sub " +
+                        (path === href.split("#")[0] && !href.includes("#")
+                          ? "active"
+                          : "")
+                      }
+                    >
+                      {label}
+                    </Link>
+                  ))}
+                </div>
+              ))}
+            </>
+          )}
           {state.user.platformRole !== "none" && (
             <Link href="/admin" className={path === "/admin" ? "active" : ""}>
               <Shield size={18} />
@@ -1203,6 +1255,13 @@ export default function Workspace({
           {notices}
           {page}
         </div>
+        {trainerNav && (
+          <TrainerTabBar
+            role={state.user.role}
+            path={path}
+            inboxCount={inboxCount}
+          />
+        )}
         <footer className="workspace-footer">
           <span>
             {subscriber ? state.tenant.name : platformName} ·{" "}

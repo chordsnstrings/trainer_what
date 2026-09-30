@@ -410,6 +410,20 @@ async function assertRtl(page, label, extra = {}) {
   return m;
 }
 
+/** The trainer's bottom bar starts at the right edge in Arabic. */
+async function assertTrainerTabBar(page, label) {
+  const bar = await page.evaluate(() => {
+    const links = [...document.querySelectorAll(".trainer-tabbar a")];
+    if (!links.length) return null;
+    const first = links[0].getBoundingClientRect(),
+      last = links.at(-1).getBoundingClientRect();
+    return { first: first.left, last: last.left, dir: document.dir };
+  });
+  if (!bar) return fail(label, "the trainer bottom bar is missing");
+  if (bar.dir === "rtl" ? bar.first < bar.last : bar.first > bar.last)
+    fail(label, `bottom bar does not follow the text direction (${JSON.stringify(bar)})`);
+}
+
 /** The mobile navigation opens from the right edge and closes again. */
 async function assertMobileNavigation(page, label) {
   await page.getByRole("button", { name: "Open navigation" }).click();
@@ -677,9 +691,18 @@ try {
         await screen(label, async () => {
           await visit(page, route);
           await assertRtl(page, label, { workspace: true });
-          // Members navigate with the bottom tab bar (checked above); the
-          // drawer belongs to the trainer and operator workspace.
+          // Members and trainers navigate with a bottom tab bar; the drawer
+          // belongs to the operator workspace.
           if (
+            viewport.width < 651 &&
+            route === member.routes[0] &&
+            route.startsWith("/trainer")
+          )
+            await assertTrainerTabBar(
+              page,
+              `${viewport.name} ${member.audience} navigation`,
+            );
+          else if (
             viewport.width < 651 &&
             route === member.routes[0] &&
             member.section !== "follower"

@@ -6,6 +6,7 @@ import { useLocale, useT } from "../lib/i18n/react";
 import { formatDate } from "../lib/format";
 import { TrainerDesign } from "./trainer-design";
 import { urgentFirst } from "./workspace-paging";
+import { SETUP_HREF } from "./workspace-nav";
 import Link from "next/link";
 import {
   ArrowUpRight,
@@ -95,7 +96,7 @@ export function Overview({ state, records }: ViewProps) {
             className="button secondary"
             href={sub ? "/app/program" : "/trainer/brand"}
           >
-            {sub ? t("viewProgram") : "Edit storefront"}
+            {sub ? t("viewProgram") : "Edit my page"}
             <ArrowUpRight size={16} />
           </Link>
         }
@@ -140,27 +141,27 @@ export function Overview({ state, records }: ViewProps) {
             ]
           : [
               [
-                "Subscribers",
+                "Clients",
                 total(
                   state,
                   "subscribers",
                   state.members?.filter((m) => m.role === "subscriber")
                     .length ?? 0,
                 ),
-                "People in your coaching space",
+                "People you coach",
               ],
               [
                 state.finance ? "Trainer earnings" : "Programs",
                 state.finance ? money(state.finance.earnedMinor) : programCount,
                 state.finance
-                  ? "Reconciled ledger balance"
+                  ? "Your balance"
                   : "Training blocks in this workspace",
               ],
               ["Confirmed rules", confirmedRules, "Your methodology, captured"],
               [
-                "Need your attention",
+                "Needs you",
                 total(state, "openExceptions", exceptions.length),
-                "Open coaching exceptions",
+                "Things that need you",
               ],
             ]
         ).map(([label, value, note], i) => (
@@ -208,7 +209,7 @@ export function Overview({ state, records }: ViewProps) {
             <ArrowRight size={18} />
             <div>
               <span>03</span>
-              <strong>{sub ? t("reflect") : "Release"}</strong>
+              <strong>{sub ? t("reflect") : "Go live"}</strong>
               <small>{sub ? t("reflectNote") : "Stay in control"}</small>
             </div>
           </div>
@@ -249,7 +250,12 @@ export function Overview({ state, records }: ViewProps) {
             </>
           ) : (
             steps.map(([label, done, url], i) => (
-              <Link className="checklist-row" href={url} key={url}>
+              // Until the page is live, setup happens in the wizard (/setup).
+              <Link
+                className="checklist-row"
+                href={state.tenant.published ? url : SETUP_HREF}
+                key={url}
+              >
                 <span className={"step-circle " + (done ? "done" : "")}>
                   {done ? <Check size={15} /> : i + 1}
                 </span>
@@ -262,7 +268,7 @@ export function Overview({ state, records }: ViewProps) {
       </div>
       <Card>
         <div className="card-heading">
-          <h2>{sub ? t("recentSessions") : "The attention list"}</h2>
+          <h2>{sub ? t("recentSessions") : "Needs you"}</h2>
           <Link
             href={sub ? "/app/progress" : "/trainer/exceptions"}
             className="text-link"
@@ -296,7 +302,7 @@ export function Overview({ state, records }: ViewProps) {
         ) : (
           <Empty
             title="A little breathing room"
-            detail="Your open coaching exceptions will appear here, with the context you need to act."
+            detail="Anything that needs you will appear here, with what you need to act."
           />
         )}
       </Card>

@@ -35,6 +35,7 @@ import { compiledRuleFlags } from "../../../packages/domain/src/text-screen.ts";
 import { screenSafety } from "../../../packages/domain/src/safety-policy.ts";
 import { activeSafetyPolicy } from "./safety-policy.ts";
 import { registerCoachingFollowups } from "./coaching-followups.ts";
+import { registerTrainerInbox } from "./trainer-inbox.ts";
 import {
   registerCoachingFeedback,
   revokeCoachingFeedbackLearning,
@@ -649,6 +650,7 @@ export async function buildApp(
   }
   registerCoachingCompletion(app, db);
   registerCoachingFollowups(app, db);
+  registerTrainerInbox(app, db);
   registerCoachingFeedback(app, db);
   registerLifecycleMessages(app, db);
   registerRetention(app, db);

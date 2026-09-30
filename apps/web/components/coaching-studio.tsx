@@ -90,10 +90,10 @@ export function CoachingStudio({ path }: { path: string }) {
           Brain overview
         </a>
         {[
-          ["teaching", "Teach through cases"],
+          ["teaching", "Teach with examples"],
           ["actions", "Routine actions"],
-          ["checks", "Independent checks"],
-          ["autonomy", "Activation"],
+          ["checks", "Practice quiz"],
+          ["autonomy", "How much my Brain does alone"],
           ["plans", "Plans"],
         ].map(([key, name]) => (
           <a
@@ -254,8 +254,7 @@ export function CoachingStudio({ path }: { path: string }) {
             </p>
             {!data.brain && (
               <p className="notice">
-                Publish your evaluated Brain from the existing Releases section
-                first.
+                Go live from “Check my Brain” on the My Brain page first.
               </p>
             )}
             <form
@@ -535,7 +534,7 @@ export function CoachingStudio({ path }: { path: string }) {
                             "POST",
                             { version: a.version, reason },
                           ),
-                        "Action archived; automatic qualification is now stale",
+                        "Action archived; re-checking your changes before replies send automatically again",
                       );
                   }}
                 >
@@ -770,12 +769,12 @@ export function CoachingStudio({ path }: { path: string }) {
                 <input name="occupiedDates" />
               </Field>
               <button className="button" type="submit" disabled={busy}>
-                Save held-out case
+                Save practice question
               </button>
             </form>
           </section>
           <section className="card">
-            <h2>{scenarios.length} held-out cases</h2>
+            <h2>{scenarios.length} practice questions</h2>
             <p className="muted">
               Keep up to 100 active checks. Archive an obsolete case before
               adding a replacement; evaluate the current set before activating
@@ -798,7 +797,7 @@ export function CoachingStudio({ path }: { path: string }) {
                   disabled={busy}
                   onClick={() => {
                     const reason = window.prompt(
-                      "Why is this held-out case being replaced?",
+                      "Why are you replacing this practice question?",
                     );
                     if (reason)
                       void action(
@@ -808,11 +807,11 @@ export function CoachingStudio({ path }: { path: string }) {
                             "POST",
                             { version: s.version, reason },
                           ),
-                        "Case archived. Evaluate the current set before your next activation.",
+                        "Question archived. Run the practice quiz again before letting your Brain reply alone.",
                       );
                   }}
                 >
-                  Archive this held-out case
+                  Archive this practice question
                 </button>
               </details>
             ))}
@@ -822,44 +821,42 @@ export function CoachingStudio({ path }: { path: string }) {
       {data && mode === "autonomy" && (
         <>
           <section className="card">
-            <h2>Qualified automatic coaching</h2>
+            <h2>How much my Brain does alone</h2>
             <p className="notice">
               Current mode:{" "}
               {qualified
                 ? label(active.data.mode)
                 : active
-                  ? "Qualification is stale — responses require review"
-                  : "Trainer review"}
+                  ? "Re-checking your changes — replies wait for you"
+                  : "Waits for me"}
             </p>
             {!qualified &&
               active?.data.pin?.promptVersion &&
               active.data.pin.promptVersion !== data.modelPin.promptVersion && (
                 <p className="muted">
-                  The action selector was updated since your last qualification.
-                  Run a fresh evaluation, then activate again.
+                  Your Brain was updated since its last practice quiz. Run the
+                  quiz again, then choose how much it does alone.
                 </p>
               )}
             <p>
-              The model selects among the actions you confirmed. Routine replies
-              use your approved wording; code checks program changes, safety,
-              consent, recent performance and personal takeover. Arbitrary
-              model-generated instructions remain subject to trainer review.
+              Your Brain picks among the actions you confirmed. Routine replies
+              use your approved wording, and automatic checks cover plan
+              changes, safety, consent, recent training and chats you are
+              handling yourself. Anything else waits for you.
             </p>
             <p className="muted">
-              Evaluation is tied to the selected model, prompt, rules, teaching
-              examples, action boundaries and program templates. Changes require
-              new qualification.
+              The quiz result covers your current rules, examples, actions and
+              programmes. After a change, your Brain is re-checked before it
+              replies alone again.
             </p>
             <dl>
-              <dt>Model</dt>
-              <dd>{data.modelPin.model ?? "Not configured"}</dd>
-              <dt>Selector version</dt>
-              <dd>{data.modelPin.promptVersion}</dd>
-              <dt>Teaching cases</dt>
+              <dt>Brain service</dt>
+              <dd>{data.modelPin.model ? "Ready" : "Being set up by us"}</dd>
+              <dt>Teaching examples</dt>
               <dd>{data.cases.length}</dd>
               <dt>Confirmed actions</dt>
               <dd>{data.actions.length}</dd>
-              <dt>Independent cases</dt>
+              <dt>Practice questions</dt>
               <dd>{scenarios.length}</dd>
             </dl>
             <button
@@ -868,23 +865,22 @@ export function CoachingStudio({ path }: { path: string }) {
               onClick={() =>
                 void action(
                   () => api("/brain/coaching-evaluate", "POST", {}),
-                  "Evaluation finished; inspect the results before activating",
+                  "Quiz finished; check the results before you change anything",
                 )
               }
             >
-              {busy ? "Working…" : "Evaluate current coaching"}
+              {busy ? "Working…" : "Run the practice quiz"}
             </button>
             <p className="muted">
-              Evaluation uses the configured AI provider and counts toward your
-              workspace's AI usage limit.
+              Each quiz run counts toward your workspace&rsquo;s monthly usage.
             </p>
           </section>
           <section className="card">
-            <h2>Evaluation history</h2>
+            <h2>Quiz history</h2>
             {!evaluations.length && (
               <p>
-                No evaluations yet. Teach your cases, confirm actions and add
-                independent checks.
+                No quiz runs yet. Teach with examples, confirm actions and add
+                practice questions.
               </p>
             )}
             {evaluations.map((e: any) => (
@@ -909,7 +905,7 @@ export function CoachingStudio({ path }: { path: string }) {
             ))}
           </section>
           <section className="card">
-            <h2>Choose the runtime mode</h2>
+            <h2>Choose how much it does alone</h2>
             <div className="button-row">
               <button
                 className="button secondary"
@@ -922,11 +918,11 @@ export function CoachingStudio({ path }: { path: string }) {
                         mode: "shadow",
                         expectedReleaseId: active?.id ?? null,
                       }),
-                    "Shadow mode activated; the trainer reviews each proposed action",
+                    "Practice mode on: your Brain suggests, you decide every reply",
                   )
                 }
               >
-                Start shadow mode
+                Practice mode (it suggests, I decide)
               </button>
               <button
                 className="button"
@@ -939,11 +935,11 @@ export function CoachingStudio({ path }: { path: string }) {
                         mode: "automatic",
                         expectedReleaseId: active?.id ?? null,
                       }),
-                    "Qualified routine actions are now automatic",
+                    "Routine replies now send automatically",
                   )
                 }
               >
-                Enable qualified automatic actions
+                Sends automatically (routine replies)
               </button>
               {active && (
                 <button
@@ -952,11 +948,11 @@ export function CoachingStudio({ path }: { path: string }) {
                   onClick={() =>
                     void action(
                       () => api("/brain/coaching-disable", "POST", {}),
-                      "Automatic coaching disabled; trainer review remains available",
+                      "Back to “Waits for me”: every reply waits for you",
                     )
                   }
                 >
-                  Return to trainer review
+                  Waits for me
                 </button>
               )}
             </div>
