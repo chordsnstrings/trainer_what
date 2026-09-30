@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { ProviderUnavailable } from "./index.ts";
-import { modelCompletion, type ModelAccounting } from "./model-accounting.ts";
+import {
+  modelCallTimeoutMs,
+  modelCompletion,
+  type ModelAccounting,
+} from "./model-accounting.ts";
 import { runtimeConfig } from "./configuration.ts";
 import { sandboxOverride } from "./sandbox.ts";
 
@@ -264,6 +268,7 @@ export async function estimateMealPhoto(
       ],
     },
     accounting,
+    { timeoutMs: modelCallTimeoutMs("meal_photo", c.MODEL_NAME) },
   );
   try {
     return photoEstimateSchema.parse(

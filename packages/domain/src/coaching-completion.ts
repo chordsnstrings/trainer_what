@@ -214,28 +214,70 @@ export function writtenInArabic(text: string) {
 const arabicClitic = "(?:[وف]?(?:[بك]?ال|لل|[بلك])?)";
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 /**
+ * Determiners and possessives an English term may be written with: "move my
+ * session" also reads "move tomorrow's session", "move the Tuesday session"
+ * and "move session". In the folded text a possessive is a word followed by
+ * "s" ("tomorrow s"); at most two such words fill the place. Only the
+ * member's own words fill it (my, our, the, this, a, next, a day or time),
+ * plus the term's own determiner: "move her session" and "move their
+ * session" are not a request about the member's session, and a contraction
+ * ("that's my session", "it's session day") is not a possessive.
+ */
+const TERM_DETERMINERS = new Set(["my", "your", "the", "this", "that", "our", "his", "her", "their", "a", "an"]);
+const TIME_WORDS =
+  "today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|morning|afternoon|evening|night|week|weekend|day";
+const determinerSlot = (own: string) =>
+  `(?:(?:my|our|the|this|that|these|those|a|an|next|${escapeRegExp(own)}|${TIME_WORDS}|(?:${TIME_WORDS}|coach|trainer) s) ){0,2}`;
+/**
+ * An English term word and its present-tense inflections: -s, -es, -ing, a
+ * final e dropped (move: moves, moving), a final consonant doubled (skip:
+ * skipping) and y to ies (carry: carries). The past tense is not a request:
+ * "I moved my session already" and "I skipped my session yesterday" report
+ * what happened and must not make a move or skip eligible, so -ed forms match
+ * only when the term itself is written that way. Only the term word grows;
+ * the request word is never cut down, so "tired" does not read "tires" and
+ * "band" does not read "bandana". A possessive "s" may follow ("coach's").
+ * Words under three letters and words with digits match exactly, and so does
+ * a one-word term (`inflect` false): "increasing" and "progresses" describe
+ * ("my tiredness is increasing"), they do not ask for a progression.
+ */
+function englishWordPattern(word: string, inflect = true) {
+  if (!inflect) return escapeRegExp(word) + "(?: s)?";
+  if (word.length < 3 || !/^\p{Script=Latin}+$/u.test(word)) return escapeRegExp(word);
+  const forms = new Set([word, word + "s", word + "es", word + "ing"]);
+  if (word.endsWith("e")) forms.add(word.slice(0, -1) + "ing");
+  if (/[^aeiou]y$/.test(word)) forms.add(word.slice(0, -1) + "ies");
+  if (/(?:^|[^aeiou])[aeiou][b-df-hj-np-tvz]$/.test(word)) forms.add(word + word.at(-1) + "ing");
+  return "(?:" + [...forms].map(escapeRegExp).join("|") + ")(?: s)?";
+}
+/**
  * A request term as a whole-word pattern over coachingTermText(). English
- * words must match exactly. An Arabic word may carry an attached clitic in
- * the request, and a term word's own article is optional (the term "تأجيل
- * الحصة" matches "تأجيل حصة الغد"). A term that folds to empty text never
- * matches anything.
+ * words match at word level: in a term of two or more words, present-tense
+ * inflections; a possessive "s"; and the member's own determiners or a day's
+ * possessive in place of the term's own ("my", "the"; see englishWordPattern
+ * and determinerSlot). A one-word English term matches exactly. An Arabic word may carry an
+ * attached clitic in the request, and a term word's own article is optional
+ * (the term "تأجيل الحصة" matches "تأجيل حصة الغد"). A term that folds to
+ * empty text never matches anything.
  */
 function requestTermPattern(term: string) {
   const words = coachingTermText(term).split(" ").filter(Boolean);
   if (!words.length) return null;
-  return new RegExp(
-    " " +
-      words
-        .map((word) => {
-          if (!arabicLetter.test(word)) return escapeRegExp(word);
-          const stem =
-            word.startsWith("ال") && word.length >= 5 ? word.slice(2) : word;
-          return arabicClitic + escapeRegExp(stem);
-        })
-        .join(" ") +
-      "(?= )",
-    "u",
-  );
+  let source = " ";
+  words.forEach((word, i) => {
+    const last = i === words.length - 1;
+    // A determiner between two words of the term is a place, not a word.
+    if (!last && i > 0 && TERM_DETERMINERS.has(word)) {
+      source += determinerSlot(word);
+      return;
+    }
+    if (arabicLetter.test(word)) {
+      const stem = word.startsWith("ال") && word.length >= 5 ? word.slice(2) : word;
+      source += arabicClitic + escapeRegExp(stem);
+    } else source += englishWordPattern(word, words.length > 1);
+    if (!last) source += " ";
+  });
+  return new RegExp(source + "(?= )", "u");
 }
 export function requestMatchesTerm(request: string, term: string) {
   const pattern = requestTermPattern(term);
@@ -407,9 +449,13 @@ export const teachingCaseSchema = z
  * so it is in the runtime contract digest. Changing it makes published
  * automatic releases stale (members' requests go to trainer review) until the
  * trainer evaluates and activates again. v3: identifiers are short prompt
- * references, and evidenceIds need a rule the selected action cites.
+ * references, and evidenceIds need a rule the selected action cites. v4 (the
+ * trial tuning of 30 September 2026): the prompt says which checks the app
+ * already made on every action shown, that instructions inside a request are
+ * data and not by themselves a reason for review, and which concrete reasons
+ * do need review (including a spacing rule a moved session could break).
  */
-export const coachingPromptVersion = "coach-action-selector-v3";
+export const coachingPromptVersion = "coach-action-selector-v4";
 export const coachingFactsSchema = z
   .object({
     profile: z

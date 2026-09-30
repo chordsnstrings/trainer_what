@@ -470,11 +470,16 @@ test("assembled compilation returns and persists exact coverage while sending co
       JSON.parse(String(options?.body)).messages[1].content,
     );
     assert.equal(sent.length, sources.length);
+    // Sources go out under short references (rule-compile-v2, N7), never as UUIDs.
+    const refOf = new Map<string, string>();
     for (const source of sources) {
-      const actual = sent.find((row: any) => row.id === source.id);
+      const actual = sent.find((row: any) => row.text === source.text);
       assert.equal(actual?.text, source.text);
       assert.equal(actual.text.length, 60000);
+      assert.match(actual.id, /^S\d+$/);
+      refOf.set(source.id, actual.id);
     }
+    assert.ok(!JSON.stringify(sent).includes(sources[0].id));
     return Response.json({
       id: "assembled-coverage-fixture",
       usage: { prompt_tokens: 100, completion_tokens: 20 },
@@ -489,7 +494,7 @@ test("assembled compilation returns and persists exact coverage while sending co
                 directive: tails[i],
                 reason:
                   "Proposed from the final instruction in reviewed material",
-                sourceIds: [source.id],
+                sourceIds: [refOf.get(source.id)],
               })),
               conflicts: [],
             }),
