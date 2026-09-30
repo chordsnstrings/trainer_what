@@ -748,7 +748,14 @@ export async function onboardingState(
         reason: ok ? null : reason,
       })),
       pageIssues: issues,
-      brainCases: coverage,
+      // Quiz answers count from both routes: practice quiz rounds
+      // (brain-teach.ts) and any platform_quiz scenarios.
+      brainCases: {
+        ...coverage,
+        quiz: coverage.quiz + quizAnswered,
+        enough: coverage.enough || quizReady,
+        quizCompleted,
+      },
       mode: "waits_for_me" as const,
     },
     storefrontPath: `/coach/${tenant.slug}`,

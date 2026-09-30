@@ -111,6 +111,14 @@ is `"platform_quiz"`; the quiz endpoint (Brain builder) must set it server-side,
 client. `POST /brain/evaluate` uses the same rule. "Sends automatically" keeps its own full check in
 `coaching-runtime.ts` (20 independent cases and the rest).
 
+Integration (r4/integrate): the practice quiz shipped as rounds (`brain_quiz_round`, see
+`brain-teach.md`), not as `platform_quiz` scenarios. The wizard therefore also accepts the quiz
+route: a completed quiz round plus 3 own cases passes the `scenarios` step and the "Brain taught"
+reason, `brain.quizAnswered` counts answered round questions, `brain.enoughCases` is true on either
+route and `brain.quizCompleted` says whether a round is finished. On the quiz route the Brain goes
+live in "Waits for me" through `POST /brain/releases/supervised`; `POST /brain/evaluate` keeps the
+case rule above.
+
 ## Report this coach
 
 - `POST /api/v1/public/coaches/:slug/report {reason, details?, email?}`; reasons `unsafe_advice,

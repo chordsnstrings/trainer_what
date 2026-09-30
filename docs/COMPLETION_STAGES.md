@@ -6,6 +6,15 @@ Application implementation and the job audit are complete for the current phase.
 
 The local environment restored an older snapshot. Yesterday's uncommitted completion work is absent. The recovery note on `work-in-progress/completion-2026-09-25` documents intended behavior, not preserved source. Work here starts from published `620eef1` and reconstructs missing features. Previously passing release evidence does not verify these new changes.
 
+## Stage 2026-09-30r4-int — round 4 integration (r4/integrate from origin/main `32ed5fe`, not pushed, not merged, not deployed)
+
+Merged with `--no-ff`: `r4/signup-backend` (`04ff525`), `r4/brain-teach` (`0daf849`), `r4/setup-assistant` (`a58cca4`).
+
+- Conflicts: `apps/api/src/onboarding.ts` (imports; "Practice quiz" label with the brain branch's description; `scenarios` step now `coverage.enough || quizReady`) and this file (all entries kept).
+- Merge-caused fix: the sign-up branch expected quiz answers as `platform_quiz` scenarios, the brain branch stores them in quiz rounds. The wizard and go-live "Brain taught" check now accept either route; own cases for the quiz route exclude `platform_quiz` scenarios; `goLive.brainCases` adds round answers to `quiz`, `enough` covers both routes, `quizCompleted` added; wizard `brain.quizCompleted` added. One assertion block added to `tests/brain-teach.test.ts` (`GET /setup` after a quiz launch).
+- Checks actually run: `npx tsc --noEmit` (root) and `-p apps/web/tsconfig.json` pass; PGlite and pg-sandbox (restricted role) on `brain-teach`, `coach-setup`, `onboarding-completion`, `platform`, `setup-assistant`, `coaching-runtime`, `fix-coaching`, `brain-check-false-alarms`: 99/99 each. No full suite, e2e or browser checks (the e2e trainer scenario was changed by the sign-up branch and was not run). No new model prompts in the merge, so no Seed run.
+- Remaining: the web wizard and "My Brain" screens; old `onboarding.tsx` dead branches; marketing checklist text still says 20 held-out scenarios.
+
 ## Stage 2026-09-30d — round 4, coach sign-up and setup wizard backend (r4/signup-backend from main `32ed5fe`, not pushed, not merged, not deployed)
 
 Owner decisions of 30 September (open self-serve sign-up behind the existing legal gate; one six-step wizard; custom subdomain; automatic go-live checks; bank details at first payout; "Report this coach"). Details: `docs/features/coach-setup.md`.

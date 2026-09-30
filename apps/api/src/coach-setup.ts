@@ -271,6 +271,7 @@ export async function setupWizard(db: Database, a: Identity) {
       quizAnswered: cases.quiz,
       ownCases: cases.own,
       enoughCases: cases.enough,
+      quizCompleted: cases.quizCompleted === true,
       confirmedRules: teaching.confirmedRules,
       checked: teaching.brainCurrent,
       mode: "waits_for_me",

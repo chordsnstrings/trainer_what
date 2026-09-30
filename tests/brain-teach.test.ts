@@ -437,6 +437,14 @@ test("teach your Brain: approve all, quiz, own cases, Waits for me launch, meter
     "complete",
   );
   assert.equal(onboarding.json().teaching.brainCurrent, true);
+  // Integration (r4): the setup wizard counts the practice quiz round.
+  const setup = await request("/setup", "GET", undefined, coach);
+  assert.equal(setup.statusCode, 200, setup.body);
+  const brainStep = setup.json().brain;
+  assert.equal(brainStep.quizAnswered, round.total);
+  assert.equal(brainStep.ownCases, 3);
+  assert.equal(brainStep.enoughCases, true);
+  assert.equal(brainStep.quizCompleted, true);
 
   // A quiz-launched Brain never sends automatically.
   const automatic = await request(
