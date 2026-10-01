@@ -34,6 +34,8 @@ export type State = {
   platformWorkspace?: boolean;
   /** Superadmins only: whether an authenticator is enrolled. */
   superadmin?: { mfaEnabled: boolean };
+  /** False while the owner has switched authenticator requirements off. */
+  authenticatorRequired?: boolean;
   /** First-page positions: { hasMore, cursor } per collection (records per kind). */
   pages?: Record<string, any>;
   /** Exact counts, independent of how many rows are loaded. */

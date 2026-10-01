@@ -90,11 +90,13 @@ export function SupportPreviewLaunch({
   caseId,
   caseRevision,
   open,
+  authenticatorRequired = true,
 }: {
   tenantId: string;
   caseId: string;
   caseRevision: number;
   open: boolean;
+  authenticatorRequired?: boolean;
 }) {
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
@@ -110,7 +112,9 @@ export function SupportPreviewLaunch({
       <summary>Open a read-only support preview</summary>
       <p>
         Open only the customer screens needed for this case, for up to 15
-        minutes. Verify your authenticator in your own account settings first.
+        minutes.
+        {authenticatorRequired &&
+          " Verify your authenticator in your own account settings first."}
       </p>
       <form
         onSubmit={(event) => {

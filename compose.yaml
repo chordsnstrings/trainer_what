@@ -36,6 +36,8 @@ services:
       INTERNAL_PROXY_SECRET: ${INTERNAL_PROXY_SECRET:?Set a separate proxy signing secret of at least 32 UTF-8 bytes}
       SECURITY_ENCRYPTION_KEY: ${SECURITY_ENCRYPTION_KEY:?Set the account encryption key}
       SECURITY_ENCRYPTION_PREVIOUS_KEYS: ${SECURITY_ENCRYPTION_PREVIOUS_KEYS:-}
+      # Owner, 1 Oct 2026: authenticator off for now; remove this line to require it again.
+      AUTHENTICATOR_REQUIRED: "false"
       FILE_IMPORTS_APPROVED: ${FILE_IMPORTS_APPROVED:-false}
       LEGAL_APPROVED: ${LEGAL_APPROVED:-false}
       NUTRITION_ENABLED: ${NUTRITION_ENABLED:-false}

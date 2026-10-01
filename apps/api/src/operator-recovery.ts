@@ -8,7 +8,12 @@ import {
   accountHost,
   queueAccountEmail,
 } from "./account-completion.ts";
-import { consumeMfa, requireRecentMfa } from "./security.ts";
+import {
+  authenticatorRequired,
+  consumeMfa,
+  requireRecentMfa,
+  switchableCode,
+} from "./security.ts";
 import {
   addAccountNotice,
   emailDeliveryConfigured,
@@ -109,7 +114,7 @@ export function registerOperatorRecovery(
             .min(10)
             .max(500)
             .refine((v) => !/[\u0000-\u001f\u007f]/.test(v), "Use plain text"),
-          code: z.string().regex(/^\d{6}$/, "Enter your current code"),
+          code: switchableCode("Enter your current code"),
         })
         .strict()
         .parse(req.body);
@@ -135,7 +140,7 @@ export function registerOperatorRecovery(
             "OPERATOR_SCOPE",
             "Your operator role changed. Sign in again.",
           );
-        if (!op.mfa)
+        if (!op.mfa && authenticatorRequired())
           throw fail(
             403,
             "OPERATOR_MFA_REQUIRED",
@@ -331,7 +336,11 @@ export function registerOperatorRecovery(
     const g = await db.system((tx) =>
       liveGrant(tx, b.token, accountHost(req).origin),
     );
-    return { valid: true, mfaRequired: g.mfa, expiresAt: g.expires_at };
+    return {
+      valid: true,
+      mfaRequired: g.mfa && authenticatorRequired(),
+      expiresAt: g.expires_at,
+    };
   });
   app.post("/api/v1/auth/account-recovery", publicRate, async (req, reply) => {
     const b = tokenBody

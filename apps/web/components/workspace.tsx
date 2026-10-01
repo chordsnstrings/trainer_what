@@ -836,10 +836,15 @@ export default function Workspace({
               <AdminOperations
                 path={path}
                 platformRole={state.user.platformRole}
+                authenticatorRequired={state.authenticatorRequired !== false}
               />
               {path === "/admin/support" &&
                 ["admin", "support"].includes(state.user.platformRole) && (
-                  <OperatorRecovery />
+                  <OperatorRecovery
+                    authenticatorRequired={
+                      state.authenticatorRequired !== false
+                    }
+                  />
                 )}
               {path === "/admin/subscribers" && (
                 <AdminComplimentaryAccess
@@ -1050,7 +1055,10 @@ export default function Workspace({
               integrations={state.integrations}
             />
           ) : path === "/trainer/team" ? (
-            <TeamControls role={state.user.role} />
+            <TeamControls
+              role={state.user.role}
+              authenticatorRequired={state.authenticatorRequired !== false}
+            />
           ) : path.includes("/settings") ||
             path.includes("/profile") ||
             path.includes("/intake") ? (

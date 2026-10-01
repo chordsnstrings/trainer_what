@@ -10,7 +10,13 @@ async function request(path: string, method = "GET", body?: unknown) {
   if (!r.ok) throw new Error(data.message ?? "Team request failed.");
   return data;
 }
-export function TeamControls({ role }: { role: string }) {
+export function TeamControls({
+  role,
+  authenticatorRequired = true,
+}: {
+  role: string;
+  authenticatorRequired?: boolean;
+}) {
   const [data, setData] = useState<any>(null),
     [notice, setNotice] = useState(""),
     [url, setUrl] = useState(""),
@@ -47,10 +53,14 @@ export function TeamControls({ role }: { role: string }) {
           <p className="eyebrow">PEOPLE AND ACCESS</p>
           <h1>Your team.</h1>
           <p className="muted">
-            Verify your authenticator in{" "}
-            <a href="/trainer/settings">Account settings</a> before managing
-            access. Role changes revoke this workspace’s active sessions
-            immediately.
+            {authenticatorRequired && (
+              <>
+                Verify your authenticator in{" "}
+                <a href="/trainer/settings">Account settings</a> before managing
+                access.{" "}
+              </>
+            )}
+            Role changes revoke this workspace’s active sessions immediately.
           </p>
         </div>
       </div>

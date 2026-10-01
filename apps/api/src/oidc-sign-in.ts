@@ -35,7 +35,7 @@ import {
   queueAccountEmail,
   setAccountCookie,
 } from "./account-completion.ts";
-import { consumeMfa } from "./security.ts";
+import { authenticatorRequired, consumeMfa } from "./security.ts";
 import { workspaceLock } from "./privacy-lifecycle.ts";
 import { lockActiveInvitation } from "./team.ts";
 import { legalAcceptanceVersion } from "./legal.ts";
@@ -413,7 +413,7 @@ async function complete(
   );
   let mfa = false;
   if (security?.enabled) {
-    if (code === undefined) throw new MfaPending();
+    if (code === undefined && authenticatorRequired()) throw new MfaPending();
     mfa = await consumeMfa(tx, userId, code);
   }
   let tenantId: string,

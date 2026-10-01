@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Database, Tx } from "@trainer/db";
-import { consumeMfa } from "./security.ts";
+import {
+  authenticatorRequired,
+  consumeMfa,
+  switchableCode,
+} from "./security.ts";
 import { queueAccountEmail } from "./account-completion.ts";
 import { accountLocked } from "./account-governance.ts";
 
@@ -12,7 +16,7 @@ const refuse = (message: string) =>
 const email = z.email().transform((value) => value.toLowerCase());
 const operatorFields = {
   actorEmail: email,
-  actorCode: z.string().regex(/^\d{6}$/, "Enter the actor's current code"),
+  actorCode: switchableCode("Enter the actor's current code"),
   targetEmail: email,
   reason: z.string().trim().min(10).max(500),
 };
@@ -34,13 +38,13 @@ async function account(tx: Tx, address: string) {
   );
   return row;
 }
-async function verifiedOperator(tx: Tx, address: string, code: string) {
+async function verifiedOperator(tx: Tx, address: string, code?: string) {
   const actor = await account(tx, address);
   if (
     !actor ||
     actor.platform_role !== "admin" ||
     !actor.email_verified ||
-    !actor.mfa
+    (!actor.mfa && authenticatorRequired())
   )
     throw refuse(
       "The acting operator must be a verified Superadmin with an enabled authenticator.",
@@ -48,7 +52,7 @@ async function verifiedOperator(tx: Tx, address: string, code: string) {
   // A locked Super admin keeps no platform authority, on the host either.
   if (await accountLocked(tx, actor.id))
     throw refuse("The acting operator's account is locked.");
-  if (!(await consumeMfa(tx, actor.id, code)))
+  if (!(await consumeMfa(tx, actor.id, code)) && authenticatorRequired())
     throw refuse("The acting operator's authenticator could not be verified.");
   return actor;
 }
@@ -92,7 +96,7 @@ export async function assignPlatformRole(db: Database, input: unknown) {
       throw refuse(
         "Verify the account's email before granting platform authority.",
       );
-    if (v.role !== "none" && !target.mfa)
+    if (v.role !== "none" && !target.mfa && authenticatorRequired())
       throw refuse(
         "The account must enable an authenticator before receiving platform authority.",
       );
@@ -105,7 +109,10 @@ export async function assignPlatformRole(db: Database, input: unknown) {
       // administrator's. A locked account cannot recover itself.
       if (await accountLocked(tx, target.id))
         throw refuse("A locked account cannot receive platform authority.");
-      if (!(await consumeMfa(tx, target.id, v.actorCode)))
+      if (
+        !(await consumeMfa(tx, target.id, v.actorCode)) &&
+        authenticatorRequired()
+      )
         throw refuse("The account's authenticator could not be verified.");
       actorId = target.id;
     } else actorId = (await verifiedOperator(tx, v.actorEmail, v.actorCode)).id;

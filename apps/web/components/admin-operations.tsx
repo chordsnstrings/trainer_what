@@ -156,20 +156,30 @@ export function TrainerAnalytics() {
 export function AdminOperations({
   path,
   platformRole,
+  authenticatorRequired = true,
 }: {
   path: string;
   platformRole: string;
+  authenticatorRequired?: boolean;
 }) {
   const preview = path.match(/^\/admin\/support\/preview\/([0-9a-f-]{36})$/i);
   if (preview) return <SupportPreview grantId={preview[1]} />;
-  return <AdminOperationsWorkbench path={path} platformRole={platformRole} />;
+  return (
+    <AdminOperationsWorkbench
+      path={path}
+      platformRole={platformRole}
+      authenticatorRequired={authenticatorRequired}
+    />
+  );
 }
 function AdminOperationsWorkbench({
   path,
   platformRole,
+  authenticatorRequired,
 }: {
   path: string;
   platformRole: string;
+  authenticatorRequired: boolean;
 }) {
   const segments = path.split("/").filter(Boolean),
     view = segments[1] ?? "trainers";
@@ -537,6 +547,7 @@ function AdminOperationsWorkbench({
                     caseId={r.id}
                     caseRevision={r.version}
                     open={r.status === "open"}
+                    authenticatorRequired={authenticatorRequired}
                   />
                 </details>
               ))}

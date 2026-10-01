@@ -18,7 +18,11 @@ type Grant = {
  * member who cannot use email. Shown once; the member's authenticator still
  * applies. Trainers never see this panel.
  */
-export function OperatorRecovery() {
+export function OperatorRecovery({
+  authenticatorRequired = true,
+}: {
+  authenticatorRequired?: boolean;
+} = {}) {
   const [issued, setIssued] = useState<{
       url: string;
       expiresAt: string;
@@ -120,17 +124,19 @@ export function OperatorRecovery() {
             <textarea name="reason" minLength={10} maxLength={500} rows={3} required />
             <small className="muted">Recorded in the operator audit log.</small>
           </label>
-          <label className="field">
-            <span>Your authenticator code</span>
-            <input
-              name="code"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              pattern="[0-9]{6}"
-              maxLength={6}
-              required
-            />
-          </label>
+          {authenticatorRequired && (
+            <label className="field">
+              <span>Your authenticator code</span>
+              <input
+                name="code"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="[0-9]{6}"
+                maxLength={6}
+                required
+              />
+            </label>
+          )}
           <button className="button" disabled={busy}>
             Create recovery link
           </button>

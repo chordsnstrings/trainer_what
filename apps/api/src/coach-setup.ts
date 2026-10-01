@@ -34,7 +34,7 @@ import {
 } from "../../../packages/domain/src/web-address.ts";
 import { subdomainCandidates } from "../../../packages/domain/src/coach-setup.ts";
 import { platformRoot } from "./host-routing.ts";
-import { requireRecentMfa } from "./security.ts";
+import { authenticatorRequired, requireRecentMfa } from "./security.ts";
 import { clientSource } from "./auth.ts";
 import { EARLY_ACCESS_EMIRATES } from "./early-access.ts";
 import {
@@ -303,7 +303,7 @@ export async function setupWizard(db: Database, a: Identity) {
       mode: "waits_for_me",
     },
     security: {
-      authenticatorRequired: strictSecurity(),
+      authenticatorRequired: strictSecurity() && authenticatorRequired(),
       authenticatorEnrolled: extra.security?.enabled === true,
       hasPassword: extra.user?.has_password === true,
       verifiedRecently:
