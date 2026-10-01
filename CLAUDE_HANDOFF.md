@@ -24,12 +24,13 @@ Open self-serve sign-up is built but stays off until the owner publishes final l
    - On a switch, every trainer's held-out check re-runs automatically. Failing trainers drop to "Waits for me" and get a notice.
    - Coach screens show the profile label, never the model ID.
    - A public availability flag `frontier` is true only when the active profile's tier is frontier and its latest switch check passed.
-2. **Remaining self-learning:**
-   - per-member memory built by code (no model tokens);
-   - new plan learning goes live only after the background re-check passes;
-   - erasure of plan-learning rows, and expiry of suggestions;
-   - weekly "Suggested from your edits" rules from plan and meal-week edits, confirmed by the coach;
-   - a coach-only "getting better" panel.
+2. **Remaining self-learning:** built on branch `r5/learning` (1 October; not merged yet; `docs/features/brain-learning.md`):
+   - per-member memory built by code (no model tokens), in plan, adjustment and chat-draft prompts (plan prompts `brain-plan-v5` / `brain-plan-adapt-v4`, so plans re-qualify once; the weekly sweep asks for it);
+   - new plan learning goes live only through a checked learning snapshot pinned in the plan contract;
+   - erasure of plan-learning rows and snapshot copies, consent withdrawal, 90-day expiry and 30-day deletion of suggestions;
+   - weekly "Suggested from your edits" (one call per coach per week, prompt `brain-edits-v3`) from plan and meal-week edits, with evidence links, confirmed by the coach into a rule or a nutrition case;
+   - a coach-only "Getting better" panel (`GET /api/v1/brain/progress`, Brain > checks).
+   Checks: TypeScript (root and web); 4 new tests plus the touched suites (103) pass on PGlite; new tests, brain-plans and brain-check pass on PostgreSQL with the restricted role. Live Seed: grouping 44/44 after the final checks, memory prompts valid. Next: merge with the other round 5 branches.
 3. **Narration in the trainer's style.**
    - A "Your one-on-one sessions" questionnaire in Grow / Keep training. The coach confirms the style once.
    - The Brain writes extra lines for every voice session at prepare time, personal to the member.

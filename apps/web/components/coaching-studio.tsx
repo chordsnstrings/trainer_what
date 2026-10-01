@@ -1,5 +1,6 @@
 "use client";
 import { Field } from "./field";
+import { BrainProgress } from "./brain-progress";
 import { useEffect, useState } from "react";
 import { coachingActions } from "../../../packages/domain/src/coaching-completion";
 
@@ -547,6 +548,7 @@ export function CoachingStudio({ path }: { path: string }) {
       )}
       {data && mode === "checks" && (
         <>
+          <BrainProgress />
           <section className="card">
             <h2>Independent coaching checks</h2>
             <p>

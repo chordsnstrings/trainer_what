@@ -609,6 +609,12 @@ Route and confidence versions are unchanged (holds are an existing route input).
 changed the v3/adapt-v2 prompt text and the v3 validator (pace bound, one-rep warning) before any
 release, so the version names were kept.
 
+Since 1 October 2026 (round 5, branch `r5/learning`): `brain-plan-v5` and `brain-plan-adapt-v4`
+add the optional `memberMemory` field (code-built facts from the member's own logs; data, never
+instructions; never overriding rules, bounds, starting loads or safety). The plan contract now pins
+the published learning snapshot, and reviewed examples reach automatic plans only through a
+passing check: `docs/features/brain-learning.md`.
+
 Since 30 September 2026 (branch `fix/brain-prompts`): `brain-plan-v4` and `brain-plan-adapt-v3`
 (alternatives, one exercise per session, cues without numbers or warnings, the weekly cap after
 rounding, the session-length estimate and limit, and the notes limit). The validator then became

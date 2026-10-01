@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
+import { loadMemberMemory } from "./member-memory.ts";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
@@ -860,7 +861,10 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
           "Update your coaching profile to re-enable digital coaching",
         );
       const twin = await currentClientTwin(tx, a, a.userId);
-      return { release, intake, twin };
+      // Code-built facts from the member's own logs (member-memory.ts); only
+      // drafts the coach reviews use it, never the automatic routine replies.
+      const memory = await loadMemberMemory(tx, a.userId);
+      return { release, intake, twin, memory };
     });
     if (material.response) return material.response;
     const qualified = await tryQualifiedCoaching(db, a, b.message, {
@@ -870,7 +874,12 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
     if (qualified) return qualified;
     const evidence = [
       { id: material.twin!.id, data: material.twin!.data.coaching },
-      { id: material.intake!.id, data: material.intake!.data },
+      {
+        id: material.intake!.id,
+        data: material.memory
+          ? { ...material.intake!.data, memberMemory: material.memory }
+          : material.intake!.data,
+      },
       ...material.release!.data.rules,
     ];
     let generated: Awaited<ReturnType<typeof modelDecision>>;

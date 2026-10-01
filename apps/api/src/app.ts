@@ -38,6 +38,7 @@ import { registerCoachingFollowups } from "./coaching-followups.ts";
 import { registerBrainTeaching } from "./brain-teach.ts";
 import { registerBrainCheck } from "./brain-check.ts";
 import { registerBrainLearning } from "./brain-learning.ts";
+import { registerBrainProgress } from "./brain-progress.ts";
 import {
   assertReleaseRuleLimit,
   evaluateBrainReplies,
@@ -1424,6 +1425,7 @@ export async function buildApp(
   registerBrainTeaching(app, db, identity, { compile: compileTeaching });
   registerBrainCheck(app, db, identity);
   registerBrainLearning(app, db, identity);
+  registerBrainProgress(app, db, identity);
   app.patch("/api/v1/brain/rules/:id", async (req) => {
     const a = owner(req),
       b = z

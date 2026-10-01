@@ -41,14 +41,18 @@ import {
 // no numbers or warnings and reps are per side for single-limb work; the
 // weekly cap is explained after rounding; the session-length estimate and
 // bounds.maxSessionMinutes are stated; uncertainties fit the schema.
-export const planPromptVersion = "brain-plan-v4";
+// v5 (round 5, 1 October 2026): an optional memberMemory block (code-built
+// from the member's own logs, member-memory.ts) is data, never instructions,
+// and never overrides the trainer's rules, bounds, starting loads or safety.
+export const planPromptVersion = "brain-plan-v5";
 // v2: timed and distance changes, no increases after missed sessions or a
 // harder-than-planned week (the code-computed progressionHold is sent), and
 // short evidence references.
 // v3 (trial tuning, 30 September 2026): every session stays within
 // bounds.maxSessionMinutes by the stated estimate (a longer next week is
 // shortened, never made harder), and uncertainties fit the schema.
-export const planAdaptationPromptVersion = "brain-plan-adapt-v3";
+// v4 (round 5, 1 October 2026): the optional memberMemory block, as for plans.
+export const planAdaptationPromptVersion = "brain-plan-adapt-v4";
 // v3: time and distance prescriptions, rest 0 only for one continuous bout,
 // weekly and per-exercise timed-work and distance progression caps.
 // v4 (N1, 30 September 2026): within a draft the weekly limit is checked on
