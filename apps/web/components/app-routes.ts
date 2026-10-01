@@ -16,6 +16,7 @@ export type AdminRoute =
   | "platform_finance"
   | "governance"
   | "model_profiles"
+  | "marketing_assistant"
   | "not_found";
 const operationsViews =
   /^\/admin\/(acquisition|early-access|trainers|subscribers|brains|safety|finops|wearables|domains|infrastructure|support|security|experiments|configuration)(\/|$)/;
@@ -34,6 +35,7 @@ export function adminRoute(path: string): AdminRoute {
   if (clean === "/admin/platform-finance") return "platform_finance";
   if (clean === "/admin/governance") return "governance";
   if (clean === "/admin/model-profiles") return "model_profiles";
+  if (clean === "/admin/marketing-assistant") return "marketing_assistant";
   if (clean === "/admin/infrastructure/observer")
     return "infrastructure_observer";
   if (clean === "/admin/infrastructure/actions")

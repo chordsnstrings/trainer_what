@@ -224,11 +224,18 @@ async function snapshotFor(db: Database, a: Actor) {
 export function registerMarketing(
   app: FastifyInstance,
   db: Database,
-  options: { instagramTransport?: InstagramTransport } = {},
+  options: {
+    instagramTransport?: InstagramTransport;
+    /** Whether the home page shows the voice assistant (marketing-assistant.ts). */
+    assistantAvailable?: () => Promise<boolean>;
+  } = {},
 ) {
   app.get("/api/v1/public/platform", async (_req, reply) => {
     reply.header("Cache-Control", "public, max-age=60");
-    return publicPlatform();
+    return {
+      ...publicPlatform(),
+      assistant: options.assistantAvailable ? await options.assistantAvailable() : false,
+    };
   });
   // The platform's install and logo icons: the configured name's initials on
   // the platform colour, so they always match APP_NAME.

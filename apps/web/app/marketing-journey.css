@@ -184,7 +184,8 @@
   inline-size: 30%;
   block-size: 0.7em;
   border-radius: 1em;
-  background: var(--ink);
+  /* Light grey, like the frame: public pages show no dark surface. */
+  background: var(--mk-line);
 }
 
 /* Scenes: stacked in one cell; the active one crossfades in. Hidden ones
@@ -505,7 +506,7 @@
   vertical-align: middle;
 }
 .w-head .w-sk {
-  background: rgb(255 255 255 / 55%);
+  background: color-mix(in srgb, var(--walk-coach) 30%, transparent);
 }
 .w-pri .w-sk,
 .w-cta .w-sk {
@@ -535,24 +536,28 @@
 .w-stack > * {
   grid-area: 1 / 1;
 }
+/* Colour rings on white: public pages show no dark surface (the brand
+   check), and a thick ring still reads as the colour. */
 .w-sw {
   position: relative;
+  box-sizing: border-box;
   inline-size: 1.6em;
   block-size: 1.6em;
+  border: 0.5em solid var(--walk-coach);
   border-radius: 50%;
-  background: var(--walk-coach);
+  background: var(--ty-white);
 }
 .w-sw1 {
-  background: #a4553f;
+  border-color: #a4553f;
 }
 .w-sw2 {
-  background: #3d5ba8;
+  border-color: #3d5ba8;
 }
 .w-sw3 {
-  background: #75539e;
+  border-color: #75539e;
 }
 .w-sw4 {
-  background: var(--ink);
+  border-color: var(--ink);
 }
 .w-sel {
   position: absolute;
@@ -567,9 +572,10 @@
   flex: none;
   inline-size: 2em;
   block-size: 2em;
+  border: 1.5px solid var(--walk-coach);
   border-radius: 6px;
-  background: var(--walk-coach);
-  color: var(--ty-white);
+  background: var(--ty-white);
+  color: var(--walk-coach);
   font-weight: 700;
 }
 .w-line .w-lab {
@@ -597,13 +603,15 @@
   gap: 0.5em;
   margin-inline: -0.6em;
   padding: 0.45em 0.6em;
-  background: var(--walk-coach);
-  color: var(--ty-white);
+  border-block-end: 3px solid var(--walk-coach);
+  background: var(--ty-white);
+  color: var(--walk-coach);
   font-weight: 600;
 }
 .w-av {
   inline-size: 1.9em;
   block-size: 1.9em;
+  border: 1.5px solid var(--walk-coach);
   border-radius: 50%;
   background: var(--ty-white);
   color: var(--walk-coach);

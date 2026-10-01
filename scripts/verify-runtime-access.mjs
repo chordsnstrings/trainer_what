@@ -140,6 +140,9 @@ export async function verifyRuntimeAccess(client) {
     model_profiles: ["SELECT", "INSERT", "UPDATE"],
     model_switch_checks: ["SELECT", "INSERT", "UPDATE"],
     model_profile_audit: ["SELECT", "INSERT"],
+    // Marketing assistant (082): counts and cost only, service only.
+    marketing_assistant_days: ["SELECT", "INSERT", "UPDATE"],
+    marketing_assistant_counters: ["SELECT", "INSERT", "UPDATE", "DELETE"],
   };
   for (const [table, grants] of Object.entries(systemTables)) {
     for (const privilege of ["SELECT", "INSERT", "UPDATE", "DELETE"]) {

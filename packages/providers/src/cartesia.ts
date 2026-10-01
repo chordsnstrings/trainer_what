@@ -393,6 +393,11 @@ export class CartesiaClient {
       throw new CartesiaError("The voice list returned an unexpected answer.", "ambiguous");
     return body.data.map(voice).filter(Boolean) as CartesiaVoice[];
   }
+  /** Every voice the account owns (its clones), for a voice picker. */
+  async ownVoices() {
+    const rows = await this.all("/voices", "The voice list", { is_owner: "true" });
+    return rows.map(voice).filter(Boolean) as CartesiaVoice[];
+  }
   /** The account's own voices carrying a name (every page of the search). */
   async voicesNamed(name: string, withSuffix = false) {
     const rows = await this.all("/voices", "The voice list", { q: name, is_owner: "true" });

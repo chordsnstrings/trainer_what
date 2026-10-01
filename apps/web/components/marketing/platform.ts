@@ -19,6 +19,8 @@ export type PublicPlatform = {
   coachAddressTemplate: string;
   availability: Record<AvailabilityKey, boolean>;
   followerModel: FollowerModelAssumptions;
+  /** The home page voice assistant is on, connected and under today's cap. */
+  assistant?: boolean;
 };
 
 function fallback(): PublicPlatform {
@@ -45,6 +47,7 @@ function fallback(): PublicPlatform {
       frontier: false,
     },
     followerModel: DEFAULT_FOLLOWER_MODEL,
+    assistant: false,
   };
 }
 

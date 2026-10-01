@@ -14,6 +14,7 @@
 //   page, not on the home page.
 import { BRAND_COPY } from "./brand.ts";
 import type {
+  AvailabilityLine,
   MarketingCard,
   MarketingFaq,
   MarketingPage,
@@ -668,6 +669,48 @@ const TRAINED_FAQ: MarketingFaq = {
   q: "Is the AI trained on my data?",
   a: "It is taught with your material: confirmed rules, coaching cases, examples and corrections. Each version is tested on held-out scenarios and can be rolled back. We do not claim to fine-tune a separate model on you, and your teaching stays private to your workspace.",
 };
+/**
+ * Lines shown only while an availability flag is on (marketingPageFor). The
+ * "frontier" flag is on only while the active model profile is frontier tier
+ * and its latest switch check succeeded (docs/features/model-profiles.md). Public
+ * text says "frontier model", never the model or its vendor, and "keeps
+ * getting better", never "only gets better": single answers can regress,
+ * which is why releases can be rolled back (plan section 6).
+ */
+export const AVAILABILITY_LINES: readonly AvailabilityLine[] = [
+  {
+    when: "frontier",
+    path: "/trainer-brain",
+    bullet: {
+      section: "learns",
+      text: "A frontier model plus your corrections: it keeps getting better with time.",
+    },
+  },
+  {
+    when: "frontier",
+    faq: {
+      q: TRAINED_FAQ.q,
+      a: "It runs on a frontier model, taught with your confirmed rules, cases, examples and corrections. Each version is tested on held-out scenarios and can be rolled back. We do not fine-tune a model on you; your teaching stays private to your workspace.",
+    },
+  },
+  {
+    when: "frontier",
+    path: "/faq",
+    faq: {
+      q: "Does it get better over time?",
+      a: "Yes. Your Brain runs on a frontier model, and every correction and approval becomes teaching. Each new version is tested on your held-out scenarios before it reaches subscribers, so it keeps getting better with time.",
+    },
+  },
+  {
+    when: "frontier",
+    path: "/how-it-works",
+    body: {
+      section: "steps",
+      title: "You correct, it learns",
+      text: "Approve or correct what comes to you. Each tested release learns from it and keeps getting better.",
+    },
+  },
+];
 const TECH_FAQ: MarketingFaq = {
   q: "Do I need technical skills?",
   a: "No. Setup is a guided checklist: answer interview questions, confirm rules in plain language, test scenarios and set your offer. Your website and app are set up for you.",

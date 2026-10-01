@@ -71,6 +71,7 @@ import { registerEarlyAccess } from "./early-access.ts";
 import { freeStartingSlug, registerCoachSignup } from "./coach-signup.ts";
 import { registerCoachSetup } from "./coach-setup.ts";
 import { registerMarketing, type InstagramTransport } from "./marketing.ts";
+import { assistantAvailable, registerMarketingAssistant } from "./marketing-assistant.ts";
 import {
   registerIntegrationCompletion,
   disableUserIntegrations,
@@ -600,6 +601,10 @@ export async function buildApp(
             ? e.message
             : "The request could not be completed. Your changes have not been confirmed.",
       requestId: req.id,
+      // The home page assistant at its daily cap: hidden until UAE midnight.
+      ...(e.code === "ASSISTANT_CAP" && typeof e.hiddenUntil === "string"
+        ? { hiddenUntil: e.hiddenUntil }
+        : {}),
       // A renamed workspace's previous subdomain names its new address.
       ...(e.code === "HOST_MOVED" && typeof e.location === "string"
         ? { location: e.location }
@@ -704,7 +709,9 @@ export async function buildApp(
   registerDiscovery(app, db);
   registerMarketing(app, db, {
     instagramTransport: options.providers?.instagram,
+    assistantAvailable: () => assistantAvailable(db),
   });
+  registerMarketingAssistant(app, db, identity);
   registerEarlyAccess(app, db, identity);
   registerCoachSignup(app, db, session);
   registerCoachSetup(app, db, identity);

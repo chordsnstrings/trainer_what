@@ -363,7 +363,8 @@ const scanText = (page, label) =>
   }, label);
 
 // ---------------------------------------------------------------------------
-// 1. The launch gate: while a coach cannot launch, nothing changes.
+// 1. The launch gate is gone: the walkthrough is always shown (owner, 30
+// September 2026, journeyAvailable); parts not live yet keep their chips.
 const stub = globalThis.__motionPlatform;
 if (stub) {
   stub.set("closed");
@@ -373,8 +374,8 @@ if (stub) {
     const players = await page.locator(".mk-walk").count();
     check(
       `gate closed ${path}`,
-      players === 0,
-      `${players} player(s) while no coach can launch`,
+      players === 1,
+      `${players} player(s) while no coach can launch (always shown)`,
     );
     if (path === "/how-it-works") {
       const steps = await page.locator("#steps ol.mk-steps > li").count();

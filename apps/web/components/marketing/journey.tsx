@@ -94,7 +94,7 @@ export const JOURNEY_TIMING: JourneyTiming[] = [
   { ms: 6500, go: 2300, back: null, start: "coach", swaps: [2870] },
   { ms: 6500, go: 2300, back: null, start: "coach", swaps: [2870] },
   { ms: 7500, go: 2300, back: null, start: "coach", swaps: [2870] },
-  { ms: 7400, go: 1400, back: 3850, start: "coach", swaps: [1970, 4420] },
+  { ms: 7400, go: 1400, back: 3450, start: "coach", swaps: [1970, 4020] },
   { ms: 7100, go: 3100, back: 1100, start: "phone", swaps: [1670, 3670] },
   { ms: 5000, go: null, back: 900, start: "phone", swaps: [1470] },
 ];
@@ -535,17 +535,17 @@ const SCENES: Scene[] = [
     ),
     phone: (c) => (
       <div className="w-pane w-layers">
-        <div className="w-layer w-profile" {...b("temp", 3000, 3400)}>
+        <div className="w-layer w-profile" {...b("temp", 3000, 3300)}>
           <i className="w-av w-blank" />
           <Ph w={8} />
           <Ph w={11} />
           <span className="w-link" dir="ltr">
-            <span {...b("tap", 3200)}>
+            <span {...b("tap", 3150)}>
               <T c={c}>{c.address}</T>
             </span>
           </span>
         </div>
-        <div className="w-layer" {...b("rise", 3400)}>
+        <div className="w-layer" {...b("rise", 3300)}>
           <span className="w-url" dir="ltr">
             <T c={c}>{c.address}</T>
           </span>
@@ -554,25 +554,25 @@ const SCENES: Scene[] = [
             <strong>
               <T c={c}>Membership</T>
             </strong>
-            <span className="w-cta" {...b("tap", 3600)}>
+            <span className="w-cta" {...b("tap", 3450)}>
               <T c={c}>Join</T>
             </span>
           </div>
         </div>
-        <div className="w-card w-sheet" {...b("temp", 3700, 4250)}>
+        <div className="w-card w-sheet" {...b("temp", 3550, 4000)}>
           <strong>
             <T c={c}>Card</T>
           </strong>
           <span>
             <T c={c}>AED</T> <Ph w={3} />
           </span>
-          <span className="w-cta" {...b("tap", 4050)}>
+          <span className="w-cta" {...b("tap", 3800)}>
             <T c={c}>Pay</T>
           </span>
         </div>
-        <ul className="w-card w-sheet w-chips" {...b("rise", 4250)}>
+        <ul className="w-card w-sheet w-chips" {...b("rise", 4000)}>
           {["Goal", "Schedule", "Experience", "Equipment"].map((name, i) => (
-            <li key={name} {...b("stamp", 4300 + i * 100)}>
+            <li key={name} {...b("stamp", 4040 + i * 80)}>
               <T c={c}>{name}</T>
             </li>
           ))}
@@ -599,8 +599,8 @@ const SCENES: Scene[] = [
             </Badge>
             <T c={c}>Missed Tuesday · moved to Thursday</T>
           </li>
-          <li {...b("rise", 4550)}>
-            <Badge c={c} tone="r" beat={b("stamp", 4610)}>
+          <li {...b("rise", 4100)}>
+            <Badge c={c} tone="r" beat={b("stamp", 4160)}>
               Safety hold
             </Badge>
             <T c={c}>“My knee hurts when I squat”</T>
@@ -659,10 +659,10 @@ const SCENES: Scene[] = [
           </span>
         </div>
         <span className="w-row" {...b("rise", 2760)}>
-          <span className="w-btn" {...b("tap", 3500)}>
+          <span className="w-btn" {...b("tap", 3100)}>
             <T c={c}>Report pain</T>
           </span>
-          <Badge c={c} tone="a" beat={b("stamp", 3700)}>
+          <Badge c={c} tone="a" beat={b("stamp", 3250)}>
             Workout paused
           </Badge>
         </span>
