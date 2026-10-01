@@ -2,6 +2,8 @@
 
 ## Start and continuity
 
+Continuing someone else's work (for example Claude's): read the "Work in progress" section at the top of `CLAUDE_HANDOFF.md` first. It is kept current with every owner update and says what is live, what is in progress, how to ship and what waits on the owner.
+
 Read `docs/PROJECT_MEMORY.md`, then the current task's section in `docs/DELIVERY_ROADMAP.md`. Read only the relevant technical, screen and release sections. The full source spec is the detailed product contract; the latest explicit user instruction governs conflicts. Keep `IMPLEMENTATION_PLAN.md` as the phase-level baseline.
 
 This repository contains planning documents and a runnable development implementation. Read `docs/BUILD_STATUS.md` for the verified boundary. Do not claim that features, credentials, tests or deployments exist until there is evidence. When implementation begins, record the active task, commit, actual checks, blockers and next action in project memory. Keep old product decisions in Git history rather than duplicating them in every handoff.
