@@ -217,6 +217,7 @@ test("the brand line is the closing heading on every marketing page; a renamed p
       whoop: false,
       zepp: false,
       instagram: false,
+      frontier: false,
     },
     followerModel: DEFAULT_FOLLOWER_MODEL,
   };

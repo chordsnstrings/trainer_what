@@ -136,6 +136,10 @@ export async function verifyRuntimeAccess(client) {
     // Codes are deleted after a day and with the account (retention).
     coach_signup_codes: ["SELECT", "INSERT", "UPDATE", "DELETE"],
     coach_reports: ["SELECT", "INSERT", "UPDATE"],
+    // Model profiles (080): service only, the audit append-only.
+    model_profiles: ["SELECT", "INSERT", "UPDATE"],
+    model_switch_checks: ["SELECT", "INSERT", "UPDATE"],
+    model_profile_audit: ["SELECT", "INSERT"],
   };
   for (const [table, grants] of Object.entries(systemTables)) {
     for (const privilege of ["SELECT", "INSERT", "UPDATE", "DELETE"]) {

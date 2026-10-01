@@ -77,7 +77,9 @@ export type AvailabilityKey =
   | "payouts"
   | "whoop"
   | "zepp"
-  | "instagram";
+  | "instagram"
+  /** Active model profile: frontier tier, with a successful latest switch check. */
+  | "frontier";
 export type MarketingPage = {
   path: string;
   kind: MarketingKind;

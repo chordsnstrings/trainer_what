@@ -19,6 +19,7 @@ import { ProviderUnavailable } from "@trainer/providers";
 import { OWN_CASES_FOR_FULL_CHECK } from "../../../packages/domain/src/brain-teach.ts";
 import { brainTrainingState, confirmedRulesDigest } from "./brain-training-state.ts";
 import { evaluateBrainReplies } from "./brain-replies-check.ts";
+import { notifyCoachingTeam } from "./notifications.ts";
 import {
   activateCoachingRuntime,
   coachingRuntimeReadiness,
@@ -40,6 +41,8 @@ export const BRAIN_CHECK_JOB = "brain_check";
 export const BRAIN_CHECK_LEASE_SECONDS = 1800;
 /** Edits within this window are checked together. */
 const RECHECK_DELAY_SECONDS = 60;
+/** The trigger of the re-checks a model profile switch asks for (model-profiles.ts). */
+export const MODEL_SWITCH_TRIGGER = "model_switch";
 
 const fail = (statusCode: number, code: string, message: string) =>
   Object.assign(new Error(message), { statusCode, code });
@@ -179,7 +182,10 @@ export async function runBrainCheck(
   let replies: any = null;
   if (s.confirmed.length) {
     const latest = s.latestEvaluation;
+    // A model switch re-checks the replies on the new model even when the
+    // rules and cases are unchanged (docs/features/model-profiles.md).
     const same =
+      trigger !== MODEL_SWITCH_TRIGGER &&
       latest && scenarioIds(s.ownCases) === scenarioIds((latest.data.outcomes ?? []).map((o: any) => ({ id: o.scenarioId })));
     if (same) {
       replies = latest;
@@ -408,6 +414,18 @@ export async function runBrainCheck(
       { status },
     );
     await event(tx, a, "brain.check_completed", row.id, { status, promoted: Object.keys(promoted).length > 0 });
+    // After a model switch a coach whose check did not pass keeps "waits for
+    // me" (their live version no longer matches the model) and is told so.
+    if (trigger === MODEL_SWITCH_TRIGGER && status !== "passed" && status !== "nothing_to_check")
+      await notifyCoachingTeam(tx, a, {
+        category: "coaching",
+        dedupeKey: `brain-model-switch:${row.id}`,
+        title: "Your Brain waits for you after an update",
+        body: "We updated the AI model behind your Brain. Your check did not pass on it yet, so replies wait for you for now. Open My Brain to see the result and run the check again.",
+        href: "/trainer/brain",
+        templateKey: "brain-model-switch",
+        source: { type: "brain_check", id: row.id },
+      });
     return row;
   });
 }

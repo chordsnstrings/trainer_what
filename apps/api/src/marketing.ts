@@ -53,6 +53,10 @@ export function publicAvailability(config: RuntimeConfig = runtimeConfig()) {
     whoop: !!status.whoop,
     zepp: !!status.zepp,
     instagram: !!integrationCapability("instagram", config)?.approved,
+    // The active model profile is frontier tier and its latest switch check
+    // passed (docs/features/model-profiles.md); public wording may then say
+    // "frontier model", never the model or its vendor.
+    frontier: !!status.model && config.MODEL_PROFILE_FRONTIER === "true",
   };
 }
 

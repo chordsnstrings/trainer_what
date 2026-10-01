@@ -1,6 +1,7 @@
 import { runClaimedFinanceJob } from "../../api/src/finance-automation.ts";
 import { elevated, type Actor, type Database } from "@trainer/db";
 import { ProviderUnavailable } from "@trainer/providers";
+import { withRuntimeConfig } from "../../../packages/providers/src/configuration.ts";
 import { executeEmailDelivery } from "./email-delivery.ts";
 import { executePushDelivery } from "./push-delivery.ts";
 import { executeNutritionJob } from "../../api/src/nutrition-schedule.ts";
@@ -80,6 +81,16 @@ export async function runClaimedJob(
   tenantId: string,
   job: any,
   handlers: JobHandlers = defaultHandlers,
+) {
+  // Each job runs in its own runtime scope, so a fallback model answer marks
+  // only that job's qualification pins (docs/features/model-profiles.md).
+  return withRuntimeConfig({}, () => runClaimedJobInScope(db, tenantId, job, handlers));
+}
+async function runClaimedJobInScope(
+  db: Database,
+  tenantId: string,
+  job: any,
+  handlers: JobHandlers,
 ) {
   const a = workerActor(tenantId);
   try {

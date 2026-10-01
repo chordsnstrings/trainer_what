@@ -37,6 +37,7 @@ import { activeSafetyPolicy } from "./safety-policy.ts";
 import { registerCoachingFollowups } from "./coaching-followups.ts";
 import { registerBrainTeaching } from "./brain-teach.ts";
 import { registerBrainCheck } from "./brain-check.ts";
+import { registerModelProfiles } from "./model-profiles.ts";
 import { registerBrainLearning } from "./brain-learning.ts";
 import {
   assertReleaseRuleLimit,
@@ -708,6 +709,7 @@ export async function buildApp(
   registerCoachSignup(app, db, session);
   registerCoachSetup(app, db, identity);
   platformSettingsRoutes(app, db, identity);
+  registerModelProfiles(app, db, identity);
   financeOperations(app, db, identity);
   privacyOperations(app, db, identity, privacyHooks);
   registerPrivacyLifecycle(app, db, identity, privacyHooks);

@@ -52,6 +52,7 @@ const availability = (on) => ({
   whoop: false,
   zepp: false,
   instagram: false,
+  frontier: false,
 });
 const state = { mode: "closed" };
 globalThis.__motionPlatform = {

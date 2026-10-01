@@ -169,6 +169,32 @@ export async function resealSecrets(
       );
       report.platformSettings.resealed += changed;
     }
+    // Model profile keys (migration 080) are platform credentials too.
+    const profiles = await tx.query<{ id: string; encrypted_secrets: Record<string, string> }>(
+      "SELECT id,encrypted_secrets FROM model_profiles ORDER BY id" + lock,
+    );
+    for (const row of profiles) {
+      const next = { ...row.encrypted_secrets };
+      let changed = 0;
+      for (const [field, value] of Object.entries(row.encrypted_secrets)) {
+        if (!value) continue;
+        const sealed = visit(
+          report.platformSettings,
+          sealContexts.modelProfile(row.id, field),
+          value,
+        );
+        if (sealed) {
+          next[field] = sealed;
+          changed++;
+        }
+      }
+      if (!changed) continue;
+      await tx.query("UPDATE model_profiles SET encrypted_secrets=$2 WHERE id=$1", [
+        row.id,
+        JSON.stringify(next),
+      ]);
+      report.platformSettings.resealed += changed;
+    }
   });
 
   const pass = async (

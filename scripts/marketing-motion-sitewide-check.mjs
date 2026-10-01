@@ -75,6 +75,7 @@ async function startStub() {
     whoop: false,
     zepp: false,
     instagram: false,
+    frontier: false,
   };
   stub = createServer((req, res) => {
     const path = (req.url ?? "").split("?")[0];

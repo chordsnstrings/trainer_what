@@ -82,6 +82,12 @@ still stops at the output limit needs `low` chosen, which the connection check s
 
 ### The one retry (automatic only)
 
+Round 5 (`r5/models`, docs/features/model-profiles.md): the refusal is now read from the HTTP status
+(400) and the parameter the error names (its `param`, else the first request parameter its message
+names, in any wording), not from the OpenAI sentences quoted below; a token limit whose value was
+refused is still never retried. Budgets, temperature on/off, JSON mode, the native Messages adapter
+and the fallback profile are model profile settings there.
+
 When the provider answers **HTTP 400 with the specific unsupported-parameter refusal of a parameter
 the request sent** (`refusedStyleParameter`), and reports no token usage, the same request is sent
 once more (`retryAfterRefusal`). With the automatic style, in the other style:

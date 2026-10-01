@@ -27,6 +27,20 @@ export function withRuntimeConfig<T>(
   return runtime.run({ ...runtime.getStore(), ...overrides }, callback);
 }
 /**
+ * Records values in the current request or job scope (later reads in the
+ * same scope see them); false outside any scope. Used to mark a scope in
+ * which a fallback model profile answered (model-accounting.ts).
+ */
+export function markRuntimeConfig(values: RuntimeConfig): boolean {
+  const store = runtime.getStore();
+  if (!store) return false;
+  Object.assign(store, values);
+  return true;
+}
+export function runtimeScopeActive() {
+  return runtime.getStore() !== undefined;
+}
+/**
  * Security controls (MFA step-up, legal and import approvals, Secure cookies,
  * email verification, second reviewers) relax only for a process explicitly
  * declared as local development or test, or the isolated Node test runner. An

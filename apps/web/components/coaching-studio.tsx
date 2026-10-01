@@ -851,7 +851,12 @@ export function CoachingStudio({ path }: { path: string }) {
             </p>
             <dl>
               <dt>Brain service</dt>
-              <dd>{data.modelPin.model ? "Ready" : "Being set up by us"}</dd>
+              {/* The model profile's label (for example Frontier model), never the model ID. */}
+              <dd>
+                {data.modelPin.model
+                  ? (data.modelLabel ?? "Ready")
+                  : "Being set up by us"}
+              </dd>
               <dt>Teaching examples</dt>
               <dd>{data.cases.length}</dd>
               <dt>Confirmed actions</dt>

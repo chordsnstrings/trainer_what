@@ -89,6 +89,7 @@ const platform: PublicPlatform = {
     whoop: false,
     zepp: false,
     instagram: false,
+    frontier: false,
   },
   followerModel: DEFAULT_FOLLOWER_MODEL,
 };

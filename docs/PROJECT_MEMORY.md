@@ -47,6 +47,7 @@ Updated: 30 September 2026. This is durable project context for future build ses
 
 ## Current state
 
+- **Model profiles (stage 2026-10-01r5-models, branch `r5/models`, unmerged).** Super admin switches the Brain's model between saved profiles (current settings, ChatGPT, Sonnet, Opus) after a connection test and a passing switch check; one click back; coaches see only the label; see `docs/features/model-profiles.md`.
 - **Round 4 final (stage 2026-09-30d, branch `r4/final`, pushed to `claude/repository-overview-osejlw`, not merged, not deployed).** Open coach sign-up, the `/setup` wizard with subdomains, Teach your Brain, setup assistant, the four-section workspace and one teaching loop, integrated; see `docs/COMPLETION_STAGES.md`.
 - **Daily trainer workspace (stage 2026-09-30r4-workspace, branch `r4/workspace`, unmerged).** Inbox / Clients / My Brain / More, one inbox API, chats list, client page, plain words; see `docs/features/trainer-workspace.md`.
 - **Superadmin recovery (stage 2026-09-30c, pushed to `claude/repository-overview-osejlw`, not deployed).** Host-only `npm run admin:access -- list|create|reset-password` and `infra/digitalocean/admin-access.sh` (Droplet console, root). Until a release with it deploys, use the paste block in `docs/DIGITALOCEAN_DEPLOYMENT.md` "Recover Superadmin access".

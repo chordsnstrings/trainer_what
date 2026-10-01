@@ -1,4 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
+import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
+import { coachFacingPin } from "../../../packages/providers/src/model-profiles.ts";
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
@@ -2308,7 +2310,7 @@ export function registerBrainPlans(app: FastifyInstance, db: Database) {
         settings,
         settingsVersion: row?.version ?? null,
         modelConfigured: planModelConfigured(),
-        modelPin: planModelPin(),
+        modelPin: coachFacingPin(planModelPin(), runtimeConfig()),
         qualification: {
           qualified: state.qualified,
           adaptationQualified: state.adaptationQualified,

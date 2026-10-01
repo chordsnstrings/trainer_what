@@ -1,4 +1,9 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
+import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
+import {
+  coachFacingPin,
+  coachModelLabel,
+} from "../../../packages/providers/src/model-profiles.ts";
 import { brainTrainingState } from "./brain-training-state.ts";
 import { BRAIN_LEVELS } from "../../../packages/domain/src/brain-teach.ts";
 import { createHash, randomUUID } from "node:crypto";
@@ -1069,8 +1074,13 @@ export function registerCoachingRuntime(app: FastifyInstance, db: Database) {
         rows,
         questions,
         digest: material.digest,
-        modelPin: coachingModelPin(),
-        active: active ?? null,
+        // Coaches see the model profile's label, never the address or
+        // model ID (docs/features/model-profiles.md).
+        modelPin: coachFacingPin(coachingModelPin(), runtimeConfig()),
+        modelLabel: coachModelLabel(runtimeConfig()),
+        active: active
+          ? { ...active, data: { ...active.data, pin: coachFacingPin(active.data?.pin, runtimeConfig()) } }
+          : null,
       };
     });
   });
@@ -1357,6 +1367,13 @@ export async function tryQualifiedCoaching(
     if (!(error instanceof ModelOutputInvalid)) throw error;
     // The answer was withheld: the question goes to the trainer as a review
     // item and the member never sees the model's malformed output.
+    return toTrainer("model_output_invalid");
+  }
+  // A fallback model profile answered (the active one was unavailable): no
+  // qualification covers it, so the request always goes to the trainer
+  // (docs/features/model-profiles.md).
+  if (generated.usage?.fallback) return toTrainer("fallback_model");
+  function toTrainer(cause: "model_output_invalid" | "fallback_model") {
     return db.tenant(a, async (tx) => {
       const item = await putPrivateRecord(
         tx,
@@ -1366,14 +1383,12 @@ export async function tryQualifiedCoaching(
           category: "human_review",
           subscriberId: a.userId,
           description: request,
-          cause: "model_output_invalid",
-          runtimeReleaseId: initial.runtime.id,
+          cause,
+          runtimeReleaseId: initial!.runtime.id,
         },
         { ownerId: a.userId, status: "open" },
       );
-      await event(tx, a, "coaching.review_required", item.id, {
-        cause: "model_output_invalid",
-      });
+      await event(tx, a, "coaching.review_required", item.id, { cause });
       return {
         pendingReview: true,
         message:
