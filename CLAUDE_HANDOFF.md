@@ -2,7 +2,7 @@
 
 Updated 27 September 2026 (afternoon). PR #1 and [PR #2](https://github.com/chordsnstrings/trainer_what/pull/2) are merged into `main`. At the owner's request the application runs live on a new DigitalOcean project, GymMembership, which deployed `main` `eb7b678` automatically after its checks passed, and live verification passed on it. Historical stage entries below retain their original evidence.
 
-## Work in progress (updated with every owner update; last update 1 October 2026, authenticator switched off and live)
+## Work in progress (updated with every owner update; last update 1 October 2026, live services not yet connected)
 
 **Continuing agent: Astra 6** (the owner continues with Astra 6; Claude or another agent may also pick this up). **For any agent continuing this work:** start here, then read `AGENTS.md` and `docs/PROJECT_MEMORY.md`. No secret is ever stored in this repository; keys live in Super admin (encrypted) or on the server. Update this section with every owner update (owner rule, 29 September) and replace it rather than letting it grow.
 
@@ -54,7 +54,9 @@ Updated 27 September 2026 (afternoon). PR #1 and [PR #2](https://github.com/chor
 - a real-device test of own-music mode (iPhone Safari, Android Chrome; checklist in `docs/features/voice-session.md`);
 - pick or confirm the Kamran voice in Super admin and turn the assistant on (then try it on a phone).
 
-**Next action:** owner items above (Kamran voice and switch-on, model keys, Resend, legal documents, Stripe webhook, real-phone tests); then the known gaps listed under Live now. When the owner wants the authenticator back, delete the `AUTHENTICATOR_REQUIRED` line from `compose.yaml` and ship.
+**Owner report (1 October 2026, later):** Kamran switched on in Settings but not on the home page; owner asked to "put seed 2.0 online ... with all the features ... for real testers". Cause: on live, `/api/v1/public/platform` shows every service unavailable (model, voice, payments). No AI model key, Cartesia voice key or speech-to-text key has been entered on the live site, so the assistant (needs model + Cartesia voice + Cartesia speech-to-text with "contract approved" ticked) and every AI feature stay hidden. Keys are entered only by the owner in Super admin, Settings: AI model (ModelArk address, key, `seed-2-0-pro-260328`), Trainer voice (Cartesia, key, `sonic-3.6`, price version, USD/1,000 characters, daily limit, "Account contract and voice rights approved"), Speech-to-text (Cartesia, key, price version, USD/hour, zero retention off, "Account contract and audio processing approved"), Enable nutrition + Nutrition scope reviewed. Testers can join only after "Legal documents approved" (needs the owner's legal documents). The "Live Trainer" workspaces in Platform finance are test coaches from the live smoke on 27-28 September (`@gymmembership.invalid`); removal waits for the owner's yes.
+
+**Next action:** owner enters the keys above; then check `/api/v1/public/platform` shows `model`, `voice` and `assistant` true, run the model switch check in Model profiles, and try Kamran on a phone. Then the remaining owner items and known gaps.
 
 ## Latest (1 October 2026)
 
