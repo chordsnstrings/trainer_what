@@ -787,6 +787,10 @@ export const MODEL_CALL_BUDGETS = {
   meal_photo: { maxTokens: 2500, timeoutMs: 30000 },
   /** Voice session wording suggestions (no output limit is sent). */
   voice_suggestions: { maxTokens: null, timeoutMs: 30000 },
+  /** The Brain's lines for one voice session, made while the member waits (generateNarration). */
+  voice_narration: { maxTokens: 1500, timeoutMs: 20000 },
+  /** The coach's one-on-one style draft and sample session (draftOneOnOneStyle). */
+  voice_style: { maxTokens: 2000, timeoutMs: 30000 },
 } as const;
 export type ModelCallTask = keyof typeof MODEL_CALL_BUDGETS;
 /**
@@ -807,7 +811,7 @@ export const MODEL_FAMILY_TIMEOUT_MS: ReadonlyArray<{
   {
     family: "seed",
     pattern: /(?:^|[^a-z0-9])seed(?:[^a-z0-9]|$)/i,
-    timeoutMs: Object.freeze({ rule_compilation: 90000, meal_photo: 60000, brain_quiz: 90000, brain_correction: 60000, brain_edits: 90000 }),
+    timeoutMs: Object.freeze({ rule_compilation: 90000, meal_photo: 60000, brain_quiz: 90000, brain_correction: 60000, brain_edits: 90000, voice_narration: 30000, voice_style: 60000 }),
   },
 ]);
 /**

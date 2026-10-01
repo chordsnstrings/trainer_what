@@ -6,7 +6,7 @@
 import { modelCompletion, type ModelAccounting } from "./model-accounting.ts";
 import { ModelOutputInvalid, ProviderUnavailable } from "./index.ts";
 import { runtimeConfig, type RuntimeConfig } from "./configuration.ts";
-import { familyTimeoutMs, modelReplyJson } from "./model-request.ts";
+import { modelCallBudget, modelReplyJson } from "./model-request.ts";
 import {
   narrationMessages,
   oneOnOneMessages,
@@ -17,19 +17,20 @@ import {
   type OneOnOneAnswers,
 } from "../../domain/src/voice-narration.ts";
 
-const seedFamily = (config: RuntimeConfig) =>
-  /(?:^|[^a-z0-9])seed(?:[^a-z0-9]|$)/i.test(String(config.MODEL_NAME ?? ""));
 /**
  * One session's narration. The member waits while a session is prepared, so
  * the limit is short; on a timeout the session is prepared without Brain
- * lines. Seed-family models get a longer base (8-20 s in the live test).
+ * lines. Seed-family models get a longer base (8-20 s in the live test). Both
+ * budgets are in MODEL_CALL_BUDGETS, so a model profile can set its own.
  */
 export function narrationBudget(config: RuntimeConfig) {
-  return { maxTokens: 1500, timeoutMs: familyTimeoutMs(seedFamily(config) ? 30000 : 20000, config) };
+  const b = modelCallBudget("voice_narration", config);
+  return { maxTokens: b.maxTokens ?? 1500, timeoutMs: b.timeoutMs };
 }
 /** The coach's style draft (asked from the trainer screen). */
 export function oneOnOneBudget(config: RuntimeConfig) {
-  return { maxTokens: 2000, timeoutMs: familyTimeoutMs(seedFamily(config) ? 60000 : 30000, config) };
+  const b = modelCallBudget("voice_style", config);
+  return { maxTokens: b.maxTokens ?? 2000, timeoutMs: b.timeoutMs };
 }
 function modelSettings() {
   const config = runtimeConfig();
