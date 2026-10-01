@@ -16,7 +16,7 @@ import {
   queueAccountEmail,
   requireEmailConfiguration,
 } from "./account-completion.ts";
-import { consumeMfa } from "./security.ts";
+import { authenticatorRequired, consumeMfa } from "./security.ts";
 import { workspaceLock } from "./privacy-lifecycle.ts";
 
 type AccountIdentity = Actor & {
@@ -166,7 +166,7 @@ export async function confirmAccountOwner(
     [userId],
   );
   if (security?.enabled) {
-    if (!proof.code)
+    if (!proof.code && authenticatorRequired())
       throw fail(
         401,
         "MFA_REQUIRED",

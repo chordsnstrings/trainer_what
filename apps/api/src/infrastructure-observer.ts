@@ -3,7 +3,7 @@ import { performance } from "node:perf_hooks";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { elevated, type Actor, type Database, type Tx } from "@trainer/db";
 import { z } from "zod";
-import { requireRecentMfa } from "./security.ts";
+import { authenticatorRequired, requireRecentMfa } from "./security.ts";
 
 type Identity = Actor & { platformRole: string; mfaAt?: string | null };
 type Service = "api" | "worker";
@@ -850,7 +850,10 @@ export function registerInfrastructureObserver(
       );
     requireRecentMfa(a, true);
     const at = Date.parse(a.mfaAt ?? "");
-    if (!Number.isFinite(at) || at > Date.now() + 5000)
+    if (
+      authenticatorRequired() &&
+      (!Number.isFinite(at) || at > Date.now() + 5000)
+    )
       throw fail(
         403,
         "MFA_STEP_UP",

@@ -39,8 +39,10 @@ export function coachSetupOpen(state: {
 export function needsAuthenticator(state: {
   user: { platformRole?: string };
   superadmin?: { mfaEnabled?: boolean };
+  authenticatorRequired?: boolean;
 }) {
   return (
+    state.authenticatorRequired !== false &&
     state.user.platformRole === "admin" &&
     state.superadmin?.mfaEnabled === false
   );

@@ -136,12 +136,36 @@ function matchCounter(secret: string, code: string, last: number) {
   }
   return null;
 }
+/** Owner switch (1 Oct 2026): AUTHENTICATOR_REQUIRED="false" turns off every
+ * authenticator demand (step-up, enrolment prerequisites, sign-in codes).
+ * Anything else, including an unset variable, keeps it required. Passwords,
+ * roles, CSRF and rate limits are unaffected. */
+export function authenticatorRequired() {
+  return process.env.AUTHENTICATOR_REQUIRED !== "false";
+}
+/** A six-digit code field: required unless the switch is off, when it may be
+ * left out or empty. Checked per request, so the switch applies at once. */
+export const switchableCode = (message: string) =>
+  z
+    .string()
+    .regex(/^\d{6}$/, message)
+    .or(z.literal(""))
+    .optional()
+    .transform((v, ctx) => {
+      if (!v && authenticatorRequired()) {
+        ctx.addIssue({ code: "custom", message });
+        return z.NEVER;
+      }
+      return v || undefined;
+    });
 export async function consumeMfa(tx: Tx, userId: string, code?: string) {
   const [s] = await tx.query(
     "SELECT * FROM user_security WHERE user_id=$1 FOR UPDATE",
     [userId],
   );
   if (!s?.enabled) return false;
+  // Switched off: no code is demanded; a code that is entered still counts.
+  if (!code && !authenticatorRequired()) return false;
   const secret = openAuthenticator(userId, s.totp_secret);
   const counter = matchCounter(
     secret.value,
@@ -166,6 +190,7 @@ export async function consumeMfa(tx: Tx, userId: string, code?: string) {
   return true;
 }
 export function requireRecentMfa(a: { mfaAt?: string | null }, force = false) {
+  if (!authenticatorRequired()) return;
   if (!force && !strictSecurity()) return;
   const at = Date.parse(a.mfaAt ?? "");
   if (
@@ -259,6 +284,7 @@ export function securityRoutes(
       mfaEnabled: s?.enabled ?? false,
       mfaConfigured: !!process.env.SECURITY_ENCRYPTION_KEY,
       mfaAt: a.mfaAt ?? null,
+      authenticatorRequired: authenticatorRequired(),
     };
   });
   app.post("/api/v1/auth/request-verification", rate, async (req) => {

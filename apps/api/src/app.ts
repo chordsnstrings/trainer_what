@@ -161,7 +161,12 @@ import {
 } from "./team.ts";
 import { operationsRoutes } from "./operations.ts";
 import { financeOperations } from "./finance-operations.ts";
-import { securityRoutes, consumeMfa, requireRecentMfa } from "./security.ts";
+import {
+  securityRoutes,
+  consumeMfa,
+  requireRecentMfa,
+  authenticatorRequired,
+} from "./security.ts";
 import { openSignInSession, type SignInMethod } from "./sign-in.ts";
 import {
   membershipEndedError,
@@ -1100,6 +1105,7 @@ export async function buildApp(
           supportEmail: runtimeConfig().SUPPORT_EMAIL || null,
         },
         tenant,
+        authenticatorRequired: authenticatorRequired(),
         platformWorkspace: !!platform?.workspace,
         ...(a.platformRole === "admin"
           ? { superadmin: { mfaEnabled: !!platform?.mfa_enabled } }
