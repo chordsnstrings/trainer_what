@@ -18,6 +18,8 @@ import {
   nextUaeMidnight,
   replyClips,
   resetAssistantVoiceCache,
+  TURN_RESERVE_AED,
+  turnReserve,
   uaeDay,
   visitorKey,
 } from "../apps/api/src/marketing-assistant.ts";
@@ -144,6 +146,8 @@ const originalFetch = globalThis.fetch;
 const SAID = "This sounds great, how do I sign up for trainsyou";
 let heard = SAID;
 const calls: string[] = [];
+/** When set, each speech-to-text call waits for it (turns held in flight together). */
+let sttHold: (() => Promise<void>) | null = null;
 
 function wav(seconds = 1) {
   const rate = 8000, data = rate * 2 * seconds, b = Buffer.alloc(44 + data);
@@ -177,8 +181,10 @@ before(() => {
     }
     if (url.hostname === "voice.test" && url.pathname === "/voices")
       return Response.json({ data: [{ id: "voice-kamran", name: "Kamran" }, { id: "voice-other", name: "Other" }], has_more: false });
-    if (url.hostname === "voice.test" && url.pathname === "/stt")
+    if (url.hostname === "voice.test" && url.pathname === "/stt") {
+      if (sttHold) await sttHold();
       return Response.json({ text: heard, duration: 1, language: "en" });
+    }
     if (url.hostname === "voice.test" && url.pathname === "/tts/bytes") {
       const sent = JSON.parse(String(init.body));
       assert.equal(sent.voice.id, process.env.MARKETING_ASSISTANT_VOICE_ID || "voice-kamran");
@@ -271,4 +277,70 @@ test("public turn: speech in, checked reply and voice out, hand-off, cap, limits
   assert.equal((await f.call("/admin/marketing-assistant", { cookie: coach.cookie })).statusCode, 403);
   // No model or voice call was made for refused turns.
   assert.ok(calls.filter((c) => c.includes("/chat/completions")).length === 12);
+});
+
+test("the most a turn can cost is reserved: model prices or USD 5 / 30, the clip's billed length, never below the minimum", () => {
+  const base = { promptBytes: 20000, billableMs: 1000, sttUsdPerHour: 0.4, voiceUsdPer1000: 0.05 };
+  const priced = { MODEL_INPUT_USD_PER_MILLION: "0.5", MODEL_OUTPUT_USD_PER_MILLION: "3", FINANCE_USD_TO_AED: "3.6725" };
+  assert.equal(turnReserve(priced, base).aed, TURN_RESERVE_AED);
+  // Without model prices the turn counts at USD 5 / 30 per million.
+  const unpriced = turnReserve({ FINANCE_USD_TO_AED: "3.6725" }, base);
+  assert.equal(unpriced.modelUsd, (20000 * 5 + 1500 * 30) / 1_000_000);
+  assert.ok(unpriced.aed > TURN_RESERVE_AED);
+  // A higher cache-write price is the input price; a long compressed clip raises the reserve.
+  assert.ok(turnReserve({ ...priced, MODEL_CACHE_WRITE_USD_PER_MILLION: "20" }, base).modelUsd > turnReserve(priced, base).modelUsd);
+  assert.ok(turnReserve(priced, { ...base, billableMs: 874_000, sttUsdPerHour: 4 }).aed > TURN_RESERVE_AED);
+});
+
+test("public turn: turns at the same time never take the day over the cap; real compressed clips are accepted (PGlite)", async () => {
+  const f = await governanceFixture();
+  heard = "Why did you build it?";
+  const turn = (remoteAddress: string, audio = wav(), type = "audio/wav", durationMs = 1000) =>
+    f.app.inject({
+      method: "POST",
+      url: "/api/v1/public/assistant/turn",
+      remoteAddress,
+      headers: { host: "localhost:3000", origin: "http://localhost:3000" },
+      payload: { visit: randomUUID(), audio, type, durationMs, lang: "en", history: [] },
+    });
+  // A 5 s phone recording (WebM/Opus at about 48 kbit/s) is not refused as too long;
+  // it is billed at its conservative length (the bytes at 6 kbit/s).
+  const webm = Buffer.alloc(30 * 1024, 7);
+  webm.writeUInt32BE(0x1a45dfa3, 0);
+  const phone = await turn("10.81.0.1", webm.toString("base64"), "audio/webm", 5000);
+  assert.equal(phone.statusCode, 200, phone.body);
+  const [first] = await f.db.system((tx) => tx.query("SELECT * FROM marketing_assistant_days WHERE day=$1", [uaeDay()]));
+  assert.equal(Number(first.stt_seconds), Math.ceil((30 * 1024 * 8 * 1000) / 6000) / 1000);
+  // The reservation is replaced by the actual cost once the turn ends.
+  assert.ok(Number(first.cost_aed) > 0 && Number(first.cost_aed) < TURN_RESERVE_AED, String(first.cost_aed));
+  // A WAV clip whose header says 25 s is too long, whatever the page declared.
+  const long = await turn("10.81.0.2", wav(25), "audio/wav", 20000);
+  assert.equal(long.statusCode, 400);
+  assert.equal(long.json().code, "SPEECH_TOO_LONG");
+
+  // Room for exactly two reservations today. Six turns are held in flight
+  // together (speech-to-text waits until each has started or been refused):
+  // two run, four are refused at the cap.
+  await f.db.system((tx) => tx.query("UPDATE marketing_assistant_days SET cost_aed=$2 WHERE day=$1", [uaeDay(), 10 - 2 * TURN_RESERVE_AED - 0.05]));
+  let inFlight = 0, refused = 0, open!: () => void;
+  const gate = new Promise<void>((resolve) => (open = resolve));
+  const check = () => inFlight + refused >= 6 && open();
+  sttHold = async () => {
+    inFlight++;
+    check();
+    await gate;
+  };
+  const results = await Promise.all(
+    [0, 1, 2, 3, 4, 5].map((i) =>
+      turn(`10.82.0.${i}`).then((r) => {
+        if (r.statusCode !== 200) refused++, check();
+        return r;
+      }),
+    ),
+  );
+  sttHold = null;
+  const codes = results.map((r) => (r.statusCode === 200 ? "ok" : r.json().code)).sort();
+  assert.deepEqual(codes, ["ASSISTANT_CAP", "ASSISTANT_CAP", "ASSISTANT_CAP", "ASSISTANT_CAP", "ok", "ok"]);
+  const [day] = await f.db.system((tx) => tx.query("SELECT cost_aed FROM marketing_assistant_days WHERE day=$1", [uaeDay()]));
+  assert.ok(Number(day.cost_aed) <= 10, String(day.cost_aed));
 });

@@ -22,12 +22,18 @@ import {
   type SpeechAudioType,
 } from "../../../packages/providers/src/integrations.ts";
 import type { ModelAccounting, ModelUsage } from "../../../packages/providers/src/model-accounting.ts";
-import { marketingAssistantModel } from "../../../packages/providers/src/marketing-assistant.ts";
+import {
+  MARKETING_ASSISTANT_BUDGET,
+  marketingAssistantModel,
+} from "../../../packages/providers/src/marketing-assistant.ts";
 import {
   MARKETING_ASSISTANT_LIMITS,
   MARKETING_ASSISTANT_PUBLIC_TEXT,
+  marketingAssistantInstruction,
+  marketingAssistantUserMessage,
   screenAssistantReply,
   type AssistantLanguage,
+  type AssistantTurn,
 } from "../../../packages/domain/src/marketing-assistant.ts";
 import { speechLanguage } from "../../../packages/domain/src/speech-language.ts";
 import { followerModelFromSettings } from "../../../packages/domain/src/marketing-calculators.ts";
@@ -57,8 +63,55 @@ const usdToAed = (config: RuntimeConfig) => {
   const rate = Number(config.FINANCE_USD_TO_AED || 3.6725);
   return Number.isFinite(rate) && rate >= 1 && rate <= 10 ? rate : 3.6725;
 };
-/** What one turn may cost at most, reserved against the cap before it starts (AED). */
+/**
+ * The least reserved against the cap for one turn (AED): the home page hides
+ * the button once less than this is left today.
+ */
 export const TURN_RESERVE_AED = 0.25;
+/** Model prices a turn is counted at when the active profile has none (USD per million). */
+const UNPRICED_MODEL_USD = { input: 5, output: 30 } as const;
+const knownPrice = (value: string | undefined) => {
+  const n = Number(value?.trim() || NaN);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+};
+/**
+ * The most one turn can cost, worked out before any provider is called: the
+ * whole prompt counted as input tokens at one token per byte (at the cache
+ * write price when that is higher), the full answer limit as output, the
+ * speech-to-text seconds billed for the clip (billableSpeechMs, conservative)
+ * and the longest reply spoken. Without model prices it counts at USD 5 / 30
+ * per million, like the turn's own record. In AED, never below TURN_RESERVE_AED.
+ */
+export function turnReserve(
+  config: RuntimeConfig,
+  o: { promptBytes: number; billableMs: number; sttUsdPerHour: number; voiceUsdPer1000: number },
+) {
+  const input = knownPrice(config.MODEL_INPUT_USD_PER_MILLION);
+  const output = knownPrice(config.MODEL_OUTPUT_USD_PER_MILLION);
+  const priced = input !== null && output !== null;
+  const inputPrice = priced
+    ? Math.max(input, knownPrice(config.MODEL_CACHE_WRITE_USD_PER_MILLION) ?? 0)
+    : UNPRICED_MODEL_USD.input;
+  const modelUsd =
+    (o.promptBytes * inputPrice + MARKETING_ASSISTANT_BUDGET.maxTokens * (priced ? output : UNPRICED_MODEL_USD.output)) /
+    1_000_000;
+  const sttUsd = (o.billableMs / 3_600_000) * o.sttUsdPerHour;
+  const ttsUsd = (MARKETING_ASSISTANT_LIMITS.replyCharacters / 1000) * o.voiceUsdPer1000;
+  const aed = Math.max(
+    TURN_RESERVE_AED,
+    Math.ceil((modelUsd + sttUsd + ttsUsd) * usdToAed(config) * 10000) / 10000,
+  );
+  return { aed, modelUsd };
+}
+/** Bytes of the longest prompt this turn can send (the transcript at six bytes a character). */
+export function assistantPromptBytes(appName: string, facts: string, history: AssistantTurn[]) {
+  return (
+    Buffer.byteLength(marketingAssistantInstruction(appName, facts)) +
+    Buffer.byteLength(marketingAssistantUserMessage(history, "")) +
+    MARKETING_ASSISTANT_LIMITS.transcriptCharacters * 6 +
+    256
+  );
+}
 
 /**
  * Whether the assistant may run: switched on, and the AI model, Cartesia
@@ -147,7 +200,11 @@ type Spend = {
   handoffs?: number;
   refused?: number;
 };
-async function addSpend(db: Database, day: string, s: Spend, config: RuntimeConfig) {
+/**
+ * Adds a turn's counts and cost; `release` is the turn's reservation, which
+ * the actual cost replaces.
+ */
+async function addSpend(db: Database, day: string, s: Spend, config: RuntimeConfig, release = 0) {
   const usd = (s.modelUsd ?? 0) + (s.sttUsd ?? 0) + (s.ttsUsd ?? 0);
   const values = [
     day,
@@ -164,8 +221,8 @@ async function addSpend(db: Database, day: string, s: Spend, config: RuntimeConf
     s.handoffs ?? 0,
     s.refused ?? 0,
   ];
-  await db.system((tx) =>
-    tx.query(
+  await db.system(async (tx) => {
+    await tx.query(
       `INSERT INTO marketing_assistant_days(day,turns,model_input_tokens,model_output_tokens,model_usd,stt_seconds,stt_usd,tts_characters,tts_usd,cost_aed,screened,handoffs,refused)
        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
        ON CONFLICT(day) DO UPDATE SET
@@ -183,8 +240,32 @@ async function addSpend(db: Database, day: string, s: Spend, config: RuntimeConf
          refused=marketing_assistant_days.refused+EXCLUDED.refused,
          updated_at=now()`,
       values,
-    ),
-  );
+    );
+    // The reservation is released in the same transaction (never below zero).
+    if (release > 0)
+      await tx.query(
+        "UPDATE marketing_assistant_days SET cost_aed=GREATEST(0,cost_aed-$2),updated_at=now() WHERE day=$1",
+        [day, release],
+      );
+  });
+}
+
+/**
+ * Reserves a turn's most possible cost against today's cap in one statement,
+ * so turns running at the same time can never take the day over the cap.
+ */
+export async function reserveTurn(db: Database, day: string, aed: number, cap: number) {
+  if (!(aed > 0) || aed > cap) return false;
+  return db.system(async (tx) => {
+    const rows = await tx.query(
+      `INSERT INTO marketing_assistant_days(day,cost_aed) VALUES($1,$2)
+       ON CONFLICT(day) DO UPDATE SET cost_aed=marketing_assistant_days.cost_aed+EXCLUDED.cost_aed,updated_at=now()
+       WHERE marketing_assistant_days.cost_aed+EXCLUDED.cost_aed <= $3
+       RETURNING day`,
+      [day, aed, cap],
+    );
+    return rows.length > 0;
+  });
 }
 
 /** A keyed hash of the day and a visitor value; never the value itself. */
@@ -275,7 +356,37 @@ export function registerMarketingAssistant(
       if (!parsed.success) throw fail(400, "ASSISTANT_INVALID", MARKETING_ASSISTANT_PUBLIC_TEXT.en.error);
       const b = parsed.data;
       const cap = assistantCapAed(config);
-      if ((await assistantSpentAed(db, day)) + TURN_RESERVE_AED > cap) {
+      let stt: ReturnType<typeof speechToTextContract>, voice: ReturnType<typeof voiceContract>;
+      try {
+        stt = speechToTextContract();
+        voice = voiceContract();
+      } catch {
+        throw fail(404, "ASSISTANT_OFF", MARKETING_ASSISTANT_PUBLIC_TEXT.en.unavailable);
+      }
+      // Speech in: held in memory for this request only. The declared length
+      // is checked by the body schema; a WAV clip's header gives its real
+      // length. Compressed clips are billed at their conservative length.
+      const audio = decodeSpeech(b.audio, b.type, 640 * 1024);
+      if (b.type === "audio/wav" && billableSpeechMs(audio, b.type, 0) > MARKETING_ASSISTANT_LIMITS.audioSeconds * 1000 + 500) {
+        audio.fill(0);
+        throw fail(400, "SPEECH_TOO_LONG", MARKETING_ASSISTANT_PUBLIC_TEXT.en.tooLong);
+      }
+      const billableMs = billableSpeechMs(audio, b.type, b.durationMs);
+      const platform = publicPlatform();
+      const facts = marketingAssistantFacts({
+        origin: config.PUBLIC_APP_URL || "http://localhost:3000",
+        appName: platform.name,
+        followerModel: platform.followerModel,
+        availability: platform.availability,
+      });
+      const reserve = turnReserve(config, {
+        promptBytes: assistantPromptBytes(platform.name, facts, b.history),
+        billableMs,
+        sttUsdPerHour: stt.pricePerHour,
+        voiceUsdPer1000: voice.price,
+      });
+      if (!(await reserveTurn(db, day, reserve.aed, cap))) {
+        audio.fill(0);
         await addSpend(db, day, { refused: 1 }, config);
         throw fail(429, "ASSISTANT_CAP", MARKETING_ASSISTANT_PUBLIC_TEXT.en.unavailable, {
           hiddenUntil: nextUaeMidnight(),
@@ -284,17 +395,10 @@ export function registerMarketingAssistant(
       const address = await countTurn(db, day, "address", clientSource(req), MARKETING_ASSISTANT_LIMITS.turnsPerAddressPerDay);
       const visit = address === null ? null : await countTurn(db, day, "visit", b.visit, MARKETING_ASSISTANT_LIMITS.turnsPerVisit);
       if (address === null || visit === null) {
-        await addSpend(db, day, { refused: 1 }, config);
+        audio.fill(0);
+        await addSpend(db, day, { refused: 1 }, config, reserve.aed);
         throw fail(429, "ASSISTANT_LIMIT", MARKETING_ASSISTANT_PUBLIC_TEXT.en.limit);
       }
-      // Speech in: held in memory for this request only.
-      const audio = decodeSpeech(b.audio, b.type, 640 * 1024);
-      const billableMs = billableSpeechMs(audio, b.type, b.durationMs);
-      if (billableMs > MARKETING_ASSISTANT_LIMITS.audioSeconds * 1000 + 500) {
-        audio.fill(0);
-        throw fail(400, "SPEECH_TOO_LONG", MARKETING_ASSISTANT_PUBLIC_TEXT.en.tooLong);
-      }
-      const stt = speechToTextContract();
       let heard = "";
       try {
         const result = await transcribeSpeech(audio, b.type, async () => {}, {
@@ -310,6 +414,7 @@ export function registerMarketingAssistant(
           day,
           { turns: 1, sttSeconds: billableMs / 1000, sttUsd: (billableMs / 3_600_000) * stt.pricePerHour },
           config,
+          reserve.aed,
         );
         throw fail(502, "TRANSCRIPTION_FAILED", MARKETING_ASSISTANT_PUBLIC_TEXT.en.notHeard);
       } finally {
@@ -327,13 +432,6 @@ export function registerMarketingAssistant(
       if (!heard) {
         text = MARKETING_ASSISTANT_PUBLIC_TEXT[b.lang].notHeard;
       } else {
-        const platform = publicPlatform();
-        const facts = marketingAssistantFacts({
-          origin: config.PUBLIC_APP_URL || "http://localhost:3000",
-          appName: platform.name,
-          followerModel: platform.followerModel,
-          availability: platform.availability,
-        });
         const accounting: ModelAccounting = {
           reserve: async () => null,
           record: async (usage: ModelUsage) => {
@@ -366,13 +464,15 @@ export function registerMarketingAssistant(
         } catch {
           text = MARKETING_ASSISTANT_PUBLIC_TEXT[b.lang].fallback;
           spend.screened = 1;
+          // A failed or timed-out call may still be billed: it counts at its most.
+          if (spend.modelUsd === undefined) spend.modelUsd = reserve.modelUsd;
         }
       }
       // Speech out: cue-sized clips in the chosen voice, joined.
       // The page plays the clips one after another.
       let speech: string[] | null = null;
       try {
-        const c = voiceContract();
+        const c = voice;
         const client = cartesiaVoiceClient(c);
         const clips = replyClips(text);
         const parts = await Promise.all(
@@ -386,7 +486,7 @@ export function registerMarketingAssistant(
       } catch {
         speech = null;
       }
-      await addSpend(db, day, spend, config);
+      await addSpend(db, day, spend, config, reserve.aed);
       return {
         heard,
         caption: text,

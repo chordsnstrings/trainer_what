@@ -55,8 +55,10 @@ runtime configuration (`MODEL_*` keys plus `MODEL_PROFILE_*`, `MODEL_ADAPTER`, `
 `MODEL_FALLBACK_PROFILE`). No call site changed.
 
 - **Budgets.** A profile's own budget for a task (`coach_selection`, `coach_decision`,
-  `rule_compilation`, `brain_quiz`, `brain_correction`, `plan_adaptation`, `meal_photo`,
-  `voice_suggestions`) replaces the fixed table and the Seed-only allowance: its answer limit is sent
+  `rule_compilation`, `brain_quiz`, `brain_correction`, `brain_edits`, `plan_adaptation`,
+  `meal_photo`, `voice_suggestions`, `voice_narration`, `voice_style`; the last two added at the
+  round 5 integration with the voice branch's own limits: 1,500 tokens and 20 s, Seed 30 s; 2,000
+  tokens and 30 s, Seed 60 s) replaces the fixed table and the Seed-only allowance: its answer limit is sent
   as given and its time limit is the call's limit (5-300 s, no multiplier). Tasks left out keep the
   automatic budget exactly as before. Plan generation and meal weeks keep their sized budgets and the
   profile's time multipliers. The setup assistant keeps its own limit (not in the table).

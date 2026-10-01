@@ -46,15 +46,25 @@ most 6 earlier turns, held by the page)}`. In order:
 
 1. Switched on, AI model connected, trainer voice connected with Cartesia, speech-to-text connected
    and a voice found; else `404 ASSISTANT_OFF`.
-2. Today's spend + AED 0.25 (one turn's reserve) above the cap: `429 ASSISTANT_CAP` with
-   `hiddenUntil` (next midnight, UAE). The page hides the button until then (`localStorage`).
-3. 40 turns per network address per UAE day and 10 per visit: `429 ASSISTANT_LIMIT`. Counters are
-   kept as HMAC-SHA-256 of the day and the value (keyed with `SECURITY_ENCRYPTION_KEY`), so they
-   change every day; rows older than yesterday are deleted on each write. Route rate limit 12 a
-   minute.
-4. Audio checked like voice replies (`decodeSpeech`, 640 KB, billable length at most 20.5 s), then
-   transcribed by the speech-to-text account (Cartesia `ink-whisper` in the chosen language), at
-   most 300 characters kept. The audio buffer is zeroed after use.
+2. Audio checked like voice replies (`decodeSpeech`, 640 KB; declared length at most 20.5 s by the
+   body schema; a WAV clip's header length too). Compressed phone recordings (WebM/Opus, MP4/AAC)
+   are not refused for their size: they are billed at their conservative length
+   (`billableSpeechMs`, the bytes at 6 kbit/s). Final integration review, 1 October 2026: the
+   earlier check refused any compressed clip longer than about 2 s as too long.
+3. The turn's most possible cost (`turnReserve`: the whole prompt as input tokens at one per byte,
+   at the cache-write price when higher, 1,500 output tokens, at USD 5 / 30 per million when the
+   profile has no prices; the billed speech seconds; a 320-character reply spoken; never below
+   AED 0.25) is reserved against today's cap in one statement (`reserveTurn`), so turns running at
+   the same time can never take the day over the cap. Refused: `429 ASSISTANT_CAP` with
+   `hiddenUntil` (next midnight, UAE); the page hides the button until then (`localStorage`). The
+   actual cost replaces the reservation when the turn ends (a failed model call counts at its
+   most).
+4. 40 turns per network address per UAE day and 10 per visit: `429 ASSISTANT_LIMIT` (the
+   reservation is released). Counters are kept as HMAC-SHA-256 of the day and the value (keyed with
+   `SECURITY_ENCRYPTION_KEY`), so they change every day; rows older than yesterday are deleted on
+   each write. Route rate limit 12 a minute. The audio is then transcribed by the speech-to-text
+   account (Cartesia `ink-whisper` in the chosen language), at most 300 characters kept, and the
+   audio buffer is zeroed after use.
 5. The model call (`marketingAssistantModel`, 1,500 answer tokens, 20 s) through the active model
    profile. System message: the rules, then the site facts between `<<<SITE_FACTS` and
    `SITE_FACTS>>>`; user message: JSON with the earlier turns and the visitor's words, labelled

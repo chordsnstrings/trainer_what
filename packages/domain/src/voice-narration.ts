@@ -247,6 +247,7 @@ export type BrainLineIssue =
   | "number"
   | "number_word"
   | "invented_number"
+  | "number_context"
   | "medical"
   | "red_flag"
   | "prescription_change"
@@ -295,6 +296,70 @@ export function slotNumbers(slot: BrainSlot, plan: PlanExercise[], facts: Narrat
   }
   return out;
 }
+/** Words that put a number in the past ("last time", "4 days ago"), on screeningText. */
+const PAST_MARKER =
+  /\b(?:last\s+(?:time|week|session|workout)|previous(?:ly)?|before|ago|earlier)\b|(?:المره\s+(?:السابقه|الماضيه)|اخر\s+مره|السابق|الماضي|قبل)/u;
+type NumberField = "sets" | "reps" | "loadKg" | "seconds" | "minutes" | "meters" | "days";
+/** The unit word right after a number, on screeningText (Arabic letters folded). */
+const UNIT_WORDS: Array<[NumberField, RegExp]> = [
+  ["sets", /^(?:sets?|rounds?)(?![a-z])|^(?:مجموعات|مجموعه|جولات|جوله)/u],
+  ["reps", /^(?:reps?|repetitions?)(?![a-z])|^(?:تكرارات|تكرار|عدات|عده)/u],
+  ["loadKg", /^(?:kilograms?|kilos?|kgs?)(?![a-z])|^(?:كيلوغرام|كيلوجرام|كيلو|كغ|كجم)/u],
+  ["seconds", /^(?:seconds?|secs?)(?![a-z])|^(?:ثوان|ثانيه)/u],
+  ["minutes", /^(?:minutes?|mins?)(?![a-z])|^(?:دقايق|دقيقه)/u],
+  ["meters", /^(?:meters?|metres?)(?![a-z])|^(?:امتار|متر)/u],
+  ["days", /^(?:days?)(?![a-z])|^(?:ايام|يوم)/u],
+];
+/**
+ * Whether a line in an exercise's slot says a number out of its context: a
+ * number with a unit must be that field's value today, or last time's when
+ * the line says it is the past; a number only last time had must be said as
+ * the past ("last time", "4 days ago"). So a Brain line never gives a
+ * different set, rep, weight, time or distance than today's plan.
+ */
+export function numberOutOfContext(
+  text: string,
+  slot: BrainSlot,
+  plan: PlanExercise[],
+  facts: NarrationFacts | null | undefined,
+) {
+  if (!("exercise" in slot)) return false;
+  const ex = plan[slot.exercise];
+  if (!ex) return false;
+  const last = facts?.lastTime?.[slot.exercise] ?? null;
+  const folded = screeningText(asciiDigits(String(text ?? "")));
+  const past = PAST_MARKER.test(folded);
+  const seconds = [ex.restSeconds, ex.durationSeconds];
+  const today: Record<NumberField, Array<number | undefined>> = {
+    sets: [ex.sets],
+    reps: [ex.reps],
+    loadKg: [ex.loadKg],
+    seconds,
+    minutes: seconds.map((v) => (typeof v === "number" ? v / 60 : undefined)),
+    meters: [ex.distanceMeters],
+    days: [],
+  };
+  const before: Record<NumberField, Array<number | undefined>> = {
+    sets: [last?.sets],
+    reps: [last?.reps],
+    loadKg: [last?.loadKg],
+    seconds: [],
+    minutes: [],
+    meters: [],
+    days: [last?.daysAgo],
+  };
+  const has = (list: Array<number | undefined>, n: number) =>
+    list.some((v) => typeof v === "number" && v > 0 && Math.abs(v - n) < 1e-9);
+  for (const m of folded.matchAll(/\d+(?:[.,]\d+)?/g)) {
+    const n = Number(m[0].replace(",", "."));
+    const after = folded.slice(m.index! + m[0].length).replace(/^\s+/, "");
+    const unit = UNIT_WORDS.find(([, re]) => re.test(after))?.[0];
+    const now = unit ? has(today[unit], n) : has(Object.values(today).flat(), n);
+    const then = unit ? has(before[unit], n) : has(Object.values(before).flat(), n);
+    if (!now && !(then && past)) return true;
+  }
+  return false;
+}
 const wordCount = (text: string) => text.split(/\s+/).filter(Boolean).length;
 /**
  * Why a Brain line cannot be spoken (empty when it can). `allowed` are the
@@ -305,6 +370,7 @@ export function brainLineIssues(
   text: string,
   allowed: Set<string>,
   never: readonly string[] = [],
+  context?: { slot: BrainSlot; plan: PlanExercise[]; facts: NarrationFacts | null | undefined },
 ): BrainLineIssue[] {
   const raw = String(text ?? "").trim();
   if (!raw) return ["empty"];
@@ -322,6 +388,8 @@ export function brainLineIssues(
   // and the idiom "high five" are not quantities).
   if (NUMBER_WORDS.test(folded.replace(/(^|[^\p{L}])(?:one|high[\s-]?fives?)(?![\p{L}])/giu, "$1 "))) push("number_word");
   for (const n of digits) if (!allowed.has(n)) push("invented_number");
+  if (!issues.includes("invented_number") && context && numberOutOfContext(value, context.slot, context.plan, context.facts))
+    push("number_context");
   // One clip is synthesised in one language: a line mixing Arabic and Latin
   // words would be read wrongly.
   const arabic = (value.match(/\p{Script=Arabic}/gu) ?? []).length,
@@ -407,7 +475,7 @@ export function applyNarration(
   const line = (slot: BrainSlot, id: string, kind: ScriptLine["kind"], text: string | undefined): ScriptLine | undefined => {
     if (text === undefined || !String(text).trim()) return undefined;
     const value = String(text).trim();
-    const issues = brainLineIssues(value, slotNumbers(slot, plan, facts), input.never ?? []);
+    const issues = brainLineIssues(value, slotNumbers(slot, plan, facts), input.never ?? [], { slot, plan, facts });
     if (issues.length) {
       dropped.push({ slot: id, text: value.slice(0, 200), issues });
       return undefined;
@@ -473,7 +541,7 @@ export function brainScriptIssues(script: SessionScript, plan: PlanExercise[]): 
       issues.push("brain_slot:" + l.id);
       continue;
     }
-    const found = brainLineIssues(l.text, slotNumbers(slot, plan, facts));
+    const found = brainLineIssues(l.text, slotNumbers(slot, plan, facts), [], { slot, plan, facts });
     if (found.length) issues.push(`brain:${l.id}:${found.join(",")}`);
   }
   return issues;

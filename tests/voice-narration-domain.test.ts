@@ -66,6 +66,17 @@ test("a Brain line may only repeat numbers from today's plan or last time for th
   // Arabic-Indic digits are read as digits.
   assert.deepEqual(brainLineIssues("الوزن ٥٥ كيلوغرام", ex0), []);
   assert.deepEqual(brainLineIssues("الوزن ٦٥ كيلوغرام", ex0), ["invented_number"]);
+  // In context: a number with a unit is that field's value today, or last
+  // time's when the line says so; a number only last time had is the past.
+  const at0 = { slot: { kind: "lead", exercise: 0 } as const, plan, facts };
+  assert.deepEqual(brainLineIssues("Last week you did 55 kilograms, today 60.", ex0, [], at0), []);
+  assert.deepEqual(brainLineIssues("You did 55 kilograms here 7 days ago.", ex0, [], at0), []);
+  assert.deepEqual(brainLineIssues("الوزن ٥٥ كيلوغرام المرة الماضية", ex0, [], at0), []);
+  assert.deepEqual(brainLineIssues("Go for 55 kilograms today.", ex0, [], at0), ["number_context"]);
+  assert.deepEqual(brainLineIssues("الوزن ٥٥ كيلوغرام", ex0, [], at0), ["number_context"]);
+  assert.deepEqual(brainLineIssues("Nice and steady for 8 sets.", ex0, [], at0), ["number_context"]);
+  assert.deepEqual(brainLineIssues("Rest 3 seconds, then go.", ex0, [], at0), ["number_context"]);
+  assert.deepEqual(brainLineIssues("3 sets of 8 at 60 kilograms today.", ex0, [], at0), []);
   // "high five" is an idiom, not a count.
   assert.deepEqual(brainLineIssues("Crushed it Sara, high five!", slotNumbers({ kind: "close" }, plan, facts)), []);
   // The opening may say how many sessions this week; a struggle line no number at all.
