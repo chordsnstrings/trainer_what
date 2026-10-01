@@ -2,23 +2,90 @@
 
 Updated 27 September 2026 (afternoon). PR #1 and [PR #2](https://github.com/chordsnstrings/trainer_what/pull/2) are merged into `main`. At the owner's request the application runs live on a new DigitalOcean project, GymMembership, which deployed `main` `eb7b678` automatically after its checks passed, and live verification passed on it. Historical stage entries below retain their original evidence.
 
-## Work in progress (updated with every owner update; last update 30 September 2026, round 4 final integration)
+## Work in progress (updated with every owner update; last update 1 October 2026, round 5 building)
 
-Owner rule (29 September): every update to the owner is also written here. Live: `main` `32ed5fe` at https://trainsyou.com. Deployment stays separately assigned to Claude and is not implied by this work.
+**For any agent continuing this work (Claude, Astra or another):** start here, then read `AGENTS.md` and `docs/PROJECT_MEMORY.md`. No secret is ever stored in this repository; keys live in Super admin (encrypted) or on the server. Update this section with every owner update (owner rule, 29 September) and replace it rather than letting it grow.
 
-1. **Round 4 finished and integrated (stage 2026-09-30d "round 4: coach wizard, open sign-up, subdomains, teach-your-Brain, setup assistant, simpler workspace, one teaching loop" in `docs/COMPLETION_STAGES.md`).** Branch `r4/final` (worktree `.claude/worktrees/r4-final`) = `r4/review-fixes` + `r4/workspace`, pushed to `claude/repository-overview-osejlw`; not merged into `main`, not deployed. Checks on the final tree: both typechecks, full PGlite suite (1545/1546, 1 skipped), whole restricted-role PostgreSQL suite (0 failed files), build, e2e (445/445), browser check and phone check pass. The brand check fails on the marketing walkthrough that `main` already had (`ed78239`, "always show the onboarding walkthrough": dark header and swatches, 408 words over the 400 limit, 4.83 s animation); round 4 did not cause it and did not change it.
-2. **Live Seed 2.0 Pro results (no Claude model used as the Brain).** Per builder and re-run on the integrated tree (about USD 0.14 for the re-run): injection set 12/12 safe; practice quiz 28/28 usable (56/56 by the builder); corrections 26/26 as expected (52/52 by the builder); setup assistant 43/43 on every code check; wizard mapping 6/6. Open: the held-out evaluation over the wizard minimum is 22/26 because the two medicine/supplement hand-overs name the medicine in the trainer-facing reason, which the advice screen flags; decide whether hand-over reasons may name the topic (the screen was not relaxed).
-3. **Still queued from earlier (not started):** model switching profiles, self-learning extras, trainer-style narration, own-music voice mode, frontier-model marketing wording ("keeps getting better with time"), Kamran voice assistant.
+**Live now:** `main` `748536c` at https://trainsyou.com (round 4 plus a CI time-limit fix). The Brain runs on Seed 2.0 Pro (BytePlus ModelArk). Live features include:
+- the coach setup wizard at `/setup`: six steps, an assistant chat or a short form for each, the coach's own subdomain, automatic go-live checks, and bank details asked at the first payout;
+- teach-your-Brain: rule cards, a practice quiz, the "Brain trained" meter and Keep training;
+- the four-section coach workspace;
+- one teaching loop;
+- the home-page onboarding walkthrough;
+- combat, endurance, yoga and pilates hidden (`HIDDEN_SPECIALTIES`);
+- host-only Superadmin recovery (`infra/digitalocean/admin-access.sh`). The owner's Superadmin is gicbdfacebook@gmail.com.
 
-Waiting on the owner (reminders):
-- Add the Resend key (and sender) in Super admin; email sign-up codes stay off until then, email/password sign-up works.
-- Publish the final legal documents before open sign-up is switched on (the existing registration/legal gate stays).
-- Google and Apple sign-in are to be created later.
-- Rotate the DigitalOcean token after this work.
-- Stripe webhook swap is pending.
-- Decide on the marketing walkthrough brand-check failures and on the hand-over reason wording (item 2).
+Open self-serve sign-up is built but stays off until the owner publishes final legal documents. Email codes stay off until the Resend key is saved.
 
-Next action: the owner reviews `r4/final` on `claude/repository-overview-osejlw` and opens a pull request into `main` when ready (merging deploys through the controller); then the queued items in 3.
+**In progress: round 5** (started 1 October; Claude workflow; builder branches `r5/*` exist only inside Claude's container until the final push to `claude/repository-overview-osejlw`). If that push never happened, rebuild from this specification:
+1. **Model switching.**
+   - Model profiles in Super admin: ModelArk Seed (active), OpenAI/ChatGPT, Anthropic Sonnet/Opus via a native adapter with prompt caching. Each has its own key, one active plus one fallback, and instant switch-back.
+   - An in-repo switch check (`scripts/model-switch-check/`) must pass before a profile is activated.
+   - On a switch, every trainer's held-out check re-runs automatically. Failing trainers drop to "Waits for me" and get a notice.
+   - Coach screens show the profile label, never the model ID.
+   - A public availability flag `frontier` is true only when the active profile's tier is frontier and its latest switch check passed.
+2. **Remaining self-learning:**
+   - per-member memory built by code (no model tokens);
+   - new plan learning goes live only after the background re-check passes;
+   - erasure of plan-learning rows, and expiry of suggestions;
+   - weekly "Suggested from your edits" rules from plan and meal-week edits, confirmed by the coach;
+   - a coach-only "getting better" panel.
+3. **Narration in the trainer's style.**
+   - A "Your one-on-one sessions" questionnaire in Grow / Keep training. The coach confirms the style once.
+   - The Brain writes extra lines for every voice session at prepare time, personal to the member.
+   - Code still owns numbers, counts and the safety line; a failing line is dropped.
+   - Each line fits a clip of about 12 words / 4.5 s. Voice commands stay rule-based.
+4. **Own-music mode** in member voice sessions:
+   - `navigator.audioSession` "ambient" where supported, so iPhone keeps the member's music playing, but only with the screen on and silent mode off;
+   - short cues joined into one clip;
+   - tap to talk (this pauses music on iPhone; Android ducks it);
+   - generated music only after written commercial rights.
+5. **Frontier wording.**
+   - Marketing says "runs on a frontier model" and "keeps getting better with time" (never "only gets better"), shown only while the `frontier` flag is true.
+   - Never name the model or its vendor publicly; a name-guard test enforces this.
+   - Fix the home walkthrough's brand-check failures: contrast, 408/400 words, a 4.83 s animation.
+6. **Kamran voice assistant**, home page only:
+   - a small round corner button opening a compact panel, voice only with legible captions;
+   - speaks as the owner in the first person, with an "AI voice" label;
+   - answers only from the site's content, with numbers from the site's own calculator;
+   - when a visitor is interested, takes them to "Start coaching" (sign-up, or the early-access form while sign-up is off);
+   - no medical advice and no model or vendor names;
+   - AED 10 per day cap (Super admin), per-visitor limits, no audio or transcripts stored;
+   - Cartesia voice chosen in Super admin, defaulting to the voice named "Kamran"; on/off switch in Super admin.
+
+All new model prompts are tested live on Seed 2.0 Pro only (no Claude or OpenAI calls as a stand-in).
+
+**How to ship (any agent):**
+1. Work on a branch and open a pull request to `main`. The owner has authorised merging: "MERGE ... and any future merges".
+2. GitHub "Application checks" must pass on `main`; the application job has 35 minutes. The server deploys the newest green `main` automatically within about 5-10 minutes, and a red or cancelled `main` deploys nothing.
+3. Verify the deploy with `sh scripts/watch-release.sh <sha>`, or check the `X-GymMembership-Release` header of `https://trainsyou.com/api/v1/ready`.
+4. Tests:
+   - `npm test` (PGlite);
+   - restricted-role PostgreSQL through `scripts/run-postgres-tests.mjs` (CI job `postgres-and-container`). Tests that read workspace tables must use the workspace scope (`db.tenant`), not `db.system`;
+   - e2e with `node scripts/e2e/run.mjs`;
+   - browser checks: `npm run test:browser`, `test:phone`, `test:brand`, `test:marketing-motion`.
+5. Server access:
+   - no SSH from automation; the owner uses the DigitalOcean Droplet Console on `gymmembership-8fc22b34edcc` (64.227.151.196, project GymMembership);
+   - wildcard DNS `*.trainsyou.com` is already in DigitalOcean, and HTTPS is issued on demand;
+   - preserve every other DigitalOcean resource.
+
+**Owner preferences:**
+- plain English;
+- be frugal with tokens: few agents, only the checks a change needs, no research unless asked, and record accepted results instead of investigating them;
+- laptop-first coach backend that works well on a phone;
+- never ask the owner to paste keys in chat: they enter them in Super admin.
+
+**Waiting on the owner:**
+- the Resend key and sender in Super admin;
+- final legal documents, then switch open sign-up on;
+- Google and Apple sign-in, to create later (remind the owner);
+- rotate the DigitalOcean token used during this work;
+- the Stripe webhook swap: pinned `2026-08-26.dahlia` plus `invoice.voided` and `invoice.marked_uncollectible`, then a new signing secret in Super admin, then delete `we_1UKeGU0rNBC3138PQ0GIF15a`;
+- Anthropic and OpenAI keys in Super admin before switching models;
+- a decision on whether coach-only hand-over explanations may name a medicine (Seed 2.0 held-out check 22/26 because of this);
+- real-device test of own-music mode, and turning the Kamran assistant on after choosing its voice.
+
+**Next action:** when round 5 is pushed, open a pull request into `main`, merge, watch the deploy, then report to the owner.
 
 ## Latest (30 September 2026)
 
