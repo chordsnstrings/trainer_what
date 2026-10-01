@@ -30,6 +30,7 @@ import {
   loadPlanSettings,
   planQualificationState,
   qualifyPlanGeneration,
+  waitingLearning,
 } from "./brain-plans.ts";
 import {
   evaluateNutritionKnowledge,
@@ -164,7 +165,12 @@ export async function runBrainCheck(
     const { settings } = await loadPlanSettings(tx);
     const plans = await planQualificationState(tx, settings);
     const nutrition = await nutritionState(tx);
-    return { s, runtime: runtime ?? null, readiness, actions: actionCount.n as number, plans, nutrition };
+    const { waiting } = await waitingLearning(tx);
+    const [recentSnapshot] = await tx.query(
+      "SELECT id FROM records WHERE kind='plan_learning_snapshot' AND created_at>now()-interval '7 days' LIMIT 1",
+    );
+    const learning = { waiting, recent: !!recentSnapshot };
+    return { s, runtime: runtime ?? null, readiness, actions: actionCount.n as number, plans, nutrition, learning };
   });
   const { s } = start;
   // Before the coach goes live, only a check they ask for runs (the setup
@@ -339,6 +345,28 @@ export async function runBrainCheck(
     }
   } else if (start.runtime && start.actions) {
     areas.actions = { state: "unchanged" };
+  }
+
+  // Plans: reviewed examples since the live learning snapshot go live only
+  // with a passing qualification, at most once a week (the weekly sweep asks
+  // for this check); the last checked snapshot stays live meanwhile.
+  if (areas.plans.state === "not_used" && start.plans.qualified && start.learning.waiting > 0 && !start.learning.recent) {
+    try {
+      const plan = await qualifyPlanGeneration(db, a, { trigger: "weekly_learning" });
+      const passed = plan.status === "passed";
+      areas.plans = {
+        state: passed ? "passed" : "failed",
+        checkId: plan.id,
+        passed: plan.data.passed,
+        total: plan.data.total,
+        message: passed
+          ? "Your newest reviewed plans are now part of your Brain."
+          : "Your newest reviewed plans did not pass; your Brain keeps the last passing version.",
+      };
+      if (passed && plan.data.learningSnapshotId) promoted.learningSnapshotId = plan.data.learningSnapshotId;
+    } catch (error) {
+      areas.plans = setting(error);
+    }
   }
 
   // Plans: re-qualify when they were qualified before and are not now (a

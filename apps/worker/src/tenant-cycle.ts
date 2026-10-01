@@ -10,6 +10,7 @@ import { sweepComplimentaryAccess } from "../../api/src/complimentary-access.ts"
 import { sweepProgrammes } from "../../api/src/programme-today.ts";
 import { scheduleSafetyEscalations } from "../../api/src/safety-policy.ts";
 import { scheduleBrainPlans } from "../../api/src/brain-plans.ts";
+import { scheduleBrainLearning } from "../../api/src/brain-edits.ts";
 import {
   claimJob,
   runClaimedJob,
@@ -31,6 +32,8 @@ export type TenantSchedulers = {
   safetyEscalations: Step;
   /** Trainer Brain plans (docs/features/brain-plans.md); optional for older callers. */
   brainPlans?: Step;
+  /** Learning retention, consent and the weekly learning check and edit grouping (docs/features/brain-learning.md). */
+  brainLearning?: Step;
 };
 export const defaultSchedulers: TenantSchedulers = {
   nutrition: (db, id) => scheduleNutrition(db, id),
@@ -43,6 +46,7 @@ export const defaultSchedulers: TenantSchedulers = {
   coachingFollowups: (db, id) => processCoachingFollowups(db, id),
   safetyEscalations: (db, id) => scheduleSafetyEscalations(db, id),
   brainPlans: (db, id) => scheduleBrainPlans(db, id),
+  brainLearning: (db, id) => scheduleBrainLearning(db, id),
 };
 const stillRunsWhileSuspended: ReadonlySet<keyof TenantSchedulers> = new Set([
   "safetyEscalations",
@@ -58,6 +62,7 @@ const failures: Record<keyof TenantSchedulers, string> = {
   coachingFollowups: "Scheduled coaching follow-up delivery failed",
   safetyEscalations: "Safety review escalation failed",
   brainPlans: "Brain plan scheduling failed",
+  brainLearning: "Brain learning sweep failed",
 };
 
 /** Workspaces the worker visits: active ones, and suspended ones for critical and transactional email only. */

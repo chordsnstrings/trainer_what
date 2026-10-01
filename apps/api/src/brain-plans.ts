@@ -68,6 +68,8 @@ import { lockTraining } from "./coaching-completion.ts";
 import { activeSafetyPolicy } from "./safety-policy.ts";
 import { notifyCoachingTeam, notifyUser } from "./notifications.ts";
 import { programmeLengthDays } from "./programme-length.ts";
+import { loadMemberMemory } from "./member-memory.ts";
+import { planProfileDuplicate } from "../../../packages/domain/src/brain-edits.ts";
 
 const id = z.string().uuid();
 const hash = (value: unknown) =>
@@ -147,7 +149,7 @@ export async function loadPlanSettings(tx: Tx) {
     settings: parsed.success ? parsed.data : defaultPlanSettings(),
   };
 }
-async function trainerMaterial(tx: Tx, candidateRelease?: any) {
+async function trainerMaterial(tx: Tx, candidateRelease?: any, learningRows?: any[]) {
   // A candidate Brain release is checked before it is published (brain-check.ts).
   const [release] = candidateRelease
     ? [candidateRelease]
@@ -157,10 +159,7 @@ async function trainerMaterial(tx: Tx, candidateRelease?: any) {
   const cases = await tx.query(
     "SELECT * FROM records WHERE kind='coaching_teaching' AND status='confirmed' ORDER BY id LIMIT 101",
   );
-  const learning = await tx.query(
-    "SELECT * FROM records WHERE kind='plan_learning' AND status='confirmed' ORDER BY created_at DESC,id DESC LIMIT $1",
-    [LEARNING_LIMIT],
-  );
+  const learning = learningRows ?? (await confirmedLearning(tx));
   const templates = await tx.query(
     "SELECT * FROM records WHERE kind='program' AND status='template' ORDER BY created_at DESC,id LIMIT 100",
   );
@@ -197,8 +196,15 @@ const learningRows = (m: Material) =>
     segment: l.data.segment,
     type: l.data.type,
   }));
-/** The plan contract a qualification pins: Brain release, rules, prompt/validator/retrieval versions, model, request form and bounds. */
-function planContract(release: any, settings: PlanSettings) {
+/**
+ * The plan contract a qualification pins: Brain release, rules,
+ * prompt/validator/retrieval versions, model, request form and bounds, and
+ * the learning snapshot (reviewed examples) it was checked with. `learning`
+ * is the published snapshot's id; "all" marks a plan prepared with every
+ * reviewed example (no qualification ever pins it, so such a plan always
+ * waits for the coach); null (no snapshot yet) keeps the earlier digest.
+ */
+function planContract(release: any, settings: PlanSettings, learning: string | null = null) {
   const pin = planModelPin();
   return hash({
     brainReleaseId: release?.id ?? null,
@@ -219,7 +225,106 @@ function planContract(release: any, settings: PlanSettings) {
       ...(pin.request ? { request: pin.request } : {}),
     },
     bounds: settings.bounds,
+    ...(learning ? { learning } : {}),
   });
+}
+
+// ---------------------------------------------------------------------------
+// Learning snapshots (docs/features/brain-learning.md)
+
+/**
+ * Reviewed examples are used only while their plan exists and its member
+ * still allows model use: withdrawing coaching consent stops them at once
+ * (the weekly sweep then marks them revoked, brain-edits.ts).
+ */
+const LEARNING_ALLOWED = `EXISTS (SELECT 1 FROM records g WHERE g.kind='plan_generation' AND g.id::text=records.data->>'generationId' AND coalesce((SELECT i.data->'allowedUses' ? 'model_prompt' FROM records i WHERE i.kind='intake' AND i.owner_user_id=g.owner_user_id ORDER BY i.created_at DESC,i.id DESC LIMIT 1),false))`;
+async function confirmedLearning(tx: Tx) {
+  return tx.query(
+    `SELECT * FROM records WHERE kind='plan_learning' AND status='confirmed' AND ${LEARNING_ALLOWED} ORDER BY created_at DESC,id DESC LIMIT $1`,
+    [LEARNING_LIMIT],
+  );
+}
+/** The checked set of reviewed examples automatically delivered plans use. */
+export async function publishedLearningSnapshot(tx: Tx) {
+  const [row] = await tx.query(
+    "SELECT * FROM records WHERE kind='plan_learning_snapshot' AND status='published' ORDER BY created_at DESC,id DESC LIMIT 1",
+  );
+  return row ?? null;
+}
+async function learningRowsIn(tx: Tx, snapshot: any) {
+  const listed: Array<{ id: string; version: number }> = snapshot?.data?.rows ?? [];
+  if (!listed.length) return [];
+  const versions = new Map(listed.map((r) => [r.id, r.version]));
+  const rows = await tx.query(
+    `SELECT * FROM records WHERE kind='plan_learning' AND status='confirmed' AND id=ANY($1::uuid[]) AND ${LEARNING_ALLOWED} ORDER BY created_at DESC,id DESC`,
+    [listed.map((r) => r.id)],
+  );
+  return rows.filter((r) => versions.get(r.id) === r.version);
+}
+type LearningUse = { mode: "checked" | "legacy" | "all"; key: string | null; snapshotId: string | null; rows: any[] };
+/**
+ * Which reviewed examples a plan may use. With a passing qualification only
+ * the examples it was checked with (its snapshot; before snapshots, the rows
+ * that existed when it passed); while every plan waits for the coach, all of
+ * them (the coach reviews each draft).
+ */
+async function learningInUse(
+  tx: Tx,
+  q: { qualified: boolean; learningSnapshot: any; passing: any },
+): Promise<LearningUse> {
+  if (!q.qualified) return { mode: "all", key: "all", snapshotId: null, rows: await confirmedLearning(tx) };
+  if (q.learningSnapshot)
+    return { mode: "checked", key: q.learningSnapshot.id, snapshotId: q.learningSnapshot.id, rows: await learningRowsIn(tx, q.learningSnapshot) };
+  const rows = await tx.query(
+    `SELECT * FROM records WHERE kind='plan_learning' AND status='confirmed' AND created_at<=$1 AND ${LEARNING_ALLOWED} ORDER BY created_at DESC,id DESC LIMIT $2`,
+    [q.passing.created_at, LEARNING_LIMIT],
+  );
+  return { mode: "legacy", key: null, snapshotId: null, rows };
+}
+/**
+ * Reviewed examples a new snapshot may hold: confirmed rows whose plan still
+ * exists (a row whose member was erased never goes live again) and whose
+ * member profile does not repeat a held-out plan scenario (the held-out set
+ * stays independent of what the Brain learns from).
+ */
+async function snapshotCandidates(tx: Tx) {
+  const rows = await tx.query(
+    "SELECT l.*,g.data->'inputs'->'profile' AS source_profile FROM records l JOIN records g ON g.kind='plan_generation' AND g.id::text=l.data->>'generationId' WHERE l.kind='plan_learning' AND l.status='confirmed' AND coalesce((SELECT i.data->'allowedUses' ? 'model_prompt' FROM records i WHERE i.kind='intake' AND i.owner_user_id=g.owner_user_id ORDER BY i.created_at DESC,i.id DESC LIMIT 1),false) ORDER BY l.created_at DESC,l.id DESC LIMIT $1",
+    [LEARNING_LIMIT],
+  );
+  const heldOut = (await heldOutPlanScenarios(tx)).map((s) => s.data.profile);
+  const kept = rows.filter((r) => !heldOut.some((p) => planProfileDuplicate(r.source_profile, p)));
+  return { rows: kept.map(({ source_profile: _p, ...r }) => r), heldOutDuplicates: rows.length - kept.length };
+}
+/** Reviewed examples waiting for a check (not in the live snapshot). */
+export async function waitingLearning(tx: Tx) {
+  const snapshot = await publishedLearningSnapshot(tx);
+  const listed = new Set((snapshot?.data?.rows ?? []).map((r: any) => r.id));
+  const { rows } = await snapshotCandidates(tx);
+  return {
+    snapshot,
+    waiting: rows.filter((r) => !listed.has(r.id)).length,
+    removed: (snapshot?.data?.rows ?? []).length - rows.filter((r) => listed.has(r.id)).length,
+  };
+}
+/**
+ * A candidate snapshot of today's reviewed examples for a qualification, or
+ * the published one when nothing changed. Runs in the qualification's scope.
+ */
+async function candidateLearningSnapshot(tx: Tx, a: Actor, trigger: string) {
+  const published = await publishedLearningSnapshot(tx);
+  const { rows, heldOutDuplicates } = await snapshotCandidates(tx);
+  const listed = rows.map((r) => ({ id: r.id as string, version: r.version as number })).sort((x, y) => (x.id < y.id ? -1 : 1));
+  const digest = hash(listed);
+  if (published && published.data.digest === digest) return published;
+  if (!published && !listed.length) return null;
+  return putRecord(
+    tx,
+    a,
+    "plan_learning_snapshot",
+    { rows: listed, count: listed.length, digest, heldOutDuplicates, replaces: published?.id ?? null, trigger },
+    { status: "candidate" },
+  );
 }
 async function heldOutPlanScenarios(tx: Tx) {
   return tx.query(
@@ -229,9 +334,19 @@ async function heldOutPlanScenarios(tx: Tx) {
 }
 const scenariosDigest = (rows: any[]) =>
   hash(rows.map((r) => ({ id: r.id, data: r.data })));
-export async function planQualificationState(tx: Tx, settings: PlanSettings, candidateRelease?: any) {
-  const m = await trainerMaterial(tx, candidateRelease);
-  const contractDigest = planContract(m.release, settings);
+export async function planQualificationState(
+  tx: Tx,
+  settings: PlanSettings,
+  candidateRelease?: any,
+  candidateLearning?: any,
+) {
+  const [release] = candidateRelease
+    ? [candidateRelease]
+    : await tx.query(
+        "SELECT * FROM records WHERE kind='brain_release' AND status='published' ORDER BY created_at DESC,id DESC LIMIT 1",
+      );
+  const learningSnapshot = candidateLearning === undefined ? await publishedLearningSnapshot(tx) : candidateLearning;
+  const contractDigest = planContract(release ?? null, settings, learningSnapshot?.id ?? null);
   const scenarios = await heldOutPlanScenarios(tx);
   const digest = scenariosDigest(scenarios);
   const [latest] = await tx.query(
@@ -243,7 +358,7 @@ export async function planQualificationState(tx: Tx, settings: PlanSettings, can
     "SELECT * FROM records WHERE kind='plan_qualification' AND status='passed' AND data->>'contractDigest'=$1 AND data->>'scenariosDigest'=$2 AND (data->>'threshold')::float<=$3 ORDER BY created_at DESC,id DESC LIMIT 1",
     [contractDigest, digest, settings.threshold],
   );
-  const qualified = !!passing && !!m.release;
+  const qualified = !!passing && !!release;
   return {
     qualified,
     /** Weekly adjustments are automatic only when adaptation scenarios passed too. */
@@ -256,6 +371,8 @@ export async function planQualificationState(tx: Tx, settings: PlanSettings, can
     scenarios,
     latest: latest ?? null,
     passingId: passing?.id ?? null,
+    passing: passing ?? null,
+    learningSnapshot,
   };
 }
 function profileOf(intake: any): PlanProfile {
@@ -690,6 +807,9 @@ type Prepared = {
   startingLoads: Record<string, number>;
   retrieval: ReturnType<typeof retrievePlanMaterial>;
   settings: PlanSettings;
+  /** The reviewed examples this plan used (see learningInUse). */
+  learningRows: any[];
+  memberMemory: Awaited<ReturnType<typeof loadMemberMemory>>;
 };
 async function memberReady(tx: Tx, userId: string) {
   const [member] = await tx.query(
@@ -786,7 +906,8 @@ async function prepareGeneration(
   if (options.trigger !== "manual" && programmeChanged(previous, options.expectedProgramId))
     return skip("programme_changed");
   const { settings } = await loadPlanSettings(tx);
-  const material = await trainerMaterial(tx);
+  const learning = await learningInUse(tx, await planQualificationState(tx, settings));
+  const material = await trainerMaterial(tx, undefined, learning.rows);
   if (!material.release) return skip("no_brain");
   if (!material.library.size) return skip("no_library");
   const programmeDays = await programmeLengthDays(tx, userId);
@@ -817,6 +938,7 @@ async function prepareGeneration(
   const profile = profileOf(intake);
   const segment = planSegment(profile);
   const twin = twinProjection(await currentClientTwin(tx, a, userId));
+  const memberMemory = await loadMemberMemory(tx, userId, { today });
   const retrieval = retrievePlanMaterial({
     tenantId: a.tenantId,
     segment,
@@ -827,7 +949,7 @@ async function prepareGeneration(
     templates: material.templates,
     library: material.library,
   });
-  const contractDigest = planContract(material.release, settings);
+  const contractDigest = planContract(material.release, settings, learning.key);
   const inputs = {
     intakeId: intake.id,
     intakeVersion: intake.version,
@@ -841,6 +963,7 @@ async function prepareGeneration(
     previousGenerated: !!previous?.data?.generated,
     loadReference: Object.fromEntries([...reference].slice(0, 300)),
     bounds: settings.bounds,
+    ...(memberMemory ? { memberMemory } : {}),
   };
   const data = {
     type: "programme",
@@ -849,6 +972,7 @@ async function prepareGeneration(
     ...(options.jobId ? { jobId: options.jobId } : {}),
     brainReleaseId: material.release.id,
     contractDigest,
+    learning: { mode: learning.mode, snapshotId: learning.snapshotId, count: learning.rows.length },
     promptVersion: planModelPin().promptVersion,
     inputs,
     inputsDigest: hash({ inputs, material: retrieval.trace.materialDigest }),
@@ -887,6 +1011,8 @@ async function prepareGeneration(
       startingLoads: startingLoadsFor(reference, material.library),
       retrieval,
       settings,
+      learningRows: learning.rows,
+      memberMemory,
     },
   };
 }
@@ -953,6 +1079,7 @@ export async function generateMemberPlan(
         previous: p.previousWeek.length ? { lastWeek: p.previousWeek } : null,
         material: p.retrieval.material,
         startingLoads: p.startingLoads,
+        ...(p.memberMemory ? { memberMemory: p.memberMemory } : {}),
       },
       modelAccounting(db, a, "brain_plan", { memberId: userId }),
     );
@@ -979,7 +1106,7 @@ export async function generateMemberPlan(
       if (changed) return supersede(changed);
     }
     const { settings } = await loadPlanSettings(tx);
-    const material = await trainerMaterial(tx);
+    const material = await trainerMaterial(tx, undefined, p.learningRows);
     if (!result.draft) {
       await updateGeneration(tx, gen.id, "failed", {
         modelPin: result.pin,
@@ -1073,12 +1200,16 @@ async function routeProgramme(
   });
   const safety = await memberSafety(tx, p.userId, p.profile);
   const qualification = await planQualificationState(tx, settings);
+  // Automatic only when this plan was prepared under exactly the qualified
+  // contract (Brain, settings and the checked learning snapshot).
+  const sameContract = gen.data.contractDigest === qualification.contractDigest;
   const decision = planRoute({
     type: "programme",
     mode: settings.mode,
-    qualified: qualification.qualified,
-    qualificationReason:
-      "Plan qualification has not passed for the current Brain, bounds and threshold, so plans go to you (supervised)",
+    qualified: qualification.qualified && sameContract,
+    qualificationReason: qualification.qualified
+      ? "This plan was prepared with Brain material (new learning, rules or settings) that has not passed its check yet, so it goes to you"
+      : "Plan qualification has not passed for the current Brain, bounds and threshold, so plans go to you (supervised)",
     safety,
     holds: ctx.holds,
     confidence,
@@ -1281,7 +1412,8 @@ export async function adaptMemberPlan(
     const program = await latestAssigned(tx, userId);
     if (!program?.data?.generated || program.id !== options.programId) return skip("programme_changed");
     const { settings } = await loadPlanSettings(tx);
-    const material = await trainerMaterial(tx);
+    const learning = await learningInUse(tx, await planQualificationState(tx, settings));
+    const material = await trainerMaterial(tx, undefined, learning.rows);
     if (!material.release) return skip("no_brain");
     const rows = await tx.query(
       "SELECT * FROM records WHERE kind='planned_session' AND owner_user_id=$1 AND data->>'programId'=$2 AND (data->>'week')::int IN ($3,$4) ORDER BY data->>'date',id",
@@ -1292,6 +1424,7 @@ export async function adaptMemberPlan(
     if (!next.length) return skip("no_next_week");
     const timezone = program.data.timezone ?? (await memberPlanTimezone(tx, userId));
     const outcomes = await weekOutcomes(tx, userId, current, localDate(timezone));
+    const memberMemory = await loadMemberMemory(tx, userId, { today: localDate(timezone) });
     const profile = profileOf(ready.intake);
     const segment = planSegment(profile);
     const safety = await memberSafety(tx, userId, profile);
@@ -1321,7 +1454,8 @@ export async function adaptMemberPlan(
       trigger: "weekly",
       ...(options.jobId ? { jobId: options.jobId } : {}),
       brainReleaseId: material.release.id,
-      contractDigest: planContract(material.release, settings),
+      contractDigest: planContract(material.release, settings, learning.key),
+      learning: { mode: learning.mode, snapshotId: learning.snapshotId, count: learning.rows.length },
       promptVersion: planModelPin().adaptationPromptVersion,
       inputs: { intakeId: ready.intake.id, profile, segment, programId: program.id, week: options.week, timezone, outcomes },
       inputsDigest: hash({ program: program.id, week: options.week, outcomes, next: next.map((n) => [n.id, n.version]) }),
@@ -1372,6 +1506,8 @@ export async function adaptMemberPlan(
         current: currentSessions,
         next: held.sessions,
         program,
+        learningRows: learning.rows,
+        memberMemory,
       },
     };
   });
@@ -1389,6 +1525,7 @@ export async function adaptMemberPlan(
         progressionHold: p.progressionHold,
         bounds: p.settings.bounds,
         material: p.retrieval.material,
+        ...(p.memberMemory ? { memberMemory: p.memberMemory } : {}),
       },
       modelAccounting(db, a, "brain_plan_adaptation", { memberId: userId }),
     );
@@ -1412,7 +1549,7 @@ export async function adaptMemberPlan(
     const program = await latestAssigned(tx, userId);
     if (!program || program.id !== p.program.id) return supersede("The subscriber's programme changed during the adjustment");
     const { settings } = await loadPlanSettings(tx);
-    const material = await trainerMaterial(tx);
+    const material = await trainerMaterial(tx, undefined, p.learningRows);
     if (!result.proposal) {
       await updateGeneration(tx, gen.id, "failed", {
         modelPin: result.pin,
@@ -1447,11 +1584,14 @@ export async function adaptMemberPlan(
     });
     const safety = await memberSafety(tx, userId, profileOf(ready.intake));
     const qualification = await planQualificationState(tx, settings);
+    const sameContract = gen.data.contractDigest === qualification.contractDigest;
     const decision = planRoute({
       type: "adaptation",
       mode: settings.mode,
-      qualified: qualification.adaptationQualified,
-      qualificationReason: qualification.qualified
+      qualified: qualification.adaptationQualified && sameContract,
+      qualificationReason: qualification.qualified && !sameContract
+        ? "This adjustment was prepared with Brain material (new learning, rules or settings) that has not passed its check yet, so it goes to you"
+        : qualification.qualified
         ? "Adjustment qualification has not passed: add held-out adaptation scenarios (one the Brain should apply, one for you) and run qualification"
         : "Plan qualification has not passed for the current Brain, bounds and threshold, so adjustments go to you",
       safety,
@@ -1809,11 +1949,44 @@ async function reviewAdaptation(
  * expectation. Programme scenarios qualify plans; adaptation scenarios (one
  * to apply, one for the trainer, at least) also qualify weekly adjustments.
  */
-export async function qualifyPlanGeneration(db: Database, a: Actor, options: { candidateRelease?: any } = {}) {
+export async function qualifyPlanGeneration(
+  db: Database,
+  a: Actor,
+  options: { candidateRelease?: any; trigger?: string } = {},
+) {
+  // Today's reviewed examples are checked as a candidate learning snapshot;
+  // it goes live only with a passing qualification. A candidate Brain
+  // release (brain-check.ts) is checked with the live snapshot instead, so
+  // the two never change in one step.
+  const learning = await db.tenant(a, (tx) =>
+    options.candidateRelease
+      ? publishedLearningSnapshot(tx)
+      : candidateLearningSnapshot(tx, a, options.trigger ?? "qualification"),
+  );
+  try {
+    return await qualifyWithLearning(db, a, options, learning);
+  } catch (error) {
+    if (learning?.status === "candidate")
+      await db.tenant(a, (tx) =>
+        tx.query(
+          "UPDATE records SET status='check_failed',version=version+1,updated_at=now(),data=data||$2::jsonb WHERE id=$1 AND status='candidate'",
+          [learning.id, JSON.stringify({ reason: String((error as any)?.code ?? "not_checked") })],
+        ),
+      );
+    throw error;
+  }
+}
+async function qualifyWithLearning(
+  db: Database,
+  a: Actor,
+  options: { candidateRelease?: any },
+  learning: any,
+) {
   const snapshot = await db.tenant(a, async (tx) => {
     const { settings } = await loadPlanSettings(tx);
-    const material = await trainerMaterial(tx, options.candidateRelease);
-    const state = await planQualificationState(tx, settings, options.candidateRelease);
+    const rows = learning ? await learningRowsIn(tx, learning) : (await snapshotCandidates(tx)).rows;
+    const material = await trainerMaterial(tx, options.candidateRelease, rows);
+    const state = await planQualificationState(tx, settings, options.candidateRelease, learning);
     return { settings, material, state, policy: await activeSafetyPolicy(tx) };
   });
   const { settings, material, state, policy } = snapshot;
@@ -2026,9 +2199,16 @@ export async function qualifyPlanGeneration(db: Database, a: Actor, options: { c
   return db.tenant(a, async (tx) => {
     await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [a.tenantId + ":brain"]);
     const { settings: current } = await loadPlanSettings(tx);
-    const now = await planQualificationState(tx, current, options.candidateRelease);
-    if (now.contractDigest !== state.contractDigest || now.scenariosDigest !== state.scenariosDigest)
-      throw fail(409, "PLAN_CONTRACT_CHANGED", "Your Brain, bounds or scenarios changed during qualification; run it again");
+    const now = await planQualificationState(tx, current, options.candidateRelease, learning);
+    // The live snapshot this candidate replaces, and every example in it, must be unchanged.
+    const live = await publishedLearningSnapshot(tx);
+    const learningChanged =
+      !!learning &&
+      ((learning.status === "candidate" && (live?.id ?? null) !== (learning.data.replaces ?? null)) ||
+        (learning.status === "published" && live?.id !== learning.id) ||
+        (await learningRowsIn(tx, learning)).length !== (learning.data.rows ?? []).length);
+    if (now.contractDigest !== state.contractDigest || now.scenariosDigest !== state.scenariosDigest || learningChanged)
+      throw fail(409, "PLAN_CONTRACT_CHANGED", "Your Brain, bounds, scenarios or reviewed examples changed during qualification; run it again");
     const passed = outcomes.filter((o) => o.passed).length;
     const count = (type: string, expected?: string) =>
       outcomes.filter((o) => o.type === type && (!expected || o.expected === expected)).length;
@@ -2052,10 +2232,27 @@ export async function qualifyPlanGeneration(db: Database, a: Actor, options: { c
           passed: outcomes.filter((o) => o.type === "adaptation" && o.passed).length,
         },
         pin: planModelPin(),
+        learningSnapshotId: learning?.id ?? null,
       },
       { status: passed === outcomes.length ? "passed" : "failed" },
     );
     await event(tx, a, "brain.plan_qualification", row.id, { passed, total: outcomes.length });
+    if (learning?.status === "candidate") {
+      if (row.status === "passed") {
+        await tx.query(
+          "UPDATE records SET status='archived',version=version+1,updated_at=now() WHERE kind='plan_learning_snapshot' AND status='published'",
+        );
+        await tx.query(
+          "UPDATE records SET status='published',version=version+1,updated_at=now(),data=data||$2::jsonb WHERE id=$1",
+          [learning.id, JSON.stringify({ qualificationId: row.id })],
+        );
+        await event(tx, a, "brain.plan_learning_published", learning.id, { count: learning.data.count, qualificationId: row.id });
+      } else
+        await tx.query(
+          "UPDATE records SET status='check_failed',version=version+1,updated_at=now(),data=data||$2::jsonb WHERE id=$1",
+          [learning.id, JSON.stringify({ qualificationId: row.id, reason: "check_failed" })],
+        );
+    }
     return row;
   });
 }

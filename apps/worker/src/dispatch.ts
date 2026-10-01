@@ -13,6 +13,7 @@ import {
   executeBrainCheckJob,
 } from "../../api/src/brain-check.ts";
 import { executeBrainLearningJob } from "../../api/src/brain-learning.ts";
+import { executeWeeklyEditsJob, WEEKLY_EDITS } from "../../api/src/brain-edits.ts";
 
 type Handler = (db: Database, tenantId: string, job: any) => Promise<any>;
 export type JobHandlers = {
@@ -33,7 +34,10 @@ export const defaultHandlers: JobHandlers = {
   email: (db, tenantId, job) => executeEmailDelivery(db, tenantId, job),
   brainPlan: (db, tenantId, job) => executeBrainPlanJob(db, tenantId, job),
   brainCheck: (db, tenantId, job) => executeBrainCheckJob(db, tenantId, job),
-  brainLearning: (db, tenantId, job) => executeBrainLearningJob(db, tenantId, job),
+  brainLearning: (db, tenantId, job) =>
+    job.data?.kind === WEEKLY_EDITS
+      ? executeWeeklyEditsJob(db, tenantId, job)
+      : executeBrainLearningJob(db, tenantId, job),
 };
 const workerActor = (tenantId: string): Actor =>
   elevated("worker", { tenantId, role: "staff" });
@@ -68,7 +72,7 @@ export async function claimJob(
     // two minutes (up to 300 s for a reasoning model); its lease covers the
     // call's time limit so no second worker claims it meanwhile.
     const [claimed] = await tx.query(
-      `UPDATE jobs SET leased_until=now()+CASE WHEN kind='nutrition_week' THEN interval '${nutritionWeekLeaseSeconds()} seconds' WHEN kind='brain_plan' THEN interval '${brainPlanLeaseSeconds()} seconds' WHEN kind='brain_check' THEN interval '${BRAIN_CHECK_LEASE_SECONDS} seconds' ELSE interval '2 minutes' END,attempts=attempts+1 WHERE id=$1 RETURNING *`,
+      `UPDATE jobs SET leased_until=now()+CASE WHEN kind='nutrition_week' THEN interval '${nutritionWeekLeaseSeconds()} seconds' WHEN kind='brain_plan' THEN interval '${brainPlanLeaseSeconds()} seconds' WHEN kind='brain_check' THEN interval '${BRAIN_CHECK_LEASE_SECONDS} seconds' WHEN kind='brain_learning' THEN interval '5 minutes' ELSE interval '2 minutes' END,attempts=attempts+1 WHERE id=$1 RETURNING *`,
       [j.id],
     );
     return claimed;
@@ -136,7 +140,7 @@ async function runClaimedJobInScope(
       // (a newer edit during this run) fails the attempts condition and runs again.
       await (job.kind === "brain_check"
         ? (handlers.brainCheck ?? executeBrainCheckJob)
-        : (handlers.brainLearning ?? executeBrainLearningJob))(db, tenantId, job);
+        : (handlers.brainLearning ?? defaultHandlers.brainLearning!))(db, tenantId, job);
       await db.tenant(a, async (tx) => {
         await tx.query(
           "UPDATE jobs SET status='completed',leased_until=NULL,last_error=NULL WHERE id=$1 AND status='pending' AND attempts=$2 AND leased_until=$3",

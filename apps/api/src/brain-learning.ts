@@ -34,6 +34,13 @@ import { modelAccounting } from "./model-accounting.ts";
 import { privacyMatches } from "./ingestion.ts";
 import { requestBrainCheck } from "./brain-check.ts";
 import { RELEASE_RULE_LIMIT } from "./brain-replies-check.ts";
+import { WEEKLY_EDITS } from "./brain-edits.ts";
+import { editSuggestionIssues } from "../../../packages/domain/src/brain-edits.ts";
+import { nutritionCaseSchema } from "../../../packages/domain/src/nutrition.ts";
+import {
+  heldOutSimilarity,
+  heldOutSimilarityLimit,
+} from "../../../packages/domain/src/nutrition-learning.ts";
 
 export const BRAIN_LEARNING_JOB = "brain_learning";
 const uuid = z.string().uuid();
@@ -208,12 +215,74 @@ const suggestionView = (r: any) => ({
   id: r.id,
   version: r.version,
   status: r.status,
-  source: r.data.source?.kind === "rejection" ? "rejection" : "edit",
+  // "edits": "Suggested from your edits" (weekly, brain-edits.ts).
+  source:
+    r.data.source?.kind === WEEKLY_EDITS
+      ? "edits"
+      : r.data.source?.kind === "rejection"
+        ? "rejection"
+        : "edit",
+  /** What confirming creates: a rule, or a nutrition case (meal-week edits). */
+  target: r.data.target === "nutrition" ? "nutrition" : "rule",
   rule: r.data.rule,
   why: r.data.why ?? "",
   example: r.data.example ?? null,
+  /** The edits it comes from, with links to open each one. */
+  evidence: r.data.evidence ?? [],
   createdAt: r.created_at,
 });
+
+/**
+ * A confirmed meal-week suggestion becomes one of the coach's nutrition
+ * cases (the nutrition knowledge's teaching), checked in the background like
+ * any other. A case that repeats a held-out nutrition question is refused so
+ * the held-out set stays independent.
+ */
+async function confirmNutritionCase(tx: Tx, a: Actor, s: any, rule: any, edited: boolean) {
+  const parsed = nutritionCaseSchema.safeParse({
+    category: rule.category,
+    scenario: rule.condition,
+    recommendation: rule.directive,
+    reason: String(s.data.why || rule.title).slice(0, 2000),
+    alternatives: "",
+    avoid: "Anything outside the coach's own meal weeks and recipes.",
+    changeWhen: "When the client's preferences, budget or goal change.",
+    referWhen: "A health condition, allergy, medicine or supplement question: the coach replies personally.",
+    rights: true,
+  });
+  if (!parsed.success) throw fail(400, "VALIDATION_ERROR", "Choose one of the nutrition categories");
+  const heldOut = await tx.query(
+    "SELECT data->>'prompt' AS prompt FROM records WHERE kind='nutrition_scenario' AND status='held_out'",
+  );
+  if (
+    heldOut.some((h) =>
+      [parsed.data.scenario, parsed.data.recommendation].some(
+        (t) => heldOutSimilarity(String(h.prompt ?? ""), t) >= heldOutSimilarityLimit,
+      ),
+    )
+  )
+    throw fail(409, "HELD_OUT_DUPLICATE", "This repeats one of your held-out nutrition questions, so it cannot become teaching.");
+  const created = await putRecord(
+    tx,
+    a,
+    "nutrition_case",
+    {
+      ...parsed.data,
+      origin: "edit_pattern",
+      learnedFrom: s.id,
+      allowedUses: ["model_prompt", "trainer_specific_learning"],
+    },
+    { status: "confirmed" },
+  );
+  await tx.query(
+    "UPDATE records SET status='confirmed',version=version+1,updated_at=now(),data=data||$2::jsonb WHERE id=$1",
+    [s.id, JSON.stringify({ nutritionCaseId: created.id, edited })],
+  );
+  await event(tx, a, "brain.suggestion_confirmed", s.id, { nutritionCaseId: created.id });
+  await event(tx, a, "nutrition.case_taught", created.id, { category: parsed.data.category });
+  await requestBrainCheck(tx, a, "suggestion_confirmed");
+  return { nutritionCase: created, suggestionId: s.id };
+}
 
 export function registerBrainLearning(
   app: FastifyInstance,
@@ -284,7 +353,8 @@ export function registerBrainLearning(
           rule: z
             .object({
               title: z.string().trim().min(3).max(150),
-              category: z.enum(RULE_CATEGORIES),
+              // A rule category, or a nutrition category for a meal-week suggestion.
+              category: z.string().trim().min(3).max(40),
               condition: z.string().trim().min(3).max(1000),
               directive: z.string().trim().min(3).max(2000),
             })
@@ -304,18 +374,35 @@ export function registerBrainLearning(
         throw fail(409, "SUGGESTION_CHANGED", "This suggestion changed; refresh first");
       const rule = b.rule ?? s.data.rule;
       const policy = await activeSafetyPolicy(tx);
-      const issues: string[] = suggestionIssues(
-        rule,
-        {
-          kind: s.data.source?.kind === "rejection" ? "rejection" : "edit",
-          category: s.data.category ?? null,
-          draft: String(s.data.example?.draft ?? ""),
-          // An edit the coach types now is their own wording too.
-          coachReply: [s.data.example?.coachReply ?? "", b.rule ? ruleText(b.rule) : ""].join(" "),
-          coachNote: s.data.example?.coachNote ?? null,
-        },
-        (text) => screenSafety(text, policy).hold,
-      );
+      const fromEdits = s.data.source?.kind === WEEKLY_EDITS;
+      const nutritionTarget = fromEdits && s.data.target === "nutrition";
+      if (!fromEdits && !(RULE_CATEGORIES as readonly string[]).includes(rule.category))
+        throw fail(400, "VALIDATION_ERROR", "Choose one of the rule categories");
+      let issues: string[];
+      if (fromEdits) {
+        // The same checks against the edits it cites; wording the coach types
+        // now is their own too.
+        const edits = (s.data.edits ?? []).map((e: any, i: number) =>
+          i === 0 && b.rule ? { ...e, note: `${e.note ?? ""} ${ruleText(b.rule)}` } : e,
+        );
+        issues = editSuggestionIssues(
+          { target: nutritionTarget ? "nutrition" : "rule", ...rule, evidence: edits.map((e: any) => e.ref), why: s.data.why ?? "" },
+          edits,
+          (text) => screenSafety(text, policy).hold,
+        );
+      } else
+        issues = suggestionIssues(
+          rule,
+          {
+            kind: s.data.source?.kind === "rejection" ? "rejection" : "edit",
+            category: s.data.category ?? null,
+            draft: String(s.data.example?.draft ?? ""),
+            // An edit the coach types now is their own wording too.
+            coachReply: [s.data.example?.coachReply ?? "", b.rule ? ruleText(b.rule) : ""].join(" "),
+            coachNote: s.data.example?.coachNote ?? null,
+          },
+          (text) => screenSafety(text, policy).hold,
+        );
       if (privacyMatches(ruleText(rule)).length) issues.push("personal_data");
       if (issues.length)
         throw fail(
@@ -323,6 +410,7 @@ export function registerBrainLearning(
           "SUGGESTION_FLAGGED",
           `This rule needs changes before it can be approved (${issues.join(", ").replaceAll("_", " ")}). Teach it in your own words instead.`,
         );
+      if (nutritionTarget) return confirmNutritionCase(tx, a, s, rule, !!b.rule);
       const [count] = await tx.query(
         "SELECT count(*)::int AS n FROM records WHERE kind='rule' AND status='confirmed'",
       );
@@ -339,7 +427,7 @@ export function registerBrainLearning(
           directive: rule.directive,
           reason: String(s.data.why ?? "").slice(0, 2000),
           sourceIds: [],
-          origin: "reply_correction",
+          origin: fromEdits ? "edit_pattern" : "reply_correction",
           learnedFrom: s.id,
           allowedUses: ["render", "model_prompt", "trainer_specific_learning"],
           confirmedBy: a.userId,

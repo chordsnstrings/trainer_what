@@ -45,6 +45,7 @@ export const ELEVATIONS = {
       "Background jobs, scheduled sweeps and outbox delivery run by the worker (or its sweep endpoints) for a workspace, with no follower request in the call path.",
     usedBy: [
       "apps/api/src/brain-check.ts",
+      "apps/api/src/brain-edits.ts",
       "apps/api/src/brain-learning.ts",
       "apps/api/src/brain-plans.ts",
       "apps/api/src/chat-attachments.ts",
