@@ -500,10 +500,15 @@ async function brainPlans(ctx: E2EContext, layla: TrainerSeed): Promise<BrainSta
   if (!threshold) return undefined;
   const qualified = await r.step(T, "Plan qualification (held-out plan scenarios)", `${layla.slug}: 4 deliverable and 3 review scenarios (two safety floor, one low confidence) pass on the full route`, async () => {
     await saveSettings({ threshold });
+    // Held-out clients like, but not the same as, the reviewed ones: a
+    // reviewed plan whose member profile repeats a held-out scenario is kept
+    // out of the learning snapshot (round 5), so the held-out set stays
+    // independent of what the Brain learns from.
+    const HELD_OUT_STRENGTH: Profile = { ...STRENGTH, goal: "Build overall strength" };
     const scenarios = [
-      { title: "Beginner strength, four weeks", profile: STRENGTH, programmeDays: 28, expected: "deliverable" },
-      { title: "Beginner strength, three weeks", profile: STRENGTH, programmeDays: 21, expected: "deliverable" },
-      { title: "Beginner strength, two weeks", profile: STRENGTH, programmeDays: 14, expected: "deliverable" },
+      { title: "Beginner strength, four weeks", profile: HELD_OUT_STRENGTH, programmeDays: 28, expected: "deliverable" },
+      { title: "Beginner strength, three weeks", profile: HELD_OUT_STRENGTH, programmeDays: 21, expected: "deliverable" },
+      { title: "Beginner strength, two weeks", profile: HELD_OUT_STRENGTH, programmeDays: 14, expected: "deliverable" },
       { title: "Get stronger at home", profile: { ...STRENGTH, goal: "Get stronger" }, programmeDays: 28, expected: "deliverable" },
       { title: "Knee surgery", profile: LIMITED, programmeDays: 28, expected: "review" },
       { title: "Chest pain last week", profile: { ...STRENGTH, goal: "Train again after chest pain last week" }, programmeDays: 28, expected: "review" },
