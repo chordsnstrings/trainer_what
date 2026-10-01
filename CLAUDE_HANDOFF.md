@@ -2,20 +2,20 @@
 
 Updated 27 September 2026 (afternoon). PR #1 and [PR #2](https://github.com/chordsnstrings/trainer_what/pull/2) are merged into `main`. At the owner's request the application runs live on a new DigitalOcean project, GymMembership, which deployed `main` `eb7b678` automatically after its checks passed, and live verification passed on it. Historical stage entries below retain their original evidence.
 
-## Work in progress (updated with every owner update; last update 1 October 2026, round 5 final integration)
+## Work in progress (updated with every owner update; last update 1 October 2026, round 5 live)
 
 **For any agent continuing this work (Claude, Astra or another):** start here, then read `AGENTS.md` and `docs/PROJECT_MEMORY.md`. No secret is ever stored in this repository; keys live in Super admin (encrypted) or on the server. Update this section with every owner update (owner rule, 29 September) and replace it rather than letting it grow.
 
-**Live now:** `main` `73cb8c3` at https://trainsyou.com (application code as of `748536c`: round 4 plus a CI time-limit fix; `73cb8c3` only changed this handoff). The Brain runs on Seed 2.0 Pro (BytePlus ModelArk). Live features include the coach setup wizard at `/setup` (six steps, assistant chat or short form, the coach's own subdomain, automatic go-live checks, bank details at the first payout), teach-your-Brain (rule cards, practice quiz, "Brain trained" meter, Keep training), the four-section coach workspace, one teaching loop, the home-page onboarding walkthrough, hidden specialties (combat, endurance, yoga, pilates) and host-only Superadmin recovery (`infra/digitalocean/admin-access.sh`; the owner's Superadmin is gicbdfacebook@gmail.com). Open self-serve sign-up is built but stays off until the owner publishes final legal documents; email codes stay off until the Resend key is saved.
-
-**Round 5 is built and integrated (stage 2026-10-01a in `docs/COMPLETION_STAGES.md`).** Branch `r5/final` (worktree `.claude/worktrees/r5-final`) = `r5/kamran` (which contains `r5/models`) + `r5/voice` + `r5/learning`, merged with `--no-ff`, plus one integration commit and the review fixes; pushed to `claude/repository-overview-osejlw` (code head `1cc3b14`, then this records commit). Not merged into `main`, not deployed (deployment stays separately assigned).
-1. **Model switching:** profiles in Super admin (`/admin/model-profiles`, migration 080): current settings (active, unchanged requests), keyless ChatGPT, Sonnet and Opus; connection test, switch check, one-click switch back; fallback answers always go to the coach. Live Seed switch check 17/18, 0 safety failures.
-2. **Remaining self-learning:** code-built member memory, checked learning snapshots in the plan contract, weekly "Suggested from your edits", retention, coach-only "Getting better" panel (`docs/features/brain-learning.md`). Plan prompts are now `brain-plan-v5` / `brain-plan-adapt-v4`, so every qualified workspace re-qualifies its plans once after a deploy (the weekly sweep asks).
-3. **Narration in the coach's style:** "Your one-on-one sessions" in Keep training; Brain lines in every new voice session, checked line by line (numbers in context since the final review), dropped when failing.
-4. **"My own music" mode** in member voice sessions (ambient audio session, joined cue clips, tap to talk).
-5. **Frontier wording:** "runs on a frontier model" and "keeps getting better with time" only while `availability.frontier` is on; the model and vendor are never named publicly (name-guard test).
-6. **Kamran's AI voice** on the home page only (Super admin `/admin/marketing-assistant`, migration 082, off by default): small corner button, voice with captions, first person with an "AI voice" label, site facts and calculators only, hand-off to Start coaching, AED 10 a day reserved per turn in one statement (concurrent turns cannot overrun it), no audio or words stored.
-Checks on the final tree: both typechecks; full PGlite suite and whole restricted-role PostgreSQL suite (final run: PGlite 1,595 tests, 0 failed, 1 skipped; PostgreSQL 178 files, 0 failed, runtime access verified); build; e2e 445/445; browser, phone (71 measurements, 0 failures), brand (112 screens) and marketing-motion (181/181 and sitewide) pass; Python deployment tests 155 OK (3 skipped). The first full run found an unregistered model-switch notice, finance tests and e2e steps that fail on the 1st to the 10th of any month (on `origin/main` too) and an e2e held-out plan set that repeated the reviewed members; all fixed. Live Seed 2.0 Pro per builder: switch check 17/18 (0 safety failures), assistant 35/35, narration 143/144 lines, learning 44/44; no new prompt in the final integration (USD 0).
+**Live now:** `main` `e18d9fb` at https://trainsyou.com, verified 1 October 2026 at about 05:50 UTC (release header `e18d9fb`). It contains round 4 plus round 5 (stage 2026-10-01a in `docs/COMPLETION_STAGES.md`).
+- **Round 5 live:**
+  - model profiles in Super admin (`/admin/model-profiles`): Seed 2.0 Pro active as "Standard model"; ChatGPT, Sonnet and Opus profiles waiting for keys; switch check; one-click activate and switch-back; automatic Brain re-check on a switch; native Anthropic adapter with prompt caching, not yet called live;
+  - self-learning: per-member memory, learning snapshots, weekly "Suggested from your edits", the "getting better" panel;
+  - trainer-style narration and own-music mode;
+  - the Kamran voice assistant on the home page, built but switched off until the owner confirms its Cartesia voice and turns it on in Super admin;
+  - frontier wording, hidden while the active profile is not frontier tier with a passed switch check.
+- **Round 4, still live:** setup wizard, open sign-up (off until legal documents), subdomains, teach-your-Brain, four-section workspace, teaching loop, walkthrough, hidden specialties, Superadmin recovery.
+- **After this deploy:** plan prompts are `brain-plan-v5`, so qualified workspaces re-qualify plans once.
+- **Known gaps:** the setup assistant cannot fill the one-on-one form by chat; Kamran costs are not yet in platform finance; supplement doses can slip past the medical check; members' own exercise names still reach plan prompts; Arabic polish of the new lines is pending.
 
 **How to ship (any agent):**
 1. Work on a branch and open a pull request to `main`. The owner has authorised merging: "MERGE ... and any future merges". Merging deploys; deployment of this work stays separately assigned to Claude.
@@ -48,7 +48,7 @@ Checks on the final tree: both typechecks; full PGlite suite and whole restricte
 - a real-device test of own-music mode (iPhone Safari, Android Chrome; checklist in `docs/features/voice-session.md`);
 - pick or confirm the Kamran voice in Super admin and turn the assistant on (then try it on a phone).
 
-**Next action:** the owner reviews `claude/repository-overview-osejlw` (round 5 on top of round 4) and opens a pull request into `main` when ready; merging deploys through the controller.
+**Next action:** owner items above (Kamran voice and switch-on, model keys, Resend, legal documents, Stripe webhook, real-phone tests); then the known gaps listed under Live now.
 
 ## Latest (1 October 2026)
 
