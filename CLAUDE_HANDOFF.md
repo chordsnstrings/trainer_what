@@ -6,7 +6,7 @@ Updated 27 September 2026 (afternoon). PR #1 and [PR #2](https://github.com/chor
 
 **Continuing agent: Astra 6** (the owner continues with Astra 6; Claude or another agent may also pick this up). **For any agent continuing this work:** start here, then read `AGENTS.md` and `docs/PROJECT_MEMORY.md`. No secret is ever stored in this repository; keys live in Super admin (encrypted) or on the server. Update this section with every owner update (owner rule, 29 September) and replace it rather than letting it grow.
 
-**Live now:** `main` `e18d9fb` at https://trainsyou.com, verified 1 October 2026 at about 05:50 UTC (release header `e18d9fb`). It contains round 4 plus round 5 (stage 2026-10-01a in `docs/COMPLETION_STAGES.md`).
+**Live now:** `main` `9c467cf` at https://trainsyou.com (verified 1 October 2026 about 08:55 UTC by the release header; round 5, the Superadmin landing and authenticator prompt (#17) and the browser-check fix (#18)).com, verified 1 October 2026 at about 05:50 UTC (release header `e18d9fb`). It contains round 4 plus round 5 (stage 2026-10-01a in `docs/COMPLETION_STAGES.md`).
 - **Round 5 live:**
   - model profiles in Super admin (`/admin/model-profiles`): Seed 2.0 Pro active as "Standard model"; ChatGPT, Sonnet and Opus profiles waiting for keys; switch check; one-click activate and switch-back; automatic Brain re-check on a switch; native Anthropic adapter with prompt caching, not yet called live;
   - self-learning: per-member memory, learning snapshots, weekly "Suggested from your edits", the "getting better" panel;
@@ -32,6 +32,8 @@ Updated 27 September 2026 (afternoon). PR #1 and [PR #2](https://github.com/chor
    - no SSH from automation; the owner uses the DigitalOcean Droplet Console on `gymmembership-8fc22b34edcc` (64.227.151.196, project GymMembership);
    - wildcard DNS `*.trainsyou.com` is already in DigitalOcean, and HTTPS is issued on demand;
    - preserve every other DigitalOcean resource.
+
+**Owner decision (1 October 2026):** the Superadmin is never a coach. Superadmins land in Super admin, are prompted to set up the authenticator at `/admin/account-security`, and their administration workspace (slug `platform-…`) never shows the coach setup.
 
 **Owner preferences:**
 - plain English;
