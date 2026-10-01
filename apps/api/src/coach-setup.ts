@@ -158,6 +158,13 @@ export async function setupWizard(db: Database, a: Identity) {
     ),
   );
   const saved = Object.fromEntries(records.map((r) => [r.data.step, r]));
+  // "Your one-on-one sessions": done once the coach confirmed a session style
+  // (voice-narration.ts; kept in the voice-session style).
+  const [oneOnOne] = await db.tenant(a, (tx) =>
+    tx.query(
+      "SELECT jsonb_typeof(style->'oneOnOne'->'confirmed')='object' AS confirmed FROM voice_session_styles",
+    ),
+  );
   const check = Object.fromEntries(
     state.goLive.checks.map((c: any) => [c.key, c]),
   );
@@ -308,6 +315,13 @@ export async function setupWizard(db: Database, a: Identity) {
         label: "Voice clone",
         done: voice?.status === "complete",
         href: "/trainer/voice",
+      },
+      {
+        key: "one_on_one",
+        label: "Your one-on-one sessions",
+        done: oneOnOne?.confirmed === true,
+        note: "How you run a session, so voice sessions sound like you.",
+        href: "/trainer/voice#one-on-one",
       },
       {
         key: "nutrition",

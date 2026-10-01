@@ -37,7 +37,9 @@ import { activeSafetyPolicy } from "./safety-policy.ts";
 import { registerCoachingFollowups } from "./coaching-followups.ts";
 import { registerBrainTeaching } from "./brain-teach.ts";
 import { registerBrainCheck } from "./brain-check.ts";
+import { registerModelProfiles } from "./model-profiles.ts";
 import { registerBrainLearning } from "./brain-learning.ts";
+import { registerBrainProgress } from "./brain-progress.ts";
 import {
   assertReleaseRuleLimit,
   evaluateBrainReplies,
@@ -70,11 +72,13 @@ import { registerEarlyAccess } from "./early-access.ts";
 import { freeStartingSlug, registerCoachSignup } from "./coach-signup.ts";
 import { registerCoachSetup } from "./coach-setup.ts";
 import { registerMarketing, type InstagramTransport } from "./marketing.ts";
+import { assistantAvailable, registerMarketingAssistant } from "./marketing-assistant.ts";
 import {
   registerIntegrationCompletion,
   disableUserIntegrations,
 } from "./integrations-completion.ts";
 import { registerVoiceSessions } from "./voice-session.ts";
+import { registerVoiceNarration } from "./voice-narration.ts";
 import { registerVoiceClones } from "./voice-clones.ts";
 import { assertSlugAvailable, registerWebAddresses } from "./web-addresses.ts";
 import type { WebAddressDeps } from "./web-address-orders.ts";
@@ -599,6 +603,10 @@ export async function buildApp(
             ? e.message
             : "The request could not be completed. Your changes have not been confirmed.",
       requestId: req.id,
+      // The home page assistant at its daily cap: hidden until UAE midnight.
+      ...(e.code === "ASSISTANT_CAP" && typeof e.hiddenUntil === "string"
+        ? { hiddenUntil: e.hiddenUntil }
+        : {}),
       // A renamed workspace's previous subdomain names its new address.
       ...(e.code === "HOST_MOVED" && typeof e.location === "string"
         ? { location: e.location }
@@ -663,6 +671,7 @@ export async function buildApp(
   registerBrainPlans(app, db);
   registerIntegrationCompletion(app, db);
   registerVoiceSessions(app, db);
+  registerVoiceNarration(app, db);
   registerVoiceClones(app, db);
   registerWebAddresses(app, db, options.providers?.webAddresses);
   registerHealthKitSync(app, db);
@@ -703,11 +712,14 @@ export async function buildApp(
   registerDiscovery(app, db);
   registerMarketing(app, db, {
     instagramTransport: options.providers?.instagram,
+    assistantAvailable: () => assistantAvailable(db),
   });
+  registerMarketingAssistant(app, db, identity);
   registerEarlyAccess(app, db, identity);
   registerCoachSignup(app, db, session);
   registerCoachSetup(app, db, identity);
   platformSettingsRoutes(app, db, identity);
+  registerModelProfiles(app, db, identity);
   financeOperations(app, db, identity);
   privacyOperations(app, db, identity, privacyHooks);
   registerPrivacyLifecycle(app, db, identity, privacyHooks);
@@ -1424,6 +1436,7 @@ export async function buildApp(
   registerBrainTeaching(app, db, identity, { compile: compileTeaching });
   registerBrainCheck(app, db, identity);
   registerBrainLearning(app, db, identity);
+  registerBrainProgress(app, db, identity);
   app.patch("/api/v1/brain/rules/:id", async (req) => {
     const a = owner(req),
       b = z

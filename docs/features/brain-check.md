@@ -64,7 +64,11 @@ Adding and archiving cases still uses each area's endpoint (`/brain/scenarios`,
      checked with the live Brain; passing re-activates in the same mode.
   4. **Plans** that were qualified before and are not now (settings, cases or model changed) are
      re-qualified.
-  5. **Nutrition** (when the coach has used it): evaluated in the background. Switching updated
+  5. **Plan learning** (round 5): reviewed plan examples waiting since the live learning snapshot
+     are qualified at most once a week while plans are qualified; a passing check publishes the
+     new snapshot (`promoted.learningSnapshotId`), a failing one keeps the last passing snapshot
+     live (`docs/features/brain-learning.md`).
+  6. **Nutrition** (when the coach has used it): evaluated in the background. Switching updated
      nutrition on still needs the coach's reviewed sample week (unchanged; the message says so).
 - Each run stores a `brain_check` record (`passed`, `failed`, `incomplete`, `nothing_to_check`) and
   the event `brain.check_completed`.

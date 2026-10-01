@@ -2,6 +2,7 @@ import type { Tx } from "@trainer/db";
 import type { PrivacyHooks } from "./privacy-lifecycle.ts";
 import { eraseOwnedBrandMedia } from "./coach-site.ts";
 import { eraseCoachingFeedbackDerivedData } from "./coaching-feedback.ts";
+import { erasePlanLearningDerivedData } from "./brain-edits.ts";
 import {
   exportCoachingFollowups,
   eraseCoachingFollowups,
@@ -205,6 +206,9 @@ export const privacyHooks: PrivacyHooks = {
   },
   async eraseAdditional(tx, userId) {
     await eraseCoachingFeedbackDerivedData(tx, userId);
+    // Reviewed plan examples from the member's plans (coach-owned) and edit
+    // suggestions citing the member, before the member's own records go.
+    await erasePlanLearningDerivedData(tx, userId);
     await eraseCoachingFollowups(tx, userId);
     await eraseChatAttachments(tx, userId);
     await eraseComplimentaryAccess(tx, userId);

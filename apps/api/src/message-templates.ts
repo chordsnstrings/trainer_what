@@ -311,6 +311,17 @@ export const MESSAGE_KINDS: readonly MessageKind[] = Object.freeze([
     },
   ),
   kind(
+    "brain-model-switch",
+    "trainer",
+    "coaching",
+    "After a model switch the coach's Brain check did not pass, so replies wait for the coach",
+    {
+      title: "Your Brain waits for you after an update",
+      body: "We updated the AI model behind your Brain. Your check did not pass on it yet, so replies wait for you for now. Open My Brain to see the result and run the check again.",
+      href: "/trainer/brain",
+    },
+  ),
+  kind(
     "website-inquiry",
     "trainer",
     "coaching",

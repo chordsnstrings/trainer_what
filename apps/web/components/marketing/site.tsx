@@ -27,6 +27,7 @@ import {
   jsonLdScript,
   marketingBreadcrumbs,
   marketingJsonLd,
+  marketingPageFor,
   marketingPage,
   sourceById,
   usesBrandIdentity,
@@ -54,6 +55,7 @@ import {
   FollowerCalculator,
 } from "./islands";
 import { availabilityChip, Chip } from "./chip";
+import { AssistantButton } from "./assistant-button";
 import { HeroFlow } from "./hero-flow";
 import { Journey, JourneyBand, journeyAvailable } from "./journey";
 import { MarketingMotion } from "./motion";
@@ -1357,8 +1359,7 @@ function ControlFlow() {
         <div className="mk-flow-brain">
           <span className="small-label">YOUR AI</span>
           <p>
-            <strong>Your rule:</strong> two easy sessions at 3+ reps in reserve →
-            add 2.5 kg.
+            <strong>Your rule:</strong> two easy sessions → add 2.5 kg.
           </p>
           <div className="mk-meter">
             <span style={{ inlineSize: "86%" }} />
@@ -1455,8 +1456,7 @@ function Home({ page, platform }: Ctx) {
                 </Link>
               </div>
               <p className="mk-hero-micro">
-                Built for UAE trainers · You set the price in AED · No technical
-                skills needed
+                Built for UAE trainers · No technical skills needed
               </p>
             </div>
           </div>
@@ -1518,13 +1518,18 @@ function Home({ page, platform }: Ctx) {
 }
 
 /** A complete marketing page: header, content, footer and JSON-LD. */
-export function MarketingSite({ page, platform, origin }: Ctx) {
+export function MarketingSite({ page: registered, platform, origin }: Ctx) {
+  // Lines gated on availability (the "frontier model" wording) appear only
+  // while their flag is on: the same filter as the FAQ structured data and
+  // llms-full.txt.
+  const page = marketingPageFor(registered, platform.availability);
   const cta = primaryCta(page, platform);
   const jsonLd = marketingJsonLd(page, {
     origin,
     appName: platform.name,
     supportEmail: platform.supportEmail,
     followerModel: platform.followerModel,
+    availability: platform.availability,
   });
   return (
     <div className="public mk platform-ui">
@@ -1543,6 +1548,11 @@ export function MarketingSite({ page, platform, origin }: Ctx) {
         )}
       </main>
       <MarketingFooter appName={platform.name} initials={platform.initials} />
+      {/* Kamran's AI voice: home page only, outside the main content; the
+          panel's code loads on the first tap. */}
+      {page.kind === "home" && platform.assistant === true && (
+        <AssistantButton appName={platform.name} />
+      )}
       {/* The section reveal (renders nothing; app/marketing.css holds the
           motion). */}
       <MarketingMotion path={page.path} />

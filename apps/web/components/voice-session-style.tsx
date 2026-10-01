@@ -5,6 +5,8 @@
 // a preview of the script and members' recent session outcomes.
 import { useCallback, useEffect, useState } from "react";
 import { phraseIssues } from "../../../packages/domain/src/voice-session.ts";
+/** Fired when either voice panel saves the shared, versioned voice style. */
+export const VOICE_STYLE_SAVED = "voice-style-saved";
 
 type Style = {
   tone: "calm" | "steady" | "energetic";
@@ -74,6 +76,15 @@ export function VoiceSessionStyle() {
   useEffect(() => {
     void load().catch((e) => setNotice(e.message));
   }, [load]);
+  // The one-on-one panel saves into the same versioned style.
+  useEffect(() => {
+    const saved = (e: Event) => {
+      const version = (e as CustomEvent<{ version: number }>).detail?.version;
+      if (typeof version === "number") setRevision(version);
+    };
+    window.addEventListener(VOICE_STYLE_SAVED, saved);
+    return () => window.removeEventListener(VOICE_STYLE_SAVED, saved);
+  }, []);
   if (!style) return notice ? <p className="notice">{notice}</p> : null;
   const draft = (): Style => ({
     ...style,
@@ -118,6 +129,8 @@ export function VoiceSessionStyle() {
             void run(async () => {
               const saved = await call("/voice-sessions/style", "PUT", { revision, style: draft() });
               setRevision(saved.version);
+              // "Your one-on-one sessions" shares this version (voice-one-on-one.tsx).
+              window.dispatchEvent(new CustomEvent(VOICE_STYLE_SAVED, { detail: { version: saved.version } }));
               setStyle(saved.style);
               setSuggestions(saved.suggestions ?? null);
               setNotice(`Saved as version ${saved.version}. New sessions use it.`);

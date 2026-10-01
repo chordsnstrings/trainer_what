@@ -26,6 +26,25 @@ const dailyLimit = (key: string, value: string) => {
  * admin's reviewed price for the provider and model when one is in effect,
  * else the AI model settings' price.
  */
+/**
+ * Tasks whose answer may come from the fallback model profile when the
+ * active one is unavailable: each goes to a person before anything reaches a
+ * member (coach drafts and suggestions; member chat and plans, which a
+ * fallback answer always sends to the coach). Evaluations, checks, meal weeks
+ * and meal photos never fall back (docs/features/model-profiles.md).
+ */
+const FALLBACK_TASKS = new Set([
+  "coaching",
+  "brain_plan",
+  "brain_plan_adaptation",
+  "brain_compilation",
+  "brain_correction",
+  "brain_quiz",
+  "setup_assistant",
+  "voice_session_suggestions",
+  "nutrition_compilation",
+  "nutrition_recipe",
+]);
 export function modelAccounting(
   db: Database,
   actor: Actor,
@@ -124,6 +143,12 @@ export function modelAccounting(
             JSON.stringify({
               ...usage.pricing,
               ...(usage.reasoning ? { reasoningTokens: usage.reasoning } : {}),
+              // Prompt cache reads and writes (model profiles with cache
+              // prices), and an answer from the fallback profile.
+              ...(usage.cache
+                ? { cacheReadTokens: usage.cache.read, cacheWriteTokens: usage.cache.write }
+                : {}),
+              ...(usage.fallback ? { fallbackProfile: true } : {}),
               ...(usage.request
                 ? {
                     requestStyle: usage.request.style,
@@ -146,5 +171,8 @@ export function modelAccounting(
           );
       });
     },
+    ...(FALLBACK_TASKS.has(task)
+      ? { fallback: () => modelAccounting(db, actor, task, options) }
+      : {}),
   };
 }

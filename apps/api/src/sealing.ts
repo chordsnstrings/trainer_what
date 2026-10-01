@@ -49,6 +49,11 @@ export const sealContexts = {
     aad: "authenticator:" + userId,
     legacy: { format: "bare" },
   }),
+  /** A model profile's API key (Super admin, model profiles). */
+  modelProfile: (profileId: string, field: string): SealContext => ({
+    aad: `model-profile:${profileId}:${field}`,
+    legacy: { format: "bare" },
+  }),
   /** A trainer's voice recording (binary envelope, sealBytes). */
   voiceSample: (tenantId: string, sampleId: string): SealContext => ({
     aad: `voice-sample:${tenantId}:${sampleId}`,

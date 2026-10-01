@@ -98,6 +98,14 @@ GRANT SELECT,INSERT,UPDATE ON digitalocean_estimates TO trainer_service;
 -- and "Report this coach" reports for the Super admin.
 GRANT SELECT,INSERT,UPDATE,DELETE ON coach_signup_codes TO trainer_service;
 GRANT SELECT,INSERT,UPDATE ON coach_reports TO trainer_service;
+-- Model profiles (080): saved model connections, switch checks and their
+-- append-only audit; service only (Super admin and the worker).
+GRANT SELECT,INSERT,UPDATE ON model_profiles,model_switch_checks TO trainer_service;
+GRANT SELECT,INSERT ON model_profile_audit TO trainer_service;
+-- Marketing assistant (082): daily counts and cost, and day-keyed visitor
+-- counters deleted after two days; service only.
+GRANT SELECT,INSERT,UPDATE ON marketing_assistant_days TO trainer_service;
+GRANT SELECT,INSERT,UPDATE,DELETE ON marketing_assistant_counters TO trainer_service;
 
 -- Tenant transactions SET ROLE trainer_app; it must never bypass RLS.
 ALTER ROLE trainer_app NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;

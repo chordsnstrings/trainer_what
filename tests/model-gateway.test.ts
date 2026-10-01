@@ -753,6 +753,11 @@ test("time limits come from each call site's budget per model family; classic de
       plan_adaptation: { maxTokens: 3000, timeoutMs: 60000 },
       meal_photo: { maxTokens: 2500, timeoutMs: 30000 },
       voice_suggestions: { maxTokens: null, timeoutMs: 30000 },
+      // Added in round 5 (weekly edit suggestions; voice narration and the
+      // coach's one-on-one style draft).
+      brain_edits: { maxTokens: 3000, timeoutMs: 45000 },
+      voice_narration: { maxTokens: 1500, timeoutMs: 20000 },
+      voice_style: { maxTokens: 2000, timeoutMs: 30000 },
     },
   );
   // A slower model-name family (Seed) raises the base of the two call sites
@@ -760,6 +765,14 @@ test("time limits come from each call site's budget per model family; classic de
   assert.equal(modelCallBudget("rule_compilation", seed).timeoutMs, 90000);
   assert.equal(modelCallBudget("meal_photo", seed).timeoutMs, 60000);
   assert.equal(modelCallBudget("coach_decision", seed).timeoutMs, 30000);
+  // Voice narration keeps its round 5 limits (20 s, Seed 30 s; style draft
+  // 30 s, Seed 60 s), and a profile's own budget replaces them.
+  assert.equal(modelCallBudget("voice_narration", seed).timeoutMs, 30000);
+  assert.equal(modelCallBudget("voice_style", seed).timeoutMs, 60000);
+  assert.deepEqual(
+    modelCallBudget("voice_narration", { ...classic, MODEL_CALL_BUDGETS: JSON.stringify({ voice_narration: { maxTokens: 900, timeoutMs: 12000 } }) }),
+    { maxTokens: 900, timeoutMs: 12000 },
+  );
   assert.equal(modelCallBudget("rule_compilation", { ...seed, MODEL_TIMEOUT_MULTIPLIER: "2" }).timeoutMs, 180000);
   assert.equal(modelCallBudget("rule_compilation", { ...seed, MODEL_TIMEOUT_MULTIPLIER: "5" }).timeoutMs, 300000);
   assert.deepEqual(planGenerationBudget({ daysPerWeek: 3, weeks: 4 }, seed), planGenerationBudget({ daysPerWeek: 3, weeks: 4 }, classic));

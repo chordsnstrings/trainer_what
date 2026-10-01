@@ -19,6 +19,7 @@ import { ProviderUnavailable } from "@trainer/providers";
 import { OWN_CASES_FOR_FULL_CHECK } from "../../../packages/domain/src/brain-teach.ts";
 import { brainTrainingState, confirmedRulesDigest } from "./brain-training-state.ts";
 import { evaluateBrainReplies } from "./brain-replies-check.ts";
+import { notifyCoachingTeam } from "./notifications.ts";
 import {
   activateCoachingRuntime,
   coachingRuntimeReadiness,
@@ -29,6 +30,7 @@ import {
   loadPlanSettings,
   planQualificationState,
   qualifyPlanGeneration,
+  waitingLearning,
 } from "./brain-plans.ts";
 import {
   evaluateNutritionKnowledge,
@@ -40,6 +42,8 @@ export const BRAIN_CHECK_JOB = "brain_check";
 export const BRAIN_CHECK_LEASE_SECONDS = 1800;
 /** Edits within this window are checked together. */
 const RECHECK_DELAY_SECONDS = 60;
+/** The trigger of the re-checks a model profile switch asks for (model-profiles.ts). */
+export const MODEL_SWITCH_TRIGGER = "model_switch";
 
 const fail = (statusCode: number, code: string, message: string) =>
   Object.assign(new Error(message), { statusCode, code });
@@ -161,7 +165,12 @@ export async function runBrainCheck(
     const { settings } = await loadPlanSettings(tx);
     const plans = await planQualificationState(tx, settings);
     const nutrition = await nutritionState(tx);
-    return { s, runtime: runtime ?? null, readiness, actions: actionCount.n as number, plans, nutrition };
+    const { waiting } = await waitingLearning(tx);
+    const [recentSnapshot] = await tx.query(
+      "SELECT id FROM records WHERE kind='plan_learning_snapshot' AND created_at>now()-interval '7 days' LIMIT 1",
+    );
+    const learning = { waiting, recent: !!recentSnapshot };
+    return { s, runtime: runtime ?? null, readiness, actions: actionCount.n as number, plans, nutrition, learning };
   });
   const { s } = start;
   // Before the coach goes live, only a check they ask for runs (the setup
@@ -179,7 +188,10 @@ export async function runBrainCheck(
   let replies: any = null;
   if (s.confirmed.length) {
     const latest = s.latestEvaluation;
+    // A model switch re-checks the replies on the new model even when the
+    // rules and cases are unchanged (docs/features/model-profiles.md).
     const same =
+      trigger !== MODEL_SWITCH_TRIGGER &&
       latest && scenarioIds(s.ownCases) === scenarioIds((latest.data.outcomes ?? []).map((o: any) => ({ id: o.scenarioId })));
     if (same) {
       replies = latest;
@@ -335,6 +347,28 @@ export async function runBrainCheck(
     areas.actions = { state: "unchanged" };
   }
 
+  // Plans: reviewed examples since the live learning snapshot go live only
+  // with a passing qualification, at most once a week (the weekly sweep asks
+  // for this check); the last checked snapshot stays live meanwhile.
+  if (areas.plans.state === "not_used" && start.plans.qualified && start.learning.waiting > 0 && !start.learning.recent) {
+    try {
+      const plan = await qualifyPlanGeneration(db, a, { trigger: "weekly_learning" });
+      const passed = plan.status === "passed";
+      areas.plans = {
+        state: passed ? "passed" : "failed",
+        checkId: plan.id,
+        passed: plan.data.passed,
+        total: plan.data.total,
+        message: passed
+          ? "Your newest reviewed plans are now part of your Brain."
+          : "Your newest reviewed plans did not pass; your Brain keeps the last passing version.",
+      };
+      if (passed && plan.data.learningSnapshotId) promoted.learningSnapshotId = plan.data.learningSnapshotId;
+    } catch (error) {
+      areas.plans = setting(error);
+    }
+  }
+
   // Plans: re-qualify when they were qualified before and are not now (a
   // setting, held-out case or model change), unless the promotion above
   // already checked them.
@@ -408,6 +442,18 @@ export async function runBrainCheck(
       { status },
     );
     await event(tx, a, "brain.check_completed", row.id, { status, promoted: Object.keys(promoted).length > 0 });
+    // After a model switch a coach whose check did not pass keeps "waits for
+    // me" (their live version no longer matches the model) and is told so.
+    if (trigger === MODEL_SWITCH_TRIGGER && status !== "passed" && status !== "nothing_to_check")
+      await notifyCoachingTeam(tx, a, {
+        category: "coaching",
+        dedupeKey: `brain-model-switch:${row.id}`,
+        title: "Your Brain waits for you after an update",
+        body: "We updated the AI model behind your Brain. Your check did not pass on it yet, so replies wait for you for now. Open My Brain to see the result and run the check again.",
+        href: "/trainer/brain",
+        templateKey: "brain-model-switch",
+        source: { type: "brain_check", id: row.id },
+      });
     return row;
   });
 }

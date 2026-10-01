@@ -18,6 +18,7 @@ import {
   followerSettingsProblem,
 } from "../../../packages/domain/src/marketing-calculators.ts";
 import { requireRecentMfa } from "./security.ts";
+import { modelProfileOverrides } from "./model-profile-overrides.ts";
 import {
   encryptionReady,
   openSealedValue,
@@ -282,9 +283,27 @@ async function runSettingsGuards(
 export async function loadRuntimeSettings(
   db: Database,
 ): Promise<Record<string, string>> {
-  const rows = await db.system((tx) =>
-    tx.query<SettingsRow>("SELECT * FROM platform_settings"),
-  );
+  return db.system(async (tx) => {
+    const rows = await tx.query<SettingsRow>("SELECT * FROM platform_settings");
+    const overrides = settingsOverrides(rows);
+    // The active model profile (and the fallback's keys) over the AI model
+    // settings (docs/features/model-profiles.md). The settings' own on/off
+    // switch still governs: with the AI model switched off, no profile
+    // switches it on. The default profile inherits the settings unchanged.
+    const modelDef = INTEGRATION_CATALOG.find((d) => d.id === "model")!;
+    const modelRow = rows.find((r) => r.integration_id === "model");
+    const modelEnabled = modelRow ? isActive(modelDef, modelRow) : isActive(modelDef);
+    const base = { ...process.env, ...overrides } as Record<string, string | undefined>;
+    try {
+      Object.assign(overrides, await modelProfileOverrides(tx, base, modelEnabled));
+    } catch (error) {
+      // Before migration 080 (no profiles table) the settings apply alone.
+      if ((error as { code?: string })?.code !== "42P01") throw error;
+    }
+    return overrides;
+  });
+}
+function settingsOverrides(rows: SettingsRow[]): Record<string, string> {
   const overrides: Record<string, string> = {};
   let stripeInactive = false;
   for (const row of rows) {

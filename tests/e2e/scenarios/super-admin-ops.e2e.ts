@@ -94,11 +94,14 @@ async function platformFinance(ctx: E2EContext) {
   });
 }
 
+/**
+ * The month (UAE calendar) that ledger journals and model usage land in once
+ * moved 40 days back: last month from about the 11th, the month before on
+ * the 1st to the 10th. That month always ended more than its seven-day refund
+ * buffer ago, so it can be closed on any day the suite runs.
+ */
 function previousPeriod() {
-  const d = new Date();
-  d.setUTCDate(1);
-  d.setUTCMonth(d.getUTCMonth() - 1);
-  return d.toISOString().slice(0, 7);
+  return new Date(Date.now() - 40 * 86400000 + 4 * 3600000).toISOString().slice(0, 7);
 }
 
 async function views(ctx: E2EContext, layla: TrainerSeed, omar?: TrainerSeed) {

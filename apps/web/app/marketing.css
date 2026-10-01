@@ -2655,3 +2655,38 @@ a.mk-nav-top {
     }
   }
 }
+
+/* Kamran's AI voice (docs/features/kamran-assistant.md): the button only; the
+   panel's styles load with its code (app/marketing-assistant.css). Bottom
+   corner on the reading end: bottom-left in right-to-left layouts. */
+.mk-assistant-fab {
+  position: fixed;
+  inset-inline-end: 16px;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  padding: 0;
+  border: 1px solid var(--ty-ink);
+  border-radius: 50%;
+  /* The Pace colour: light, like every public surface (the brand check). */
+  background: var(--ty-pace);
+  color: var(--ty-ink);
+  box-shadow: var(--mk-shadow);
+  cursor: pointer;
+  transition: transform var(--mk-dur-fast) var(--mk-ease-out);
+}
+.mk-assistant-fab:active {
+  transform: scale(0.96);
+}
+.mk-assistant-fab:focus-visible {
+  outline: 3px solid var(--ty-ink);
+  outline-offset: 3px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mk-assistant-fab {
+    transition: none;
+  }
+}

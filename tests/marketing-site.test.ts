@@ -89,6 +89,7 @@ const platform: PublicPlatform = {
     whoop: false,
     zepp: false,
     instagram: false,
+    frontier: false,
   },
   followerModel: DEFAULT_FOLLOWER_MODEL,
 };
@@ -493,7 +494,7 @@ test("home: one H1 that says what happens, a short hero, the relay and five sect
   assert.ok(page.lede, "the home page has a lede");
   assert.ok(brandText(page.lede!, APP).split(/\s+/).length <= 25);
   assert.ok(text.includes(brandText(page.lede!, APP)));
-  assert.match(text, /Built for UAE trainers · You set the price in AED · No technical skills needed/);
+  assert.match(text, /Built for UAE trainers · No technical skills needed/);
   // A short hero: payout details live on /pricing and /how-it-works.
   assert.doesNotMatch(text, /payouts to a UAE bank/i, "the hero stays short");
   // One name in the hero: "your AI" (H1, lede, call to action); the Trainer

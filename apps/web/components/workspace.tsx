@@ -60,6 +60,8 @@ import { MemberAppearance, useColorScheme } from "./appearance";
 import { type ColorSchemeChoice } from "../color-scheme";
 import { DirectoryListingSettings } from "./directory-listing";
 import { PlatformSettings } from "./platform-settings";
+import { ModelProfiles } from "./model-profiles";
+import { MarketingAssistantAdmin } from "./marketing-assistant-admin";
 import { ProviderSandboxBanner } from "./provider-sandbox-banner";
 import { MealCapture } from "./meal-capture";
 import { ProgrammeTimeline } from "./programme-today";
@@ -773,6 +775,24 @@ export default function Workspace({
             <BusinessMetrics platformRole={state.user.platformRole} />
           ) : path === "/admin/platform-finance" ? (
             <PlatformFinance platformRole={state.user.platformRole} />
+          ) : path === "/admin/marketing-assistant" ? (
+            state.user.platformRole === "admin" ? (
+              <MarketingAssistantAdmin />
+            ) : (
+              <PlatformSettings
+                path={path}
+                platformRole={state.user.platformRole}
+              />
+            )
+          ) : path === "/admin/model-profiles" ? (
+            state.user.platformRole === "admin" ? (
+              <ModelProfiles />
+            ) : (
+              <PlatformSettings
+                path={path}
+                platformRole={state.user.platformRole}
+              />
+            )
           ) : path === "/admin/governance" ? (
             <WorkspaceGovernance platformRole={state.user.platformRole} />
           ) : path === "/admin/infrastructure/host" ? (
@@ -1223,6 +1243,24 @@ export default function Workspace({
             >
               <Settings size={16} />
               Settings & API connections
+            </Link>
+          )}
+          {state.user.platformRole === "admin" && (
+            <Link
+              href="/admin/model-profiles"
+              className={`platform-settings-link ${path === "/admin/model-profiles" ? "active" : ""}`}
+            >
+              <Settings size={16} />
+              AI model profiles
+            </Link>
+          )}
+          {state.user.platformRole === "admin" && (
+            <Link
+              href="/admin/marketing-assistant"
+              className={`platform-settings-link ${path === "/admin/marketing-assistant" ? "active" : ""}`}
+            >
+              <Settings size={16} />
+              Home page assistant
             </Link>
           )}
         </nav>

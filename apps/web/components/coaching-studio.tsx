@@ -1,5 +1,6 @@
 "use client";
 import { Field } from "./field";
+import { BrainProgress } from "./brain-progress";
 import { useEffect, useState } from "react";
 import { coachingActions } from "../../../packages/domain/src/coaching-completion";
 
@@ -547,6 +548,7 @@ export function CoachingStudio({ path }: { path: string }) {
       )}
       {data && mode === "checks" && (
         <>
+          <BrainProgress />
           <section className="card">
             <h2>Independent coaching checks</h2>
             <p>
@@ -851,7 +853,12 @@ export function CoachingStudio({ path }: { path: string }) {
             </p>
             <dl>
               <dt>Brain service</dt>
-              <dd>{data.modelPin.model ? "Ready" : "Being set up by us"}</dd>
+              {/* The model profile's label (for example Frontier model), never the model ID. */}
+              <dd>
+                {data.modelPin.model
+                  ? (data.modelLabel ?? "Ready")
+                  : "Being set up by us"}
+              </dd>
               <dt>Teaching examples</dt>
               <dd>{data.cases.length}</dd>
               <dt>Confirmed actions</dt>

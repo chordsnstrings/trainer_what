@@ -1329,6 +1329,53 @@ the live region's quiet on arrow keys, the active card in view, one region
 for the steps, no layout shift on the home band, and the mocks' text size
 against the frames' real widths (181 checks).
 
+## Frontier wording and the model-name guard (1 October 2026, `r5/kamran`)
+
+Plan section 6. Four lines show only while the availability flag `frontier` is on (the active model
+profile is frontier tier and its latest switch check passed, `publicAvailability`); with the flag
+off the registry text shows unchanged.
+
+- `AVAILABILITY_LINES` (`packages/contracts/src/marketing-content.ts`): a fifth "How it learns"
+  bullet on `/trainer-brain` ("A frontier model plus your corrections: it keeps getting better with
+  time."), the `TRAINED_FAQ` answer on every page that carries it, a new `/faq` question "Does it get
+  better over time?", and the `/how-it-works` step "You correct, it learns" ("Approve or correct
+  what comes to you. Each tested release learns from it and keeps getting better.").
+- One filter, `marketingPageFor(page, availability)` (`packages/contracts/src/marketing.ts`): used by
+  `MarketingSite` (the page and its JSON-LD), `marketingJsonLd` and `llmsFullTxt` (both take
+  `availability` in `MarketingContext`; the web routes pass it). Idempotent; a page without lines
+  is returned as is.
+- "Keeps getting better", never "only gets better": single answers can regress, which is why
+  releases roll back.
+- Tests: `tests/marketing-frontier.test.ts` (flag off: "frontier model" nowhere in any rendered
+  page, its raw HTML including JSON-LD, `llms.txt` or `llms-full.txt`; flag on: the four lines on
+  their pages, in FAQ structured data and `llms-full.txt`; copy limits per line; idempotent) and
+  `tests/model-name-guard.test.ts` (no model or vendor name in marketing content including legal
+  pages, `BRAND_COPY`, the gated lines, the assistant's public words, the web message catalogs, and
+  `llms.txt` / `llms-full.txt` with every flag off or on).
+
+## Brand check fixes on the home walkthrough (1 October 2026, `r5/kamran`)
+
+`npm run test:brand` failed 12 checks on `main` (light and dark): dark surfaces in the walkthrough,
+408 words in the home page's `main` (limit 400) and an animation ending at 4.83 s (limit 4.5 s).
+
+- **Always-light surfaces** (`app/marketing-journey.css`): the coach's header in the phone mock
+  is white with the coach's colour as text and a 3 px accent rule; colour swatches are thick rings
+  on white; the logo tile and avatar are white with a coach-colour border; the phone notch is the
+  frame's light grey. The illustration still shows the coach's colour everywhere it did.
+- **Words** (396): the hero line under the actions is "Built for UAE trainers · No technical
+  skills needed" (the AED price is said in "Your site. Your price."); the control card's rule reads
+  "Your rule: two easy sessions → add 2.5 kg."
+- **Motion** (every beat ends by 4.48 s): chapter 5's subscriber steps (profile, Join, card, Pay,
+  intake chips at 80 ms steps) start earlier; chapter 6 returns to the coach at 3,450 ms (swap at
+  4,020 ms, the usual 570 ms after) with the phone's "Report pain" at 3,100 ms and "Workout
+  paused" at 3,250 ms, so "Safety hold" rises at 4,100 ms. No beat was removed; chapter lengths are
+  unchanged.
+- Checks: `npm run test:brand` 112 screens, 0 failures. `npm run test:marketing-motion`: sitewide
+  passes; the journey check's launch-gate expectation now follows the owner's "always show the
+  walkthrough" (30 September; `journeyAvailable`), and the journey half is 180/181. The remaining
+  failure ("1366 mouse: hover stops the clock, not the beats") is identical on the base `r5/models`
+  build and is not touched here.
+
 ## Not done / next
 
 - Journey: the owner decides D10 (keep the player hidden until a coach can

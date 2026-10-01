@@ -27,6 +27,20 @@ export function withRuntimeConfig<T>(
   return runtime.run({ ...runtime.getStore(), ...overrides }, callback);
 }
 /**
+ * Records values in the current request or job scope (later reads in the
+ * same scope see them); false outside any scope. Used to mark a scope in
+ * which a fallback model profile answered (model-accounting.ts).
+ */
+export function markRuntimeConfig(values: RuntimeConfig): boolean {
+  const store = runtime.getStore();
+  if (!store) return false;
+  Object.assign(store, values);
+  return true;
+}
+export function runtimeScopeActive() {
+  return runtime.getStore() !== undefined;
+}
+/**
  * Security controls (MFA step-up, legal and import approvals, Secure cookies,
  * email verification, second reviewers) relax only for a process explicitly
  * declared as local development or test, or the isolated Node test runner. An
@@ -493,6 +507,29 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
       }),
       field("COMPANY_DETAILS", "Public company details", "text", {
         help: "Registered name, licence and address shown on /about. Leave blank until confirmed; nothing is shown then.",
+      }),
+    ],
+  },
+  {
+    id: "marketing_assistant",
+    name: "Home page voice assistant",
+    category: "marketing",
+    implemented: true,
+    controls: true,
+    description:
+      "Kamran's AI voice on the home page: answers visitors from the site's own content and calculators, by voice.",
+    setupNotes:
+      "Shown only on the home page, and only while it is switched on here, the AI model, trainer voice (Cartesia) and speech-to-text are connected, and today's spend is under the cap. Spend counts model tokens at the active profile's price, speech-to-text seconds and text-to-speech characters, in AED; at the cap the button is hidden until midnight UAE time. No audio or words are stored. Pick the voice in Super admin, Home page assistant.",
+    fields: [
+      field("MARKETING_ASSISTANT_ENABLED", "Show the voice assistant on the home page", "boolean", {
+        defaultValue: "false",
+      }),
+      field("MARKETING_ASSISTANT_DAILY_AED", "Daily spend cap (AED)", "number", {
+        defaultValue: "10",
+        help: "Model, speech-to-text and voice costs together, per UAE day. 0.5 to 1000.",
+      }),
+      field("MARKETING_ASSISTANT_VOICE_ID", "Marketing assistant voice", "text", {
+        help: "A voice ID from the Cartesia account (choose it on Home page assistant). Blank uses the account's voice named Kamran.",
       }),
     ],
   },
@@ -1745,6 +1782,16 @@ export function validateIntegrationValues(
         !(Number(text) >= 1 && Number(text) <= 10)
       )
         throw new ConfigurationError(`${entry.label} must be between 1 and 10`);
+      if (
+        key === "MARKETING_ASSISTANT_DAILY_AED" &&
+        !(Number(text) >= 0.5 && Number(text) <= 1000)
+      )
+        throw new ConfigurationError(`${entry.label} must be from 0.5 to 1000`);
+      if (
+        key === "MARKETING_ASSISTANT_VOICE_ID" &&
+        !/^[A-Za-z0-9_-]{1,100}$/.test(text)
+      )
+        throw new ConfigurationError(`${entry.label} must be a voice ID from the voice list`);
       if (
         key === "FINANCE_USAGE_MARKUP_PERCENT" &&
         !(Number(text) >= 0 && Number(text) <= 1000)

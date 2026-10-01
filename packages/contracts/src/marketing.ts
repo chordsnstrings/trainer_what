@@ -4,6 +4,7 @@
 // none of them can drift. Copy uses the token {APP_NAME}; it is replaced with
 // the configured platform name (runtimeConfig().APP_NAME) when rendered.
 import {
+  AVAILABILITY_LINES,
   MARKETING_CONTENT,
   MARKETING_SOURCES,
   SETUP_CHECKLIST,
@@ -15,7 +16,7 @@ import {
   BRAND_SHARE_IMAGE_ALT,
   usesBrandIdentity,
 } from "./brand.ts";
-export { MARKETING_SOURCES, SETUP_CHECKLIST };
+export { AVAILABILITY_LINES, MARKETING_SOURCES, SETUP_CHECKLIST };
 
 /**
  * The platform name when the Super admin has not set APP_NAME (the settings
@@ -77,7 +78,26 @@ export type AvailabilityKey =
   | "payouts"
   | "whoop"
   | "zepp"
-  | "instagram";
+  | "instagram"
+  /** Active model profile: frontier tier, with a successful latest switch check. */
+  | "frontier";
+/**
+ * A line shown only while an availability flag is on (for example the
+ * "frontier model" wording, plan section 6). The registry pages keep the text
+ * shown with the flag off; `marketingPageFor` is the one filter the pages,
+ * their FAQ structured data and llms-full.txt all use.
+ */
+export type AvailabilityLine = {
+  when: AvailabilityKey;
+  /** The page it applies to; an FAQ answer without a path applies wherever the question appears. */
+  path?: string;
+  /** Appends a bullet to this section. */
+  bullet?: { section: string; text: string };
+  /** Replaces the body of the step or card with this title in this section. */
+  body?: { section: string; title: string; text: string };
+  /** Replaces the answer to this question, or (with a path) adds the question. */
+  faq?: MarketingFaq;
+};
 export type MarketingPage = {
   path: string;
   kind: MarketingKind;
@@ -417,7 +437,60 @@ export type MarketingContext = {
   supportEmail?: string | null;
   /** The follower model in use, for the assumption tokens in copy. */
   followerModel?: AssumptionFigures;
+  /** Provider availability; lines gated on a flag show only while it is on. */
+  availability?: Partial<Record<AvailabilityKey, boolean>>;
 };
+
+/**
+ * The page as shown for this availability: each AVAILABILITY_LINES entry whose
+ * flag is on is applied; with every flag off (or none given) the page is the
+ * registry text unchanged. Applying it twice changes nothing.
+ */
+export function marketingPageFor(
+  page: MarketingPage,
+  availability: Partial<Record<AvailabilityKey, boolean>> | undefined,
+): MarketingPage {
+  const lines = AVAILABILITY_LINES.filter(
+    (line) =>
+      availability?.[line.when] === true &&
+      (line.path === undefined || line.path === page.path),
+  );
+  if (!lines.length) return page;
+  let sections = page.sections;
+  let faqs = page.faqs;
+  for (const line of lines) {
+    if (line.bullet) {
+      const { section, text } = line.bullet;
+      sections = sections.map((s) =>
+        s.id === section && !(s.bullets ?? []).includes(text)
+          ? { ...s, bullets: [...(s.bullets ?? []), text] }
+          : s,
+      );
+    }
+    if (line.body) {
+      const { section, title, text } = line.body;
+      const swap = <T extends { title: string; body: string }>(items?: T[]) =>
+        items?.map((item) => (item.title === title ? { ...item, body: text } : item));
+      sections = sections.map((s) =>
+        s.id === section ? { ...s, cards: swap(s.cards), steps: swap(s.steps) } : s,
+      );
+    }
+    if (line.faq) {
+      const faq = line.faq;
+      if (faqs.some((f) => f.q === faq.q))
+        faqs = faqs.map((f) => (f.q === faq.q ? { ...f, a: faq.a } : f));
+      else if (line.path !== undefined) faqs = [...faqs, faq];
+    }
+  }
+  // Keep absent optional fields absent (renderers test for presence).
+  sections = sections.map((s) => {
+    const out = { ...s };
+    if (out.cards === undefined) delete out.cards;
+    if (out.steps === undefined) delete out.steps;
+    return out;
+  });
+  return { ...page, sections, faqs };
+}
 /**
  * The social preview image of a page: the supplied trainsyou share card for
  * the brand's home page, otherwise app/og/route.tsx renders the page's own.
@@ -486,7 +559,8 @@ export function marketingMetadata(page: MarketingPage, ctx: MarketingContext) {
 }
 
 /** Schema.org JSON-LD for a page, built only from text the page shows. */
-export function marketingJsonLd(page: MarketingPage, ctx: MarketingContext) {
+export function marketingJsonLd(shown: MarketingPage, ctx: MarketingContext) {
+  const page = marketingPageFor(shown, ctx.availability);
   const t = (text: string) => brandText(text, ctx.appName, ctx.followerModel);
   const base = new URL(ctx.origin).origin;
   const url = marketingCanonical(ctx.origin, page.path);
@@ -709,8 +783,9 @@ export function llmsFullTxt(ctx: MarketingContext): string {
     "",
     ...brandSummary(ctx.appName),
   ];
-  for (const page of INDEXABLE_MARKETING_PAGES) {
-    if (page.renderer === "workspace") continue;
+  for (const registered of INDEXABLE_MARKETING_PAGES) {
+    if (registered.renderer === "workspace") continue;
+    const page = marketingPageFor(registered, ctx.availability);
     out.push(
       `## ${t(page.h1)}`,
       "",
@@ -732,5 +807,63 @@ export function llmsFullTxt(ctx: MarketingContext): string {
       `- ${s.publisher}, "${s.title}"${s.published ? ` (${s.published})` : ""}, retrieved ${s.retrieved} [${s.evidence}]: ${s.claim} ${s.url}`,
     );
   out.push("");
+  return out.join("\n");
+}
+
+/**
+ * The pages the home page voice assistant may speak from
+ * (docs/features/kamran-assistant.md): the site's own words, as shown for
+ * this availability, and nothing else. Feature pages contribute their
+ * one-line description.
+ */
+export const ASSISTANT_FACT_PAGES = [
+  "/",
+  "/how-it-works",
+  "/trainer-brain",
+  "/pricing",
+  "/earnings-calculator",
+  "/follower-calculator",
+  "/faq",
+  "/get-started",
+  "/about",
+  "/security-and-privacy",
+] as const;
+/** The site facts the assistant is grounded in, as plain text. */
+export function marketingAssistantFacts(ctx: MarketingContext): string {
+  const t = (text: string) => brandText(text, ctx.appName, ctx.followerModel);
+  const out: string[] = [];
+  // Shared answers appear on several pages; each is given once.
+  const seen = new Set<string>();
+  for (const path of ASSISTANT_FACT_PAGES) {
+    const registered = marketingPage(path);
+    if (!registered) continue;
+    const page = marketingPageFor(registered, ctx.availability);
+    out.push(`## ${t(page.navLabel)} (${page.path})`, t(page.intro));
+    // The calculator pages' own blocks are the calculators: the assistant asks
+    // the code for numbers instead of reading the worked examples.
+    if (!path.endsWith("-calculator"))
+      for (const s of page.sections) {
+        const lines = [
+          ...(s.body ?? []),
+          ...(s.bullets ?? []).map((b) => `- ${b}`),
+          ...(s.cards ?? []).map((c) => `- ${c.title}: ${c.body}`),
+          ...(s.steps ?? []).map((c, i) => `${i + 1}. ${c.title}: ${c.body}`),
+          ...(s.table
+            ? [s.table.caption + ":", ...s.table.rows.map((r) => r.join(" | "))]
+            : []),
+        ];
+        if (lines.length) out.push(`### ${t(s.heading)}`, ...lines.map(t));
+      }
+    for (const f of page.faqs) {
+      if (seen.has(f.q)) continue;
+      seen.add(f.q);
+      out.push(`Q: ${t(f.q)}`, `A: ${t(f.a)}`);
+    }
+    out.push("");
+  }
+  out.push("## Features (one line each)");
+  for (const page of MARKETING_PAGES)
+    if (page.kind === "feature")
+      out.push(`- ${t(page.navLabel)}: ${t(page.description)}`);
   return out.join("\n");
 }

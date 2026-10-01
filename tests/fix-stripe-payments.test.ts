@@ -331,7 +331,9 @@ test("STATE-8/MONEY-1: a failed renewal that is never paid no longer holds month
   const previous = month(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 15)));
   const close = (period: string, at: Date) =>
     db.tenant(owner, (tx) => closeMonth(tx, owner, period, "Synthetic close evidence", at));
-  const closed = await close(previous, now);
+  // Last month closes once its seven-day refund buffer has passed: as of now,
+  // or as of just past the buffer on the 1st to the 8th of a month.
+  const closed = await close(previous, new Date(Math.max(now.getTime(), monthCutoff(previous).getTime() + 8 * DAY)));
   assert.equal(closed.data.period, previous);
   // Its own month is held while Stripe may still collect it ...
   const current = month(now);

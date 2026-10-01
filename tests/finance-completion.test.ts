@@ -651,8 +651,17 @@ test("finance scheduling and signed receipt replay retain stable job and journal
     db.tenant(a, (tx) => configureFinanceAutomation(tx, a, config)),
     /changed/,
   );
-  await scheduleFinance(db, a.tenantId);
-  await scheduleFinance(db, a.tenantId);
+  // Scheduled as of a moment past last month's seven-day refund buffer, so
+  // the monthly close is due on any calendar day (on the 1st to the 7th of a
+  // month it is not due yet in real time, and the reauthorization test below
+  // needs that job).
+  const { monthCutoff } = await import("../apps/api/src/finance-operations.ts");
+  const realNow = new Date(),
+    dubai = new Date(realNow.getTime() + 4 * 3600000),
+    lastMonth = new Date(Date.UTC(dubai.getUTCFullYear(), dubai.getUTCMonth() - 1, 15)).toISOString().slice(0, 7),
+    scheduledAt = new Date(Math.max(realNow.getTime(), monthCutoff(lastMonth).getTime() + 8 * 86400000));
+  await scheduleFinance(db, a.tenantId, scheduledAt);
+  await scheduleFinance(db, a.tenantId, scheduledAt);
   const jobs = await db.tenant(a, (tx) =>
     tx.query("SELECT * FROM jobs WHERE kind LIKE 'finance_%'"),
   );

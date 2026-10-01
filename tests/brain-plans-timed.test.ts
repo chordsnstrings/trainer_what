@@ -348,8 +348,8 @@ test("the session-length estimate and note limits the plan prompts state are the
 });
 
 test("versions changed with the contract: plan prompt v4, adaptation prompt v3, validator v5 (N1, one rounding unit a week)", () => {
-  assert.equal(planPromptVersion, "brain-plan-v4");
-  assert.equal(planAdaptationPromptVersion, "brain-plan-adapt-v3");
+  assert.equal(planPromptVersion, "brain-plan-v5");
+  assert.equal(planAdaptationPromptVersion, "brain-plan-adapt-v4");
   assert.equal(planValidatorVersion, "brain-plan-validator-v5");
 });
 
@@ -1512,7 +1512,7 @@ const planReply = (evidenceIds: string[], patch: Partial<PlanDraft> = {}) => ({
 test("the plan prompt is v4 with the timed-work contract, member wording, safety rules and short references; nothing sent carries a UUID", async () => {
   const system = planGenerationSystem(4);
   for (const phrase of [
-    "Trainer Brain plan generator brain-plan-v4.",
+    "Trainer Brain plan generator brain-plan-v5.",
     // v4 (trial tuning): alternatives, repeats, cues, rounding, session length, notes.
     "Every alternative must also be a library exercise the subscriber's equipment allows (check its equipment tag), or leave alternatives empty",
     "List each exercise at most once per session",
@@ -1662,7 +1662,7 @@ test("trial regression (Claude Haiku 4.5): a plan or adjustment wrapped in one e
 test("the adaptation prompt is v3: it carries the code's progression hold, keeps measures and cites short references", async () => {
   const system = planAdaptationSystem();
   for (const phrase of [
-    "Trainer Brain plan adaptation brain-plan-adapt-v3.",
+    "Trainer Brain plan adaptation brain-plan-adapt-v4.",
     "Keep every session within bounds.maxSessionMinutes",
     "shorten any nextWeek session over that limit with fewer sets or less duration or distance, never making anything harder",
     "uncertainties:[at most 5 one-sentence notes for the trainer, each under 300 characters]",
