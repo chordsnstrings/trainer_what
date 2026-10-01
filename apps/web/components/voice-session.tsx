@@ -26,6 +26,19 @@ import {
 import type { SessionScript } from "../../../packages/domain/src/voice-session.ts";
 import { workMeasure, workText } from "../../../packages/domain/src/prescription.ts";
 import {
+  audioSessionSupported,
+  joinMp3,
+  mp3Info,
+  planCue,
+  requestWakeLock,
+  savedMusicMode,
+  setAudioSessionType,
+  unlockAudio,
+  MUSIC_MODE_KEY,
+  type MusicMode,
+} from "../lib/audio-session";
+import { useTapToTalk, type TalkCapture } from "./voice-tap-to-talk";
+import {
   drainWorkoutQueue,
   offlineQueueKeys,
   readList,
@@ -592,12 +605,22 @@ function Runner({
     [clipCount, setClipCount] = useState(0),
     [changed, setChanged] = useState(false),
     // The language the member replies in: "" follows the app's language.
-    [replyLanguage, setReplyLanguage] = useState<ReplyLanguage>(savedReplyLanguage);
+    [replyLanguage, setReplyLanguage] = useState<ReplyLanguage>(savedReplyLanguage),
+    // "My own music": cues mix over the member's music, tap to talk.
+    [music, setMusic] = useState<MusicMode>(savedMusicMode);
+  const ownMusic = music === "own";
+  const ownMusicRef = useRef(ownMusic);
+  ownMusicRef.current = ownMusic;
   const replyLanguageRef = useRef(replyLanguage);
   replyLanguageRef.current = replyLanguage;
   const recognitionLang =
     replyLanguage === "ar" ? "ar-AE" : replyLanguage === "en" ? "en-US" : appLanguage();
   const clips = useRef(new Map<string, string>());
+  /** The clips' bytes, joined into one clip per cue in "My own music" mode. */
+  const clipBytes = useRef(new Map<string, Uint8Array>());
+  /** While the member is talking, cues wait. */
+  const talkBusy = useRef(false);
+  const wakeLock = useRef<{ release(): Promise<void>; released?: boolean } | null>(null);
   const player = useRef<HTMLAudioElement | null>(null);
   const speaking = useRef(false);
   const playback = useRef<Playback>({ playing: false, endedAt: 0, prompts: [], listeners: new Set() });
@@ -631,6 +654,7 @@ function Runner({
       player.current?.pause();
       for (const url of loaded.values()) URL.revokeObjectURL(url);
       loaded.clear();
+      clipBytes.current.clear();
       setClipCount(0);
       return;
     }
@@ -652,6 +676,7 @@ function Runner({
             const prior = loaded.get(key);
             if (prior) URL.revokeObjectURL(prior);
             loaded.set(key, url);
+            clipBytes.current.set(key, bytes);
           }
           setClipCount(loaded.size);
           if (!page.clips.length) break;
@@ -673,6 +698,7 @@ function Runner({
     () => () => {
       for (const url of clips.current.values()) URL.revokeObjectURL(url);
       clips.current.clear();
+      clipBytes.current.clear();
     },
     [],
   );
@@ -729,6 +755,11 @@ function Runner({
   const dispatchRef = useRef<(event: RunnerEvent) => void>(() => {});
   const audible = !muted && voiceAvailable;
   const playNext = useCallback(() => {
+    // While the member talks back, cues wait in the queue.
+    if (talkBusy.current) {
+      speaking.current = false;
+      return;
+    }
     const next = sayQueue.current.shift();
     if (!next) {
       speaking.current = false;
@@ -751,7 +782,41 @@ function Runner({
       } else playNext();
     };
     currentDone.current = done;
-    if (audible && urls.length === next.items.length && player.current) {
+    const keys = next.items.map((item) => ("line" in item ? "l:" + item.line : "s:" + item.clip));
+    if (audible && ownMusicRef.current && urls.length === next.items.length && player.current) {
+      // "My own music": one joined clip of at most about 4.5 s per play
+      // (Android lowers the music briefly; iPhone mixes it as "ambient"); a
+      // longer line stays on screen. Clips that are not MP3 play as before.
+      const audio = player.current;
+      setAudioSessionType("ambient");
+      const parts = keys.map((k) => clipBytes.current.get(k));
+      const plan = planCue(parts.map((b) => (b ? mp3Info(b)?.durationMs ?? null : null)));
+      const joined = plan.groups
+        .map((g) => joinMp3(g.map((i) => parts[i]!)))
+        .filter((j): j is NonNullable<typeof j> => !!j)
+        .map((j) => URL.createObjectURL(new Blob([j.bytes as BlobPart], { type: "audio/mpeg" })));
+      if (!joined.length) {
+        if (next.wait) promptTimer.current = setTimeout(done, readingSeconds(next.text) * 1000);
+        else done();
+        return;
+      }
+      playback.current.prompts = [next.text, ...playback.current.prompts].slice(0, 3);
+      setPlaying(true);
+      let index = 0;
+      const playOne = () => {
+        if (index > 0) URL.revokeObjectURL(joined[index - 1]);
+        if (index >= joined.length) return done();
+        audio.src = joined[index++];
+        audio.onended = playOne;
+        audio.onerror = playOne;
+        void audio.play().catch(() => {
+          setPlaying(false);
+          for (const url of joined.slice(index - 1)) URL.revokeObjectURL(url);
+          promptTimer.current = setTimeout(done, readingSeconds(next.text) * 1000);
+        });
+      };
+      playOne();
+    } else if (audible && urls.length === next.items.length && player.current) {
       const audio = player.current;
       // The echo guard ignores replies while this plays and briefly after.
       playback.current.prompts = [next.text, ...playback.current.prompts].slice(0, 3);
@@ -994,6 +1059,118 @@ function Runner({
   // polls and runner changes never restart the microphone mid-reply.
   const transcriptRef = useRef(handleTranscript);
   transcriptRef.current = handleTranscript;
+
+  // ------------------------------------------------- screen and own music
+  const keepAwake = useCallback(async () => {
+    if (wakeLock.current && !wakeLock.current.released) return;
+    wakeLock.current = await requestWakeLock();
+  }, []);
+  useEffect(() => {
+    if (!inProgress) {
+      const lock = wakeLock.current;
+      wakeLock.current = null;
+      void lock?.release().catch(() => {});
+      return;
+    }
+    // The lock is released when the page is hidden; take it again on return.
+    const visible = () => {
+      if (document.visibilityState === "visible") void keepAwake();
+    };
+    document.addEventListener("visibilitychange", visible);
+    return () => document.removeEventListener("visibilitychange", visible);
+  }, [inProgress, keepAwake]);
+  useEffect(
+    () => () => {
+      void wakeLock.current?.release().catch(() => {});
+    },
+    [],
+  );
+  const chooseMusic = (mode: MusicMode) => {
+    setMusic(mode);
+    try {
+      localStorage.setItem(MUSIC_MODE_KEY, mode);
+    } catch {}
+    // Own music: no open microphone (tap to talk instead), cues mix in.
+    if (mode === "own") {
+      setListening("off");
+      setAudioSessionType("ambient");
+    } else {
+      talk.cancel();
+      setAudioSessionType("auto");
+    }
+  };
+  // Tap to talk: on-device recognition when offered, else the speech service.
+  const talkCapture: TalkCapture | null = deviceSpeech
+    ? "device"
+    : gate.speechToText && voiceMode
+      ? "server"
+      : null;
+  const talk = useTapToTalk({
+    capture: talkCapture,
+    lang: recognitionLang,
+    graceLeftMs: () => ECHO_GRACE_MS - (Date.now() - playback.current.endedAt),
+    sincePlaybackMs: () => Date.now() - playback.current.endedAt,
+    onWords: (text) => void transcriptRef.current(text),
+    onMicError: () => setNotice(words.current.t("micPermission")),
+    onAudio: async (blob, duration, sincePlaybackMs) => {
+      const type = speechType(blob.type);
+      if (duration < 300 || !type || blob.size > 480000) return;
+      try {
+        const audio = await blobBase64(blob);
+        const r = await api<{ transcript: string; command: VoiceCommand; trainingHeld: boolean }>(
+          `/voice-sessions/${session.id}/transcribe`,
+          "POST",
+          {
+            audio,
+            type,
+            durationMs: Math.min(15000, Math.max(200, Math.round(duration))),
+            ...(replyLanguageRef.current ? { language: replyLanguageRef.current } : {}),
+          },
+        );
+        await transcriptRef.current(r.transcript, { command: r.command, trainingHeld: r.trainingHeld, sincePlaybackMs });
+      } catch (e) {
+        setNotice(message(e));
+      }
+    },
+  });
+  talkBusy.current = talk.state.phase !== "idle";
+  // A cue that waited for the member's reply plays once the talk is over.
+  useEffect(() => {
+    if (talk.state.phase === "idle" && !speaking.current && sayQueue.current.length) playNext();
+  }, [talk.state.phase, playNext]);
+  // Pain, a hold, the end of the session: the microphone closes.
+  useEffect(() => {
+    if (!inProgress) talk.cancel();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inProgress]);
+  const tapToTalk = async () => {
+    if (talk.state.phase === "idle") {
+      if (talkCapture === "server" && !gate.transcriptionConsent) {
+        if (!transcriptionConsent) {
+          setNotice(t("agreeFirst"));
+          return;
+        }
+        try {
+          await api("/voice-sessions/consent", "POST", { transcription: true });
+          await onRefresh();
+        } catch (e) {
+          setNotice(message(e));
+          return;
+        }
+      }
+      // The member interrupts the coach: the cue on screen ends now.
+      talkBusy.current = true;
+      if (promptTimer.current) clearTimeout(promptTimer.current);
+      if (playback.current.playing) {
+        player.current?.pause();
+        setPlaying(false);
+        const done = currentDone.current;
+        currentDone.current = null;
+        done?.();
+      }
+    }
+    talk.tap();
+  };
   useEffect(() => {
     void onDeviceRecognition(recognitionLang).then(setDeviceSpeech);
   }, [recognitionLang]);
@@ -1247,6 +1424,30 @@ function Runner({
             </button>
           </div>
         )}
+        {voiceMode && (
+          <div className="voice-music stack">
+            <div className="button-row" role="group" aria-label={t("musicTitle")}>
+              <span className="voice-music-label">{t("musicTitle")}</span>
+              {(["off", "own"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  className={"button " + (music === mode ? "" : "secondary")}
+                  aria-pressed={music === mode}
+                  onClick={() => chooseMusic(mode)}
+                >
+                  {mode === "off" ? t("musicOff") : t("musicOwn")}
+                </button>
+              ))}
+            </div>
+            {ownMusic && (
+              <p className="muted">
+                {t("musicHelp")} {audioSessionSupported() ? "" : t("musicAndroid") + " "}
+                {t("musicLong")}
+              </p>
+            )}
+          </div>
+        )}
       </section>
 
       {alert && (
@@ -1331,6 +1532,11 @@ function Runner({
               <button
                 className="button voice-start"
                 onClick={() => {
+                  // Inside the tap: mix with the member's music (own-music
+                  // mode), unlock audio for later cues, keep the screen on.
+                  if (ownMusic) setAudioSessionType("ambient");
+                  if (voiceMode) void unlockAudio(player.current);
+                  void keepAwake();
                   void flush("running");
                   dispatch({ type: "start" });
                 }}
@@ -1472,8 +1678,53 @@ function Runner({
               <option value="ar" lang="ar">{t("replyArabic")}</option>
             </select>
           </label>
-          <p className="muted">{t("spokenHelp")}</p>
-          {listening === "off" ? (
+          <p className="muted">{ownMusic ? t("talkHelp") : t("spokenHelp")}</p>
+          {ownMusic ? (
+            // Own music: no open microphone; one reply per tap.
+            <div className="stack">
+              {talkCapture === "server" && !gate.transcriptionConsent && (
+                <label className="voice-check">
+                  <input
+                    type="checkbox"
+                    checked={transcriptionConsent}
+                    onChange={(e) => setTranscriptionConsent(e.target.checked)}
+                  />{" "}
+                  {t("sendClips", {
+                    provider: gate.speechProvider?.name ?? t("theService"),
+                  })}
+                  {gate.speechProvider?.zeroRetention
+                    ? t("zeroRetention")
+                    : t("ownTerms", {
+                        provider: gate.speechProvider?.name ?? t("theProvider"),
+                      })}
+                </label>
+              )}
+              {talkCapture ? (
+                <button
+                  type="button"
+                  className={"button voice-talk" + (talk.state.phase === "idle" ? " secondary" : "")}
+                  aria-pressed={talk.state.phase === "recording"}
+                  disabled={
+                    talk.state.phase === "sending" ||
+                    (talkCapture === "server" && !gate.transcriptionConsent && !transcriptionConsent)
+                  }
+                  onClick={() => void tapToTalk()}
+                >
+                  <Mic size={18} aria-hidden="true" />
+                  {talk.state.phase === "idle"
+                    ? t("talk")
+                    : talk.state.phase === "opening"
+                      ? t("talkOpening")
+                      : talk.state.phase === "recording"
+                        ? t("talkListening")
+                        : t("talkSending")}
+                </button>
+              ) : (
+                <p className="muted">{t("noSpeech")}</p>
+              )}
+              {heard && <p role="status">{t("heard", { text: `“${heard}”` })}</p>}
+            </div>
+          ) : listening === "off" ? (
             <div className="stack">
               {deviceSpeech && (
                 <button className="button secondary" onClick={() => void startListening("device")}>

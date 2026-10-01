@@ -48,8 +48,9 @@ waits on trainsyou). The response also has `progress {done,total,percent,minutes
   `waitingOnTrainsyou` (labels for the one "Waiting on trainsyou" line).
 - `security`: `authenticatorRequired`, `authenticatorEnrolled`, `hasPassword`, `verifiedRecently`
   (the go-live screen asks for the authenticator itself; see below).
-- `grow`: voice clone, nutrition, own domain, bank details ("asked at your first payout"),
-  qualification badge (optional).
+- `grow`: voice clone, your one-on-one sessions (`one_on_one`, done once the coach confirmed a
+  session style; `docs/features/voice-session.md`), nutrition, own domain, bank details ("asked at
+  your first payout"), qualification badge (optional).
 
 ## Saving: `PUT /api/v1/setup/:step`
 

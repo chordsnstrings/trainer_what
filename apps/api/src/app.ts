@@ -77,6 +77,7 @@ import {
   disableUserIntegrations,
 } from "./integrations-completion.ts";
 import { registerVoiceSessions } from "./voice-session.ts";
+import { registerVoiceNarration } from "./voice-narration.ts";
 import { registerVoiceClones } from "./voice-clones.ts";
 import { assertSlugAvailable, registerWebAddresses } from "./web-addresses.ts";
 import type { WebAddressDeps } from "./web-address-orders.ts";
@@ -669,6 +670,7 @@ export async function buildApp(
   registerBrainPlans(app, db);
   registerIntegrationCompletion(app, db);
   registerVoiceSessions(app, db);
+  registerVoiceNarration(app, db);
   registerVoiceClones(app, db);
   registerWebAddresses(app, db, options.providers?.webAddresses);
   registerHealthKitSync(app, db);

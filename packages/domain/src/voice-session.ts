@@ -7,6 +7,16 @@ import { z } from "zod";
 import { cueIssues, MARKUP, phraseIssues, type PhraseIssue } from "./text-screen.ts";
 import { EFFORTS, spokenDistance, spokenDuration, workMeasure } from "./prescription.ts";
 import { speechLanguage, type SpeechLanguage } from "./speech-language.ts";
+import {
+  applyNarration,
+  brainLines,
+  brainScriptIssues,
+  oneOnOneSchema,
+  type BrainScript,
+  type DroppedBrainLine,
+  type NarrationFacts,
+  type NarrationLines,
+} from "./voice-narration.ts";
 // The free-wording checks live in text-screen.ts (shared with Brain plans).
 export { cueIssues, phraseIssues, type PhraseIssue } from "./text-screen.ts";
 
@@ -33,10 +43,12 @@ export type LineKind =
   | "finish";
 /**
  * code: written by code from the plan; trainer: the trainer's own words (their
- * phrases, their plan cue, or a Brain suggestion the trainer approved and saved).
- * Model wording is never spoken without the trainer's approval.
+ * phrases, their plan cue, or a Brain suggestion the trainer approved and saved);
+ * brain: an extra line the Brain wrote for this session in the style the coach
+ * confirmed (voice-narration.ts). Brain lines never carry a prescribed number,
+ * count or the safety line; each is re-checked before it is voiced.
  */
-export type LineOwner = "code" | "trainer";
+export type LineOwner = "code" | "trainer" | "brain";
 /**
  * The language a script line is synthesised in. Code-owned lines (setup, set,
  * rest, the safety line, and the shared clips) are English templates, even
@@ -79,6 +91,8 @@ export type ScriptExercise = PlanExercise & {
   rest: ScriptLine;
   restEnd: ScriptLine;
   encouragement: ScriptLine[];
+  /** Brain lines: after the setup, in the first rest, before the last set. */
+  brain?: { lead?: ScriptLine; rest?: ScriptLine; lastSet?: ScriptLine };
 };
 export type SessionScript = {
   version: typeof VOICE_SCRIPT_VERSION;
@@ -91,6 +105,8 @@ export type SessionScript = {
   finish: ScriptLine;
   /** The trainer's adjustment rules in force when the script was built. */
   rules: VoiceAdjustmentRules;
+  /** Present when the Brain wrote lines for this session: the facts they may use. */
+  brain?: BrainScript;
 };
 
 // ---------------------------------------------------------------------------
@@ -124,6 +140,11 @@ export const voiceStyleSchema = z
       tooHeavyReducePercent: 0,
       allowSkip: false,
     }),
+    /**
+     * "Your one-on-one sessions": the coach's answers and the style they
+     * confirmed. Saved only through its own endpoints; the style form keeps it.
+     */
+    oneOnOne: oneOnOneSchema.optional(),
   })
   .strict();
 export type VoiceStyle = z.infer<typeof voiceStyleSchema>;
@@ -428,7 +449,13 @@ export function buildSessionScript(input: {
   exercises: PlanExercise[];
   style?: VoiceStyle;
   language?: SpeechLanguage;
-}): { script: SessionScript; rejected: RejectedLine[] } {
+  /** The Brain's lines for this session and the facts they may use. */
+  narration?: { lines: NarrationLines; facts: NarrationFacts; never?: readonly string[] } | null;
+}): {
+  script: SessionScript;
+  rejected: RejectedLine[];
+  brain?: { added: number; dropped: DroppedBrainLine[] };
+} {
   const style = input.style ?? defaultVoiceStyle();
   const defaults = DEFAULTS[style.tone];
   const rejected: RejectedLine[] = [];
@@ -513,7 +540,13 @@ export function buildSessionScript(input: {
     finish: { id: "finish", kind: "finish", owner: finish.owner, text: finish.text },
     rules: { ...style.adjustments },
   };
-  return { script, rejected };
+  if (!input.narration) return { script, rejected };
+  const narrated = applyNarration(script, input.exercises, input.narration);
+  return {
+    script: narrated.script,
+    rejected,
+    brain: { added: narrated.added, dropped: narrated.dropped },
+  };
 }
 
 /** Every spoken line in play order. */
@@ -529,9 +562,11 @@ export function scriptLines(script: SessionScript): ScriptLine[] {
       ex.rest,
       ex.restEnd,
       ...ex.encouragement,
+      ...[ex.brain?.lead, ex.brain?.rest, ex.brain?.lastSet].filter((l): l is ScriptLine => !!l),
     ]),
     ...script.cooldown,
     script.finish,
+    ...(script.brain?.struggle ? [script.brain.struggle] : []),
   ];
 }
 
@@ -545,7 +580,7 @@ export function spokenLines(script: SessionScript): ScriptLine[] {
   const silent = new Set(
     script.exercises
       .filter((ex, i) => ex.restSeconds <= 0 || (i === last && ex.sets === 1))
-      .flatMap((ex) => [ex.rest.id, ex.restEnd.id]),
+      .flatMap((ex) => [ex.rest.id, ex.restEnd.id, ...(ex.brain?.rest ? [ex.brain.rest.id] : [])]),
   );
   return scriptLines(script).filter((line) => !silent.has(line.id));
 }
@@ -602,8 +637,13 @@ export function scriptIssues(script: SessionScript, plan: PlanExercise[]): strin
   const safety = script.intro?.find((l) => l.kind === "safety");
   if (!safety || safety.text !== VOICE_SAFETY_LINE || safety.owner !== "code")
     issues.push("safety_line");
+  // Brain lines: only in their own slots, each re-checked against the plan
+  // and the facts stored with the script (numbers, length, wording).
+  // A "brain" owner anywhere else is refused below with the other owners.
+  const brain = new Set(brainLines(script));
+  issues.push(...brainScriptIssues(script, plan));
   const free = all.filter(
-    (l) => l && !["setup", "set", "rest", "rest_end", "safety", "cue"].includes(l.kind),
+    (l) => l && !brain.has(l) && !["setup", "set", "rest", "rest_end", "safety", "cue"].includes(l.kind),
   );
   for (const line of free) {
     const found = phraseIssues(line.text);

@@ -65,6 +65,7 @@ import { legalAcceptanceVersion } from "./legal.ts";
 import { lockTraining, openTrainingHold } from "./coaching-completion.ts";
 import { screenForSafety } from "./safety-policy.ts";
 import { modelAccounting } from "./model-accounting.ts";
+import { narrate, narrationRequest, type PreparedNarration } from "./voice-narration.ts";
 import { costEstimated, costNotSent, reserveVoiceCost } from "./cost-accounting.ts";
 
 const id = z.string().uuid();
@@ -778,7 +779,12 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
     const consentVersion = b.playbackConsent
       ? (await legalAcceptanceVersion(db, "voice")) + "|voice-session:v1"
       : "";
-    return db.tenant(a, async (tx) => {
+    // A new session in a coach's confirmed one-on-one style gets Brain lines:
+    // the first pass asks for them, the model is called outside any
+    // transaction, and the second pass builds the session with whatever
+    // passed the checks (none when the call failed). An existing session is
+    // returned as it is (its lines were written when it was prepared).
+    const run = (narration: PreparedNarration | null | undefined) => db.tenant(a, async (tx): Promise<any> => {
       await lockTraining(tx, a);
       const access = await memberAccess(tx, a.userId);
       if (!access.active)
@@ -798,7 +804,7 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
       if (workout && workout.status !== "active")
         throw fail(409, "WORKOUT_STATE", "Start this workout before its voice session.");
       const program = workout ? workout.data?.program : planned.data?.program;
-      if (b.playbackConsent)
+      if (b.playbackConsent && narration === undefined)
         await recordConsent(tx, a, "voice_playback", true, consentVersion);
       const { gate, voice, pricing } = await voiceGate(tx, a);
       if (gate.held) throw fail(409, "TRAINING_HELD", REASONS.TRAINING_HELD);
@@ -852,12 +858,24 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
       // revoked (never spoken) and the session is built anew.
       if (stale) await revokeStale(tx, stale.id);
       const title = String(program?.title ?? "Workout");
+      const language = await memberLanguage(tx, a.userId);
+      if (narration === undefined) {
+        const request = await narrationRequest(tx, a, {
+          plan,
+          style: style.style,
+          title,
+          language,
+          workoutId: workout?.id ?? null,
+        });
+        if (request) return { narrationRequest: request };
+      }
       // A bilingual trainer's phrases in the member's language come first.
       const built = buildSessionScript({
         title,
         exercises: plan,
         style: style.style,
-        language: await memberLanguage(tx, a.userId),
+        language,
+        narration: narration ?? null,
       });
       if (scriptIssues(built.script, plan).length)
         throw fail(409, "VOICE_SCRIPT_INVALID", "This workout cannot be voiced safely; use the written session.");
@@ -897,9 +915,23 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
         mode: session.mode,
         ahead: !workout,
         rejectedLines: built.rejected.length,
+        // Brain lines: "off" (no confirmed style or no model use), "failed"
+        // (the call failed; the session runs without them) or the counts.
+        brain:
+          narration === undefined
+            ? "off"
+            : narration === null
+              ? "failed"
+              : {
+                  added: built.brain?.added ?? 0,
+                  dropped: (built.brain?.dropped ?? []).map((d) => ({ slot: d.slot, issues: d.issues })),
+                },
       });
       return sessionView(tx, session, gate);
     });
+    const first = await run(undefined);
+    if (!first?.narrationRequest) return first;
+    return run(await narrate(db, a, first.narrationRequest));
   });
   app.get("/api/v1/voice-sessions/:id", async (req) => {
     const a = identity(req);
@@ -1290,14 +1322,19 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
       );
     return db.tenant(a, async (tx) => {
       await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [a.tenantId + ":voice-style"]);
-      const [prior] = await tx.query("SELECT version,suggestions FROM voice_session_styles");
+      const [prior] = await tx.query("SELECT version,suggestions,style FROM voice_session_styles");
       if (Number(prior?.version ?? 0) !== b.revision)
         throw fail(409, "VOICE_STYLE_CHANGED", "The voice style changed. Reload before saving.");
       // Suggestions the trainer saved into the style are no longer pending.
       const left = pendingSuggestions(prior?.suggestions, b.style) ?? {};
+      // "Your one-on-one sessions" is saved through its own routes
+      // (voice-narration.ts): this form keeps whatever is stored.
+      const { oneOnOne: _ignored, ...phrases } = b.style;
+      const kept = voiceStyleSchema.safeParse(prior?.style ?? {});
+      const style = kept.success && kept.data.oneOnOne ? { ...phrases, oneOnOne: kept.data.oneOnOne } : phrases;
       const [row] = await tx.query(
         "INSERT INTO voice_session_styles(tenant_id,version,style,suggestions,updated_by) VALUES($1,1,$2,$3,$4) ON CONFLICT(tenant_id) DO UPDATE SET version=voice_session_styles.version+1,style=EXCLUDED.style,suggestions=EXCLUDED.suggestions,updated_by=EXCLUDED.updated_by,updated_at=now() RETURNING version,style",
-        [a.tenantId, JSON.stringify(b.style), JSON.stringify(left), a.userId],
+        [a.tenantId, JSON.stringify(style), JSON.stringify(left), a.userId],
       );
       await event(tx, a, "voice_session.style_saved", undefined, { version: row.version });
       return { version: row.version, style: row.style, suggestions: left };

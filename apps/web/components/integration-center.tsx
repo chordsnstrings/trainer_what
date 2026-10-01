@@ -16,6 +16,7 @@ import {
   StickyActionBar,
 } from "./phone-ui";
 import { VoiceSessionStyle } from "./voice-session-style";
+import { VoiceOneOnOne } from "./voice-one-on-one";
 import { WebAddressCenter } from "./web-address";
 import { WebAddressOperations } from "./web-address-operations";
 import {
@@ -133,6 +134,7 @@ export function IntegrationCenter({
           {/* Cartesia: clones made here; ElevenLabs: link an existing voice ID. */}
           <TrainerVoiceClone fallback={<VoiceEnrollment />} />
           <VoiceSessionStyle />
+          <VoiceOneOnOne />
         </>
       ) : trainer && path.includes("/domains") ? (
         <WebAddressCenter manual={<DomainCenter />} />

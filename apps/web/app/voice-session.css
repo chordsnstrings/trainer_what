@@ -126,3 +126,19 @@
   overflow-wrap: anywhere;
 }
 /* Motion (the rest ring, cues, the listening ring) is in app/motion.css. */
+
+/* "My own music": the music choice and tap to talk (docs/features/voice-session.md, "Own music"). */
+.voice-music .button-row {
+  align-items: center;
+  flex-wrap: wrap;
+}
+.voice-music-label {
+  font-weight: 600;
+  margin-inline-end: 0.25rem;
+}
+.voice-talk {
+  min-block-size: 3.25rem;
+  inline-size: 100%;
+  justify-content: center;
+  gap: 0.5rem;
+}
