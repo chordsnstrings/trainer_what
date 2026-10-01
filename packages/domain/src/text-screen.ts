@@ -17,7 +17,7 @@ const word = (alternatives: string, flags = "iu") =>
 const NUMBER_ALTS =
   "zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|dozen|half|double|triple|twice|" +
   "صفر|واحده?|اثنين|اثنان|ثنتين|ثلاث|ثلاثه|اربع|اربعه|خمس|خمسه|ست|سته|سبع|سبعه|ثمان|ثماني|ثمانيه|تسع|تسعه|عشر|عشره|عشرين|ثلاثين|اربعين|خمسين|ستين|مئه|ميه|نصف|ضعف";
-const NUMBER_WORDS = word(NUMBER_ALTS);
+export const NUMBER_WORDS = word(NUMBER_ALTS);
 const MEDICAL_ALTS =
   "diagnos\\p{L}*|anti-?inflammator\\p{L}*|salbutamol|inhalers?|tendin\\p{L}*|arthrit\\p{L}*|degenerat\\p{L}*|surger(?:y|ies)|surgical|milligrams?|\\d+\\s*mg|medicines?|medications?|medical|doses?|dosage|ibuprofen|paracetamol|acetaminophen|aspirin|painkillers?|pills?|supplements?|rehab\\p{L}*|therap\\p{L}*|treat(?:s|ed|ing|ment|ments)?|cures?|heal(?:s|ed|ing)?|doctors?|physio\\p{L}*|symptoms?|diseases?|injections?|ice\\s+it|push\\s+through|work\\s+through\\s+(?:it|the\\s+\\p{L}+)|(?:rebuild|repair)\\s+(?:the|your)\\s+(?:\\p{L}+\\s+)?(?:knees?|shoulders?|back|hips?|ankles?|joints?|tendons?)|no\\s+pain\\s*,?\\s*no\\s+gain|" +
     // Telling someone to ignore or train through a symptom.

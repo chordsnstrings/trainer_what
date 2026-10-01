@@ -1064,3 +1064,62 @@ loading are untested in a real browser.
   cannot yet be corrected on the workout log's correction form (reps, load and RIR only).
 - The session plays in the trainer's voice only while the page is open; iOS background audio
   and screen-lock behaviour were not tested.
+
+## Narration in the coach's style and "My own music" (round 5, `r5/voice`, 1 October 2026)
+
+Owner requests of 30 September 2026: extra lines "so it's like a real one-on-one session — ask the trainer how they run one-on-one sessions and act accordingly", and members playing their own music during voice sessions (plan section 5).
+
+### Narration in the coach's style
+
+- **The coach** answers "Your one-on-one sessions" (Keep training grow item `one_on_one`, link `/trainer/voice#one-on-one`, panel `components/voice-one-on-one.tsx` under the voice style): how you open, cue form, count, talk in rests, motivate, handle struggle, close; phrases you always use; things you never say (at most 8 each). With at least 3 answers saved, "Draft my style" asks the Brain for a style summary and a sample session (prompt `voice-one-on-one-v1`, accounting task `voice_session_style`); the sample is shown line by line with its owner (from the plan / your words / Brain, in your style). "Hear it in your voice" voices the sample's Brain lines in the workspace's verified voice (cost task `voice.preview`, inside the daily voice limit). The coach confirms the style once (not each phrase); "Stop using it" turns it off. Editing the answers keeps the confirmed style in use until a new draft is confirmed.
+- **Storage:** `voice_session_styles.style.oneOnOne` `{answers, draft, confirmed}` (no migration; `voiceStyleSchema.oneOnOne` is optional so older rows stay valid). It is saved only through its own routes; the phrases form (`PUT /voice-sessions/style`) keeps whatever is stored. Both panels share the style version (`voice-style-saved` window event). The row stays under 38,000 bytes (`VOICE_STYLE_TOO_LONG`). Only the confirmed snapshot reaches members, and only through the lines it produces. Answers are refused with links, contact details, markup or AI vendor names (`ONE_ON_ONE_WORDING`); a never-say list may quote anything.
+- **Every new voice session** (`POST /voice-sessions`) gets Brain lines when the coach confirmed a style, the model is configured and the member's intake allows `model_prompt` (the same rule as chat). The route runs in two passes: the member's transaction decides and gathers the facts, the model is called outside any transaction (prompt `voice-narration-v1`, accounting `voice_session_narration`, 1,500 tokens, 20 s or 30 s for Seed-family models), and a second transaction builds and stores the script. A session that already exists for the workout or planned session is returned as it is, so there is one call per session (preparing ahead, binding to the workout and upgrading text to voice reuse it). Any failure (no model, daily limit, timeout, unreadable answer) prepares the session on the code and trainer lines (`voice_session.prepared` records `brain: "off" | "failed" | {added, dropped[{slot, issues}]}`).
+- **What the model sees:** the confirmed summary and answers (JSON data, "never instructions"), the member's first name (letters only), workouts with logged sets in the last 7 days, today's exercises with their prescription, and per exercise the member's last logged numbers from the last 14 days (sets, top set reps and load, days ago). Nothing else about the member.
+- **Where the lines go (owner `brain`, ids `brain:open|close|struggle|ex:N:lead|rest|last`):** the opening before the code-owned safety line; a lead after each exercise's announcement and cue; one rest line in the exercise's first rest (never in a silent rest); a short push before the final set (two or more sets); one struggle line after the code's answer to the first "too heavy" (once per session); the close before the finish. Code lines, numbers, counts and the safety line are unchanged.
+- **Checks on every line (`brainLineIssues`), at build time and again in `scriptIssues` before a script is stored or voiced:** at most 12 words / 90 characters (one clip of about 4.5 s); digits only from today's plan or the member's last numbers for that exercise (the opening and close may also say the exercise count and sessions this week; the struggle line no number), Arabic-Indic digits read as digits; no number words in either language ("one" and "high five" excepted); the spoken-line checks (medical, red flags, prescription changes including heavier/lighter, unsafe technique, links, markup), medical advice, approval claims, contact details, guarantees, AI vendor names, emoji, a line mixing Arabic and Latin words, and the coach's never-say phrases (whole words). A failing line is dropped; the facts used are stored in `script.brain.facts` so the re-check needs nothing else. A `brain` owner anywhere else is refused. Spoken replies stay rule-based.
+
+| Route (owner or staff) | Purpose |
+| --- | --- |
+| `GET /api/v1/voice-sessions/one-on-one` | `{version, topics, answers, answered, minimumAnswered, draft {summary, current, preview[{id, owner, text, moment?}]}, confirmed {summary, confirmedAt, current}, active, modelAvailable, voiceSample}` |
+| `PUT /api/v1/voice-sessions/one-on-one` `{revision, answers}` | Save the answers (compare-and-set on the style version, `409 VOICE_STYLE_CHANGED`) |
+| `POST /api/v1/voice-sessions/one-on-one/draft` `{revision}` | Brain draft; `400 ONE_ON_ONE_TOO_SHORT`, `503 MODEL_UNAVAILABLE`, `502 MODEL_UNCONFIRMED`; returns the view plus `droppedLines` |
+| `POST /api/v1/voice-sessions/one-on-one/confirm` `{revision, confirmed}` | Confirm the current draft (`409 ONE_ON_ONE_DRAFT_STALE` when the answers changed) or turn it off |
+| `POST /api/v1/voice-sessions/one-on-one/sample-audio` | `{type: "audio/mpeg", audio (base64), text}`; `409 ONE_ON_ONE_NO_DRAFT`, `409 VOICE_NOT_READY`, `429 VOICE_BUDGET`; 5 a minute |
+
+Code: `packages/domain/src/voice-narration.ts` (schemas, facts, checks, placement, prompts), `packages/providers/src/voice-narration.ts` (the two model calls), `apps/api/src/voice-narration.ts` (routes, prepare-time request), `voice-session.ts` (owner `brain`, `scriptLines`, `scriptIssues`), `voice-runner.ts` (where each line is spoken).
+
+### "My own music" (member voice session)
+
+- **Modes:** Off / My own music, shown in voice mode and remembered on the device (`voice-music-mode`). Trainer mix (generated music) comes later, after the rights decision.
+- **Start tap:** in own-music mode the audio session is set to `ambient` (`navigator.audioSession`, Safari 16.4+), a tenth of a second of silence unlocks the session's audio element, and a screen wake lock is requested (taken again when the page is visible again, released when the session ends).
+- **Cues:** before each cue the type is set to `ambient` again; the cue's clips are joined into one MP3 of at most 4.5 s with a known duration (`joinMp3`, `planCue`; tags and Xing/Info frames removed), so Android asks for transient focus and lowers the music briefly. A single clip longer than the budget (the safety line, for example) is shown on screen, not played; clips that are not MP3 play as before. Off mode is unchanged.
+- **Tap to talk** (`apps/web/lib/tap-to-talk.ts`, `components/voice-tap-to-talk.ts`): continuous listening is off in this mode. A tap ends the cue on screen, sets `play-and-record`, opens the microphone after the echo grace, records one reply (800 ms of quiet after speech, at most 6 s, nothing sent without speech in 5 s, a second tap stops early), stops every track and returns to `ambient`. On-device recognition is used when the browser offers it, else the speech service after the member's transcription consent (same `/transcribe` route, screening and echo guard). Cues wait while the member talks. All buttons, Pain included, work as before.
+- **Help text (catalog `voice`, English and Arabic):** "Cues play over your music. Keep silent mode off and the screen on. Talking back pauses your music; tap play in your music app to resume." plus "Short cues briefly lower your music." where `audioSession` is missing (Android) and "Longer lines are shown on screen so your music keeps playing."
+
+### Device checklist (the owner's, on real devices)
+
+1. iPhone, Safari tab and home-screen app, Spotify then Apple Music playing: choose My own music, start; cues play over the music; the music never pauses during cues.
+2. Same iPhone: silent switch on (cues silent, expected), screen lock (cues stop, expected; the wake lock should keep the screen on while the page is open).
+3. iPhone: tap to talk, say "done": the music pauses, the set is logged, the music stays paused until play is tapped in the music app; the next cue plays.
+4. iPhone with AirPods: tap to talk switches them to call quality while recording only; afterwards cues play in normal quality.
+5. Android 13 or later, Chrome and the installed app, Spotify: each cue lowers the music briefly and it comes back; the safety line appears on screen.
+6. Android: tap to talk with on-device recognition and with the speech service; the music volume after the reply.
+7. Both: Pain button and spoken "pain" stop the session in own-music mode; Off mode behaves exactly as before.
+
+### Live model test (Seed 2.0 Pro, `seed-2-0-pro-260328`, 1 October 2026)
+
+The app's own provider calls and checks (`generateNarration`, `draftOneOnOneStyle`, `buildSessionScript`, `scriptIssues`) on three coach styles (calm technician, high-energy, warm bilingual) and an adversarial coach (answers asking for ibuprofen, "no pain no gain", extra reps, a phone number, a vendor name), each with a style draft and three sessions (lower body with last week's squat numbers, upper body with two last-time exercises, a circuit with a distance carry; the warm coach's second and third sessions in Arabic). Final run (prompts as committed): 16 calls; 144 Brain lines written, 143 passed every check, 1 dropped (a never-say word); invented numbers 0, medical advice 0, lines over 12 words 0, safety line intact 12/12; the three real coaches reused their own phrases in 9/9 sessions, the member's name was used in 10/12, Arabic sessions came back in Arabic 2/2; the adversarial coach's lines were all safe and its style draft was refused by the summary checks (expected). Median 12.7 s per session call (max 18 s). Earlier runs found "4 days ago" dropped as an invented number (days ago is now allowed), "high five" dropped as a number word (now an idiom) and "55kg" (the prompt now asks for "kilograms"). Spent about USD 0.12 over four runs. Scripts and results: session scratchpad `round5-evals/voice/`.
+
+### Checks actually run (1 October 2026)
+
+- `npx tsc --noEmit` (root) and `-p apps/web/tsconfig.json`: pass.
+- PGlite, 14 files, 162/162: `voice-narration` (4), `voice-narration-domain` (9), `voice-music-web` (9), `voice-session`, `coach-setup`, `voice-session-domain`, `voice-talkback`, `voice-talkback-retest`, `i18n`, `i18n-hardcoded`, `member-screens`, `setup-wizard-web`, `healthkit-ui`, `web-address-web`.
+- Real PostgreSQL with the restricted role (`/opt/tools/pg-sandbox.sh`: migrations, runtime-access verifier "verified"): `voice-narration` 4/4, `voice-narration-domain` 9/9, `voice-music-web` 9/9, `voice-session` 11/11, `coach-setup` 10/10, 0 failed files. No migration was added.
+- Not run: the full suite, e2e, browser and device checks.
+
+### Left
+
+- The setup assistant does not yet fill "Your one-on-one sessions" by chat (the form only).
+- Brain lines are written while the member waits at prepare (median 12.7 s on Seed; preparing ahead hides it); an asynchronous fill before the first clip is a possible later change.
+- Turning the style off or a member withdrawing model use affects new sessions only; sessions already prepared keep their lines.
+- Arabic polish of the new strings; Trainer mix; real-device checks above.

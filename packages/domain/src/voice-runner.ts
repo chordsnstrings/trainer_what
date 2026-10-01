@@ -875,6 +875,8 @@ export type RunnerState = {
   skipped: string[];
   encouragement: number;
   stopReason?: "pain" | "hold" | "member";
+  /** Whether the Brain's struggle line was spoken (once per session). */
+  struggleSaid?: boolean;
 };
 /** A spoken prompt: session lines, then shared clips, with the same words as text. */
 export type SayItem = { line: string } | { clip: string };
@@ -965,20 +967,25 @@ function setPrompt(ctx: RunnerContext, s: RunnerState, exercise: number, set: nu
   const ex = ctx.script.exercises[exercise];
   const t = s.targets[exercise][set - 1];
   const form = set >= 2 && ex.form.length ? ex.form[(set - 2) % ex.form.length] : null;
+  // The Brain's short push comes before the final set's prompt.
+  const push = set >= 2 && set === ex.sets ? ex.brain?.lastSet ?? null : null;
+  const lead = push ? [{ line: push.id }] : [];
+  const leadText = push ? [push.text] : [];
   if (t.reps === ex.reps && t.loadKg === ex.loadKg)
-    return say([ex.setLines[set - 1], form]);
+    return say([push, ex.setLines[set - 1], form]);
   if (workMeasure(ex) !== "reps") {
     // A lighter load for a loaded carry or hold: the round and the new load.
     const load = numberClipKeys(t.loadKg);
     return {
       type: "say",
       items: [
+        ...lead,
         { clip: set === ex.sets ? "last_set" : "next_set" },
         ...(load ? [...load, "kilograms"] : ["check_screen"]).map((clip) => ({ clip })),
         ...(timedExercise(ex) ? [{ clip: "go" }] : []),
         ...(form ? [{ line: form.id }] : []),
       ],
-      text: [`Round ${set} of ${ex.sets}. ${spokenWork(ex, t.loadKg)}.${timedExercise(ex) ? " Go." : " Say done when you finish."}`, form?.text]
+      text: [...leadText, `Round ${set} of ${ex.sets}. ${spokenWork(ex, t.loadKg)}.${timedExercise(ex) ? " Go." : " Say done when you finish."}`, form?.text]
         .filter(Boolean)
         .join(" "),
       wait: true,
@@ -993,15 +1000,15 @@ function setPrompt(ctx: RunnerContext, s: RunnerState, exercise: number, set: nu
   const text = `Set ${set} of ${ex.sets}. ${t.reps} reps${t.loadKg > 0 ? ` at ${formatLoad(t.loadKg)} kilograms` : ""}. Say done when you finish.`;
   return {
     type: "say",
-    items: [...clips.map((clip) => ({ clip })), ...(form ? [{ line: form.id }] : [])],
-    text: [text, form?.text].filter(Boolean).join(" "),
+    items: [...lead, ...clips.map((clip) => ({ clip })), ...(form ? [{ line: form.id }] : [])],
+    text: [...leadText, text, form?.text].filter(Boolean).join(" "),
     wait: true,
   };
 }
 function beginExercise(ctx: RunnerContext, s: RunnerState, exercise: number): [RunnerState, RunnerEffect[]] {
   const ex = ctx.script.exercises[exercise];
   const next: RunnerState = { ...s, phase: "setup", exercise, set: 1, restRemaining: 0, setElapsed: 0 };
-  return [next, [say([ex.setup, ex.cueLine, ex.form[0]])]];
+  return [next, [say([ex.setup, ex.cueLine, ex.brain?.lead, ex.form[0]])]];
 }
 function beginSet(ctx: RunnerContext, s: RunnerState, exercise: number, set: number, lead: RunnerEffect[] = []): [RunnerState, RunnerEffect[]] {
   return [
@@ -1022,9 +1029,10 @@ function afterSet(ctx: RunnerContext, s: RunnerState, lead: RunnerEffect[], rest
     lastExercise = s.exercise >= ctx.script.exercises.length - 1;
   if (lastSet && lastExercise) return beginCooldown(ctx, s, lead);
   if (!rest || ex.restSeconds <= 0) return advance(ctx, s, lead);
+  // The Brain's rest talk is spoken in an exercise's first rest only.
   return [
     { ...s, phase: "rest", restRemaining: ex.restSeconds, setElapsed: 0 },
-    [...lead, say([ex.rest], [], [], false)],
+    [...lead, say([ex.rest, s.set === 1 ? ex.brain?.rest : null], [], [], false)],
   ];
 }
 /** Moves past the current set without rest. */
@@ -1093,11 +1101,16 @@ function tooHeavy(ctx: RunnerContext, s: RunnerState, exercise: number, set: num
   if (!ex || set > ex.sets) return [s, [phrase("keep_weight", "Your trainer's plan keeps this weight.")]];
   const current = s.targets[exercise][set - 1];
   const floor = reducedLoad(ex.loadKg, ctx.rules);
+  // The Brain's supportive line, once per session, after the code's answer.
+  const struggle = !s.struggleSaid && ctx.script.brain?.struggle ? ctx.script.brain.struggle : null;
+  const supported = struggle ? { ...s, struggleSaid: true } : s;
+  const support = struggle ? [say([struggle], [], [], false)] : [];
   if (floor === null || current.loadKg <= floor)
     return [
-      s,
+      supported,
       [
         phrase("keep_weight", "Your trainer's plan keeps this weight. Say pain if something hurts."),
+        ...support,
         outcome({ type: "too_heavy_kept", exercise, set }),
       ],
     ];
@@ -1106,7 +1119,7 @@ function tooHeavy(ctx: RunnerContext, s: RunnerState, exercise: number, set: num
   );
   const clips = numberClipKeys(floor);
   return [
-    { ...s, targets },
+    { ...supported, targets },
     [
       {
         type: "say",
@@ -1114,6 +1127,7 @@ function tooHeavy(ctx: RunnerContext, s: RunnerState, exercise: number, set: num
         text: `Lighter weight for the next set: ${formatLoad(floor)} kilograms.`,
         wait: false,
       },
+      ...support,
       outcome({ type: "adjusted", exercise, set, fromKg: current.loadKg, toKg: floor }),
     ],
   ];
