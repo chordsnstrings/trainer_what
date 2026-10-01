@@ -1081,7 +1081,9 @@ export async function buildApp(
     // because every platform action needs one.
     const [platform] = await db.system((tx) =>
       tx.query(
-        `SELECT ${platformWorkspaceSql("$1::uuid")} AS workspace,(SELECT enabled FROM user_security WHERE user_id=$2) AS mfa_enabled`,
+        // Only the administration workspace the Superadmin tools create
+        // (slug "platform-…"): an operator who also coaches keeps the wizard.
+        `SELECT (${platformWorkspaceSql("$1::uuid")} AND EXISTS(SELECT 1 FROM tenants WHERE id=$1::uuid AND slug LIKE 'platform-%')) AS workspace,(SELECT enabled FROM user_security WHERE user_id=$2) AS mfa_enabled`,
         [a.tenantId, a.userId],
       ),
     );

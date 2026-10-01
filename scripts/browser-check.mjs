@@ -159,7 +159,9 @@ try {
     .getByLabel("Password", { exact: true })
     .fill(process.env.DEMO_PASSWORD ?? "TrainerDemo2026!");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await page.waitForURL("**/trainer");
+  // The demo coach is also a Superadmin, and Superadmins land in Super admin.
+  await page.waitForURL(/\/(trainer|admin\/settings)$/);
+  await page.goto(base + "/trainer");
   // The trainer's home is the one inbox; the old dashboard is the summary.
   await page.getByRole("heading", { name: "Inbox", exact: true }).waitFor();
   await capture(page, {
@@ -192,7 +194,12 @@ try {
         ...(name ? { name, exact: true } : {}),
       })
       .first()
-      .waitFor();
+      .waitFor()
+      .catch((error) => {
+        throw new Error(`No level-1 heading on ${route} (now ${page.url()})`, {
+          cause: error,
+        });
+      });
   }
   // The setup wizard (docs/features/setup-wizard.md): About you saves as
   // the coach types and resumes after a reload.
