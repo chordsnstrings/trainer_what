@@ -659,6 +659,9 @@ tr:last-child td {
   font-size: 13px;
   line-height: 1.5;
 }
+.superadmin-authenticator-banner {
+  text-decoration: none;
+}
 .notice.error {
   background: var(--error-bg);
   border-color: var(--error-line);

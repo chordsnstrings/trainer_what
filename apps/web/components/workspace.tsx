@@ -34,7 +34,12 @@ import {
 } from "./training-workspace";
 import { SetupRedirect, SetupWizard } from "./setup-wizard";
 import {
-  SETUP_PATH,
+  SuperadminAuthenticatorBanner,
+  SUPERADMIN_HOME,
+  coachSetupOpen,
+  signInLanding,
+} from "./superadmin-access";
+import {
   isSetupPath,
   legacySetupRedirect,
 } from "./setup-wizard-model";
@@ -484,6 +489,13 @@ export default function Workspace({
       window.removeEventListener("offline", update);
     };
   }, []);
+  // Enrolling an authenticator clears the Superadmin setup banner.
+  useEffect(() => {
+    const refresh = () => void load();
+    window.addEventListener("account-security-updated", refresh);
+    return () =>
+      window.removeEventListener("account-security-updated", refresh);
+  }, []);
   const bootstrapText =
     bootstrapError === "429"
       ? common("tooManyRequests")
@@ -523,13 +535,7 @@ export default function Workspace({
             return null;
           });
           if (!s) return;
-          router.push(
-            s.user.role === "subscriber"
-              ? "/app"
-              : path === "/signup"
-                ? SETUP_PATH
-                : "/trainer",
-          );
+          router.push(signInLanding(s, path));
         }}
       />
     );
@@ -616,8 +622,9 @@ export default function Workspace({
     : subscriber
       ? (items.find((x) => x[1] === path)?.[0] ?? "Your workspace")
       : trainerTitle(path, state.user.role);
-  // The setup wizard (/setup) stays one tap away until the page is live.
-  const setupOpen = state.user.role === "owner" && !state.tenant.published;
+  // The setup wizard (/setup) stays one tap away until the page is live;
+  // a platform administration workspace has no page to set up.
+  const setupOpen = coachSetupOpen(state);
   // The phone's bottom bar shows in the trainer workspace, not /admin.
   const trainerNav = !subscriber && path.startsWith("/trainer");
   const activeSection = sectionFor(path);
@@ -657,6 +664,7 @@ export default function Workspace({
   const notices = (
     <>
           <ProviderSandboxBanner mode={state.providerSandbox} />
+          <SuperadminAuthenticatorBanner state={state} path={path} />
           {!subscriber && state.environment === "development" && (
             <div className="dev-banner">
               Development environment · payment connections are gated · demo
@@ -848,7 +856,12 @@ export default function Workspace({
               <AdminNotFound />
             )
           ) : isSetupPath(path) ? (
-            state.user.role === "owner" ? (
+            state.platformWorkspace ? (
+              <div className="notice">
+                The platform administration workspace has no coaching page to
+                set up. <Link href={SUPERADMIN_HOME}>Open Super admin</Link>
+              </div>
+            ) : state.user.role === "owner" ? (
               <SetupWizard path={path} tenant={state.tenant} onSaved={load} />
             ) : (
               <div className="notice">

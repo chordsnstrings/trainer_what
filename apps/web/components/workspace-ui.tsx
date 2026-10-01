@@ -30,6 +30,10 @@ export type State = {
   environment?: string;
   providerSandbox?: string | null;
   platform?: { name?: string; supportEmail?: string };
+  /** The workspace is a platform administration workspace (no coaching page). */
+  platformWorkspace?: boolean;
+  /** Superadmins only: whether an authenticator is enrolled. */
+  superadmin?: { mfaEnabled: boolean };
   /** First-page positions: { hasMore, cursor } per collection (records per kind). */
   pages?: Record<string, any>;
   /** Exact counts, independent of how many rows are loaded. */
