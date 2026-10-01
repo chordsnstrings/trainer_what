@@ -295,6 +295,11 @@ test("the most a turn can cost is reserved: model prices or USD 5 / 30, the clip
 test("public turn: turns at the same time never take the day over the cap; real compressed clips are accepted (PGlite)", async () => {
   const f = await governanceFixture();
   heard = "Why did you build it?";
+  // A fresh day (the PostgreSQL suite shares one database across fixtures).
+  await f.db.system(async (tx) => {
+    await tx.query("DELETE FROM marketing_assistant_days");
+    await tx.query("DELETE FROM marketing_assistant_counters");
+  });
   const turn = (remoteAddress: string, audio = wav(), type = "audio/wav", durationMs = 1000) =>
     f.app.inject({
       method: "POST",
