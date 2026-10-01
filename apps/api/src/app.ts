@@ -187,6 +187,7 @@ import {
 import {
   enforceWorkspaceGate,
   lockSuspendedMember,
+  platformWorkspaceSql,
   workspaceSuspendedMessage,
 } from "./workspace-state.ts";
 import {
@@ -1074,6 +1075,16 @@ export async function buildApp(
     const [tenant] = await db.system((tx) =>
       tx.query("SELECT * FROM tenants WHERE id=$1", [a.tenantId]),
     );
+    // A platform administration workspace (owned by an operator) has no
+    // coaching page, so the web never offers it the coach setup or go-live
+    // prompts. A Superadmin also learns whether an authenticator is enrolled,
+    // because every platform action needs one.
+    const [platform] = await db.system((tx) =>
+      tx.query(
+        `SELECT ${platformWorkspaceSql("$1::uuid")} AS workspace,(SELECT enabled FROM user_security WHERE user_id=$2) AS mfa_enabled`,
+        [a.tenantId, a.userId],
+      ),
+    );
     // Every collection is a bounded first page with `pages` cursors and exact
     // `totals` (workspace-pages.ts); later pages use /workspace/pages/*.
     return db.tenant(a, async (tx) => {
@@ -1087,6 +1098,10 @@ export async function buildApp(
           supportEmail: runtimeConfig().SUPPORT_EMAIL || null,
         },
         tenant,
+        platformWorkspace: !!platform?.workspace,
+        ...(a.platformRole === "admin"
+          ? { superadmin: { mfaEnabled: !!platform?.mfa_enabled } }
+          : {}),
         records,
         integrations: integrationStatus(),
         ...collections,

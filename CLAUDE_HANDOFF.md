@@ -2,9 +2,9 @@
 
 Updated 27 September 2026 (afternoon). PR #1 and [PR #2](https://github.com/chordsnstrings/trainer_what/pull/2) are merged into `main`. At the owner's request the application runs live on a new DigitalOcean project, GymMembership, which deployed `main` `eb7b678` automatically after its checks passed, and live verification passed on it. Historical stage entries below retain their original evidence.
 
-## Work in progress (updated with every owner update; last update 1 October 2026, round 5 live)
+## Work in progress (updated with every owner update; last update 1 October 2026, round 5 live, Superadmin authenticator fix pushed)
 
-**For any agent continuing this work (Claude, Astra or another):** start here, then read `AGENTS.md` and `docs/PROJECT_MEMORY.md`. No secret is ever stored in this repository; keys live in Super admin (encrypted) or on the server. Update this section with every owner update (owner rule, 29 September) and replace it rather than letting it grow.
+**Continuing agent: Astra 6** (the owner continues with Astra 6; Claude or another agent may also pick this up). **For any agent continuing this work:** start here, then read `AGENTS.md` and `docs/PROJECT_MEMORY.md`. No secret is ever stored in this repository; keys live in Super admin (encrypted) or on the server. Update this section with every owner update (owner rule, 29 September) and replace it rather than letting it grow.
 
 **Live now:** `main` `e18d9fb` at https://trainsyou.com, verified 1 October 2026 at about 05:50 UTC (release header `e18d9fb`). It contains round 4 plus round 5 (stage 2026-10-01a in `docs/COMPLETION_STAGES.md`).
 - **Round 5 live:**
@@ -15,6 +15,8 @@ Updated 27 September 2026 (afternoon). PR #1 and [PR #2](https://github.com/chor
   - frontier wording, hidden while the active profile is not frontier tier with a passed switch check.
 - **Round 4, still live:** setup wizard, open sign-up (off until legal documents), subdomains, teach-your-Brain, four-section workspace, teaching loop, walkthrough, hidden specialties, Superadmin recovery.
 - **After this deploy:** plan prompts are `brain-plan-v5`, so qualified workspaces re-qualify plans once.
+- **Superadmin authenticator fix (pushed, not merged or deployed):** branch `claude/repository-overview-osejlw` (from `fix/admin-mfa`). Owner report 1 October: after signing in, the authenticator app setup was not showing. Cause, reproduced locally with an `admin-access create` Superadmin: sign-in sent every non-subscriber to `/trainer`, the coach inbox of the "Platform administration" workspace, which showed "Finish setting up" (coach setup wizard) and nothing pointed to the authenticator. The form itself at `/admin/account-security` works (`GET /auth/security` 200, `mfaConfigured: true`). Fix: a Superadmin now lands on `/admin/settings`; until an authenticator is enrolled every page shows "Set up your authenticator app to use Super admin" linking to `/admin/account-security`; the platform administration workspace no longer shows the coach setup wizard, "Finish setup" or go-live prompts. Checks run: `tests/superadmin-landing.test.ts` plus related web/setup/bootstrap/admin-access tests on PGlite and PostgreSQL (pg-sandbox), both `tsc --noEmit`, and a local Chromium sign-in check. Full suite not run. Next: open a pull request to `main` and merge (deploys).
+- **Owner instruction now:** open `/admin/account-security` (https://trainsyou.com/admin/account-security) to set up the authenticator; it works on the live site today, the fix only adds the landing and banner.
 - **Known gaps:** the setup assistant cannot fill the one-on-one form by chat; Kamran costs are not yet in platform finance; supplement doses can slip past the medical check; members' own exercise names still reach plan prompts; Arabic polish of the new lines is pending.
 
 **How to ship (any agent):**
@@ -48,7 +50,7 @@ Updated 27 September 2026 (afternoon). PR #1 and [PR #2](https://github.com/chor
 - a real-device test of own-music mode (iPhone Safari, Android Chrome; checklist in `docs/features/voice-session.md`);
 - pick or confirm the Kamran voice in Super admin and turn the assistant on (then try it on a phone).
 
-**Next action:** owner items above (Kamran voice and switch-on, model keys, Resend, legal documents, Stripe webhook, real-phone tests); then the known gaps listed under Live now.
+**Next action:** open a pull request for the Superadmin authenticator fix (`claude/repository-overview-osejlw`) and merge it; owner sets up the authenticator at `/admin/account-security`; then owner items above (Kamran voice and switch-on, model keys, Resend, legal documents, Stripe webhook, real-phone tests); then the known gaps listed under Live now.
 
 ## Latest (1 October 2026)
 

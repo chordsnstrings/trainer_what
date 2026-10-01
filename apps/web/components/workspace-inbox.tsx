@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { formatWhen } from "../lib/format";
 import { api, Badge, Card, Empty, type State } from "./workspace-ui";
+import { coachSetupOpen } from "./superadmin-access";
 import { INBOX_CHANGED, SETUP_HREF } from "./workspace-nav";
 import { CoachingMessages } from "./training-workspace";
 
@@ -480,7 +481,7 @@ export function Inbox({ state }: { state: State }) {
     void chats.load();
   };
   const unread = chats.chats?.filter((c) => c.awaitingReply).length ?? 0;
-  const setupOpen = state.user.role === "owner" && !state.tenant.published;
+  const setupOpen = coachSetupOpen(state);
   return (
     <div className="trainer-inbox">
       <div className="page-heading">

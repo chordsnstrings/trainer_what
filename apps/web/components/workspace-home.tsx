@@ -250,10 +250,15 @@ export function Overview({ state, records }: ViewProps) {
             </>
           ) : (
             steps.map(([label, done, url], i) => (
-              // Until the page is live, setup happens in the wizard (/setup).
+              // Until the page is live, setup happens in the wizard (/setup);
+              // a platform administration workspace has no wizard.
               <Link
                 className="checklist-row"
-                href={state.tenant.published ? url : SETUP_HREF}
+                href={
+                  state.tenant.published || state.platformWorkspace
+                    ? url
+                    : SETUP_HREF
+                }
                 key={url}
               >
                 <span className={"step-circle " + (done ? "done" : "")}>

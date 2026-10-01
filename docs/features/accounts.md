@@ -144,6 +144,20 @@ Web: `SocialSignIn` buttons on `/login`, `/join-coach/<slug>` and
 
 ### Superadmin
 
+- **Sign-in landing and authenticator prompt** (1 October 2026, owner
+  report "the authenticator app authentication part is not showing"): a
+  Superadmin signs in to `/admin/settings` (`signInLanding` in
+  `apps/web/components/superadmin-access.tsx`), not the coach setup of its
+  platform administration workspace. `GET /api/v1/bootstrap` now returns
+  `platformWorkspace` (the shared `platformWorkspaceSql` definition) and, for
+  Superadmins only, `superadmin.mfaEnabled`. Until an authenticator is
+  enrolled every workspace page shows "Set up your authenticator app to use
+  Super admin", linking to `/admin/account-security`; enrolling there clears
+  it. A platform administration workspace never shows the setup wizard,
+  "Finish setup" or the go-live banner (`coachSetupOpen`). Coach and
+  subscriber landings are unchanged. Test: `tests/superadmin-landing.test.ts`
+  (admin-access-created Superadmin: `GET /auth/security` returns
+  `mfaConfigured: true`, enroll then confirm succeeds).
 - **Settings**: two new connections in Settings & connections, "Sign in with
   Google" (`GOOGLE_SIGNIN_CLIENT_ID`, secret `GOOGLE_SIGNIN_CLIENT_SECRET`) and
   "Sign in with Apple" (`APPLE_SIGNIN_SERVICES_ID`, `APPLE_SIGNIN_TEAM_ID`,
