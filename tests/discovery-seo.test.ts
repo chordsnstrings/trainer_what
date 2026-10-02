@@ -4,7 +4,11 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import sharp from "sharp";
-import { PLATFORM_LOGO_PATH } from "@trainer/contracts";
+import {
+  PLATFORM_LOGO_PATH,
+  createModule,
+  siteBuilderSchema,
+} from "@trainer/contracts";
 import {
   COACH_HOST_PLATFORM_SEGMENTS,
   COACH_SITE_MAX_URLS,
@@ -197,6 +201,69 @@ test("robots rules never close a coach page that shares a private route's prefix
     assert.equal(robotsAllows(coachHost, path), false, path);
 });
 
+test("builder sitemaps include only visible, indexable actual pages", () => {
+  const builder = siteBuilderSchema.parse({
+    version: 1,
+    theme: {},
+    header: {},
+    footer: {},
+    pages: [
+      { id: "home", slug: "", title: "Home", sections: [createModule("hero")] },
+      {
+        id: "story",
+        slug: "my-story",
+        title: "My story",
+        sections: [createModule("about")],
+      },
+      {
+        id: "privacy",
+        slug: "privacy",
+        title: "Privacy",
+        sections: [createModule("text")],
+      },
+      {
+        id: "hidden",
+        slug: "draft-programme",
+        title: "Not launched",
+        visible: false,
+        sections: [],
+      },
+      {
+        id: "campaign",
+        slug: "invitation",
+        title: "An invitation",
+        noindex: true,
+        sections: [],
+      },
+    ],
+    redirects: [{ from: "old-story", toPageId: "story" }],
+  });
+  const row = {
+    slug: "fit-coach",
+    published: { builder },
+    published_at: null,
+    has_galleries: true,
+  };
+  assert.deepEqual(coachSitePaths(row, "platform"), [
+    "/coach/fit-coach",
+    "/coach/fit-coach/my-story",
+    "/coach/fit-coach/privacy",
+  ]);
+  assert.deepEqual(coachSitePaths(row, "custom"), [
+    "/",
+    "/my-story",
+    "/coach/fit-coach/privacy",
+  ]);
+  for (const path of coachSitePaths(row, "custom")) {
+    assert.equal(
+      customHostPath(path, "fit-coach"),
+      path.startsWith("/coach/")
+        ? path
+        : "/coach/fit-coach" + (path === "/" ? "" : path),
+    );
+  }
+});
+
 test("the coach-domain page list agrees with the web proxy's routing", () => {
   const slug = "fit-coach";
   // Each platform segment is not served by the coach website on its domain.
@@ -339,9 +406,15 @@ test("a connected coach domain serves its own crawler files", () => {
 test("the platform manifest follows the configured name and its generated PNG icons are real sizes", async () => {
   // No static manifest can drift from the configured name any more.
   await assert.rejects(
-    readFile(new URL("../apps/web/public/manifest.webmanifest", import.meta.url), "utf8"),
+    readFile(
+      new URL("../apps/web/public/manifest.webmanifest", import.meta.url),
+      "utf8",
+    ),
   );
-  const generated = await readFile(new URL("../apps/web/app/manifest.ts", import.meta.url), "utf8");
+  const generated = await readFile(
+    new URL("../apps/web/app/manifest.ts", import.meta.url),
+    "utf8",
+  );
   assert.match(generated, /platformManifest\(name\)/);
   // A configured name other than trainsyou gets icons drawn from its
   // initials (the trainsyou icons are covered by tests/brand.test.ts).
@@ -365,7 +438,11 @@ test("the platform manifest follows the configured name and its generated PNG ic
     // Home-screen surfaces that crop or fill need an opaque image.
     if (icon.purpose !== "any") assert.equal(meta.hasAlpha, false, icon.src);
   }
-  assert.equal((await h.app.inject({ url: PLATFORM_ICON_BASE + "64.png", method: "GET" })).statusCode, 404);
+  assert.equal(
+    (await h.app.inject({ url: PLATFORM_ICON_BASE + "64.png", method: "GET" }))
+      .statusCode,
+    404,
+  );
   assert.ok(PLATFORM_LOGO_PATH.startsWith(PLATFORM_ICON_BASE));
   assert.equal(platformManifest("  ").name, "trainsyou");
   assert.equal(

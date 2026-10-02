@@ -12,12 +12,24 @@ import {
 } from "@trainer/db";
 import {
   brandSchema,
+  builderMediaReferences,
   coachSiteManifest,
+  projectPublishedBuilder,
   resolveBrandDesign,
+  siteBuilderSchema,
 } from "@trainer/contracts";
 import { renderAppIcon } from "./app-icons.ts";
 import { notifyUser } from "./notifications.ts";
 import { inquiryAttribution, recordLeadAcquisition } from "./acquisition.ts";
+import {
+  assertSiteBuilderReferences,
+  clearBuilderMedia,
+  recordSitePublication,
+  SITE_DOCUMENT_BYTES,
+  SITE_HISTORY_LIMIT,
+  siteBuilderBindings,
+  siteDigest,
+} from "./site-builder-storage.ts";
 
 /** At most this many inquiry emails/device alerts per workspace per hour; in-app always. */
 export const INQUIRY_ALERTS_PER_HOUR = 10;
@@ -65,6 +77,9 @@ export const siteSchema = z
     // stored (see the transform below).
     language: z.enum(["en", "ar"]).optional(),
     pages: z.array(page).max(100).default([]),
+    // Older sites stay byte-for-byte compatible in their content model until
+    // their owner chooses a visual starting layout in the editor.
+    builder: siteBuilderSchema.optional(),
   })
   .strict()
   .superRefine((v, c) => {
@@ -250,6 +265,37 @@ export async function eraseOwnedBrandMedia(tx: Tx, userId: string) {
   // current workspace's theme and bumps its brand version; the transaction
   // never leaves its tenant scope.
   await tx.query("SELECT erase_brand_theme_media($1::text[])", [[...urls]]);
+  const [website] = await tx.query(
+    "SELECT draft,published FROM coach_sites WHERE tenant_id=$1 FOR UPDATE",
+    [tenantId],
+  );
+  const nextSiteDraft = clearBuilderMedia(website?.draft, urls),
+    nextSitePublished = clearBuilderMedia(website?.published, urls);
+  if (nextSiteDraft || nextSitePublished)
+    await tx.query(
+      "UPDATE coach_sites SET draft=$2,published=$3,version=version+1,updated_at=now() WHERE tenant_id=$1",
+      [
+        tenantId,
+        JSON.stringify(nextSiteDraft ?? website.draft),
+        nextSitePublished || website.published
+          ? JSON.stringify(nextSitePublished ?? website.published)
+          : null,
+      ],
+    );
+  // An old publication must not bring erased photographs back on restore.
+  // History is immutable, so remove affected snapshots rather than rewriting.
+  const snapshots = await tx.query(
+    "SELECT id,data FROM records WHERE tenant_id=$1 AND kind='site_revision'",
+    [tenantId],
+  );
+  const affectedSnapshots = snapshots
+    .filter((snapshot) => clearBuilderMedia(snapshot.data.site, urls))
+    .map((snapshot) => snapshot.id);
+  if (affectedSnapshots.length)
+    await tx.query(
+      "DELETE FROM records WHERE kind='site_revision' AND id=ANY($1::uuid[])",
+      [affectedSnapshots],
+    );
   await tx.query("DELETE FROM brand_media WHERE owner_user_id=$1", [userId]);
 }
 function publicHost(req: FastifyRequest, slug?: string) {
@@ -303,6 +349,36 @@ async function listGalleries(tx: Tx, where = "", values: any[] = []) {
     ).map((p) => ({ ...p, url: mediaUrl(p.media_id) }));
   return galleries;
 }
+/** Keep ordinary gallery pagination stable while resolving selected older rows. */
+async function listBoundGalleries(
+  tx: Tx,
+  tenantId: string,
+  builder: z.infer<typeof siteBuilderSchema> | undefined,
+  initialGalleries: any[],
+  publicOnly: boolean,
+) {
+  if (!builder) return [];
+  const initialIds = new Set(initialGalleries.map((gallery) => gallery.id));
+  const ids = siteBuilderBindings(builder).galleries.filter(
+    (galleryId) => !initialIds.has(galleryId),
+  );
+  if (!ids.length) return [];
+  const galleries = await tx.query(
+    `SELECT * FROM coach_galleries WHERE tenant_id=$1 AND id=ANY($2::uuid[]) ${publicOnly ? "AND audience IN ('site','both')" : ""} ORDER BY created_at DESC,id DESC`,
+    [tenantId, ids],
+  );
+  if (!galleries.length) return [];
+  const photos = await tx.query(
+    "SELECT p.*,m.width,m.height FROM coach_gallery_photos p JOIN brand_media m ON m.id=p.media_id AND m.tenant_id=p.tenant_id WHERE p.tenant_id=$1 AND p.gallery_id=ANY($2::uuid[]) ORDER BY p.gallery_id,p.position,p.media_id",
+    [tenantId, galleries.map((gallery) => gallery.id)],
+  );
+  return galleries.map((gallery) => ({
+    ...gallery,
+    photos: photos
+      .filter((photo) => photo.gallery_id === gallery.id)
+      .map((photo) => ({ ...photo, url: mediaUrl(photo.media_id) })),
+  }));
+}
 export async function publicCoachSite(db: Database, slug: string) {
   const data = await db.system(async (tx) => {
     const [tenant] = await tx.query(
@@ -317,14 +393,36 @@ export async function publicCoachSite(db: Database, slug: string) {
     );
     const visibleSite = siteSchema.parse(site?.published ?? {});
     visibleSite.pages = visibleSite.pages.filter((page) => page.visible);
+    if (visibleSite.builder) {
+      visibleSite.builder = projectPublishedBuilder(visibleSite.builder);
+      // Legacy copy stays in owner-only storage for recovery. A trainer who
+      // removes or hides migrated content must remove it from the public JSON
+      // as well as from the visual page.
+      visibleSite.pages = [];
+      visibleSite.headline = "";
+      visibleSite.introduction = "";
+      visibleSite.about = "";
+      visibleSite.seoTitle = "";
+      visibleSite.seoDescription = "";
+    }
+    const galleries = await listGalleries(
+      tx,
+      "WHERE tenant_id=$1 AND audience IN ('site','both')",
+      [tenant.id],
+    );
     return {
       tenant,
       site: visibleSite,
       publishedAt: site?.published_at ?? null,
-      galleries: await listGalleries(
+      // Draft autosaves do not change this cache identity.
+      publishedRevision: siteDigest(visibleSite),
+      galleries,
+      boundGalleries: await listBoundGalleries(
         tx,
-        "WHERE tenant_id=$1 AND audience IN ('site','both')",
-        [tenant.id],
+        tenant.id,
+        visibleSite.builder,
+        galleries,
+        true,
       ),
     };
   });
@@ -474,11 +572,30 @@ export function registerCoachSite(app: FastifyInstance, db: Database) {
         "SELECT gallery_id FROM coach_gallery_photos WHERE media_id=$1",
         [mediaId],
       );
-      if (used || photo)
+      const [website] = await tx.query(
+        "SELECT draft,published FROM coach_sites WHERE tenant_id=$1",
+        [a.tenantId],
+      );
+      const snapshots = await tx.query(
+        "SELECT data FROM records WHERE kind='site_revision' AND tenant_id=$1",
+        [a.tenantId],
+      );
+      const siteUsed = [
+        website?.draft,
+        website?.published,
+        ...snapshots.map((snapshot) => snapshot.data.site),
+      ].some(
+        (site) =>
+          site?.builder &&
+          builderMediaReferences(site.builder).includes(mediaUrl(mediaId)),
+      );
+      if (used || photo || siteUsed)
         throw fail(
           409,
           "PHOTO_IN_USE",
-          "Remove this photo from your design and galleries before deleting it",
+          siteUsed
+            ? "This photo is used by your website draft, live website or a retained published version. Keep it available so those versions can be restored."
+            : "Remove this photo from your design and galleries before deleting it",
         );
       await tx.query("DELETE FROM brand_media WHERE id=$1", [mediaId]);
       await event(tx, a, "brand.photo_deleted", mediaId);
@@ -515,6 +632,27 @@ export function registerCoachSite(app: FastifyInstance, db: Database) {
             )
           )[0],
       );
+    if (!m)
+      m = await db.system(async (tx) => {
+        const [candidate] = await tx.query(
+          "SELECT m.media,m.width,m.height,s.published FROM brand_media m JOIN tenants t ON t.id=m.tenant_id JOIN coach_sites s ON s.tenant_id=m.tenant_id WHERE m.id=$1 AND t.published=true AND t.lifecycle_state='active' AND ($2::uuid IS NULL OR t.id=$2)",
+          [mediaId, hostTenant],
+        );
+        if (!candidate?.published?.builder) return undefined;
+        const parsed = siteBuilderSchema.safeParse(candidate.published.builder);
+        if (
+          !parsed.success ||
+          !builderMediaReferences(
+            projectPublishedBuilder(parsed.data),
+          ).includes(mediaUrl(mediaId))
+        )
+          return undefined;
+        return {
+          media: candidate.media,
+          width: candidate.width,
+          height: candidate.height,
+        };
+      });
     if (!m) throw fail(404, "NOT_FOUND", "Image unavailable");
     reply.header("Cache-Control", "private, no-store").type("image/jpeg");
     return Buffer.from(m.media);
@@ -708,30 +846,41 @@ export function registerCoachSite(app: FastifyInstance, db: Database) {
       return s ?? { draft: siteSchema.parse({}), published: null, version: 0 };
     });
   });
-  app.put("/api/v1/tenant/site", async (req) => {
-    const a = owner(req),
-      b = z
-        .object({ version: z.number().int().min(0), site: siteSchema })
-        .strict()
-        .parse(req.body);
-    return ownerTransaction(db, a, async (tx, tenant) => {
-      await tx.query(
-        "INSERT INTO coach_sites(tenant_id) VALUES($1) ON CONFLICT DO NOTHING",
-        [a.tenantId],
-      );
-      const [s] = await tx.query(
-        "UPDATE coach_sites SET draft=$2,version=version+1,updated_at=now() WHERE tenant_id=$1 AND version=$3 RETURNING *",
-        [a.tenantId, JSON.stringify(b.site), b.version],
-      );
-      if (!s)
+  app.put(
+    "/api/v1/tenant/site",
+    { bodyLimit: SITE_DOCUMENT_BYTES + 16_384 },
+    async (req) => {
+      const a = owner(req),
+        b = z
+          .object({ version: z.number().int().min(0), site: siteSchema })
+          .strict()
+          .parse(req.body);
+      if (Buffer.byteLength(JSON.stringify(b.site)) > SITE_DOCUMENT_BYTES)
         throw fail(
-          409,
-          "SITE_CHANGED",
-          "Your website draft changed. Refresh before saving",
+          400,
+          "SITE_SIZE",
+          "This website draft is too large. Reduce its text or number of sections.",
         );
-      return s;
-    });
-  });
+      return ownerTransaction(db, a, async (tx, tenant) => {
+        await assertSiteBuilderReferences(tx, a, b.site.builder);
+        await tx.query(
+          "INSERT INTO coach_sites(tenant_id) VALUES($1) ON CONFLICT DO NOTHING",
+          [a.tenantId],
+        );
+        const [s] = await tx.query(
+          "UPDATE coach_sites SET draft=$2,version=version+1,updated_at=now() WHERE tenant_id=$1 AND version=$3 RETURNING *",
+          [a.tenantId, JSON.stringify(b.site), b.version],
+        );
+        if (!s)
+          throw fail(
+            409,
+            "SITE_CHANGED",
+            "Your website draft changed. Refresh before saving",
+          );
+        return s;
+      });
+    },
+  );
   app.post("/api/v1/tenant/site/publish", async (req) => {
     const a = owner(req),
       b = z
@@ -745,8 +894,35 @@ export function registerCoachSite(app: FastifyInstance, db: Database) {
           "LAUNCH_REQUIRED",
           "Finish your coach launch review before publishing the website",
         );
+      const [current] = await tx.query(
+        "SELECT * FROM coach_sites WHERE tenant_id=$1 FOR UPDATE",
+        [a.tenantId],
+      );
+      if (!current || current.version !== b.version)
+        throw fail(
+          409,
+          "SITE_CHANGED",
+          "Refresh before publishing your current draft",
+        );
+      const parsed = siteSchema.parse(current.draft);
+      await assertSiteBuilderReferences(tx, a, parsed.builder, true);
+      // Preserve the live site from before the builder was installed, too.
+      if (current.published) {
+        const [previous] = await tx.query(
+          "SELECT id FROM records WHERE tenant_id=$1 AND kind='site_revision' LIMIT 1",
+          [a.tenantId],
+        );
+        if (!previous)
+          await recordSitePublication(
+            tx,
+            a,
+            current.published,
+            current.version,
+            current.published_at,
+          );
+      }
       const [s] = await tx.query(
-        "UPDATE coach_sites SET published=draft,published_at=now(),version=version+1 WHERE tenant_id=$1 AND version=$2 RETURNING *",
+        "UPDATE coach_sites SET published=draft,published_at=now(),updated_at=now(),version=version+1 WHERE tenant_id=$1 AND version=$2 RETURNING *",
         [a.tenantId, b.version],
       );
       if (!s)
@@ -755,10 +931,77 @@ export function registerCoachSite(app: FastifyInstance, db: Database) {
           "SITE_CHANGED",
           "Refresh before publishing your current draft",
         );
+      await recordSitePublication(
+        tx,
+        a,
+        s.published,
+        s.version,
+        s.published_at,
+      );
       await event(tx, a, "website.published", a.tenantId, {
         version: s.version,
       });
       return s;
+    });
+  });
+  app.get("/api/v1/tenant/site/history", async (req) => {
+    const a = owner(req);
+    return ownerTransaction(db, a, async (tx) => {
+      const rows = await tx.query(
+        "SELECT id,data,created_at FROM records WHERE tenant_id=$1 AND kind='site_revision' ORDER BY (data->>'siteVersion')::bigint DESC,created_at DESC,id DESC LIMIT $2",
+        [a.tenantId, SITE_HISTORY_LIMIT],
+      );
+      return {
+        items: rows.map((row) => ({
+          id: row.id,
+          version: row.data.siteVersion,
+          createdAt: row.data.publishedAt ?? row.created_at,
+          headline:
+            row.data.site.headline ||
+            row.data.site.builder?.pages?.find((p: any) => p.slug === "")
+              ?.sections?.[0]?.content?.title ||
+            "Published website",
+          pageCount:
+            row.data.site.builder?.pages?.length ??
+            (row.data.site.pages?.length ?? 0) + 5,
+        })),
+        limit: SITE_HISTORY_LIMIT,
+      };
+    });
+  });
+  app.post("/api/v1/tenant/site/restore", async (req) => {
+    const a = owner(req),
+      b = z
+        .object({ version: z.number().int().min(0), revisionId: id })
+        .strict()
+        .parse(req.body);
+    return ownerTransaction(db, a, async (tx) => {
+      const [snapshot] = await tx.query(
+        "SELECT data FROM records WHERE tenant_id=$1 AND id=$2 AND kind='site_revision'",
+        [a.tenantId, b.revisionId],
+      );
+      if (!snapshot)
+        throw fail(404, "NOT_FOUND", "This website version is unavailable");
+      const restored = siteSchema.parse(snapshot.data.site);
+      // This immutable snapshot was validated in this workspace at creation.
+      // Recover its copy even when a referenced gallery or offer was removed
+      // later. The owner can repair the private draft; publishing rechecks all
+      // current resources and never exposes an unavailable/private binding.
+      const [site] = await tx.query(
+        "UPDATE coach_sites SET draft=$2,version=version+1,updated_at=now() WHERE tenant_id=$1 AND version=$3 RETURNING *",
+        [a.tenantId, JSON.stringify(restored), b.version],
+      );
+      if (!site)
+        throw fail(
+          409,
+          "SITE_CHANGED",
+          "Your website draft changed. Refresh before restoring a version",
+        );
+      await event(tx, a, "website.draft_restored", a.tenantId, {
+        revisionId: b.revisionId,
+        version: site.version,
+      });
+      return site;
     });
   });
   app.get("/api/v1/tenant/site/preview", async (req) => {
@@ -768,10 +1011,19 @@ export function registerCoachSite(app: FastifyInstance, db: Database) {
         "SELECT draft FROM coach_sites WHERE tenant_id=$1",
         [a.tenantId],
       );
+      const draft = siteSchema.parse(site?.draft ?? {});
+      const galleries = await listGalleries(tx);
       return {
         tenant,
-        site: siteSchema.parse(site?.draft ?? {}),
-        galleries: await listGalleries(tx),
+        site: draft,
+        galleries,
+        boundGalleries: await listBoundGalleries(
+          tx,
+          a.tenantId,
+          draft.builder,
+          galleries,
+          false,
+        ),
         products: await tx.query(
           "SELECT id,data FROM records WHERE kind='product' ORDER BY created_at",
         ),

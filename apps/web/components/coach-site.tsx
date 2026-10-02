@@ -12,6 +12,8 @@ import { useInvalidShake } from "./motion";
 import { SubscriberFooter } from "./subscriber-footer";
 import { coachAppLinks } from "./app-routes";
 import { InquirySource } from "./lead-analytics";
+import dynamic from "next/dynamic";
+import { BuilderWebsite } from "./site-builder-renderer";
 import { PageLanguage } from "./document-direction";
 import { parseLanguage, type Language } from "../document-language";
 import type { ColorSchemeChoice } from "../color-scheme";
@@ -21,6 +23,12 @@ import siteMessages from "../lib/i18n/messages/site";
 import commonMessages from "../lib/i18n/messages/common";
 import { errorText } from "../lib/i18n/errors";
 import { useErrorText, useLocale } from "../lib/i18n/react";
+
+// The visitor website does not need the desktop editor's controls or history.
+const SiteBuilderEditor = dynamic(
+  () => import("./site-builder-editor").then((module) => module.SiteBuilderEditor),
+  { loading: () => <p role="status">Loading website editor…</p> },
+);
 
 async function api(path: string, method = "GET", body?: unknown) {
   const r = await fetch("/api/v1" + path, {
@@ -362,9 +370,7 @@ export function GalleryStudio({ client = false }: { client?: boolean }) {
               {g.photos.map((p: any) => (
                 <figure key={p.media_id}>
                   <img src={p.url} alt={p.alt} loading="lazy" />
-                  {p.caption && (
-                    <figcaption dir="auto">{p.caption}</figcaption>
-                  )}
+                  {p.caption && <figcaption dir="auto">{p.caption}</figcaption>}
                 </figure>
               ))}
             </div>
@@ -571,298 +577,77 @@ export function GalleryStudio({ client = false }: { client?: boolean }) {
 export function WebsiteStudio({
   tenant,
 }: {
-  tenant: { slug: string; published: boolean };
+  tenant: { slug: string; published: boolean; name?: string };
 }) {
-  const [data, setData] = useState<any>(null),
-    [draft, setDraft] = useState<any>(null),
-    [message, setMessage] = useState(""),
-    [busy, setBusy] = useState(false),
-    [inquiries, setInquiries] = useState<any[]>([]);
-  async function load() {
-    const d = await api("/tenant/site");
-    setData(d);
-    setDraft(d.draft);
-    setInquiries((await api("/tenant/site/inquiries")).items);
-  }
+  return <SiteBuilderEditor tenant={tenant} />;
+}
+
+/** The enquiry inbox remains available outside the desktop website canvas. */
+export function WebsiteInquiries() {
+  const [inquiries, setInquiries] = useState<any[]>([]);
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [handling, setHandling] = useState<string | null>(null);
   useEffect(() => {
-    void load().catch((e) => setMessage(e.message));
-  }, []);
-  function field(k: string, label: string, long = false) {
-    return (
-      <Field key={k} label={label}>
-        {long ? (
-          <textarea
-            value={draft[k] ?? ""}
-            onChange={(e) => setDraft({ ...draft, [k]: e.target.value })}
-            rows={k === "about" ? 8 : 3}
-          />
-        ) : (
-          <input
-            value={draft[k] ?? ""}
-            onChange={(e) => setDraft({ ...draft, [k]: e.target.value })}
-            // Email, phone and links read left to right in either layout.
-            dir={
-              ["contactEmail", "whatsapp", "instagram", "youtube"].includes(k)
-                ? "ltr"
-                : undefined
-            }
-          />
-        )}
-      </Field>
-    );
-  }
-  async function save() {
-    setBusy(true);
-    setMessage("");
-    try {
-      const d = await api("/tenant/site", "PUT", {
-        version: data.version,
-        site: draft,
+    let current = true;
+    api("/tenant/site/inquiries")
+      .then((value) => {
+        if (current) setInquiries(value.items);
+      })
+      .catch((error) => {
+        if (current) setMessage(error.message);
+      })
+      .finally(() => {
+        if (current) setLoading(false);
       });
-      setData(d);
-      setDraft(d.draft);
-      setMessage("Private website draft saved.");
-      return d;
-    } catch (e) {
-      setMessage((e as Error).message);
-      return null;
-    } finally {
-      setBusy(false);
-    }
-  }
+    return () => {
+      current = false;
+    };
+  }, []);
   return (
-    <div className="site-workspace">
-      <div className="page-heading">
-        <div>
-          <p className="eyebrow">A WEBSITE THAT FEELS LIKE YOU</p>
-          <h1>Your coaching website.</h1>
-          <p className="muted">
-            Your story, memberships, galleries and contact page, with room for
-            your own pages.
-          </p>
-        </div>
-        <Link className="button secondary" href="/trainer/website/preview">
-          Preview saved draft
-        </Link>
-      </div>
+    <section className="card">
+      <h2>Website inquiries</h2>
       <Notice message={message} />
-      {!draft && !message && <p>Loading your website draft…</p>}
-      {!draft && message && (
-        <button
-          className="secondary"
-          onClick={() => void load().catch((e) => setMessage(e.message))}
-        >
-          Retry loading website
-        </button>
-      )}
-      {tenant.published && (
-        <p>
-          <Link href={`/coach/${tenant.slug}`}>View published website</Link>
-          {data?.published_at && (
-            <>
-              {" "}
-              · Last published {new Date(data.published_at).toLocaleString()}
-            </>
-          )}
-        </p>
-      )}
-      {draft && (
-        <>
-          <section className="card">
-            <h2>Home & your story</h2>
-            {field("headline", "Headline")}
-            {field("introduction", "Introduction", true)}
-            {field("about", "About your coaching", true)}
-            {field("cta", "Join button text")}
-            <Field label="Website language">
-              <select
-                value={draft.language ?? "en"}
-                onChange={(e) =>
-                  setDraft({ ...draft, language: e.target.value })
-                }
-              >
-                <option value="en">English (left to right)</option>
-                <option value="ar" lang="ar">
-                  العربية — Arabic (right to left)
-                </option>
-              </select>
-            </Field>
-          </section>
-          <section className="card">
-            <h2>Contact & social links</h2>
-            <div className="site-grid">
-              {field("contactEmail", "Public contact email")}
-              {field("whatsapp", "WhatsApp number, including + country code")}
-              {field("instagram", "Instagram HTTPS link")}
-              {field("youtube", "YouTube HTTPS link")}
-            </div>
-          </section>
-          <section className="card">
-            <h2>Search appearance</h2>
-            {field("seoTitle", "Page title")}
-            {field("seoDescription", "Search description")}
-          </section>
-          <section className="card">
-            <h2>Your own pages</h2>
-            {(draft.pages ?? []).map((p: any, i: number) => (
-              <fieldset key={i}>
-                <legend>Page {i + 1}</legend>
-                {["slug", "title", "body"].map((k) => (
-                  <Field
-                    key={k}
-                    label={
-                      k === "slug"
-                        ? "Page address (for example my-method)"
-                        : k === "title"
-                          ? "Page title"
-                          : "Page content"
-                    }
-                  >
-                    {k === "body" ? (
-                      <textarea
-                        rows={7}
-                        value={p[k]}
-                        onChange={(e) =>
-                          setDraft({
-                            ...draft,
-                            pages: draft.pages.map((x: any, j: number) =>
-                              i === j ? { ...x, [k]: e.target.value } : x,
-                            ),
-                          })
-                        }
-                      />
-                    ) : (
-                      <input
-                        value={p[k]}
-                        onChange={(e) =>
-                          setDraft({
-                            ...draft,
-                            pages: draft.pages.map((x: any, j: number) =>
-                              i === j ? { ...x, [k]: e.target.value } : x,
-                            ),
-                          })
-                        }
-                      />
-                    )}
-                  </Field>
-                ))}
-                <label className="check">
-                  <input
-                    type="checkbox"
-                    checked={p.visible}
-                    onChange={(e) =>
-                      setDraft({
-                        ...draft,
-                        pages: draft.pages.map((x: any, j: number) =>
-                          i === j ? { ...x, visible: e.target.checked } : x,
-                        ),
-                      })
-                    }
-                  />
-                  Include this page
-                </label>
-                <button
-                  className="secondary"
-                  onClick={() =>
-                    setDraft({
-                      ...draft,
-                      pages: draft.pages.filter((_: any, j: number) => j !== i),
-                    })
+      {loading ? (
+        <p>Loading inquiries…</p>
+      ) : inquiries.length ? (
+        inquiries.map((r) => (
+          <article key={r.id}>
+            <h3>{r.data.name}</h3>
+            <a href={`mailto:${r.data.email}`} dir="ltr">
+              {r.data.email}
+            </a>
+            <p className="site-prose">{r.data.message}</p>
+            <small>{r.status}</small>
+            <InquirySource attribution={r.attribution} />
+            {r.status === "open" && (
+              <button
+                className="secondary"
+                disabled={handling !== null}
+                onClick={async () => {
+                  setHandling(r.id);
+                  setMessage("");
+                  try {
+                    await api(`/tenant/site/inquiries/${r.id}`, "POST", {
+                      version: r.version,
+                    });
+                    setInquiries((await api("/tenant/site/inquiries")).items);
+                  } catch (error) {
+                    setMessage((error as Error).message);
+                  } finally {
+                    setHandling(null);
                   }
-                >
-                  Remove page
-                </button>
-              </fieldset>
-            ))}
-            <button
-              className="secondary"
-              onClick={() =>
-                setDraft({
-                  ...draft,
-                  pages: [
-                    ...(draft.pages ?? []),
-                    { slug: "", title: "", body: "", visible: true },
-                  ],
-                })
-              }
-            >
-              Add a page
-            </button>
-          </section>
-          <div className="actions">
-            <button
-              className="secondary"
-              disabled={busy}
-              onClick={() => void load().catch((e) => setMessage(e.message))}
-            >
-              Discard local changes and reload saved draft
-            </button>
-            <button disabled={busy} onClick={() => void save()}>
-              Save private draft
-            </button>
-            <button
-              className="secondary"
-              disabled={busy}
-              onClick={async () => {
-                const saved = await save();
-                if (!saved) return;
-                setBusy(true);
-                try {
-                  const d = await api("/tenant/site/publish", "POST", {
-                    version: saved.version,
-                  });
-                  setData(d);
-                  setMessage("Your website is published.");
-                } catch (e) {
-                  setMessage((e as Error).message);
-                } finally {
-                  setBusy(false);
-                }
-              }}
-            >
-              Publish website
-            </button>
-          </div>
-          <section className="card">
-            <h2>Website inquiries</h2>
-            {inquiries.length ? (
-              inquiries.map((r) => (
-                <article key={r.id}>
-                  <h3>{r.data.name}</h3>
-                  <a href={`mailto:${r.data.email}`} dir="ltr">
-                    {r.data.email}
-                  </a>
-                  <p className="site-prose">{r.data.message}</p>
-                  <small>{r.status}</small>
-                  <InquirySource attribution={r.attribution} />
-                  {r.status === "open" && (
-                    <button
-                      className="secondary"
-                      onClick={async () => {
-                        try {
-                          await api(`/tenant/site/inquiries/${r.id}`, "POST", {
-                            version: r.version,
-                          });
-                          setInquiries(
-                            (await api("/tenant/site/inquiries")).items,
-                          );
-                        } catch (e) {
-                          setMessage((e as Error).message);
-                        }
-                      }}
-                    >
-                      Mark handled
-                    </button>
-                  )}
-                </article>
-              ))
-            ) : (
-              <p className="muted">New website messages will appear here.</p>
+                }}
+              >
+                {handling === r.id ? "Saving…" : "Mark handled"}
+              </button>
             )}
-          </section>
-        </>
+          </article>
+        ))
+      ) : (
+        <p className="muted">New website messages will appear here.</p>
       )}
-    </div>
+    </section>
   );
 }
 
@@ -905,7 +690,10 @@ function SitePortrait({
       onError={() => setFailed(src)}
     />
   ) : (
-    <div className={`site-portrait is-placeholder ${className}`} aria-hidden="true">
+    <div
+      className={`site-portrait is-placeholder ${className}`}
+      aria-hidden="true"
+    >
       <span>{initialsOf(name)}</span>
     </div>
   );
@@ -1041,6 +829,50 @@ export function CoachWebsite({
   // the website's); the private preview shows the draft's own language.
   const pageLanguage: Locale =
     (preview ? null : language) ?? parseLanguage(site.language) ?? "en";
+  if (site.builder)
+    return (
+      <>
+        {!preview && <PageLanguage language={pageLanguage} />}
+        {preview && (
+          <div className="sb-preview-notice">
+            <span>Private draft preview</span>
+            <Link href="/trainer/website">Return to editor</Link>
+          </div>
+        )}
+        <BuilderWebsite
+          builder={site.builder}
+          path={path}
+          context={{
+            name,
+            tenantSlug: tenant.slug,
+            basePath: base,
+            joinPath: join,
+            language: pageLanguage,
+            logoUrl: design.logoUrl,
+            photoUrl: design.photoUrl,
+            contactEmail: site.contactEmail,
+            whatsapp: site.whatsapp,
+            instagram: site.instagram,
+            youtube: site.youtube,
+            products,
+            galleries: data.galleries ?? [],
+            boundGalleries: data.boundGalleries ?? [],
+            preview,
+            onInquiry: async (inquiry) => {
+              if (preview)
+                throw new Error(
+                  "Publish your website before sending an inquiry.",
+                );
+              await api(
+                `/public/sites/${tenant.slug}/contact`,
+                "POST",
+                inquiry,
+              );
+            },
+          }}
+        />
+      </>
+    );
   // The website's chrome in that language; the coach's words stay theirs.
   const t = translator(siteMessages, pageLanguage);
   const b = (text: string) => {
@@ -1155,7 +987,9 @@ export function CoachWebsite({
                 <h2 id="site-meet-title">{t("meetYourCoach")}</h2>
                 {about
                   ? paragraph(
-                      about.length > 420 ? about.slice(0, 400).trimEnd() + "…" : about,
+                      about.length > 420
+                        ? about.slice(0, 400).trimEnd() + "…"
+                        : about,
                       "site-excerpt",
                     )
                   : design.tagline && <p dir="auto">{design.tagline}</p>}
@@ -1235,7 +1069,9 @@ export function CoachWebsite({
                             </span>
                           </p>
                           <p className="muted">{terms.length}</p>
-                          {terms.voice && <p className="muted">{terms.voice}</p>}
+                          {terms.voice && (
+                            <p className="muted">{terms.voice}</p>
+                          )}
                           {p.data.trialDays > 0 && (
                             <p>{t("trial", { count: p.data.trialDays })}</p>
                           )}
@@ -1364,7 +1200,11 @@ export function CoachWebsite({
                 )}
                 {site.instagram && (
                   <li>
-                    <a href={site.instagram} target="_blank" rel="noopener noreferrer">
+                    <a
+                      href={site.instagram}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
                       <AtSign size={18} aria-hidden="true" />
                       Instagram
                     </a>
@@ -1372,7 +1212,11 @@ export function CoachWebsite({
                 )}
                 {site.youtube && (
                   <li>
-                    <a href={site.youtube} target="_blank" rel="noopener noreferrer">
+                    <a
+                      href={site.youtube}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
                       <PlayCircle size={18} aria-hidden="true" />
                       YouTube
                     </a>

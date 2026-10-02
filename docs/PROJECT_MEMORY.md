@@ -1,13 +1,14 @@
 # Project memory
 
-Updated: 30 September 2026. This is durable project context for future build sessions. It records decisions, not credentials or a claim about account capabilities.
+Updated: 2 October 2026. This is durable project context for future build sessions. It records decisions, not credentials or a claim about account capabilities.
 
 ## Owner decisions
 
 | Topic | Current decision |
 | --- | --- |
 | Project | `chordsnstrings/trainer_what`; Trainer Brain Platform |
-| Current request | 27 September (latest): fix the audited errors, test everything, and deploy everything under a new DigitalOcean project without touching existing projects. The owner supplied a DO token in the session and said they will rotate it. Delivered in [PR #2](https://github.com/chordsnstrings/trainer_what/pull/2), merged with the owner's authorization and deployed automatically. |
+| Current request | 2 October: build and complete the professional visual website builder with multiple agents, comprehensive modules and Seed 2.0 starters. Desktop-only editor; visitor websites remain responsive. Active branch `work/visual-website-builder-2026-10-02`; status/evidence in `CLAUDE_HANDOFF.md`. |
+| Visual website builder (2 October 2026) | Owner approved implementation with multiple agents: desktop-only editing, responsive published sites, professional drag-and-drop multipage composition, and a comprehensive library of many section types/variants. AI starters use Seed 2.0 to assemble prebuilt modules and bounded copy to keep costs down. Keep `CLAUDE_HANDOFF.md` updated during work. Existing drafts/publishing, native offers/inquiries, launch gates and tenant isolation remain the foundation. |
 | Coach onboarding (30 September) | Open self-serve sign-up (email code through Resend, key added later in Super admin; Google/Apple later) behind the legal gate; one six-step wizard (~15 min) with save/resume/skip; custom subdomain chosen in the wizard, live at go-live; automatic go-live checks instead of staff approval; launch in "Waits for me"; bank details at first payout; "Report this coach" for Super admin. See `docs/features/coach-setup.md`. |
 | Astra | Available for difficult design, implementation and review; use tokens wisely; do not use it for browsing |
 | Execution | Use bounded tasks, targeted context, deterministic tooling and useful verification. On 25 September at 13:44 Asia/Dubai, the owner explicitly requested multiple agents for speed; split nonoverlapping implementation/review work and keep cloud writes with the coordinating agent. Avoid repeated planning/research and unnecessary confirmation. |

@@ -608,18 +608,17 @@ export async function checkCompletionFlows({
   await imageVisible(coach, alt);
 
   await coach.goto(base + "/trainer/website");
-  await coach.getByLabel("Headline", { exact: true }).fill(headline);
-  await coach
-    .getByLabel("Introduction", { exact: true })
-    .fill("Synthetic website introduction from the browser publication check.");
-  await mutation(coach, "/tenant/site", "PUT", () =>
-    coach
-      .getByRole("button", { name: "Save private draft", exact: true })
-      .click(),
-  );
-  await coach
-    .getByRole("link", { name: "Preview saved draft", exact: true })
-    .click();
+  await coach.getByTestId("site-builder-editor").waitFor();
+  await coach.locator("[data-section-id]").first().click();
+  // The desktop visual editor saves the composed document automatically.
+  // Changing the hero through its inspector must remain a private draft.
+  await mutation(coach, "/tenant/site", "PUT", async () => {
+    await coach.getByRole("textbox", { name: "Title", exact: true }).fill(headline);
+    await coach.getByRole("textbox", { name: "Body", exact: true }).fill(
+      "Synthetic website introduction from the browser publication check.",
+    );
+  });
+  await coach.goto(base + "/trainer/website/preview");
   await coach.getByRole("heading", { name: headline, exact: true }).waitFor();
   await publicPage.goto(base + "/coach/alex-morgan");
   // The first analytics prompt is the slim bar; any answer ends it.
@@ -636,18 +635,20 @@ export async function checkCompletionFlows({
     "Saving a private website draft must not publish it",
   );
   await coach.goto(base + "/trainer/website");
+  await coach.getByTestId("site-builder-editor").waitFor();
+  await coach.getByRole("button", { name: "Publish", exact: true }).click();
   await mutation(coach, "/tenant/site/publish", "POST", () =>
-    coach.getByRole("button", { name: "Publish website", exact: true }).click(),
+    coach.getByRole("dialog", { name: "Ready to go live?" })
+      .getByRole("button", { name: "Publish website", exact: true }).click(),
   );
-  await coach
-    .getByText("Your website is published.", { exact: true })
-    .waitFor();
   await publicPage.reload();
   await publicPage
     .getByRole("heading", { name: headline, exact: true })
     .waitFor();
+  // The published builder uses a compact navigation drawer on phones.
+  await publicPage.locator(".sb-mobile-menu > summary").click();
   await publicPage
-    .getByRole("navigation", { name: "Coach website" })
+    .getByRole("navigation", { name: "Website pages", exact: true })
     .getByRole("link", { name: "Galleries", exact: true })
     .click();
   await publicPage

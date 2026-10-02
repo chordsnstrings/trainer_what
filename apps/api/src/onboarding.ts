@@ -11,6 +11,7 @@ import {
   type Tx,
 } from "@trainer/db";
 import { integrationStatus } from "@trainer/providers";
+import { builderContentText, siteBuilderSchema } from "@trainer/contracts";
 import { nutritionReadiness } from "./nutrition.ts";
 import { requireRecentMfa } from "./security.ts";
 import { nutritionLearning } from "../../../packages/domain/src/nutrition-learning.ts";
@@ -586,12 +587,19 @@ export async function onboardingState(
   const commerceReady = commerce.configured && commerce.approved;
   const nameProblem = realNameProblem(account.name ?? "");
   const brandReady = complete.brand;
+  // Screen the visible builder copy beyond the legacy traversal depth limit,
+  // excluding draft-only content and typed style/media/link destinations.
+  const { builder: rawBuilder, ...legacyWebsite } = website.published ?? {};
+  const publishedBuilder = siteBuilderSchema.safeParse(rawBuilder);
   const issues = pageIssues({
     name: tenant.name,
     headline: tenant.theme?.headline,
     bio: tenant.theme?.bio,
     tagline: tenant.theme?.tagline,
-    website: website.published,
+    website: publishedBuilder.success ? {} : legacyWebsite,
+    websiteBuilder: publishedBuilder.success
+      ? builderContentText(publishedBuilder.data)
+      : "",
     galleries: galleries.map((g) => ({
       title: g.title,
       description: g.description,

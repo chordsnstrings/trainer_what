@@ -20,6 +20,7 @@ import { emailCodesEnabled, emailTransport } from "@trainer/providers";
 import { withRuntimeConfig } from "../packages/providers/src/configuration.ts";
 import { registerCoachSignup } from "../apps/api/src/coach-signup.ts";
 import { registerCoachSetup } from "../apps/api/src/coach-setup.ts";
+import { createModule, createTemplate } from "../packages/contracts/src/site-builder.ts";
 
 let db: Database, app: ReturnType<typeof Fastify>;
 const actors = new Map<string, any>();
@@ -753,4 +754,26 @@ test("Report this coach: stored for the Super admin, who reviews it; unknown and
   );
   assert.equal(audit.action, "coach_report.reviewed");
   assert.equal(audit.tenant_id, a.tenantId);
+});
+
+
+test("go-live wording checks deep visible builder copy and ignores retired legacy text", async () => {
+  const a = await coach();
+  const builder = createTemplate("minimal", {name:"Layla Haddad"});
+  const custom = createModule("columns");
+  builder.pages[0].sections.push(custom);
+  const site = {about:"My coaching cures diabetes.",builder};
+  await db.tenant(a, (tx) => tx.query(
+    "INSERT INTO coach_sites(tenant_id,draft,published) VALUES($1,$2,$2)",
+    [a.tenantId,site],
+  ));
+  assert.equal(checkOf(await wizard(a), "page_clean").ok,true,
+    "inactive legacy prose must not block a safe visual website");
+  custom.content.elements[0].children[1].text = "My coaching cures diabetes.";
+  await db.tenant(a, (tx) => tx.query(
+    "UPDATE coach_sites SET published=$2 WHERE tenant_id=$1",[a.tenantId,site],
+  ));
+  const result = checkOf(await wizard(a), "page_clean");
+  assert.equal(result.ok,false,"deeply nested visible medical claims must block launch");
+  assert.match(result.reason,/medical|health|claim/i);
 });
