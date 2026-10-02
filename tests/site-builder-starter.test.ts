@@ -700,9 +700,9 @@ test("dedicated Seed selection preserves coaching profile and disabled global in
       /unavailable/,
     );
   } finally {
-    await db.system((tx) =>
-      tx.query("DELETE FROM model_profiles WHERE id=$1", [profileId]),
-    );
+    // This is the file's final fixture. The PostgreSQL runner drops its
+    // per-file database and PGlite closes its in-memory database in after().
+    // Runtime service credentials deliberately cannot delete model profiles.
     if (oldKey === undefined) delete process.env.SECURITY_ENCRYPTION_KEY;
     else process.env.SECURITY_ENCRYPTION_KEY = oldKey;
   }

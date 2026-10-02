@@ -109,7 +109,8 @@
 .sbe-topbar {
   height: 68px;
   min-height: 68px;
-  padding: 0 22px 0 14px;
+  padding-block: 0;
+  padding-inline: 14px 22px;
   display: flex;
   align-items: center;
   gap: 28px;
@@ -203,7 +204,8 @@
 }
 .sbe-page-switcher select {
   max-width: 172px;
-  padding: 5px 20px 5px 2px !important;
+  padding-block: 5px !important;
+  padding-inline: 2px 20px !important;
   font-weight: 600 !important;
   background-color: transparent !important;
   border: none !important;
@@ -422,7 +424,7 @@
 .thumb-heading {
   position: absolute;
   top: 22px;
-  left: 20px;
+  inset-inline-start: 20px;
   width: 63px;
   height: 7px;
   background: #4d584a;
@@ -431,7 +433,7 @@
 .thumb-lines {
   position: absolute;
   top: 35px;
-  left: 20px;
+  inset-inline-start: 20px;
   width: 73px;
   display: grid;
   gap: 4px;
@@ -447,7 +449,7 @@
 .thumb-visual {
   position: absolute;
   top: 12px;
-  right: 13px;
+  inset-inline-end: 13px;
   width: 88px;
   height: 63px;
   background: var(--thumb-accent);
@@ -459,7 +461,7 @@
   position: absolute;
   width: 54px;
   height: 70px;
-  right: -8px;
+  inset-inline-end: -8px;
   bottom: -36px;
   border-radius: 45% 45% 0 0;
   background: #a3b18e;
@@ -470,7 +472,7 @@
   position: absolute;
   width: 35px;
   height: 70px;
-  left: 2px;
+  inset-inline-start: 2px;
   bottom: -48px;
   border-radius: 50% 50% 0 0;
   background: #d5ddc7;
@@ -479,7 +481,7 @@
 .thumb-button {
   position: absolute;
   top: 60px;
-  left: 20px;
+  inset-inline-start: 20px;
   width: 36px;
   height: 7px;
   background: #626f59;
@@ -487,13 +489,13 @@
 }
 .is-grid .thumb-heading {
   top: 13px;
-  left: 80px;
+  inset-inline-start: 80px;
   width: 65px;
   height: 5px;
 }
 .is-grid .thumb-lines {
   top: 22px;
-  left: 85px;
+  inset-inline-start: 85px;
   width: 50px;
 }
 .is-grid .thumb-lines i:not(:first-child) {
@@ -528,7 +530,7 @@
   height: 11px;
   background: var(--thumb-accent);
   top: 5px;
-  left: 6px;
+  inset-inline-start: 6px;
   border-radius: 2px;
 }
 .is-grid .thumb-visual b::after {
@@ -537,8 +539,8 @@
   height: 2px;
   background: #c6cbbb;
   top: 23px;
-  left: 6px;
-  right: 6px;
+  inset-inline-start: 6px;
+  inset-inline-end: 6px;
   box-shadow: 0 6px 0 #e0e5d9;
 }
 .is-grid .thumb-button {
@@ -803,7 +805,7 @@
 .sbe button.sbe-saved-delete {
   position: absolute;
   top: 5px;
-  right: 5px;
+  inset-inline-end: 5px;
   background: #ffffffd9;
 }
 .sbe-canvas-stage {
@@ -907,7 +909,9 @@
   gap: 4px;
 }
 .sbe .sbe-section-tools button:last-child {
-  border-radius: 0 4px 4px 0;
+  border-radius: 0;
+  border-start-end-radius: 4px;
+  border-end-end-radius: 4px;
 }
 .sbe .sbe-section-tools button:hover {
   background: #143a31;
@@ -1548,24 +1552,24 @@
   height: 122px;
 }
 .sbe-template-card .thumb-heading {
-  left: 22px;
+  inset-inline-start: 22px;
   top: 26px;
   width: 92px;
   height: 16px;
 }
 .sbe-template-card .thumb-lines {
-  left: 23px;
+  inset-inline-start: 23px;
   top: 70px;
   width: 92px;
 }
 .sbe-template-card .thumb-button {
-  left: 23px;
+  inset-inline-start: 23px;
   top: 94px;
   width: 48px;
 }
 .sbe-template-card .thumb-visual {
   top: 20px;
-  right: 18px;
+  inset-inline-end: 18px;
   height: 84px;
   width: 112px;
 }

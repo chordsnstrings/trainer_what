@@ -1,6 +1,7 @@
 /* Public trainer websites and the desktop builder canvas share these rules.
    Every selector is scoped; no website choice changes the member app. */
 .sb-site {
+  --inline-sign: 1;
   container: builder/inline-size;
   isolation: isolate;
   position: relative;
@@ -14,6 +15,9 @@
   color-scheme: light;
   overflow-wrap: anywhere;
   text-align: start;
+}
+.sb-site[dir="rtl"] {
+  --inline-sign: -1;
 }
 .sb-site *,
 .sb-site *::before,
@@ -229,7 +233,7 @@
   line-height: 1;
 }
 .sb-site[dir="rtl"] .sb-arrow {
-  transform: scaleX(-1);
+  transform: scaleX(var(--inline-sign));
 }
 .sb-site .sb-text-link {
   display: inline-flex;
@@ -552,7 +556,7 @@
 .sb-site[dir="rtl"]
   .sb-module-hero[data-variant="cover"]
   .sb-hero-media::after {
-  transform: scaleX(-1);
+  transform: scaleX(var(--inline-sign));
 }
 .sb-site .sb-module-hero[data-variant="cover"] .sb-hero-media > .sb-image {
   height: 100%;
@@ -906,11 +910,9 @@
   gap: 36px;
   border: 0;
   border-inline-start: 1px solid var(--sb-border);
-  padding: 0 0 45px 36px;
+  padding-block: 0 45px;
+  padding-inline: 36px 0;
   position: relative;
-}
-.sb-site[dir="rtl"] .sb-module-process[data-variant="timeline"] .sb-process li {
-  padding: 0 36px 45px 0;
 }
 .sb-site .sb-module-process[data-variant="timeline"] .sb-process li::before {
   content: "";
@@ -1710,8 +1712,9 @@
   border-radius: 50%;
   background: var(--sb-bg);
   color: var(--sb-text);
-  inset: 50% auto auto 50%;
-  transform: translate(-50%, -50%);
+  inset-block-start: 50%;
+  inset-inline-start: 50%;
+  transform: translate(calc(-50% * var(--inline-sign)), -50%);
   display: grid;
   place-items: center;
   font-size: 1.25rem;
