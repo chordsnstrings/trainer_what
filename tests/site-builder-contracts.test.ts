@@ -41,8 +41,17 @@ function withModule(
 
 test("every catalogue preset produces a valid bounded document without fabricated proof", () => {
   assert.ok(SITE_BUILDER_MODULES.length >= 35);
-  assert.ok(SITE_BUILDER_PRESET_COUNT >= 100);
+  assert.ok(SITE_BUILDER_PRESET_COUNT >= 270);
   for (const module of SITE_BUILDER_MODULES) {
+    assert.ok(
+      module.variants.length >= 6,
+      `${module.id} needs at least six layouts`,
+    );
+    assert.equal(
+      new Set(module.variants.map((v) => v.id)).size,
+      module.variants.length,
+      `${module.id} has duplicate layout IDs`,
+    );
     for (const variant of module.variants) {
       const doc = withModule(module.id, variant.id);
       const parsed = siteBuilderSchema.safeParse(doc);

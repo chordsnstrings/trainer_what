@@ -6,6 +6,8 @@
   --sbe-line: #e5e8e2;
   --sbe-accent: #244c46;
   --sbe-lime: #dfeecc;
+  --sbe-panel-inset: 16px;
+  --sbe-canvas-gutter: 24px;
   position: fixed;
   inset: 0;
   z-index: 70;
@@ -311,7 +313,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 20px 14px;
+  padding: 20px var(--sbe-panel-inset);
   scrollbar-width: thin;
   scrollbar-color: #d3d9cf transparent;
 }
@@ -680,7 +682,8 @@
   border: none;
   background: transparent;
   gap: 7px;
-  padding: 10px 6px;
+  padding: 12px;
+  min-height: 42px;
 }
 .sbe-page-select > span {
   min-width: 0;
@@ -699,7 +702,8 @@
 .sbe-layer-actions {
   display: flex;
   gap: 4px;
-  padding: 0 8px 7px;
+  padding-block: 0 10px;
+  padding-inline: 10px;
 }
 .sbe-page-actions button,
 .sbe-layer-actions button {
@@ -820,7 +824,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  padding: 18px 25px 5px;
+  padding-block: 20px 8px;
+  padding-inline: var(--sbe-canvas-gutter);
   color: #8b9283;
   font-size: 8px;
   letter-spacing: 0.85px;
@@ -833,7 +838,8 @@
   min-width: min-content;
   display: flex;
   justify-content: safe center;
-  padding: 20px 25px 0;
+  padding-block: 16px 0;
+  padding-inline: var(--sbe-canvas-gutter);
 }
 .sbe-canvas-frame {
   flex-shrink: 0;
@@ -890,7 +896,8 @@
   opacity: 0;
   pointer-events: none;
 }
-.sbe-canvas-section:is(:hover, :focus-within, .is-selected) > .sbe-section-tools {
+.sbe-canvas-section:is(:hover, :focus-within, .is-selected)
+  > .sbe-section-tools {
   opacity: 1;
   pointer-events: auto;
 }
@@ -1039,7 +1046,7 @@
 .sbe-right-panel {
   min-height: 0;
   overflow-y: auto;
-  padding: 24px 18px;
+  padding: 20px var(--sbe-panel-inset);
   border-inline-start: 1px solid var(--sbe-line);
   background: #fff;
   scrollbar-width: thin;
@@ -1048,8 +1055,9 @@
 .sbe-inspector-tabs {
   display: flex;
   border-bottom: 1px solid var(--sbe-line);
-  margin: 0 -18px 20px;
-  padding: 0 18px;
+  margin-block: -4px 20px;
+  margin-inline: calc(-1 * var(--sbe-panel-inset));
+  padding-inline: var(--sbe-panel-inset);
 }
 .sbe-inspector-tabs button {
   flex: 1;
@@ -1067,13 +1075,13 @@
 .sbe-field {
   display: flex;
   flex-direction: column;
-  gap: 7px;
-  margin: 0 0 17px;
+  gap: 8px;
+  margin-block: 0 20px;
   min-width: 0;
 }
 .sbe-field > span {
   color: #6b7662;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 500;
 }
 .sbe-field small,
@@ -1089,7 +1097,7 @@
 .sbe :is(input, textarea, select):not(.sb-site *) {
   border: 1px solid #dde2d6;
   border-radius: 5px;
-  padding: 8px 9px;
+  padding: 9px 11px;
   font-size: 12px;
   color: #24301e;
   background: #fdfefb;
@@ -1731,7 +1739,7 @@
     grid-template-columns: 228px minmax(0, 1fr) 260px;
   }
   .sbe-right-panel {
-    padding-inline: 14px;
+    padding-inline: var(--sbe-panel-inset);
   }
   .sbe-topbar-actions {
     gap: 4px;
@@ -1804,4 +1812,47 @@
     transition: none !important;
     animation: none !important;
   }
+}
+
+/* Paired progress photos have a recognisable library preview. */
+.sbe .thumb-transformation .thumb-visual,
+.sbe .thumb-transformation .thumb-lines,
+.sbe .thumb-transformation .thumb-button {
+  display: none;
+}
+.sbe .thumb-transformation .thumb-heading {
+  inset-block-start: 13px;
+  inline-size: 90px;
+  block-size: 5px;
+}
+.sbe .thumb-progress-pair {
+  position: absolute;
+  inset-block: 28px 9px;
+  inset-inline: 18px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.sbe .thumb-progress-pair span {
+  display: flex;
+  align-items: end;
+  justify-content: center;
+  padding: 4px;
+  font-size: 8px;
+  background: #dce2d4;
+  border-radius: 3px;
+  color: #405342;
+}
+.sbe .thumb-progress-pair span:last-child {
+  background: #b6c5a6;
+}
+.sbe-left-panel,
+.sbe-right-panel {
+  overscroll-behavior: contain;
+}
+.sbe .sbe-page-row {
+  margin-block: 2px;
+}
+.sbe .sbe-inline {
+  flex-wrap: wrap;
 }

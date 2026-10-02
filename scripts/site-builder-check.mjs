@@ -116,6 +116,29 @@ async function noOverflow(p, label) {
     measurement.width <= measurement.viewport + 1,
     `${label} overflows: ${JSON.stringify(measurement)}`,
   );
+  const panels = await p
+    .locator(".sbe:visible :is(.sbe-left-scroll,.sbe-right-panel)")
+    .evaluateAll((nodes) =>
+      nodes.map((node) => {
+        const css = getComputedStyle(node);
+        return {
+          padding: css.padding,
+          width: node.clientWidth,
+          content: node.scrollWidth,
+        };
+      }),
+    );
+  for (const panel of panels) {
+    assert.equal(
+      panel.padding,
+      panels[0].padding,
+      `${label}: editor panel gutters should align`,
+    );
+    assert.ok(
+      panel.content <= panel.width + 1,
+      `${label}: editor controls should fit their panel`,
+    );
+  }
 }
 async function capture(p, name) {
   const path = `test-results/site-builder-${name}.png`;
@@ -277,8 +300,20 @@ try {
         "the section library must cover at least 35 families",
       );
       const layouts = await cards.locator("small").allTextContents();
+      assert.ok(layouts.every((text) => Number.parseInt(text, 10) >= 6));
+      await page
+        .getByLabel("Search sections", { exact: true })
+        .fill("before after");
+      await expect(
+        page.locator('[data-module-id="transformation"]'),
+      ).toHaveCount(1);
+      await expect(
+        page.locator('[data-module-id="transformation"]'),
+      ).toContainText("Before & after gallery");
+      await page.getByLabel("Search sections", { exact: true }).fill("");
+
       assert.ok(
-        layouts.reduce((n, text) => n + Number.parseInt(text, 10), 0) >= 100,
+        layouts.reduce((n, text) => n + Number.parseInt(text, 10), 0) >= 270,
       );
       const before = await sections().count();
       await page.getByLabel("Search sections", { exact: true }).fill("FAQ");

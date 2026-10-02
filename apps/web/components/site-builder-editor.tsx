@@ -256,6 +256,12 @@ function ModuleThumbnail({
         <b />
         <b />
       </div>
+      {moduleId === "transformation" && (
+        <div className="thumb-progress-pair">
+          <span>Before</span>
+          <span>After</span>
+        </div>
+      )}
       <div className="thumb-button" />
     </div>
   );
@@ -652,12 +658,18 @@ function DesktopSiteBuilder({ tenant }: { tenant: EditorTenant }) {
     zoom === "fit"
       ? Math.min(1, Math.max(0.25, (stageWidth - 56) / previewWidth))
       : Number(zoom);
+  const searchTerms = search
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean);
   const modules = SITE_BUILDER_MODULES.filter(
     (m) =>
       (group === "All sections" || group === m.group) &&
-      `${m.id} ${m.label} ${m.description} ${m.group} ${m.variants.map((variant) => `${variant.id} ${variant.label} ${variant.description}`).join(" ")}`
-        .toLowerCase()
-        .includes(search.trim().toLowerCase()),
+      searchTerms.every((term) =>
+        `${m.id} ${m.label} ${m.description} ${m.group} ${m.variants.map((variant) => `${variant.id} ${variant.label} ${variant.description}`).join(" ")}`
+          .toLowerCase()
+          .includes(term),
+      ),
   );
   function selectSection(id: string) {
     setSelection(id);

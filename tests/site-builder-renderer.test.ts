@@ -54,7 +54,7 @@ const render = (
   );
 };
 
-test("all 116 registered layouts render their real family with safe public defaults", () => {
+test("all registered layouts render their real family with safe public defaults", () => {
   let count = 0;
   for (const module of SITE_BUILDER_MODULES)
     for (const variant of module.variants) {
@@ -83,7 +83,7 @@ test("all 116 registered layouts render their real family with safe public defau
       }
       count++;
     }
-  assert.ok(count >= 116);
+  assert.ok(count >= 270);
 });
 
 test("native pricing displays only recorded public offers, exact terms and the real join route", () => {
@@ -335,4 +335,30 @@ test("Arabic has scoped RTL, nested navigation and independently bounded style o
   assert.equal(style["--sb-display"], "none");
   assert.equal(style["--sb-display-mobile"], "block");
   assert.equal(style["--sb-title-size-mobile"], "30px");
+});
+
+test("every before-and-after layout preserves paired client photos and contextual copy", () => {
+  const module = SITE_BUILDER_MODULES.find((m) => m.id === "transformation")!;
+  assert.match(module.description, /before-and-after photos/);
+  for (const variant of module.variants) {
+    const section = createModule("transformation", variant.id);
+    section.content.items = [
+      {
+        id: "client-story",
+        title: "A real coaching journey",
+        body: "Client-approved context",
+        beforeImage: "/api/v1/media/client-before",
+        afterImage: "/api/v1/media/client-after",
+        imageAlt: "Permissioned client progress",
+      },
+    ];
+    const html = renderToStaticMarkup(
+      createElement(BuilderSection, { section, context }),
+    );
+    assert.match(html, /src="\/api\/v1\/media\/client-before"/);
+    assert.match(html, /src="\/api\/v1\/media\/client-after"/);
+    assert.match(html, />Before<\/figcaption>/);
+    assert.match(html, />After<\/figcaption>/);
+    assert.match(html, /Client-approved context/);
+  }
 });

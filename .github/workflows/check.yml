@@ -31,6 +31,8 @@ jobs:
       - run: node scripts/run-browser-check.mjs
       - name: Visual website builder journey
         run: npm run test:site-builder
+      - name: Section layout matrix (three widths, English and Arabic)
+        run: node --import tsx scripts/site-builder-layout-check.ts
       - uses: actions/upload-artifact@v4
         if: always()
         with:
