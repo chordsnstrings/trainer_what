@@ -25,6 +25,8 @@ import "./platform-settings.css";
 import "./trainer-design.css";
 import "./meal-capture.css";
 import "./coach-site.css";
+import "./site-builder-public.css";
+import "./site-builder-editor.css";
 import "./account-settings.css";
 import "./joining.css";
 import "./governance.css";

@@ -18,6 +18,7 @@
     "seed:demo": "node --import tsx scripts/seed-demo.ts",
     "check": "npm run typecheck && npm test && npm run build",
     "test:browser": "node scripts/run-browser-check.mjs",
+    "test:site-builder": "node scripts/run-site-builder-check.mjs",
     "test:rtl": "node scripts/run-rtl-check.mjs",
     "test:brand": "node scripts/run-brand-check.mjs",
     "test:phone": "node scripts/run-phone-check.mjs",

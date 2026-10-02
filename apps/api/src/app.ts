@@ -67,6 +67,7 @@ import {
   readCoachWearablePolicy,
 } from "./healthkit-sync.ts";
 import { registerCoachSite, saveCoachBrand } from "./coach-site.ts";
+import { registerSiteBuilderStarter } from "./site-builder-starter.ts";
 import { registerDiscovery } from "./discovery.ts";
 import { registerEarlyAccess } from "./early-access.ts";
 import { freeStartingSlug, registerCoachSignup } from "./coach-signup.ts";
@@ -715,6 +716,7 @@ export async function buildApp(
     stripe: options.providers?.stripe,
   });
   registerCoachSite(app, db);
+  registerSiteBuilderStarter(app, db);
   registerDiscovery(app, db);
   registerMarketing(app, db, {
     instagramTransport: options.providers?.instagram,

@@ -13,6 +13,7 @@ import { themeColorsFor, type ColorSchemeChoice } from "../../color-scheme";
 import {
   BRAND_COLORS,
   DIRECTORY_PATH,
+  coachHostPagePath,
   isIndexablePlatformPath,
   isUnknownMarketingChild,
   marketingMetadata,
@@ -140,6 +141,11 @@ export async function generateViewport({
         ? { colorScheme: colorSchemeMeta(scheme) }
         : member;
   const data = await website(slug);
+  if (path[0] === "coach" && data?.site?.builder)
+    return {
+      themeColor: data.site.builder.theme.background,
+      colorScheme: "light",
+    };
   return data
     ? {
         themeColor: themeColorsFor(scheme, {
@@ -232,22 +238,48 @@ export async function generateMetadata({
       title: { absolute: "Coaching website unavailable" },
       robots: { index: false, follow: false },
     };
-  const page = data.site.pages.find(
-    (p: any) => p.visible && p.slug === path[2],
-  );
+  const builder = data.site.builder;
+  const page = builder
+    ? builder.pages.find((p: any) => p.visible && p.slug === (path[2] ?? ""))
+    : data.site.pages.find((p: any) => p.visible && p.slug === path[2]);
+  const title =
+    page?.seoTitle ||
+    (page
+      ? `${page.title} — ${data.tenant.name}`
+      : data.site.seoTitle || data.tenant.name);
+  const description =
+    page?.seoDescription ||
+    data.site.seoDescription ||
+    data.site.introduction ||
+    `Personal coaching with ${data.tenant.name}.`;
+  const canonicalPath = coachHost
+    ? coachHostPagePath(data.tenant.slug, path[2] ?? "")
+    : `/coach/${data.tenant.slug}${path[2] ? `/${path[2]}` : ""}`;
+  const canonical = new URL(canonicalPath, origin).href;
+  const image = page?.socialImage
+    ? new URL(page.socialImage, origin).href
+    : undefined;
   return {
-    // A coach website carries the coach's brand, never the platform's: its
-    // name, its own description, and never the platform's B2B description.
-    title: {
-      absolute: page
-        ? `${page.title} — ${data.tenant.name}`
-        : data.site.seoTitle || data.tenant.name,
-    },
+    // A website's own page copy and share image never inherit platform copy.
+    title: { absolute: title },
     applicationName: data.tenant.name,
-    description:
-      data.site.seoDescription ||
-      data.site.introduction ||
-      `Personal coaching with ${data.tenant.name}.`,
+    description,
+    alternates: { canonical },
+    robots: { index: builder ? !!page && !page.noindex : true, follow: true },
+    openGraph: {
+      title,
+      description,
+      url: canonical,
+      type: "website",
+      siteName: data.tenant.name,
+      ...(image ? { images: [{ url: image }] } : {}),
+    },
+    twitter: {
+      card: image ? "summary_large_image" : "summary",
+      title,
+      description,
+      ...(image ? { images: [image] } : {}),
+    },
     manifest: `/api/v1/public/sites/${data.tenant.slug}/manifest.webmanifest`,
     icons: {
       icon: `/api/v1/public/sites/${data.tenant.slug}/icon/192`,
@@ -312,12 +344,32 @@ export default async function Page({
         );
       notFound();
     }
-    const section = path[2];
-    if (
-      path.length > 3 ||
-      (section &&
-        !["about", "memberships", "galleries", "contact"].includes(section) &&
-        !data.site.pages.some((p: any) => p.visible && p.slug === section))
+    const section = path[2] ?? "";
+    if (path.length > 3) notFound();
+    if (data.site.builder) {
+      const builder = data.site.builder;
+      const page = builder.pages.find(
+        (p: any) => p.visible && p.slug === section,
+      );
+      if (!page) {
+        const move = builder.redirects.find((r: any) => r.from === section);
+        const target =
+          move &&
+          builder.pages.find((p: any) => p.visible && p.id === move.toPageId);
+        if (target) {
+          const { coachHost } = await requestOrigin();
+          permanentRedirect(
+            coachHost
+              ? coachHostPagePath(data.tenant.slug, target.slug)
+              : `/coach/${data.tenant.slug}${target.slug ? `/${target.slug}` : ""}`,
+          );
+        }
+        notFound();
+      }
+    } else if (
+      section &&
+      !["about", "memberships", "galleries", "contact"].includes(section) &&
+      !data.site.pages.some((p: any) => p.visible && p.slug === section)
     )
       notFound();
     // The same language as <html>: the visitor's explicit choice, else the

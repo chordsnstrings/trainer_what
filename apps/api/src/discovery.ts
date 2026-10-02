@@ -73,6 +73,15 @@ function iso(value: Date | string | null | undefined) {
  */
 export function coachSitePaths(row: SiteRow, host: "platform" | "custom") {
   const parsed = siteSchema.safeParse(row.published ?? {});
+  if (parsed.success && parsed.data.builder) {
+    return parsed.data.builder.pages
+      .filter((page) => page.visible && !page.noindex)
+      .map((page) =>
+        host === "custom"
+          ? coachHostPagePath(row.slug, page.slug)
+          : `/coach/${encodeURIComponent(row.slug)}${page.slug ? `/${page.slug}` : ""}`,
+      );
+  }
   const pages = parsed.success
     ? parsed.data.pages.filter((page) => page.visible).map((page) => page.slug)
     : [];
@@ -220,9 +229,9 @@ export async function searchDirectory(
         specialties: (row.specialties as string[])
           .filter((id) => !isHiddenSpecialty(id))
           .map((id) => ({
-          id,
-          label: label(DIRECTORY_SPECIALTIES, id),
-        })),
+            id,
+            label: label(DIRECTORY_SPECIALTIES, id),
+          })),
         languages: (row.languages as string[]).map((id) => ({
           id,
           label: label(DIRECTORY_LANGUAGES, id),

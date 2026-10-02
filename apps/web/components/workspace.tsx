@@ -55,7 +55,7 @@ import { AccountSecurity } from "./account-security";
 import { AccountExtras } from "./account-completion";
 import { AccountSettings } from "./account-settings";
 import { OperatorRecovery } from "./operator-recovery";
-import { GalleryStudio, WebsiteStudio, CoachWebsite } from "./coach-site";
+import { GalleryStudio, WebsiteStudio, WebsiteInquiries, CoachWebsite } from "./coach-site";
 import { MemberAppManifest } from "./member-app-install";
 import { MemberShell, MoreScreen } from "./member-shell";
 import { Toast } from "./phone-ui";
@@ -920,15 +920,22 @@ export default function Workspace({
             />
           ) : path === "/trainer/galleries" ||
             path === "/trainer/website" ||
+            path === "/trainer/website/settings" ||
             path.startsWith("/trainer/website/preview") ? (
             state.user.role === "owner" ? (
               path === "/trainer/galleries" ? (
                 <GalleryStudio />
               ) : path === "/trainer/website" ? (
-                <>
-                  <WebsiteStudio tenant={state.tenant} />
+                <WebsiteStudio tenant={state.tenant} />
+              ) : path === "/trainer/website/settings" ? (
+                <div className="site-workspace">
+                  <div className="page-heading">
+                    <h1>Website settings</h1>
+                    <Link className="button secondary" href="/trainer/website">Open website editor</Link>
+                  </div>
                   <DirectoryListingSettings />
-                </>
+                  <WebsiteInquiries />
+                </div>
               ) : (
                 <CoachWebsite
                   preview
