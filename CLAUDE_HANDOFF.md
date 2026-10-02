@@ -2,16 +2,24 @@
 
 Updated 27 September 2026 (afternoon). PR #1 and [PR #2](https://github.com/chordsnstrings/trainer_what/pull/2) are merged into `main`. At the owner's request the application runs live on a new DigitalOcean project, GymMembership, which deployed `main` `eb7b678` automatically after its checks passed, and live verification passed on it. Historical stage entries below retain their original evidence.
 
-## Work in progress (updated with every owner update; last update 1 October 2026, Seed 2.0, voice and Kamran live)
+## Work in progress (updated with every owner update; last update 2 October 2026, visual website builder scope)
 
 **Continuing agent: Astra 6** (the owner continues with Astra 6; Claude or another agent may also pick this up). **For any agent continuing this work:** start here, then read `AGENTS.md` and `docs/PROJECT_MEMORY.md`. No secret is ever stored in this repository; keys live in Super admin (encrypted) or on the server. Update this section with every owner update (owner rule, 29 September) and replace it rather than letting it grow.
 
-**Live now:** `main` `e9b9dc9` at https://trainsyou.com (verified 1 October 2026 at about 10:20 UTC by the release header). It contains round 4, round 5 (stage 2026-10-01a in `docs/COMPLETION_STAGES.md`), the Superadmin landing (#17, #19), the browser-check fix (#18) and the authenticator switched off (#20).
+**Current task (2 October 2026): professional visual coach website builder — scope discussion.** The owner says creating a site is extremely limited and requests a drag-and-drop, multipage visual website builder capable of polished websites, including hero sections and video where useful. The immediate request is to explain our understanding and surface overlooked requirements before implementation. Keep this handoff updated as work proceeds. No builder implementation or production change is made in this scope step.
+
+- **Observed current boundary (main `4291ded`):** `WebsiteStudio` in `apps/web/components/coach-site.tsx` edits fixed home/about/contact/SEO fields; additional pages carry only slug, title, body and visibility. `siteSchema` in `apps/api/src/coach-site.ts` accepts up to 100 such pages. The public renderer has a fixed hero/navigation/page structure. This is already multipage storage, but has no layout/block tree, drag-and-drop canvas, per-page visual composition or video blocks. Existing owner-scoped drafts, version conflicts, publishing, galleries/media, theme, hosting and coaching commerce should be reused.
+- **Understanding to discuss:** a desktop-first visual editor with page/layer panel, live canvas and selected-element controls; drag/reorder sections and nested responsive columns/elements; inline rich text, images, hero variants, video, galleries, testimonials, FAQs and calls to action; multipage navigation, shared header/footer, templates and saved sections. Trainer sites remain the branded storefront for their trainer-taught AI coaching.
+- **Proposals, not approved requirements yet:** curated starting templates and responsive layout rules; native blocks bound to actual offers, programme details, bookings and inquiry inbox; independent desktop/tablet/mobile adjustments; autosave, undo/redo, private preview, atomic publish and rollback; page SEO/social metadata, redirects, accessibility and Arabic/RTL; safe video embeds or managed uploads with posters, captions and storage/bandwidth limits; global styles with an explicit website/member-app relationship; media rights/privacy and tenant isolation; migration of existing sites without content loss; conversion measurement using existing consent. AI drafting and article/CMS support are optional scope decisions, not commitments.
+- **Engineering distinction:** deploying builder code follows GitHub's checked-main workflow; a trainer publishes their own content through the application's existing database-backed draft/publish flow on their current web address.
+- **Review performed:** fetched origin (still `4291ded`), inspected current schema, editor, public renderer and draft/publish routes. No tests or provider calls run for this documentation-only scope checkpoint. Working branch: `work/visual-website-builder-2026-10-02`; no PR merged.
+
+**Live now:** `main` `4291ded` at https://trainsyou.com (verified read-only on 2 October 2026 by the release header; latest main CI passed). It contains round 4, round 5 (stage 2026-10-01a in `docs/COMPLETION_STAGES.md`), the Superadmin landing (#17, #19), the browser-check fix (#18) and the authenticator switched off (#20).
 - **Round 5 live:**
   - model profiles in Super admin (`/admin/model-profiles`): Seed 2.0 Pro active as "Standard model"; ChatGPT, Sonnet and Opus profiles waiting for keys; switch check; one-click activate and switch-back; automatic Brain re-check on a switch; native Anthropic adapter with prompt caching, not yet called live;
   - self-learning: per-member memory, learning snapshots, weekly "Suggested from your edits", the "getting better" panel;
   - trainer-style narration and own-music mode;
-  - the Kamran voice assistant on the home page, built but switched off until the owner confirms its Cartesia voice and turns it on in Super admin;
+  - the Kamran voice assistant on the home page, enabled in the latest 1 October service setup and reporting available in the 2 October read-only check; a real-phone journey remains unverified;
   - frontier wording, hidden while the active profile is not frontier tier with a passed switch check.
 - **Round 4, still live:** setup wizard, open sign-up (off until legal documents), subdomains, teach-your-Brain, four-section workspace, teaching loop, walkthrough, hidden specialties, Superadmin recovery.
 - **After this deploy:** plan prompts are `brain-plan-v5`, so qualified workspaces re-qualify plans once.
@@ -52,11 +60,11 @@ Updated 27 September 2026 (afternoon). PR #1 and [PR #2](https://github.com/chor
 - Anthropic and OpenAI keys in Super admin before switching models (then the connection test and switch check);
 - a decision on whether coach-only hand-over explanations may name a medicine (Seed 2.0 held-out check 22/26 because of this);
 - a real-device test of own-music mode (iPhone Safari, Android Chrome; checklist in `docs/features/voice-session.md`);
-- pick or confirm the Kamran voice in Super admin and turn the assistant on (then try it on a phone).
+- try the enabled Kamran assistant on a phone and confirm the voice and complete journey.
 
 **Live services connected (1 October 2026, at the owner's explicit request):** Claude saved through the Super admin API, signed in as the operator admin: AI model (ModelArk, `seed-2-0-pro-260328`, USD 0.5/3 per million, 1,000 calls a day, 40 per member), Trainer voice (Cartesia `sonic-3.6`, USD 0.05 per 1,000 characters, USD 2 daily limit per workspace, contract approved), Speech-to-text (Cartesia, USD 0.10 per hour, zero retention off, contract approved), Enable nutrition and Nutrition scope reviewed. Every connection test passed (model, voice, speech-to-text verified with read-only provider requests). Live `/api/v1/public/platform` now shows model, nutrition, voice and assistant available, and `/api/v1/public/assistant` is available (Kamran on the home page, AED 10 a day cap). Still off: Legal documents approved (open sign-up), payments, payouts, custom domains, Resend email. The Cartesia key was pasted in chat: the owner should rotate it in Cartesia and enter the new one in Super admin, Trainer voice and Speech-to-text. The "Live Trainer" workspaces in Platform finance are test coaches from the live smoke on 27-28 September; removal waits for the owner's yes.
 
-**Next action:** owner tries Kamran on a phone and a coach journey end to end; publish legal documents and tick Legal documents approved to let testers sign up (or ask for an invite-only tester route); rotate the Cartesia key; then the remaining owner items and known gaps.
+**Next action:** discuss the visual website builder understanding, recommended first-version scope and overlooked requirements with the owner. Implementation follows the agreed direction. Existing live-service owner items above remain open; no unrelated work is started.
 
 ## Latest (1 October 2026)
 
