@@ -6,6 +6,12 @@ Application implementation and the job audit are complete for the current phase.
 
 The local environment restored an older snapshot. Yesterday's uncommitted completion work is absent. The recovery note on `work-in-progress/completion-2026-09-25` documents intended behavior, not preserved source. Work here starts from published `620eef1` and reconstructs missing features. Previously passing release evidence does not verify these new changes.
 
+## Stage 2026-10-02b — expanded website modules, before/after galleries and editor spacing (implementation branch; not yet live)
+
+- **Owner scope:** expand every module family using one agent, compact presets and targeted reads/tests; subsequent requests explicitly require before/after galleries for coached-client transformations, AI recognition, and corrected editor padding.
+- **Delivered:** 270 layouts across 38 families, at least six each; 154 additions through shared responsive compositions. Stable existing IDs/documents and native business integrations are retained. The before/after gallery has paired photo controls, contextual copy, image descriptions, a recognisable library thumbnail and multiword search. Seed prompt v2 selects the transformation module for before/after requests and continues to withhold fabricated client proof. Editor gutter/page-row/field spacing is standardised; contact image placeholders no longer force excess width or cover forms. No database migration or paid model calls.
+- **Checks:** 36 targeted tests passed (catalogue, renderer, logical CSS and mocked AI). All 270 layouts rendered at 1280/768/390 px in English and Arabic: 1,620 checks, zero overflow with synthetic image responses. Production build passed. Root/web TypeScript and final production builds passed. Final native builder acceptance: 16/16 journeys, zero browser errors or failed requests, including catalogue search and matching panel gutters. Fresh production editor screenshots/measurements at 1100/1440/1920 confirm 20 px block / 16 px inline gutters and no overflow. GitHub qualification and release verification are pending.
+
 ## Stage 2026-10-02a — desktop visual website builder (code `f9bd962`, fixes `a1356e7`, merged PR #24 as `b848315`, live verified 2 October 2026 at 12:38–12:39 UTC)
 
 - **Owner scope.** Complete implementation with multiple agents; desktop-only editor, responsive visitor sites, broad reusable modules, multipage starter designs and economical Seed 2.0 module assembly. Keep the Claude handoff current.

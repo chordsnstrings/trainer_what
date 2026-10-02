@@ -606,7 +606,14 @@ const itemFields: Partial<
 > = {
   faq: ["question", "answer"],
   testimonials: ["quote", "author", "role", "image"],
-  transformation: ["title", "body", "beforeImage", "afterImage", "caption"],
+  transformation: [
+    "title",
+    "body",
+    "beforeImage",
+    "afterImage",
+    "imageAlt",
+    "caption",
+  ],
   stats: ["value", "title", "body"],
   team: ["title", "role", "body", "image", "imageAlt"],
   logos: ["title", "image", "imageAlt"],
@@ -657,8 +664,18 @@ function SectionItems({
   return (
     <details open>
       <summary>
-        Items <span>{section.content.items.length}</span>
+        {section.moduleId === "transformation"
+          ? "Client transformations"
+          : "Items"}{" "}
+        <span>{section.content.items.length}</span>
       </summary>
+      {section.moduleId === "transformation" && (
+        <p className="sbe-help">
+          Add a before photo and an after photo for each client you coached. Use
+          photos you have permission to publish; describe the individual
+          progress without promising the same results.
+        </p>
+      )}
       {section.content.items.map((item, i) => (
         <details className="sbe-item" key={item.id}>
           <summary>
@@ -758,7 +775,10 @@ function SectionItems({
             ...section.content.items,
             {
               id: newEditorId("item"),
-              title: "New item",
+              title:
+                section.moduleId === "transformation"
+                  ? "Client progress story"
+                  : "New item",
               body: "",
               ...(section.moduleId === "faq"
                 ? {
@@ -772,7 +792,9 @@ function SectionItems({
         }
       >
         <Plus size={14} />
-        Add item
+        {section.moduleId === "transformation"
+          ? "Add client transformation"
+          : "Add item"}
       </button>
     </details>
   );

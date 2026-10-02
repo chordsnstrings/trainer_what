@@ -16,7 +16,7 @@ import { modelCompletion, type ModelAccounting } from "./model-accounting.ts";
 import { MODEL_PROFILE_KEYS, modelReplyJson } from "./model-request.ts";
 
 /** The model selects existing modules and supplies small plain-text fields only. */
-export const SITE_STARTER_PROMPT_VERSION = "site-starter-v1";
+export const SITE_STARTER_PROMPT_VERSION = "site-starter-v2";
 export const SITE_STARTER_LIMITS = {
   pages: 5,
   sections: 24,
@@ -253,6 +253,7 @@ export function siteStarterInstruction() {
     "Modules testimonials, transformation, credentials, stats, logos, quote and team may only be selected without any copy; the coach must supply their own evidence.",
     "Never write prices or payment terms in copy; pricing and programmes modules display the existing live offers. Booking/contact/signup use their built-in actions. Never invent availability, facilities, services or credentials.",
     "Select an appropriate hero, introduction or about section, explain the approach, include native programmes/pricing where relevant, an FAQ and a useful contact or call-to-action. Use variety deliberately and avoid repeating modules unnecessarily.",
+    "When the brief asks for before-and-after photos, client transformations or coached client progress (including Arabic requests), select moduleId transformation, not a generic gallery. It pairs beforeImage and afterImage for each client story. Select a compatible layout only; leave all proof copy and photos for the coach to provide with the client's permission. Never fabricate or infer results.",
     "Images, video and proof are filled in later by the coach. No member, health or financial records are available or needed.",
   ].join("\n");
 }

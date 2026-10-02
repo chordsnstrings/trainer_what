@@ -118,7 +118,7 @@
   --sb-use-pb: var(--sb-pb, var(--sb-default-pb, 84px));
   --sb-use-gap: var(--sb-gap, 28px);
   --sb-use-radius: var(--sb-section-radius, var(--sb-radius));
-  --sb-use-columns: var(--sb-columns, 3);
+  --sb-use-columns: var(--sb-columns, var(--sb-layout-columns, 3));
   --sb-use-bg: var(
     --sb-section-background,
     var(--sb-section-default-bg, transparent)
@@ -1876,6 +1876,8 @@
   max-width: 360px;
 }
 .sb-site .sb-contact-image .sb-image {
+  height: auto;
+  min-height: 0;
   aspect-ratio: 3/2;
 }
 .sb-site .sb-module-contact[data-variant="centered"] .sb-contact-layout {
@@ -3837,7 +3839,7 @@
     font-size: 0.66rem;
   }
   .sb-site .sb-contact-form {
-    padding: 25px;
+    padding: 24px;
   }
   .sb-site
     .sb-module-contact[data-variant="cards"]

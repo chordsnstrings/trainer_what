@@ -9,6 +9,8 @@ import {
 } from "react";
 import {
   getBuilderVideoEmbedUrl,
+  getBuilderLayout,
+  SITE_BUILDER_WRAPPED_MODULES,
   isBuilderGloballyHidden,
   isSafeBuilderLink,
   type SiteBuilderAction,
@@ -795,9 +797,13 @@ function ItemCards({
   quotes?: boolean;
 }) {
   return (
-    <div className={`sb-items ${className}`}>
+    <div className={`sb-items sb-layout-collection ${className}`}>
       {props.section.content.items.map((item, index) => (
-        <article className="sb-item" key={item.id}>
+        <article
+          className="sb-item"
+          data-visual={images || undefined}
+          key={item.id}
+        >
           {images && (
             <Media
               image={item.image}
@@ -856,7 +862,7 @@ function Pricing({ props }: { props: SectionProps }) {
     <>
       <Intro props={props} />
       {products.length ? (
-        <div className="sb-plans">
+        <div className="sb-plans sb-layout-collection">
           {products.map((product) => {
             const terms = offerTermsText(
               product.data,
@@ -1160,7 +1166,7 @@ function GalleryModule({ props }: { props: SectionProps }) {
       caption?: string;
     }>,
   ) => (
-    <div className="sb-gallery">
+    <div className="sb-gallery sb-layout-collection">
       {photos.map((photo) => (
         <figure key={photo.id}>
           <Media image={photo.image} alt={photo.alt} context={context} />
@@ -1287,7 +1293,7 @@ function ModuleBody({ props }: { props: SectionProps }) {
   switch (family) {
     case "hero":
       return (
-        <div className="sb-hero-layout">
+        <div className="sb-hero-layout sb-composition-root">
           <div className="sb-hero-copy">
             {intro}
             {actions}
@@ -1326,7 +1332,7 @@ function ModuleBody({ props }: { props: SectionProps }) {
       );
     case "about":
       return (
-        <div className="sb-split-layout">
+        <div className="sb-split-layout sb-composition-root">
           <div className="sb-feature-media">
             <Media
               image={c.image || context.photoUrl}
@@ -1345,7 +1351,7 @@ function ModuleBody({ props }: { props: SectionProps }) {
       );
     case "split":
       return (
-        <div className="sb-split-layout">
+        <div className="sb-split-layout sb-composition-root">
           <div className="sb-feature-media">{media}</div>
           <div>
             {intro}
@@ -1373,7 +1379,16 @@ function ModuleBody({ props }: { props: SectionProps }) {
       return (
         <>
           {intro}
-          <ItemCards props={props} numbered images={variant === "spotlight"} />
+          <ItemCards
+            props={props}
+            numbered
+            images={[
+              "spotlight",
+              "bento",
+              "alternating",
+              "editorial-list",
+            ].includes(variant)}
+          />
           {actions}
         </>
       );
@@ -1381,7 +1396,10 @@ function ModuleBody({ props }: { props: SectionProps }) {
       return (
         <>
           {intro}
-          <ol className="sb-process" aria-label={words(context).steps}>
+          <ol
+            className="sb-process sb-layout-collection"
+            aria-label={words(context).steps}
+          >
             {c.items.map((item, index) => (
               <li key={item.id}>
                 <span className="sb-step-number" aria-hidden="true">
@@ -1404,7 +1422,7 @@ function ModuleBody({ props }: { props: SectionProps }) {
       return <Pricing props={props} />;
     case "booking":
       return (
-        <div className="sb-booking-layout">
+        <div className="sb-booking-layout sb-composition-root">
           <div>
             {intro}
             {actions}
@@ -1434,10 +1452,13 @@ function ModuleBody({ props }: { props: SectionProps }) {
       );
     case "call-to-action":
       return (
-        <div className="sb-cta-layout">
-          <div>{intro}</div>
-          {actions}
-          {variant === "split" && c.image && (
+        <div className="sb-cta-layout sb-composition-root">
+          <div>
+            {intro}
+            {getBuilderLayout(family, variant) && actions}
+          </div>
+          {!getBuilderLayout(family, variant) && actions}
+          {(variant === "split" || getBuilderLayout(family, variant)) && (
             <div className="sb-feature-media">{media}</div>
           )}
         </div>
@@ -1448,7 +1469,7 @@ function ModuleBody({ props }: { props: SectionProps }) {
       return (
         <>
           {intro}
-          <div className="sb-transformations">
+          <div className="sb-transformations sb-layout-collection">
             {c.items
               .filter(
                 (item) => item.beforeImage || item.afterImage || item.body,
@@ -1508,7 +1529,7 @@ function ModuleBody({ props }: { props: SectionProps }) {
       return (
         <>
           {intro}
-          <ul className="sb-logos">
+          <ul className="sb-logos sb-layout-collection">
             {c.items.map((item) => (
               <li key={item.id}>
                 {safeBuilderImage(item.image) ? (
@@ -1530,14 +1551,14 @@ function ModuleBody({ props }: { props: SectionProps }) {
       );
     case "faq":
       return (
-        <div className="sb-faq-layout">
+        <div className="sb-faq-layout sb-composition-root">
           <div>
             {intro}
             {actions}
           </div>
-          <div className="sb-faq-items">
+          <div className="sb-faq-items sb-layout-collection">
             {c.items.map((item) =>
-              variant === "list" ? (
+              ["list", "answer-cards", "numbered-answers"].includes(variant) ? (
                 <article key={item.id}>
                   <h3 dir="auto">{item.question || item.title}</h3>
                   <p dir="auto">{item.answer || item.body}</p>
@@ -1561,7 +1582,7 @@ function ModuleBody({ props }: { props: SectionProps }) {
       return (
         <>
           {intro}
-          <dl className="sb-stats">
+          <dl className="sb-stats sb-layout-collection">
             {c.items
               .filter((item) => item.value)
               .map((item) => (
@@ -1622,7 +1643,7 @@ function ModuleBody({ props }: { props: SectionProps }) {
       );
     case "video":
       return (
-        <div className="sb-video-layout">
+        <div className="sb-video-layout sb-composition-root">
           <div>
             {intro}
             {actions}
@@ -1638,7 +1659,7 @@ function ModuleBody({ props }: { props: SectionProps }) {
     case "contact":
     case "lead":
       return (
-        <div className="sb-contact-layout">
+        <div className="sb-contact-layout sb-composition-root">
           <div>
             {intro}
             <SocialLinks context={context} />
@@ -1650,8 +1671,8 @@ function ModuleBody({ props }: { props: SectionProps }) {
       );
     case "divider":
       return (
-        <div className="sb-divider">
-          {variant === "label" && (
+        <div className="sb-divider sb-composition-root">
+          {["label", "chapter-divider"].includes(variant) && (
             <Editable as="span" value={c.title} field="title" props={props} />
           )}
         </div>
@@ -1660,7 +1681,7 @@ function ModuleBody({ props }: { props: SectionProps }) {
       return (
         <>
           {(c.title || c.body) && intro}
-          <div className="sb-custom-columns">
+          <div className="sb-custom-columns sb-layout-collection">
             {c.elements.map((element) => (
               <div className="sb-column-cell" key={element.id}>
                 <Element element={element} props={props} />
@@ -1672,12 +1693,12 @@ function ModuleBody({ props }: { props: SectionProps }) {
       );
     case "credentials":
       return (
-        <div className="sb-credentials-layout">
+        <div className="sb-credentials-layout sb-composition-root">
           <div>
             {intro}
             {actions}
           </div>
-          <ul className="sb-credentials">
+          <ul className="sb-credentials sb-layout-collection">
             {c.items.map((item) => (
               <li key={item.id}>
                 <span className="sb-seal" aria-hidden="true">
@@ -1707,7 +1728,10 @@ function ModuleBody({ props }: { props: SectionProps }) {
       return (
         <>
           {intro}
-          <nav className="sb-page-links" aria-label={words(context).contents}>
+          <nav
+            className="sb-page-links sb-layout-collection"
+            aria-label={words(context).contents}
+          >
             {builder?.pages
               .filter((page) => page.visible && page.inNavigation)
               .map((page, index) => (
@@ -1725,7 +1749,7 @@ function ModuleBody({ props }: { props: SectionProps }) {
       );
     case "footer":
       return (
-        <div className="sb-footer-module">
+        <div className="sb-footer-module sb-composition-root">
           <div>
             {intro}
             {actions}
@@ -1743,7 +1767,7 @@ function ModuleBody({ props }: { props: SectionProps }) {
       );
     case "quote":
       return (
-        <figure className="sb-quote">
+        <figure className="sb-quote sb-composition-root">
           <Editable
             value={c.eyebrow}
             field="eyebrow"
@@ -1773,7 +1797,7 @@ function ModuleBody({ props }: { props: SectionProps }) {
       );
     case "image":
       return (
-        <figure className="sb-image-layout">
+        <figure className="sb-image-layout sb-composition-root">
           {media}
           <figcaption>
             {(c.title || c.body) && intro}
@@ -1832,7 +1856,7 @@ function ModuleBody({ props }: { props: SectionProps }) {
       );
     case "community":
       return (
-        <div className="sb-community-layout">
+        <div className="sb-community-layout sb-composition-root">
           <div>
             {intro}
             {actions}
@@ -1845,7 +1869,7 @@ function ModuleBody({ props }: { props: SectionProps }) {
       );
     case "nutrition":
       return (
-        <div className="sb-nutrition-layout">
+        <div className="sb-nutrition-layout sb-composition-root">
           <div>
             {intro}
             {actions}
@@ -1858,7 +1882,7 @@ function ModuleBody({ props }: { props: SectionProps }) {
       );
     case "app-preview":
       return (
-        <div className="sb-app-layout">
+        <div className="sb-app-layout sb-composition-root">
           <div>
             {intro}
             <ItemCards props={props} numbered={variant === "steps"} />
@@ -1869,7 +1893,7 @@ function ModuleBody({ props }: { props: SectionProps }) {
       );
     case "announcement":
       return (
-        <div className="sb-announcement-layout">
+        <div className="sb-announcement-layout sb-composition-root">
           {intro}
           {actions}
         </div>
@@ -1882,6 +1906,7 @@ function ModuleBody({ props }: { props: SectionProps }) {
 /** Shared by public pages and the editor, so previews render the real website. */
 export function BuilderSection(props: SectionProps) {
   const { section, selected, onSelect } = props;
+  const layout = getBuilderLayout(section.moduleId, section.variant);
   if (!props.context.preview && isBuilderGloballyHidden(section)) return null;
   return (
     <section
@@ -1889,6 +1914,7 @@ export function BuilderSection(props: SectionProps) {
       className={`sb-section sb-responsive sb-module-${section.moduleId}${selected ? " sb-section-selected" : ""}`}
       data-module={section.moduleId}
       data-variant={section.variant}
+      data-composition={layout?.composition}
       data-section-id={section.id}
       style={builderStyleVariables(section.style, section.responsive)}
       onClick={onSelect ? () => onSelect(section.id) : undefined}
@@ -1898,7 +1924,9 @@ export function BuilderSection(props: SectionProps) {
           : undefined
       }
     >
-      <div className="sb-container">
+      <div
+        className={`sb-container${layout && !SITE_BUILDER_WRAPPED_MODULES.includes(section.moduleId) ? " sb-composition-root" : ""}`}
+      >
         <ModuleBody props={props} />
       </div>
     </section>

@@ -111,3 +111,4 @@ export const productSchema = z
 export * from "./marketing-features.ts";
 export * from "./coach-setup.ts";
 export * from "./site-builder.ts";
+export * from "./site-builder-layouts.ts";

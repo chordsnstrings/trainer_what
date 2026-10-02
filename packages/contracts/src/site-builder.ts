@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SITE_BUILDER_ADDITIONAL_LAYOUTS } from "./site-builder-layouts.ts";
 import { brandColorSchema, brandImageSchema } from "./branding.ts";
 
 /** One bounded, executable-code-free document shared by editor, AI and renderer. */
@@ -580,9 +581,9 @@ const moduleSpecs: ModuleSpec[] = [
   ],
   [
     "transformation",
-    "Progress stories",
+    "Before & after gallery",
     "Proof & stories",
-    "Tell real, permissioned progress stories without promising results.",
+    "Paired before-and-after photos and transformation stories from real clients coached by you, shared with their permission; never promise results.",
     ["pairs", "story", "grid"],
     ["items"],
   ],
@@ -779,11 +780,14 @@ export const SITE_BUILDER_MODULES: SiteBuilderModule[] = moduleSpecs.map(
     label,
     group,
     description,
-    variants: variants.map((variant) => ({
-      id: variant,
-      label: titleCase(variant),
-      description: `${titleCase(variant)} layout for ${label.toLowerCase()}.`,
-    })),
+    variants: [
+      ...variants.map((variant) => ({
+        id: variant,
+        label: titleCase(variant),
+        description: `${titleCase(variant)} layout for ${label.toLowerCase()}.`,
+      })),
+      ...SITE_BUILDER_ADDITIONAL_LAYOUTS[id],
+    ],
     fields: [
       ...commonFields,
       ...extras.flatMap((extra): SiteBuilderField[] => {
@@ -1048,7 +1052,7 @@ export function createModule(
   if (["hero", "booking", "lead", "call-to-action"].includes(moduleId))
     content.actions.push(action("Get in touch", "contact"));
   if (moduleId === "columns") {
-    const count = selected === "three" ? 3 : 2;
+    const count = selected === "four" ? 4 : selected === "three" ? 3 : 2;
     content.elements = Array.from({ length: count }, () =>
       createBuilderElement("columns", {
         style: { columns: 1 },
@@ -1065,7 +1069,8 @@ export function createModule(
     width: "content",
     align: ["centered", "statement"].includes(selected) ? "center" : "left",
   };
-  if (moduleId === "columns") style.columns = selected === "three" ? 3 : 2;
+  if (moduleId === "columns")
+    style.columns = selected === "four" ? 4 : selected === "three" ? 3 : 2;
   if (language === "ar") {
     content.title = arabicModuleTitles[moduleId];
     content.eyebrow = "";

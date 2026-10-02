@@ -453,6 +453,50 @@ test("one bounded model call produces a proposal; repeated intent and same-brief
   );
 });
 
+test("before-and-after requests expose dedicated layouts to AI without generating client proof", async () => {
+  const actor = await tenant();
+  const selected = plan();
+  selected.pages[0].sections.push(
+    selection("transformation", { variant: "alternating" }),
+  );
+  await withModel(
+    () => selected,
+    async (sent) => {
+      const response = await request(
+        actor,
+        body({
+          brief:
+            "Show before-and-after photos of clients I coached. Include their transformation stories.",
+        }),
+      );
+      assert.equal(response.statusCode, 200, response.body);
+      assert.equal(response.json().source, "ai");
+      assert.equal(sent.length, 1);
+      assert.match(
+        sent[0].system,
+        /select moduleId transformation, not a generic gallery/,
+      );
+      const entry = sent[0].coach.catalogue.find(
+        (m: any) => m.id === "transformation",
+      );
+      assert.match(entry.purpose, /before-and-after photos/);
+      assert.ok(entry.variants.includes("alternating"));
+      assert.ok(
+        sent[0].body.messages[1].content.length <=
+          SITE_STARTER_LIMITS.contextCharacters,
+      );
+      const proof = response
+        .json()
+        .builder.pages[0].sections.find(
+          (s: any) => s.moduleId === "transformation",
+        );
+      assert.equal(proof.variant, "alternating");
+      assert.deepEqual(proof.content.items, []);
+      assert.equal(proof.content.image, "");
+    },
+  );
+});
+
 test("owner, current membership, draft version and privacy checks run before any paid call", async () => {
   const actor = await tenant();
   await withModel(

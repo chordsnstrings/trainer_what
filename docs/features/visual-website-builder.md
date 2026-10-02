@@ -8,7 +8,7 @@ The editor at `/trainer/website` replaces the old fixed-field website form. The 
 
 Pages, a searchable module library and reusable sections sit beside the canvas. Trainers can insert and reorder sections, select their content and design controls, duplicate sections/pages, arrange nested custom elements, change layout variants, set responsive overrides and undo/redo edits. Pages have independent titles, addresses, navigation visibility, search descriptions, social images and indexing controls. Renaming a page preserves a redirect. The website has its own theme and shared header/footer; it does not overwrite the member app's design.
 
-There are 38 section families and 116 curated layouts:
+There are 38 section families and 270 curated layouts (at least six per family):
 
 | Purpose | Families |
 | --- | --- |
@@ -49,3 +49,11 @@ Public pages keep `/coach/<trainer>/<page>` and the existing trainer/custom-doma
 Video support is a click-to-load allowlist for YouTube and Vimeo, with optional poster and caption. Video files are hosted with those services; this release does not add video uploads or arbitrary iframe/HTML/script embedding. This is a page builder; it does not add a separate blog/CMS or an independent booking/payment engine.
 
 Targeted suites cover contracts/catalogue, persistence/tenant isolation/media/history, mocked AI generation, assembled cookie/CSRF and legacy conversion journeys, discovery and go-live checks. `npm run test:site-builder` starts the isolated synthetic local fixture and executes the desktop editor/public mobile journey in local Playwright. It uses an existing web production build. The GitHub application job runs that journey after the existing browser check. No browser test uses a real trainer account or calls a live model.
+
+## Module expansion — 2 October 2026
+
+The catalogue adds 154 layouts using 38 shared composition recipes in `packages/contracts/src/site-builder-layouts.ts` and scoped `site-builder-layouts.css`. Existing layout IDs and saved content remain valid. Media, collection, editorial, enquiry, FAQ, process and column compositions respond to the builder container, so editor previews match public breakpoints. Four-column presets create four independent editable columns.
+
+**Before & after gallery** is the existing stable `transformation` family, now explicitly labelled and searchable by multiple words (for example, “before after”). Its six layouts pair before/after photos for each client, retain contextual copy and image descriptions, and offer the coach a dedicated “Add client transformation” flow. Seed prompt `site-starter-v2` maps requests for coached-client transformations to this family while leaving photos and proof copy for the coach; no fabricated outcomes, testimonials or member records enter generation.
+
+Editor panels use consistent 16 px inline and 20 px block padding, with explicit canvas gutters, roomier page rows and aligned inspector controls. Contact image placeholders use their aspect ratio without forcing the layout wider or overlapping the form. The layout matrix script checks all variants at 1280/768/390 px in English and Arabic; the editor journey checks panel gutters, search and existing save/publish interactions. No new database migration or paid provider call is required.
