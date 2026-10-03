@@ -5,6 +5,7 @@ export default defineMessages(
   {
     today: "Today",
     program: "Programme",
+    programTab: "Plan",
     programDetail: "Your plan and training calendar",
     timeline: "Timeline",
     timelineDetail: "Every day of this block",
@@ -51,6 +52,7 @@ export default defineMessages(
   {
     today: "اليوم",
     program: "البرنامج",
+    programTab: "الخطة",
     programDetail: "خطتك وجدول تدريبك",
     timeline: "الجدول الزمني",
     timelineDetail: "كل أيام هذه المرحلة",

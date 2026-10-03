@@ -1,5 +1,5 @@
 "use client";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useWorkspaceQuery } from "./workspace-continuity";
 import { WorkspaceTabs } from "./workspace-ui";
 import { notifyWorkspace } from "./workspace-feedback";
@@ -154,6 +154,11 @@ export function MemberSettings({
   busy,
 }: Pick<ViewProps, "state" | "action" | "busy">) {
   const t = useT("profile");
+  const [securityOpen, setSecurityOpen] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const params = new URLSearchParams(window.location.search);
+    return params.has("linked") || params.has("signin_error") || window.location.hash === "#security";
+  });
   const intakeDone = state.records.some((r) => r.kind === "intake");
   return (
     <div className="member-settings" data-stagger>
@@ -171,7 +176,7 @@ export function MemberSettings({
         </Link>
       </section>
       <InstallAppRow coachName={state.tenant.name} variant="card" />
-      <AccountSettings returnTo="/app/profile" leave={false} />
+      <AccountSettings returnTo="/app/profile" leave={false} section="profile" />
       <DisplayPreferences />
       <NotificationPreferences />
       {/* Secondary detail folds away (phone first: a shorter page). */}
@@ -184,7 +189,7 @@ export function MemberSettings({
         </summary>
         <PushNotifications />
       </details>
-      <details className="card settings-group" id="security">
+      <details className="card settings-group" id="security" open={securityOpen} onToggle={e => setSecurityOpen(e.currentTarget.open)}>
         <summary>
           <span>
             <strong>{t("securityTitle")}</strong>
@@ -192,6 +197,7 @@ export function MemberSettings({
           </span>
         </summary>
         <AccountSecurity />
+        <AccountSettings returnTo="/app/profile" leave={false} section="security" />
         <AccountExtras />
       </details>
       <PersonalPrivacyStatus />

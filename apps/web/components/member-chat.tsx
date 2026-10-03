@@ -19,6 +19,8 @@ import { formatWhen } from "../lib/format";
 import { translator, type Locale } from "../lib/i18n/core";
 import chatMessages from "../lib/i18n/messages/chat";
 import { useLocale, useT } from "../lib/i18n/react";
+import { fetchWithin, ACCOUNT_READ_TIMEOUT_MS } from "./account-request";
+import { useWorkspaceValue } from "./workspace-continuity";
 
 /**
  * Coach chat for the member, phone first (docs/features/member-screens.md):
@@ -35,13 +37,16 @@ import { useLocale, useT } from "../lib/i18n/react";
  * in; the send button scales in when there is something to send.
  */
 async function api(path: string, method = "GET", body?: unknown) {
-  const r = await fetch("/api/v1" + path, {
+  const init: RequestInit = {
     method,
     credentials: "same-origin",
     headers:
       body === undefined ? undefined : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
-  });
+  };
+  const r = method === "GET"
+    ? await fetchWithin("/api/v1" + path, init, ACCOUNT_READ_TIMEOUT_MS)
+    : await fetch("/api/v1" + path, init);
   const d = await r.json().catch(() => ({}));
   if (!r.ok)
     throw Object.assign(new Error(d.message ?? "Something went wrong"), {
@@ -74,6 +79,7 @@ export const CHAT_PROMPTS = chatPrompts();
 
 export function MemberChat({ state }: { state: any }) {
   const t = useT("chat"),
+    common = useT("common"),
     locale = useLocale();
   const userId: string = state.user.userId;
   const coach: string = state.tenant.name;
@@ -82,56 +88,60 @@ export function MemberChat({ state }: { state: any }) {
     [loaded, setLoaded] = useState(false),
     [hasMore, setHasMore] = useState(false),
     [personal, setPersonal] = useState(false),
-    [text, setText] = useState(""),
-    [busy, setBusy] = useState(false),
-    [error, setError] = useState(""),
-    [notice, setNotice] = useState(""),
-    [attachments, setAttachments] = useState<ChatAttachment[]>([]),
+    [readError, setReadError] = useState(false),
+    [reading, setReading] = useState(false),
     [uploading, setUploading] = useState(false),
     [attachOpen, setAttachOpen] = useState(false),
     [composerKey, setComposerKey] = useState(0),
-    // A message on its way (shown at once, faded) and messages that just
-    // arrived (they slide in).
-    [sending, setSending] = useState<{ text: string; digital: boolean } | null>(
-      null,
-    ),
     [fresh, setFresh] = useState<string[]>([]);
+  const [text, setText] = useWorkspaceValue("member-chat-text", "", true);
+  const [attachments, setAttachments] = useWorkspaceValue<ChatAttachment[]>("member-chat-files", [], true);
+  // Pending requests survive route changes in memory, never a browser restart.
+  const [busy, setBusy] = useWorkspaceValue("member-chat-busy", false);
+  const [error, setError] = useWorkspaceValue("member-chat-error", "");
+  const [notice, setNotice] = useWorkspaceValue("member-chat-notice", "");
+  const [sending, setSending] = useWorkspaceValue<{ text: string; digital: boolean } | null>("member-chat-sending", null);
   const end = useRef<HTMLDivElement>(null),
     input = useRef<HTMLTextAreaElement>(null),
     seenLatest = useRef(""),
     known = useRef<{ ids: Set<string>; latest: number } | null>(null),
     sentText = useRef("");
   const load = useCallback(async (before?: string) => {
-    const result = await api(
-      "/messages/thread" + (before ? "?before=" + before : ""),
-    );
-    setMessages((old) =>
-      before
-        ? [...result.messages, ...old]
-        : [
-            ...old.filter(
-              (m) => !result.messages.some((r: any) => r.id === m.id),
+    setReading(true);
+    try {
+      const result = await api(
+        "/messages/thread" + (before ? "?before=" + before : ""),
+      );
+      setMessages((old) =>
+        before
+          ? [...result.messages, ...old]
+          : [
+              ...old.filter(
+                (m) => !result.messages.some((r: any) => r.id === m.id),
+              ),
+              ...result.messages,
+            ].sort(
+              (a, b) =>
+                new Date(a.created_at).getTime() -
+                new Date(b.created_at).getTime(),
             ),
-            ...result.messages,
-          ].sort(
-            (a, b) =>
-              new Date(a.created_at).getTime() -
-              new Date(b.created_at).getTime(),
-          ),
-    );
-    if (before || !seenLatest.current) setHasMore(result.hasMore);
-    setPersonal(!!result.personalReview);
-    setLoaded(true);
+      );
+      if (before || !seenLatest.current) setHasMore(result.hasMore);
+      setPersonal(!!result.personalReview);
+      setLoaded(true);
+      if (!before) setReadError(false);
+    } finally { setReading(false); }
   }, []);
+  const refresh = useCallback(() => load().catch(() => setReadError(true)), [load]);
   useEffect(() => {
-    void load().catch(() => setError(t("loadFailed")));
+    void refresh();
     const timer = setInterval(() => {
-      if (document.visibilityState === "visible") void load().catch(() => {});
+      if (document.visibilityState === "visible") void refresh();
     }, 8000);
     return () => clearInterval(timer);
     // `t` changes only with the language; the thread is the same.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [load]);
+  }, [refresh]);
   // Messages newer than any seen before slide in: not the first load, not
   // older pages, not the member's own message just shown as sending.
   useLayoutEffect(() => {
@@ -174,16 +184,14 @@ export function MemberChat({ state }: { state: any }) {
     });
   }, [latest]);
   async function send(digital: boolean) {
-    if (busy || uploading || (digital && attachments.length)) return;
+    if (busy || uploading || (!text.trim() && !attachments.length) || (digital && attachments.length)) return;
     setBusy(true);
     setError("");
     setNotice("");
     const draft = text;
     sentText.current = draft.trim();
     setSending({ text: draft.trim(), digital });
-    // The message leaves the composer at once (it shows in the thread as
-    // "Sending"), so it never appears twice; a failed send puts it back.
-    setText("");
+    // Hide the draft while sending, but retain it until the POST succeeds.
     try {
       const result = await api(
         digital ? "/coaching/ask" : "/messages",
@@ -196,7 +204,8 @@ export function MemberChat({ state }: { state: any }) {
               attachmentIds: attachments.map((file) => file.id),
             },
       );
-      setAttachments([]);
+      setText((current) => current === draft ? "" : current);
+      setAttachments((current) => current.filter(file => !attachments.some(sent => sent.id === file.id)));
       setComposerKey((v) => v + 1);
       // The server's own sentence is English; other languages get ours.
       if (result.pendingReview)
@@ -204,9 +213,9 @@ export function MemberChat({ state }: { state: any }) {
           (locale === "en" && result.message) ||
             t("pending", { coach: coachFirst }),
         );
-      await load();
+      // A failed refresh must never turn a committed send into a retry.
+      await refresh();
     } catch (e: any) {
-      setText((current) => current || draft);
       setError(e.status === 429 ? t("tooMany") : t("notSent"));
     } finally {
       setBusy(false);
@@ -231,6 +240,14 @@ export function MemberChat({ state }: { state: any }) {
           {error}
         </p>
       )}
+      {readError && (
+        <div className="notice error" role="alert">
+          <p>{t("loadFailed")}</p>
+          <button type="button" className="button secondary" disabled={reading} onClick={() => void refresh()}>
+            {reading ? common("loading") : common("retry")}
+          </button>
+        </div>
+      )}
       {notice && (
         <p role="status" className="notice">
           {notice}
@@ -241,6 +258,7 @@ export function MemberChat({ state }: { state: any }) {
           <button
             type="button"
             className="text-button chat-earlier"
+            disabled={reading}
             onClick={() =>
               void load(messages[0].id).catch(() =>
                 setError(t("earlierFailed")),
@@ -250,7 +268,7 @@ export function MemberChat({ state }: { state: any }) {
             {t("loadEarlier")}
           </button>
         )}
-        {!loaded && !error && <Skeleton label={t("loading")} lines={4} />}
+        {!loaded && !readError && <Skeleton label={t("loading")} lines={4} />}
         {loaded && !messages.length && !sending && (
           <div className="chat-empty">
             <h2>{t("emptyTitle", { coach: coachFirst })}</h2>
@@ -385,7 +403,8 @@ export function MemberChat({ state }: { state: any }) {
           <textarea
             id="chat-message"
             ref={input}
-            value={text}
+            value={busy ? "" : text}
+            disabled={busy}
             onChange={(e) => setText(e.target.value)}
             maxLength={4000}
             rows={Math.min(4, Math.max(1, text.split("\n").length))}

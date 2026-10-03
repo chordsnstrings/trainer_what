@@ -31,7 +31,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
 const base = process.env.TEST_APP_URL ?? "http://localhost:3000";
-const password = process.env.DEMO_PASSWORD ?? "TrainerDemo2026!";
+const password = process.env.DEMO_PASSWORD;
+if (!password) throw new Error("Use run-dark-check.mjs to generate fixture credentials");
 const member = process.env.DARK_CHECK_MEMBER ?? "sam.taylor@example.test";
 const coachSlug = process.env.DARK_CHECK_COACH ?? "alex-morgan";
 const SHOTS = process.env.DARK_CHECK_SHOTS;
@@ -605,7 +606,7 @@ try {
       const page = await ctx.newPage();
       await page.goto(base + "/app/more", { waitUntil: "load" });
       await page
-        .getByText("Your workspace is temporarily unavailable.")
+        .getByRole("heading", { name: "Your coaching app could not open", exact: true })
         .waitFor();
       await page.waitForTimeout(300);
       assertDark(label, await page.evaluate(inspect), { shell: false });

@@ -5,6 +5,7 @@ export default defineMessages(
   {
     held: "Your place is held while payment is completed.",
     saved: "Your session details are saved.",
+    loadFailed: "Sessions could not be refreshed. Check your connection and reload before making another change.",
     eyebrow: "TIME WITH YOUR COACH",
     title: "Bookings",
     timesShown:
@@ -81,6 +82,7 @@ export default defineMessages(
   {
     held: "مكانك محجوز إلى حين إتمام الدفع.",
     saved: "تم حفظ تفاصيل جلستك.",
+    loadFailed: "تعذّر تحديث الجلسات. تحقّق من اتصالك وأعد التحميل قبل إجراء تغيير آخر.",
     eyebrow: "وقت مع مدربك",
     title: "الحجوزات",
     timesShown:

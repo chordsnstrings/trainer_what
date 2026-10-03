@@ -517,7 +517,7 @@ test("the default programme label follows the product's spelling", () => {
       programLabel: resolveBrandDesign({}).programLabel,
       nutrition: true,
     })[1].label,
-    "Programme",
+    "Plan",
   );
 });
 

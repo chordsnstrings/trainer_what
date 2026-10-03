@@ -55,7 +55,7 @@ export default defineMessages(
     alertsTitle: "Phone alerts",
     alertsDetail: "Alerts while the app is closed, and your devices",
     dangerZone: "Leave your coach",
-    securityDetail: "Authenticator app, passkeys and where you are signed in",
+    securityDetail: "Password, sign-in methods, authenticator and sessions",
     yourData: "Your data",
     yourDataText:
       "Download your coaching records, or ask for your account to be deleted. Payment records are kept for as long as the law requires.",
@@ -94,6 +94,7 @@ export default defineMessages(
     inGoalPlaceholder: "For example: get stronger and move without back pain",
     inExperience: "Your training experience",
     inDays: "Days you can train each week",
+    inErrDays: "Choose between 1 and 7 training days.",
     inEquipment: "Equipment you can use",
     inEquipmentPlaceholder:
       "For example: a gym, or dumbbells and a bench at home",
@@ -159,7 +160,7 @@ export default defineMessages(
     alertsDetail: "التنبيهات عندما يكون التطبيق مغلقًا، وأجهزتك",
     dangerZone: "مغادرة مدربك",
     securityDetail:
-      "تطبيق المصادقة ومفاتيح المرور والأجهزة التي سجّلت الدخول منها",
+      "كلمة المرور وطرق تسجيل الدخول والمصادقة والجلسات",
     yourData: "بياناتك",
     yourDataText:
       "يمكنك تنزيل سجلات تدريبك أو طلب حذف حسابك. تُحفظ سجلات الدفع للمدة التي يفرضها القانون.",
@@ -196,6 +197,7 @@ export default defineMessages(
     inGoalPlaceholder: "مثال: زيادة القوة والحركة دون ألم في الظهر",
     inExperience: "خبرتك في التدريب",
     inDays: "أيام التدريب المتاحة أسبوعيًا",
+    inErrDays: "يُرجى تحديد عدد أيام التدريب بين يوم واحد و7 أيام.",
     inEquipment: "المعدات المتاحة لك",
     inEquipmentPlaceholder: "مثال: نادٍ رياضي، أو دمبلز ومقعد في المنزل",
     inLimits: "الإصابات أو الألم أو القيود الصحية (اختياري)",

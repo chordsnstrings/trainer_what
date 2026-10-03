@@ -11,12 +11,15 @@ import bookingMessages from "../lib/i18n/messages/bookings";
 import { useEffect, useState } from "react";
 import { StripeFeeNote } from "./programme-offers";
 import { BottomSheet, Skeleton } from "./phone-ui";
+import { fetchWithin, ACCOUNT_READ_TIMEOUT_MS } from "./account-request";
 async function request(path: string, body?: unknown) {
-  const r = await fetch("/api/v1/bookings" + path, {
+  const init: RequestInit = {
     method: body ? "POST" : "GET",
     headers: body ? { "Content-Type": "application/json" } : {},
     body: body ? JSON.stringify(body) : undefined,
-  });
+  };
+  const r = body ? await fetch("/api/v1/bookings" + path, init)
+    : await fetchWithin("/api/v1/bookings" + path, init, ACCOUNT_READ_TIMEOUT_MS);
   const data = await r.json();
   if (!r.ok) throw new Error(data.message);
   return data;
@@ -85,6 +88,8 @@ export function Bookings({ role }: { role: string }) {
   const [data, setData] = useState<any>(null),
     [notice, setNotice] = useState(""),
     [busy, setBusy] = useState(false),
+    [readError, setReadError] = useState(false),
+    [reading, setReading] = useState(false),
     [checkout, setCheckout] = useState(""),
     // A member confirms booking or cancelling in a bottom sheet.
     [sheet, setSheet] = useState<{
@@ -94,17 +99,24 @@ export function Bookings({ role }: { role: string }) {
     } | null>(null);
   const sub = role === "subscriber";
   const t = useT("bookings"),
+    common = useT("common"),
     pageLocale = useLocale(),
     toError = useErrorText();
   // Members read their bookings in their language; the coach view is unchanged.
   const locale: Locale = sub ? pageLocale : "en";
   const statusText = (value: string) => bookingStatus(value, locale);
   const paymentText = (value: string) => paymentStatus(value, locale);
-  const load = () => request("").then(setData);
+  const load = async () => {
+    setReading(true);
+    try { setData(await request("")); setReadError(false); }
+    catch { setReadError(true); }
+    finally { setReading(false); }
+  };
   useEffect(() => {
-    void load().catch((e) => setNotice(toError(e)));
+    void load();
   }, []);
   async function act(path: string, body: unknown) {
+    if (busy || readError) return;
     setBusy(true);
     setCheckout("");
     try {
@@ -150,6 +162,14 @@ export function Bookings({ role }: { role: string }) {
         <p className="notice" role="status">
           {notice}
         </p>
+      )}
+      {readError && (
+        <div className="notice error" role="alert">
+          <p>{t("loadFailed")}</p>
+          <button type="button" className="button secondary" disabled={reading} onClick={() => void load()}>
+            {reading ? common("loading") : common("retry")}
+          </button>
+        </div>
       )}
       {checkout && (
         <p>
@@ -249,7 +269,7 @@ export function Bookings({ role }: { role: string }) {
               price above zero is a separate session payment.
             </p>
             <StripeFeeNote subject="each paid session" bookingFee />
-            <button className="button" disabled={busy}>
+            <button className="button" disabled={busy || readError}>
               Add sessions
             </button>
           </form>
@@ -306,7 +326,7 @@ export function Bookings({ role }: { role: string }) {
                 </option>
               </select>
             </label>
-            <button className="button" disabled={busy}>
+            <button className="button" disabled={busy || readError}>
               Save defaults
             </button>
           </form>
@@ -315,7 +335,7 @@ export function Bookings({ role }: { role: string }) {
       <section className="card">
         <h2>{t("upcoming")}</h2>
         {/* Loading: a placeholder, never an empty card. */}
-        {!data && !notice && <Skeleton label={t("loading")} lines={3} />}
+        {!data && !readError && <Skeleton label={t("loading")} lines={3} />}
         {data?.slots
           .filter((s: any) => new Date(s.starts_at).getTime() > Date.now())
           .map((s: any) => {
@@ -370,7 +390,7 @@ export function Bookings({ role }: { role: string }) {
                     {(!mine || mine.status === "payment_pending") && (
                       <button
                         className="button"
-                        disabled={busy || (!mine && s.booked >= s.capacity)}
+                        disabled={busy || readError || (!mine && s.booked >= s.capacity)}
                         onClick={() =>
                           mine
                             ? void act(`/slots/${s.id}/reserve`, {})
@@ -387,7 +407,7 @@ export function Bookings({ role }: { role: string }) {
                     {mine && (
                       <button
                         className="button secondary"
-                        disabled={busy}
+                        disabled={busy || readError}
                         onClick={() =>
                           setSheet({ kind: "cancel", slot: s, booking: mine })
                         }
@@ -400,7 +420,7 @@ export function Bookings({ role }: { role: string }) {
                 {!sub && s.status === "open" && (
                   <details>
                     <summary>Edit or cancel</summary>
-                    <SlotEditor slot={s} busy={busy} act={act} />
+                    <SlotEditor slot={s} busy={busy || readError} act={act} />
                   </details>
                 )}
               </div>
@@ -441,7 +461,7 @@ export function Bookings({ role }: { role: string }) {
                 <div className="button-row">
                   <button
                     className="button secondary"
-                    disabled={busy}
+                    disabled={busy || readError}
                     onClick={() =>
                       void act(`/${b.id}/cancel`, {
                         revision: b.version,
@@ -456,7 +476,7 @@ export function Bookings({ role }: { role: string }) {
                     ["attended", "no_show"].map((status) => (
                       <button
                         className="button secondary"
-                        disabled={busy}
+                        disabled={busy || readError}
                         key={status}
                         onClick={() =>
                           void act(`/${b.id}/outcome`, {
@@ -508,7 +528,7 @@ export function Bookings({ role }: { role: string }) {
               <button
                 type="button"
                 className="button"
-                disabled={busy}
+                disabled={busy || readError}
                 onClick={() => {
                   if (!sheet) return;
                   const done =

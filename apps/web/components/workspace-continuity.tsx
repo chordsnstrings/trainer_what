@@ -4,7 +4,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { confirmWorkspace } from "./workspace-feedback";
 
 export const WorkspaceScope = createContext("");
-import { views, draftPrefix } from "./workspace-session";
+import { views, draftPrefix, workspaceSessionVersion } from "./workspace-session";
 export { clearWorkspaceViews } from "./workspace-session";
 type Guard = { dirty: () => boolean; save: () => Promise<boolean> };
 const guards = new Set<Guard>();
@@ -47,6 +47,7 @@ export function useConfirmBeforeLeave(dirty: boolean) {
 export function useWorkspaceValue<T>(key: string, initial: T, draft = false) {
   const scope = useContext(WorkspaceScope);
   const id = `${draftPrefix}${scope}:${key}`;
+  const session = useRef(workspaceSessionVersion());
   const restore = () => {
     if (!scope || typeof window === "undefined") return initial;
     if (views.has(id)) return views.get(id) as T;
@@ -62,17 +63,30 @@ export function useWorkspaceValue<T>(key: string, initial: T, draft = false) {
   useEffect(() => {
     if (!scope) return;
     latest.current = restore(); setValue(latest.current);
+    // A save can finish after its originating screen unmounts. Keep a newly
+    // mounted instance in sync with that result instead of showing stale drafts.
+    const changed = (event: Event) => {
+      if ((event as CustomEvent<string>).detail !== id) return;
+      latest.current = restore(); setValue(latest.current);
+    };
+    window.addEventListener("workspace-value-changed", changed);
+    return () => window.removeEventListener("workspace-value-changed", changed);
   }, [id]);
   const set = useCallback((next: SetStateAction<T>) => {
-    const result = typeof next === "function" ? (next as (v: T) => T)(latest.current) : next;
+    // A request completing after sign-out must not recreate personal drafts.
+    if (session.current !== workspaceSessionVersion()) return;
+    const current = scope && views.has(id) ? views.get(id) as T : latest.current;
+    const result = typeof next === "function" ? (next as (v: T) => T)(current) : next;
     latest.current = result;
     setValue(result);
     if (scope) {
       views.set(id, result);
       if (draft) try { sessionStorage.setItem(id, JSON.stringify({ value: result })); } catch {}
+      window.dispatchEvent(new CustomEvent("workspace-value-changed", { detail: id }));
     }
   }, [id, scope, draft]);
   const clear = useCallback(() => {
+    if (session.current !== workspaceSessionVersion()) return;
     views.delete(id);
     try { sessionStorage.removeItem(id); } catch {}
   }, [id]);
