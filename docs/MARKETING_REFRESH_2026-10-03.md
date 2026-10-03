@@ -48,3 +48,9 @@ Owner requested review, then deployment at 00:43 Asia/Dubai. Reviewed public pol
 Found and corrected one release blocker: filtering test policies also blocked existing members withdrawing consent. The privacy route now records a withdrawal marker without requiring publication; notification preferences do the same for marketing opt-out. New grants still require real published documents. Existing cleanup, isolation, locking and immutable history remain intact. Reproduced HTTP 409 before the fix. Regression checks cover all seven consent types and notification preferences under production security, plus blocked re-grants.
 
 All 30 targeted privacy/public-page/notification/suspension checks pass. Root TypeScript passes. No web rendering changes were made during this review. No further release blockers found in the reviewed diff. Approved policies/company/contact remain owner inputs; their missing states stay explicit. The prior four-job CI result covers the pre-review-fix head; the release still requires full checks on the exact merged main commit before automatic deployment.
+
+## Deployment checkpoint — 4 October 2026
+
+PR #29 merged as `012ff78e3841f468e152a64edb29893cb51c7cd0`. Main run `37153199581` caught a permission error in the new regression fixture, which inserted/read tenant consent records through the system role. The application correctly restricts that role.
+
+PR #30 (`6b2c3be33115c3e51fd4efc21be3672ae9aefee7`) moves those fixture operations to tenant scope, without changing application permissions, runtime code or assertions. Both regressions and root TypeScript pass locally; PR run `37154122810` is pending. Automatic approval review rejected the merge, requiring separate owner approval for this new PR. Deployment has not occurred. Next: owner approval for PR #30, passing checks, merge, exact-main qualification, then public verification.

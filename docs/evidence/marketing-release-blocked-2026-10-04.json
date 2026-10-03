@@ -1,0 +1,19 @@
+{
+  "checkedAt": "2026-10-03T21:11:30.280798+00:00",
+  "status": 200,
+  "release": "e5757e4f02f25fd291ba23cbbcc12d8d820a83af",
+  "body": "{\"status\":\"ready\"}",
+  "reviewedMerge": "012ff78e3841f468e152a64edb29893cb51c7cd0",
+  "fixturePR": 30,
+  "fixtureHead": "6b2c3be33115c3e51fd4efc21be3672ae9aefee7",
+  "failedMainRun": 37153199581,
+  "pendingPRRun": 37154122810,
+  "blocker": "Automatic approval review rejected PR #30 merge: separate owner approval required for each pull-request merge.",
+  "runtimeChangeInFixturePR": false,
+  "localFixtureTests": {
+    "passed": 2,
+    "failed": 0
+  },
+  "typecheck": "passed",
+  "deployed": false
+}
