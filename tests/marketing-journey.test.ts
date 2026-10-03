@@ -105,7 +105,7 @@ test("the captions are the registry's eight steps, unchanged, in the same list",
     html,
     /<section class="mk-section mk-walk-section" id="steps"/,
   );
-  assert.match(section, /<h2 id="steps-h">Eight steps, start to finish<\/h2>/);
+  assert.match(section, /<h2 id="steps-h">From setup to daily coaching<\/h2>/);
   const list = element(section, /<ol class="mk-steps">/);
   const items = [...list.matchAll(/<li data-step="(\d)">([\s\S]*?)<\/li>/g)];
   assert.equal(items.length, 8);
@@ -260,7 +260,7 @@ test("the home band adds no heading, no new sentence and no words in its stage",
   assert.match(band, /aria-labelledby="mk-walk-label"/);
   assert.match(
     band,
-    /<p class="small-label mk-walk-label" id="mk-walk-label">Eight steps, start to finish<\/p>/,
+    /<p class="small-label mk-walk-label" id="mk-walk-label">From setup to daily coaching<\/p>/,
   );
   assert.doesNotMatch(band, /<h[1-6][\s>]/);
   assert.equal(decode(element(band, /<div class="mk-walk-stage"/)), "");
@@ -269,7 +269,7 @@ test("the home band adds no heading, no new sentence and no words in its stage",
   // column header) and the link.
   assert.equal(
     decode(band),
-    "Eight steps, start to finish Claim your address Your subscriber : " +
+    "From setup to daily coaching Claim your address Your subscriber : " +
       registryLine(SUBSCRIBER_LINES[0]) +
       " See how it works",
   );
@@ -285,7 +285,7 @@ test("the home band adds no heading, no new sentence and no words in its stage",
 // usage lines were removed (owner, 30 September 2026).
 const NEW_WORDS = new Set(["evaluate", "ls", "layla-strength", "passed"]);
 // Controls' accessible names that are not elsewhere either.
-const NEW_NAMES = new Set(["replay", "previous"]);
+const NEW_NAMES = new Set(["replay"]);
 test("the mocks: no AI costs, fees, model names or amounts; only the listed new words", async () => {
   const html = render("/how-it-works", with_({ nutrition: true, voice: true }));
   const stage = decode(element(html, /<div class="mk-walk-stage"/));

@@ -147,13 +147,14 @@ export function ProductScreens({ t }: { t: (s: string) => string }) {
     <section className="mk-section" id="screens" aria-labelledby="screens-h">
       <h2 id="screens-h">Inside the product</h2>
       <p className="mk-body">
-        Four screens, drawn with sample data: your review queue, your
-        subscriber’s day, the workout logger and your statement.
+        Sample screens: your Inbox, your subscriber’s day, workout logging,
+        statements and the desktop website builder.
       </p>
       <div className="mk-screens">
         <figure className="mk-screen">
           <div className="mk-device" aria-hidden="true">
-            <p className="mk-screen-title">Exceptions</p>
+            <p className="mk-screen-title">Inbox</p>
+            <p className="mk-screen-sub">Inbox · Clients · My Brain · More</p>
             <div className="mk-queue-item">
               <span className="badge amber">
                 <UserRound size={12} /> Below your threshold
@@ -181,7 +182,7 @@ export function ProductScreens({ t }: { t: (s: string) => string }) {
             </div>
           </div>
           <figcaption>
-            <strong>Your review queue.</strong> Confident changes are applied
+            <strong>Your Inbox.</strong> Approved automatic changes are applied
             and logged; drafts below your threshold and safety holds come to you.
           </figcaption>
         </figure>
@@ -290,11 +291,36 @@ export function ProductScreens({ t }: { t: (s: string) => string }) {
                 <dd>{aed(e.beforeOtherCostsMinor)}</dd>
               </div>
             </dl>
-            <p className="mk-screen-note">Paid monthly to your UAE IBAN</p>
+            <p className="mk-screen-note">Monthly UAE payouts when enabled</p>
           </div>
           <figcaption>
             <strong>Your statement.</strong> Gross to net with commission by
             band; the amounts are the same arithmetic as the pricing example.
+          </figcaption>
+        </figure>
+        <figure className="mk-screen mk-screen-builder">
+          <div className="mk-device" aria-hidden="true">
+            <p className="mk-screen-title">Website editor</p>
+            <p className="mk-screen-sub">Desktop editor · Draft saved</p>
+            <div className="mk-queue-item">
+              <span className="badge">Pages</span>
+              <strong>Home · Coaching · Results · Contact</strong>
+              <span>Drag sections into place and make each page your own.</span>
+            </div>
+            <div className="mk-queue-item">
+              <span className="badge">Section library</span>
+              <strong>Hero · Programmes · Video · Before and after</strong>
+              <span>Choose a layout, then add your own copy and media.</span>
+            </div>
+            <span className="mk-fake-buttons">
+              <span className="mk-fake-button ghost">Preview</span>
+              <span className="mk-fake-button">Publish</span>
+            </span>
+            <p className="mk-screen-note">Desktop · Tablet · Phone previews</p>
+          </div>
+          <figcaption>
+            <strong>Your website builder.</strong> Multipage editing, reusable
+            sections and recovery tools. Publish after reviewing your draft.
           </figcaption>
         </figure>
       </div>

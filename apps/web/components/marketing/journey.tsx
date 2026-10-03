@@ -206,12 +206,12 @@ type Scene = {
   phone: (c: Ctx) => ReactNode;
 };
 const SCENES: Scene[] = [
-  // 1. Claim your address: the reserved address and the Design Studio;
+  // 1. Claim your address: the reserved address and the Your page;
   // the subscriber side previews the brand (the coach's colours, name and a
   // placeholder page). No address bar and no Join yet: nothing is published
   // at this step (the address first opens in chapter 5).
   {
-    tab: ["Design Studio"],
+    tab: ["Your page"],
     coach: (c) => (
       <div className="w-pane">
         <div className="w-f" {...b("rise", 300)}>
@@ -272,10 +272,10 @@ const SCENES: Scene[] = [
       </div>
     ),
   },
-  // 2. Teach your Brain: a rule confirmed in Knowledge review; the
+  // 2. Teach your Brain: a rule confirmed in My Brain; the
   // labelled digital coach replies from it.
   {
-    tab: ["Knowledge review"],
+    tab: ["My Brain"],
     coach: (c) => (
       <div className="w-pane">
         <div className="w-card" {...b("card", 300)}>
@@ -338,7 +338,7 @@ const SCENES: Scene[] = [
   // 3. Test it: held-out scenarios, evaluated; the expected handoff counts
   // as a pass. The subscriber's Today card comes from the evaluated release.
   {
-    tab: ["Scenario lab"],
+    tab: ["My Brain · Practice quiz"],
     coach: (c) => (
       <div className="w-pane">
         <ul className="w-list">
@@ -583,7 +583,7 @@ const SCENES: Scene[] = [
   // 6. It coaches daily: confident changes apply automatically; the
   // subscriber trains; pain pauses the workout and comes to the coach.
   {
-    tab: ["Exceptions"],
+    tab: ["Inbox"],
     coach: (c) => (
       <div className="w-pane">
         <ul className="w-list w-items">
@@ -672,7 +672,7 @@ const SCENES: Scene[] = [
   // 7. You correct, it learns: below the coach's threshold, it asks; the
   // approval becomes teaching and reaches the subscriber.
   {
-    tab: ["Exceptions"],
+    tab: ["Inbox"],
     coach: (c) => (
       <div className="w-pane">
         <div className="w-card" {...b("card", 1800)}>

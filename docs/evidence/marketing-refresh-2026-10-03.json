@@ -1,0 +1,186 @@
+{
+  "results": [
+    {
+      "path": "/get-started",
+      "state": "settings unavailable",
+      "result": "early access shown"
+    },
+    {
+      "path": "/",
+      "width": 390,
+      "http": 200,
+      "overflow": 0
+    },
+    {
+      "path": "/features",
+      "width": 390,
+      "http": 200,
+      "overflow": 0
+    },
+    {
+      "path": "/features/website-and-domain",
+      "width": 390,
+      "http": 200,
+      "overflow": 0
+    },
+    {
+      "path": "/features/subscriber-app",
+      "width": 390,
+      "http": 200,
+      "overflow": 0
+    },
+    {
+      "path": "/features/voice-coach",
+      "width": 390,
+      "http": 200,
+      "overflow": 0
+    },
+    {
+      "path": "/get-started",
+      "width": 390,
+      "http": 200,
+      "overflow": 0
+    },
+    {
+      "path": "/how-it-works",
+      "width": 390,
+      "http": 200,
+      "overflow": 0
+    },
+    {
+      "path": "/about",
+      "width": 390,
+      "http": 200,
+      "overflow": 0
+    },
+    {
+      "path": "/security-and-privacy",
+      "width": 390,
+      "http": 200,
+      "overflow": 0
+    },
+    {
+      "path": "/terms",
+      "width": 390,
+      "http": 200,
+      "overflow": 0
+    },
+    {
+      "path": "/privacy",
+      "width": 390,
+      "http": 200,
+      "overflow": 0
+    },
+    {
+      "path": "/ai-disclosure",
+      "width": 390,
+      "http": 200,
+      "overflow": 0
+    },
+    {
+      "path": "/",
+      "width": 1440,
+      "http": 200,
+      "overflow": 0
+    },
+    {
+      "path": "/features",
+      "width": 1440,
+      "http": 200,
+      "overflow": 0
+    },
+    {
+      "path": "/features/website-and-domain",
+      "width": 1440,
+      "http": 200,
+      "overflow": 0
+    },
+    {
+      "path": "/features/subscriber-app",
+      "width": 1440,
+      "http": 200,
+      "overflow": 0
+    },
+    {
+      "path": "/features/voice-coach",
+      "width": 1440,
+      "http": 200,
+      "overflow": 0
+    },
+    {
+      "path": "/get-started",
+      "width": 1440,
+      "http": 200,
+      "overflow": 0
+    },
+    {
+      "path": "/how-it-works",
+      "width": 1440,
+      "http": 200,
+      "overflow": 0
+    },
+    {
+      "path": "/about",
+      "width": 1440,
+      "http": 200,
+      "overflow": 0
+    },
+    {
+      "path": "/security-and-privacy",
+      "width": 1440,
+      "http": 200,
+      "overflow": 0
+    },
+    {
+      "path": "/terms",
+      "width": 1440,
+      "http": 200,
+      "overflow": 0
+    },
+    {
+      "path": "/privacy",
+      "width": 1440,
+      "http": 200,
+      "overflow": 0
+    },
+    {
+      "path": "/ai-disclosure",
+      "width": 1440,
+      "http": 200,
+      "overflow": 0
+    }
+  ],
+  "pageErrors": [],
+  "scope": "Isolated local marketing fixtures; no production writes",
+  "date": "2026-10-03",
+  "baseApplication": "e5757e4f02f25fd291ba23cbbcc12d8d820a83af",
+  "branch": "work/marketing-refresh-2026-10-03",
+  "typecheck": "pass",
+  "productionBuild": "pass",
+  "apiTests": {
+    "pass": 29,
+    "fail": 0
+  },
+  "marketingTests": {
+    "uniquePassingChecks": 53,
+    "note": "52 passed in the focused suite; corrected metadata passed separately. Registry, metadata and assistant facts passed again after final copy edits."
+  },
+  "browser": {
+    "checks": 25,
+    "pages": 12,
+    "widths": [
+      390,
+      1440
+    ],
+    "pageErrors": 0,
+    "horizontalOverflow": 0,
+    "brokenInPageAnchors": 0
+  },
+  "visualReview": [
+    "Desktop product illustrations and builder card",
+    "Phone setup page"
+  ],
+  "applicationCommit": "799bd46c0463c22acac793e694ccda13c847ec38",
+  "reviewUrl": "https://github.com/chordsnstrings/trainer_what/pull/29",
+  "deployment": "not deployed"
+}

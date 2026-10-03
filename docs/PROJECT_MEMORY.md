@@ -1,13 +1,13 @@
 # Project memory
 
-Updated: 2 October 2026. This is durable project context for future build sessions. It records decisions, not credentials or a claim about account capabilities.
+Updated: 3 October 2026. This is durable project context for future build sessions. It records decisions, not credentials or a claim about account capabilities.
 
 ## Owner decisions
 
 | Topic | Current decision |
 | --- | --- |
 | Project | `chordsnstrings/trainer_what`; Trainer Brain Platform |
-| Current request | 3 October: “Fix all” backend UI/UX audit findings. Implemented in PR #27 on `work/backend-ui-2026-10-03` (`98f7c46` plus CI follow-up). White shell/controls, role-aware navigation, reliable onboarding, scoped drafts/context and focused daily/admin views. Local TypeScript/build, 104 web contracts, 27 appearance/device/setup checks and browser passes (52 broad captures; final 13 workflows/23 captures) succeeded. Translation/source-assertion follow-ups passed full database suites, build and general browser regression at `89da01f`. Builder CI found its fullscreen isolation made native confirmations inert; an exemption plus Escape/focus/draft checks is now pending CI. Automatic approval review requires specific user approval before merging #27. Main remains `ac5d55a`; not deployed. See `VERIFICATION_2026-10-03_BACKEND_UI.md` and `CLAUDE_HANDOFF.md`. |
+| Current request | 4 October, 00:43 Asia/Dubai: review PR #29, then deploy. Its exact saved head `2bc26b8` passed all four CI jobs. Review found and fixed blocked consent withdrawal; 30 targeted checks and root TypeScript pass. Merge the reviewed fix and wait for exact-main qualification before automatic deployment. Use the existing newest-green-main deployment. Preserve legal/provider gates and keep future domain/subdomain audits read-only. Update the Claude handoff. |
 | Visual website builder (2 October 2026) | Owner approved implementation with multiple agents: desktop-only editing, responsive published sites, professional drag-and-drop multipage composition, and a comprehensive library of many section types/variants. AI starters use Seed 2.0 to assemble prebuilt modules and bounded copy to keep costs down. Keep `CLAUDE_HANDOFF.md` updated during work. Existing drafts/publishing, native offers/inquiries, launch gates and tenant isolation remain the foundation. |
 | Coach onboarding (30 September) | Open self-serve sign-up (email code through Resend, key added later in Super admin; Google/Apple later) behind the legal gate; one six-step wizard (~15 min) with save/resume/skip; custom subdomain chosen in the wizard, live at go-live; automatic go-live checks instead of staff approval; launch in "Waits for me"; bank details at first payout; "Report this coach" for Super admin. See `docs/features/coach-setup.md`. |
 | Astra | Available for difficult design, implementation and review; use tokens wisely; do not use it for browsing |
@@ -50,6 +50,15 @@ Updated: 2 October 2026. This is durable project context for future build sessio
 | Access preference | NEVER USE CLOUD BROWSER. Use local Playwright. DigitalOcean work uses the direct API from the coordinating session only; the token is never written to Git, docs, logs or cloud-init. Outbound SSH is unavailable from the automation environment, so host actions go through cloud-init and the controller. |
 
 ## Current state
+
+- **Marketing refresh saved, 3 October 2026:** implementation is on `work/marketing-refresh-2026-10-03`; details and remaining owner inputs are in `docs/MARKETING_REFRESH_2026-10-03.md`. Public API tests (29), focused marketing checks (53 across final runs) and root TypeScript pass. Production build and 25 local browser checks pass (12 pages, phone/desktop, no page errors or overflow). Evidence is in `docs/evidence/marketing-refresh-2026-10-03.json`. **Draft PR #29**, https://github.com/chordsnstrings/trainer_what/pull/29, saves application commit `799bd46c0463c22acac793e694ccda13c847ec38`; remote/local trees match. CI is not claimed complete. Not deployed. Subdomain/custom-domain audits follow without fixes.
+
+
+- **Verified live, 3 October 2026:** PR #28, main `e5757e4f02f25fd291ba23cbbcc12d8d820a83af`, https://trainsyou.com. All four main CI jobs passed; exact healthy readiness at 18:20:51 UTC and four routes/23 assets at 18:21:39 UTC. Subscriber fixes and all prior backend/builder work are included. Handoff and proof are saved on `notes/subscriber-ui-release-2026-10-03`; merge these notes with the next application release. See `docs/SUBSCRIBER_UI_UX_AUDIT_2026-10-03.md`.
+
+### Historical implementation checkpoints
+
+The following entries retain their original stage status; current deployment is above.
 
 - **Round 5 final (stage 2026-10-01a, branch `r5/final`, pushed to `claude/repository-overview-osejlw`, not merged, not deployed).** Model profiles, remaining self-learning, narration in the coach's style, own-music mode, frontier wording and Kamran's AI voice, integrated and checked together; see `docs/COMPLETION_STAGES.md`.
 - **Model profiles (stage 2026-10-01r5-models, branch `r5/models`, integrated into `r5/final`).** Super admin switches the Brain's model between saved profiles (current settings, ChatGPT, Sonnet, Opus) after a connection test and a passing switch check; one click back; coaches see only the label; see `docs/features/model-profiles.md`.

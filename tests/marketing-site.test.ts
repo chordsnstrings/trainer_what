@@ -57,7 +57,7 @@ import {
   followerModelFromSettings,
   type EarningsInputs,
 } from "../packages/domain/src/marketing-calculators.ts";
-import { baseRegistry } from "../apps/api/src/onboarding.ts";
+import { SETUP_STEPS } from "../packages/contracts/src/coach-setup.ts";
 import { MarketingSite, bandPills } from "../apps/web/components/marketing/site.tsx";
 import {
   EarningsCalculator,
@@ -439,7 +439,7 @@ test("the product at full size: a complete capability matrix, screens and counts
   assert.equal(new Set(names).size, names.length, "duplicate capability");
   for (const group of FEATURE_MATRIX) if (group.page) assert.ok(isMarketingSitePath(group.page), group.page);
   // The brief's must-haves are all listed.
-  for (const required of ["Client Twin", "Offline in the gym", "WHOOP connection", "Team roles", "Monthly statement", "Trials and promotion codes", "Your own domain, bought for you", "Arabic-ready layout", "Export and deletion", "Sessions in your own voice", "Barcode lookup"])
+  for (const required of ["Client Twin", "Offline in the gym", "WHOOP connection", "Team roles", "Monthly statement", "Trials and promotion codes", "Your own domain, bought for you", "English and Arabic member controls", "Export and deletion", "Sessions in your own voice", "Barcode lookup"])
     assert.ok(names.includes(required), required);
   // Generic categories only: never a competitor's name.
   for (const r of REPLACES) assert.match(r.tool, /^(A|An|Programme) /);
@@ -448,7 +448,7 @@ test("the product at full size: a complete capability matrix, screens and counts
   assert.match(features, new RegExp(`in ${FEATURE_MATRIX.length} areas`));
   for (const name of names.slice(0, 5)) assert.ok(features.includes(name), name);
   assert.match(features, new RegExp(`The ${REPLACES.length} tools it replaces`));
-  for (const screen of ["Your review queue.", "Your subscriber’s day.", "The workout logger.", "Your statement."])
+  for (const screen of ["Your Inbox.", "Your subscriber’s day.", "The workout logger.", "Your statement.", "Your website builder."])
     assert.ok(features.includes(screen), screen);
   assert.match(features, /Illustrations with sample data/);
   // Provider-dependent items say "Available soon" while their provider is off.
@@ -1092,12 +1092,10 @@ test("the brand, availability and registration state come from the platform, not
   for (const step of SETUP_CHECKLIST) assert.ok(started.includes(step.label), step.label);
 });
 
-test("the marketing setup checklist mirrors the onboarding registry", () => {
-  assert.deepEqual(
-    SETUP_CHECKLIST.map((s) => [s.key, s.label, s.required]),
-    baseRegistry.map(([key, label, , required]) => [key, label, required]),
-  );
-  assert.equal(SETUP_CHECKLIST.at(-1)!.key, "share");
+test("marketing follows the six-step wizard and its time estimates", () => {
+  assert.deepEqual(SETUP_CHECKLIST.map(({ key, label, minutes }) => ({ key, label, minutes })), SETUP_STEPS);
+  assert.equal(SETUP_CHECKLIST.length, 6);
+  assert.equal(SETUP_CHECKLIST.reduce((n, step) => n + step.minutes, 0), 15);
 });
 
 // Registrars are never named (the owner's instruction), nor the payout

@@ -28,6 +28,7 @@ import {
   engagementRate,
   followerModelFromSettings,
 } from "../../../packages/domain/src/marketing-calculators.ts";
+import { platformRootDomain } from "../../../packages/domain/src/web-address.ts";
 import { newToken, tokenHash } from "./auth.ts";
 
 const fail = (statusCode: number, code: string, message: string) =>
@@ -64,6 +65,7 @@ export function publicAvailability(config: RuntimeConfig = runtimeConfig()) {
 export function publicPlatform() {
   const config = runtimeConfig();
   const name = platformName(config.APP_NAME);
+  const root = platformRootDomain(config.PLATFORM_ROOT_DOMAIN);
   return {
     name,
     initials: appInitials(name),
@@ -72,11 +74,10 @@ export function publicPlatform() {
     // Mirrors POST /auth/register: a strict deployment waits for approved
     // legal documents before trainers can register.
     registrationOpen: !strictSecurity() || config.LEGAL_APPROVED === "true",
-    // A trainer's coaching address today. A subdomain scheme replaces this
-    // template when it is enabled.
-    coachAddressTemplate:
-      new URL(config.PUBLIC_APP_URL || "http://localhost:3000").origin +
-      "/coach/{slug}",
+    // Match setup’s configured address scheme without changing host routing.
+    coachAddressTemplate: root
+      ? `https://{slug}.${root}`
+      : new URL(config.PUBLIC_APP_URL || "http://localhost:3000").origin + "/coach/{slug}",
     availability: publicAvailability(config),
     followerModel: followerModelFromSettings(config),
   };

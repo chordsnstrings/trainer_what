@@ -964,7 +964,7 @@ function EarlyAccess({ platform }: { platform: PublicPlatform }) {
     <section className="mk-section card" id="early-access" aria-labelledby="early-h">
       <h2 id="early-h">Join early access</h2>
       <p className="mk-body">
-        Trainer registration opens once our legal documents are published. Leave
+        Trainer registration is currently closed. Leave
         your details and we will email you when it opens. Your calculator
         numbers and the address you typed come with you.
       </p>
@@ -1083,9 +1083,7 @@ function AfterSection({
         {SETUP_CHECKLIST.map((step) => (
           <li key={step.key}>
             <strong>{step.label}</strong>
-            <span className={"badge " + (step.required ? "" : "green")}>
-              {step.required ? "Required" : "Optional"}
-            </span>
+            <span className="badge">About {step.minutes} min</span>
             <p className="muted">{step.summary}</p>
           </li>
         ))}
@@ -1166,7 +1164,7 @@ function StandardPage({ page, platform, origin }: Ctx) {
         {page.path === "/about" && (
           <section className="mk-section" id="company" aria-labelledby="company-h">
             <h2 id="company-h">Company and contact</h2>
-            {platform.companyDetails && <p className="mk-body">{platform.companyDetails}</p>}
+            <p className="mk-body">{platform.companyDetails || "Company details have not been published yet."}</p>
             {platform.supportEmail ? (
               <p className="mk-body">
                 Contact:{" "}
@@ -1176,7 +1174,7 @@ function StandardPage({ page, platform, origin }: Ctx) {
               </p>
             ) : (
               <p className="mk-body">
-                Signed-in trainers reach us through Support in their workspace.
+                A public support email has not been published yet. Existing trainers can <Link href="/login">sign in</Link> and open Support. New visitors can <Link href={claimCta(platform.registrationOpen).href}>{platform.registrationOpen ? "get started" : "join early access"}</Link>.
               </p>
             )}
           </section>

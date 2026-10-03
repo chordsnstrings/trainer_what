@@ -9,6 +9,8 @@ import type { Database } from "@trainer/db";
 /** The documents a new account accepts when it registers or joins a coach. */
 export const REGISTRATION_DOCUMENTS = ["terms", "privacy", "ai-disclosure"] as const;
 export type RegistrationDocument = (typeof REGISTRATION_DOCUMENTS)[number];
+/** Withdrawal is a refusal, not acceptance of a currently published policy. */
+export const CONSENT_WITHDRAWAL_VERSION = "consent:v1:withdrawal";
 /** Resolve outside an existing tenant transaction; the published registry is global. */
 export async function legalAcceptanceVersion(db:Database, scope:string):Promise<string> {
  const keys=scope==="registration"?[...REGISTRATION_DOCUMENTS]:scope==="coaching"||scope.startsWith("nutrition")?["privacy","ai-disclosure"]:["privacy"];

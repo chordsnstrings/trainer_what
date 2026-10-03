@@ -1,6 +1,6 @@
 # Subscriber UX/UI audit — 3 October 2026
 
-Owner requested a comprehensive audit and confirmed fixes. Base: live main `97fd03c`. Branch: `work/subscriber-ux-2026-10-03`. Audit complete. Fixes are implemented and locally verified; review CI is the next release gate.
+Owner requested a comprehensive audit and confirmed fixes. Base: live main `97fd03c`. Branch: `work/subscriber-ux-2026-10-03`. Audit complete. Fixes passed all four PR CI jobs on `ddaba406`; PR #28 merged as `e5757e4f02f25fd291ba23cbbcc12d8d820a83af` after the owner approved deployment and saving the update. All four main CI jobs passed; the exact release and new web assets are verified live at https://trainsyou.com.
 
 ## Coverage
 
@@ -45,8 +45,21 @@ Coverage includes signed-out entry/joining/recovery/legal pages; all 17 member r
 
 The dark-mode runner’s obsolete unavailable-screen text selector was corrected to the current accessible heading and the full check rerun successfully. Fixture runners generate fresh passwords.
 
-No production records or paid provider calls. Real-device keyboard/PWA installation, microphone/speech, HealthKit, payment-provider settlement and delivered email/push require their respective device/provider evidence. Existing safety, consent, tenant and financial rules remain in place. This branch is not deployed.
+No production records or paid provider calls. Real-device keyboard/PWA installation, microphone/speech, HealthKit, payment-provider settlement and delivered email/push require their respective device/provider evidence. Existing safety, consent, tenant and financial rules remain in place. Production deployment is verified below; live checks used signed-out GET requests only. Authenticated workflows were tested in isolated CI.
 
-## Documentation publication
+## Release and saved handoff
 
-The updated Claude handoff, project memory and previous release verification are prepared locally. Automatic approval rejected republishing the handoff’s existing live infrastructure/service metadata, even after confirming that it already exists in this repository. Those three documentation updates await explicit owner approval for this GitHub destination. The subscriber code and this audit can be reviewed independently.
+Owner approved on 3 October 2026 at 21:43 Asia/Dubai: “Deploy. And save the update”. This explicitly authorizes saving the updated Claude handoff/project notes, including the existing infrastructure metadata that automatic approval previously blocked, to `chordsnstrings/trainer_what`.
+
+- [PR #28](https://github.com/chordsnstrings/trainer_what/pull/28) merged as `e5757e4f02f25fd291ba23cbbcc12d8d820a83af`.
+- [PR qualification 37133162669](https://github.com/chordsnstrings/trainer_what/actions/runs/37133162669): all four jobs passed on `ddaba4061ba2801ff8f1c3999cd5a69064a7d984` at 15:55:02 UTC. The merge has the identical application tree.
+- [Main qualification 37141834383](https://github.com/chordsnstrings/trainer_what/actions/runs/37141834383): all four jobs passed at 18:13:54 UTC. Application suite: 1,648 pass, five skips, zero failures; build, subscriber journeys, general browser regression, 16 builder journeys, 1,620 layout checks, backend UI checks, restricted PostgreSQL/container and Compose topology passed. Existing newest-green-main automation deployed the release.
+- Final handoff and live-release evidence are saved on `notes/subscriber-ui-release-2026-10-03`, descending from the merge, and linked from PR #28. The previous backend release checkpoint is reconciled into these notes.
+
+### Production verification — 3 October 2026
+
+- 18:20:51 UTC: `/api/v1/ready` returned actual HTTP 200, `{"status":"ready"}` and `X-GymMembership-Release: e5757e4f02f25fd291ba23cbbcc12d8d820a83af`.
+- 18:21:39 UTC: readiness rechecked, four subscriber route shells (`/app/chat`, `/app/intake`, `/app/bookings`, `/app/profile`) and all 23 linked JS/CSS assets returned HTTP 200. The served `/_next/static/chunks/1japcc3gw6j_4.js` contains the new `workspace-value-changed` marker.
+- One readiness probe returned HTTP 502 with the new release header at 18:20:05 UTC during rollout; the next probe was healthy.
+- Exact route/asset hashes and readiness evidence: [production proof](evidence/subscriber-ui-2026-10-03.json).
+- No production records, paid calls, cloud browser, SSH or manual deployment. Release complete; reconcile the saved documentation checkpoint into the next application release.

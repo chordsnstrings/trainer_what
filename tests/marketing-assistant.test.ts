@@ -28,6 +28,17 @@ const facts = marketingAssistantFacts({ origin: "https://trainsyou.example", app
 const screen = (reply: any, visitorText = "", frontier = false) =>
   screenAssistantReply({ reply: { lang: "en", calc: null, handoff: false, ...reply }, facts, visitorText, frontier });
 
+test("assistant facts cover the current builder and supervised setup", () => {
+  assert.match(facts, /270 layouts across 38 module families/);
+  assert.match(facts, /website editor is desktop-only/);
+  assert.match(facts, /paired photos and captions/);
+  assert.match(facts, /8 quiz answers.*3 client cases/);
+  assert.match(facts, /Automatic sending requires 20 cases/);
+  assert.match(facts, /My own music|Own-music mode/);
+  assert.match(facts, /right-to-left layouts/);
+  assert.equal(screen({ reply: "The desktop editor offers 270 layouts across 38 module families." }).replaced, false);
+});
+
 test("calculations come from the site's calculators and fill the placeholders", () => {
   const calc = computeAssistantCalc({ kind: "earnings", subscribers: 50, priceAed: 300 });
   const e = estimateEarnings({

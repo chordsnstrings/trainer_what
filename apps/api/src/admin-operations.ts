@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { FastifyInstance, FastifyRequest } from "fastify";
+import { isLegalPlaceholder } from "./legal-document-status.ts";
 import { elevated, type Actor, type Database, type Tx, event } from "@trainer/db";
 import { listEarlyAccess } from "./early-access.ts";
 import { requireRecentMfa } from "./security.ts";
@@ -179,7 +180,7 @@ export async function getPublishedDocument(
   kind: string,
   key: string,
 ) {
-  return db.system(
+  const document = await db.system(
     async (tx) =>
       (
         await tx.query(
@@ -188,6 +189,7 @@ export async function getPublishedDocument(
         )
       )[0] ?? null,
   );
+  return document && kind === "legal" && isLegalPlaceholder(document) ? null : document;
 }
 export function consentedAcquisition(cookieValue?: string) {
   try {
@@ -453,7 +455,7 @@ export function registerAdminOperations(
             )[0] ?? null,
         )
       : await getPublishedDocument(db, "legal", key);
-    if (!current)
+    if (!current || isLegalPlaceholder(current))
       throw fail(
         404,
         "LEGAL_NOT_PUBLISHED",
@@ -461,11 +463,15 @@ export function registerAdminOperations(
       );
     const versions = await db.system((tx) =>
       tx.query(
-        "SELECT version,effective_at FROM admin_documents WHERE kind='legal' AND key=$1 AND status='published' AND effective_at<=now() ORDER BY effective_at DESC,version DESC",
+        "SELECT version,effective_at,title,content FROM admin_documents WHERE kind='legal' AND key=$1 AND status='published' AND effective_at<=now() ORDER BY effective_at DESC,version DESC",
         [key],
       ),
     );
-    return { document: current, versions };
+    return {
+      document: current,
+      versions: versions.filter((version) => !isLegalPlaceholder(version))
+        .map(({ version, effective_at }) => ({ version, effective_at })),
+    };
   });
   app.get("/api/v1/analytics/business", async (req) => {
     const a = identity(req);

@@ -71,7 +71,7 @@ const call = (path: string, body?: unknown) =>
     remoteAddress: `10.77.0.${++address}`,
     headers: { host: "localhost:3000", origin: "http://localhost:3000" },
   });
-async function publish(key: string) {
+async function publish(key: string, version = 1, content = "Synthetic fixture text.") {
   const author = randomUUID();
   await db.system(async (tx) => {
     await tx.query(
@@ -79,8 +79,8 @@ async function publish(key: string) {
       [author, `legal-${author}@example.test`],
     );
     await tx.query(
-      "INSERT INTO admin_documents(id,kind,key,version,title,content,status,effective_at,created_by,published_by,published_at) VALUES($1,'legal',$2,1,$3,'Synthetic fixture text.','published',now()-interval '1 day',$4,$4,now())",
-      [randomUUID(), key, "Fixture " + key, author],
+      "INSERT INTO admin_documents(id,kind,key,version,title,content,status,effective_at,created_by,published_by,published_at) VALUES($1,'legal',$2,$5,$3,$6,'published',now()-interval '1 day',$4,$4,now())",
+      [randomUUID(), key, "Fixture " + key, author, version, content],
     );
   });
 }
@@ -110,11 +110,23 @@ test("the legal status says which documents a form may ask people to accept", as
     (await legalStatus(db, { NODE_ENV: "production" })).joiningOpen,
     false,
   );
-  await publish("terms");
+  await publish("terms", 1, "TEST ENVIRONMENT PLACEHOLDER. Not a legal document.");
+  const placeholder = await call("/public/documents/terms");
+  assert.equal(placeholder.statusCode, 404);
+  assert.equal(placeholder.json().code, "LEGAL_NOT_PUBLISHED");
+  assert.equal((await call("/public/documents/terms?version=1")).statusCode, 404);
+  const pending = await legalStatus(db, { NODE_ENV: "production", LEGAL_APPROVED: "true" });
+  assert.equal(pending.joiningOpen, false);
+  assert.equal(pending.documents[0].published, false);
+  assert.equal(pending.documents[0].version, null);
+  await publish("terms", 2);
+  const current = (await call("/public/documents/terms")).json();
+  assert.deepEqual(current.versions.map((v: any) => v.version), [2]);
+  assert.doesNotMatch(JSON.stringify(current), /TEST ENVIRONMENT PLACEHOLDER/);
   const one = (await call("/public/legal-status")).json();
   assert.deepEqual(
     one.documents.filter((d: any) => d.published).map((d: any) => [d.key, d.version]),
-    [["terms", 1]],
+    [["terms", 2]],
   );
   assert.deepEqual(legalPlan(one).ask, ["terms"]);
   assert.equal(

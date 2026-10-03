@@ -135,7 +135,7 @@ const identityDraft = identityFields.partial().extend({
   category: z.string().max(100).optional(),
   audience: z.string().max(500).optional(),
 });
-/** The setup checklist; SETUP_CHECKLIST in packages/contracts mirrors it. */
+/** Legacy checklist; public onboarding now follows coach-setup.ts SETUP_STEPS. */
 export const baseRegistry = [
   [
     "account",
