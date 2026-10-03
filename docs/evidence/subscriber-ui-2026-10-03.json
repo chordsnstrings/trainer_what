@@ -1,0 +1,201 @@
+{
+  "verified_at": "2026-10-03T18:21:39.388287+00:00",
+  "release": "e5757e4f02f25fd291ba23cbbcc12d8d820a83af",
+  "ready": {
+    "path": "/api/v1/ready",
+    "status": 200,
+    "release": "e5757e4f02f25fd291ba23cbbcc12d8d820a83af",
+    "sha256": "31bf75f4c0a97cc1f7b60df824fa390b3be9ba014f29b63c87c698ba63d9a9fd"
+  },
+  "routes": [
+    {
+      "path": "/app/chat",
+      "status": 200,
+      "release": "e5757e4f02f25fd291ba23cbbcc12d8d820a83af",
+      "sha256": "63df5cfd733e4b49b73f0883889146adecd2c5aa0c238690ccc07a7b04f2568d"
+    },
+    {
+      "path": "/app/intake",
+      "status": 200,
+      "release": "e5757e4f02f25fd291ba23cbbcc12d8d820a83af",
+      "sha256": "cc79999c8a1e7491d3fe27c54b1648d8c07b13ebd9854c4ce074609f8ee72115"
+    },
+    {
+      "path": "/app/bookings",
+      "status": 200,
+      "release": "e5757e4f02f25fd291ba23cbbcc12d8d820a83af",
+      "sha256": "d754ca1e5dd07aad39fcf254d09d6a110342e190171f63dfdd1a09334004db6c"
+    },
+    {
+      "path": "/app/profile",
+      "status": 200,
+      "release": "e5757e4f02f25fd291ba23cbbcc12d8d820a83af",
+      "sha256": "e50b93ff192c6fd7325e132726335ecd085813dcf922405211177f80fc88653d"
+    }
+  ],
+  "assets": [
+    {
+      "path": "/_next/static/chunks/02bhcqhzf8k98.js",
+      "status": 200,
+      "release": "e5757e4f02f25fd291ba23cbbcc12d8d820a83af",
+      "sha256": "e2c41c16f7354d7c56d1ea2f1e8a4be1a9e7aede3e412fd77547c6cdb901d7c1"
+    },
+    {
+      "path": "/_next/static/chunks/05s0-pp3m44_v.css",
+      "status": 200,
+      "release": "e5757e4f02f25fd291ba23cbbcc12d8d820a83af",
+      "sha256": "5bd3141dc92c23cc0ef55bc60e833b30cffa8641d1ee28d512b6adf64338461f"
+    },
+    {
+      "path": "/_next/static/chunks/0bma92pht_c97.js",
+      "status": 200,
+      "release": "e5757e4f02f25fd291ba23cbbcc12d8d820a83af",
+      "sha256": "8e1ef636f0a5bad67b6562ce88d83624788ebcccf625a78c0aaa8318092e52ff"
+    },
+    {
+      "path": "/_next/static/chunks/0cz1d0mv5g_q7.js",
+      "status": 200,
+      "release": "e5757e4f02f25fd291ba23cbbcc12d8d820a83af",
+      "sha256": "0973c1d64c88adc8e3c950410cb58b288f72118d5965b78049438deb8f2f9683"
+    },
+    {
+      "path": "/_next/static/chunks/0fmmydyhq1lmt.css",
+      "status": 200,
+      "release": "e5757e4f02f25fd291ba23cbbcc12d8d820a83af",
+      "sha256": "55f668d290244e9b30fc51419e87cc233b4e6722de3a002198649a69e7877c0a"
+    },
+    {
+      "path": "/_next/static/chunks/0g1fjvuiyh4m3.js",
+      "status": 200,
+      "release": "e5757e4f02f25fd291ba23cbbcc12d8d820a83af",
+      "sha256": "91dd969847d2cf61c7fd767362eae20bbd847a7ffc3c1d7de31b2cb9bf182af5"
+    },
+    {
+      "path": "/_next/static/chunks/0kgwskn1x4zv0.js",
+      "status": 200,
+      "release": "e5757e4f02f25fd291ba23cbbcc12d8d820a83af",
+      "sha256": "02e6916dd8032f57afa00a61a5386a9693c95364a3eaf24a40fc9917a29ad3a6"
+    },
+    {
+      "path": "/_next/static/chunks/1-h_02r3mggw1.js",
+      "status": 200,
+      "release": "e5757e4f02f25fd291ba23cbbcc12d8d820a83af",
+      "sha256": "3737ce2310021a815f3a1ce765008601843adce407083a65fc244a3e0f6400bc"
+    },
+    {
+      "path": "/_next/static/chunks/19kdfhm8n0dkf.js",
+      "status": 200,
+      "release": "e5757e4f02f25fd291ba23cbbcc12d8d820a83af",
+      "sha256": "3d002b7f6632fed6974a6b609cf254eb58a1e37232e805c88eeef1575556ac78"
+    },
+    {
+      "path": "/_next/static/chunks/1b3m5danipzr5.js",
+      "status": 200,
+      "release": "e5757e4f02f25fd291ba23cbbcc12d8d820a83af",
+      "sha256": "445550ecf3e5ec057e7d5c4f7508f7a87c2c3bccc03e47681a8acc7782f731d5"
+    },
+    {
+      "path": "/_next/static/chunks/1j7au5a1x5n14.js",
+      "status": 200,
+      "release": "e5757e4f02f25fd291ba23cbbcc12d8d820a83af",
+      "sha256": "5aa08d4c8a3a59169a69d6f1cc303f8dbc334ce6857b166e671382689fae6aaa"
+    },
+    {
+      "path": "/_next/static/chunks/1japcc3gw6j_4.js",
+      "status": 200,
+      "release": "e5757e4f02f25fd291ba23cbbcc12d8d820a83af",
+      "sha256": "546e78c8b7cd04391b37183727e2ae87c1fe19f963ff5f83815501ccd4c410af"
+    },
+    {
+      "path": "/_next/static/chunks/1jo2ydrstq7_j.js",
+      "status": 200,
+      "release": "e5757e4f02f25fd291ba23cbbcc12d8d820a83af",
+      "sha256": "b5cddfe09b86f86c2ab2542ae71a9b261ef1447d221416a17e37e835090e7796"
+    },
+    {
+      "path": "/_next/static/chunks/23y769varayl7.css",
+      "status": 200,
+      "release": "e5757e4f02f25fd291ba23cbbcc12d8d820a83af",
+      "sha256": "df5845956d62ebb99ddcf4dc72ec9a615499f183b0cf6b7e15b77c1d42de8aba"
+    },
+    {
+      "path": "/_next/static/chunks/24cw6mfdnoik1.css",
+      "status": 200,
+      "release": "e5757e4f02f25fd291ba23cbbcc12d8d820a83af",
+      "sha256": "148c7146846de48768fbcd3c852044edcd82113637f3befd53ee3989ccec712b"
+    },
+    {
+      "path": "/_next/static/chunks/260tcb0tg8-m_.js",
+      "status": 200,
+      "release": "e5757e4f02f25fd291ba23cbbcc12d8d820a83af",
+      "sha256": "5ab19fff53f2450f36760246029234db8bef8193306fb7aabe6e14bd76225459"
+    },
+    {
+      "path": "/_next/static/chunks/2gee8pgrfsf83.js",
+      "status": 200,
+      "release": "e5757e4f02f25fd291ba23cbbcc12d8d820a83af",
+      "sha256": "996227c4a81eda7256bbc8fc4642e3120922b115aa6e21eda3ac086d20b3b976"
+    },
+    {
+      "path": "/_next/static/chunks/2smvg25ifxvoo.js",
+      "status": 200,
+      "release": "e5757e4f02f25fd291ba23cbbcc12d8d820a83af",
+      "sha256": "681cb24b8a52b3a404be9691e78b081bcfab43a5ae565a0b29e006ecfe3bb914"
+    },
+    {
+      "path": "/_next/static/chunks/2xh7q-_la_yad.js",
+      "status": 200,
+      "release": "e5757e4f02f25fd291ba23cbbcc12d8d820a83af",
+      "sha256": "feb29cc98b79cdfe6b5b6184f91604a9c696cb264a49203f94bfc1a06b95834f"
+    },
+    {
+      "path": "/_next/static/chunks/32dmn5uoesl9m.js",
+      "status": 200,
+      "release": "e5757e4f02f25fd291ba23cbbcc12d8d820a83af",
+      "sha256": "f55f0010c3887fe2e50f28b10f7ef6c984b1f06b437581547c7502ef4297a80a"
+    },
+    {
+      "path": "/_next/static/chunks/32hwnofwh6u_-.js",
+      "status": 200,
+      "release": "e5757e4f02f25fd291ba23cbbcc12d8d820a83af",
+      "sha256": "1ccf584b171f7eae26a192acd6b530ed1629a312dc1625191f02a9f6084078bf"
+    },
+    {
+      "path": "/_next/static/chunks/3mc6dra1m0098.js",
+      "status": 200,
+      "release": "e5757e4f02f25fd291ba23cbbcc12d8d820a83af",
+      "sha256": "d9840d6de414f19d28fbe08cc2ddd0aeb95cf379864950a506592a54f4996f31"
+    },
+    {
+      "path": "/_next/static/chunks/turbopack-3ysl8ie-vtwg8.js",
+      "status": 200,
+      "release": "e5757e4f02f25fd291ba23cbbcc12d8d820a83af",
+      "sha256": "6d18fb2cdbd4ffd6f747510debd53364f0e48decae1cf4e5c7bde00e12ea3341"
+    }
+  ],
+  "new_subscriber_marker_assets": [
+    "/_next/static/chunks/1japcc3gw6j_4.js"
+  ],
+  "first_healthy_probe": {
+    "at": "2026-10-03T18:20:51.532271+00:00",
+    "status": 200,
+    "release": "e5757e4f02f25fd291ba23cbbcc12d8d820a83af",
+    "body": "{\"status\":\"ready\"}"
+  },
+  "rollout_errors": [
+    {
+      "at": "2026-10-03T18:20:05.462405+00:00",
+      "status": 502,
+      "release": "e5757e4f02f25fd291ba23cbbcc12d8d820a83af",
+      "body": ""
+    }
+  ],
+  "main_qualification": {
+    "run_id": 37141834383,
+    "url": "https://github.com/chordsnstrings/trainer_what/actions/runs/37141834383",
+    "sha": "e5757e4f02f25fd291ba23cbbcc12d8d820a83af",
+    "conclusion": "success",
+    "completed_at": "2026-10-03T18:13:54Z",
+    "jobs_passed": 4
+  }
+}
