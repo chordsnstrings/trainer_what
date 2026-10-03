@@ -2,7 +2,7 @@
 
 ## Scope and status
 
-Owner approved all findings in `UI_UX_AUDIT_2026-10-03.md`. Implemented on `work/backend-ui-2026-10-03`, from audit `4dd80c8` / application main `ac5d55a`. Local and full PR verification passed on `e0f7bbc2483caf31f0229c699db0349ce7a5a67d`. Owner approved release with “Put it live” on 3 October at 15:01 Asia/Dubai. PR #27 is merged; main qualification and automatic deployment are pending. One agent. No paid model calls or production test records.
+Owner approved all findings in `UI_UX_AUDIT_2026-10-03.md`. Implemented on `work/backend-ui-2026-10-03`, from audit `4dd80c8` / application main `ac5d55a`. Local and full PR verification passed on `e0f7bbc2483caf31f0229c699db0349ce7a5a67d`. Owner approved release with “Put it live” on 3 October at 15:01 Asia/Dubai. PR #27 is merged, main qualification passed and automatic deployment is verified live. One agent. No paid model calls or production test records.
 
 ## Changes
 
@@ -44,12 +44,20 @@ Evidence paths (ignored): `test-results/backend-ui/` and `test-results/backend-u
 
 The first CI run found three untranslated shared confirmation titles and an obsolete member-shell source assertion. Those now use existing translated action labels and check retained member chrome/refresh state. The second run passed full suites/build/general browser regression, then found fullscreen editor isolation made the shared native confirmation dialog inert. Native dialogs are now exempt from that background isolation; the builder regression checks actual click and keyboard behavior. No tests were bypassed. Local execution became unavailable after the local verification above; all follow-ups were saved through GitHub and verified in the final full CI run.
 
-## Release
+## Release — live
 
-Owner approved the previously blocked merge/deployment with “Put it live” on 3 October 2026 at 15:01 Asia/Dubai. [PR #27](https://github.com/chordsnstrings/trainer_what/pull/27) merged as `97fd03cfad066fed5a64e3bd76d20b6fa7df06f3`. [Main qualification 37118350919](https://github.com/chordsnstrings/trainer_what/actions/runs/37118350919) is running. The deployment uses the existing newest-green-main automation; no SSH or manual deployment.
+Owner approved release with “Put it live” on 3 October 2026 at 15:01 Asia/Dubai. [PR #27](https://github.com/chordsnstrings/trainer_what/pull/27) merged as `97fd03cfad066fed5a64e3bd76d20b6fa7df06f3`. [Main qualification 37118350919](https://github.com/chordsnstrings/trainer_what/actions/runs/37118350919) passed all three jobs at 11:32:42 UTC: application (including general browser, builder/layout and backend journeys), restricted PostgreSQL/container, and Compose topology. Existing newest-green-main automation deployed the exact merge. No SSH or manual deployment.
 
-The initial live readiness check returned actual HTTP 200, `{"status":"ready"}` and header `X-GymMembership-Release: ac5d55a422701237157c56447de98b8d729c5c9b`. The backend UI is not yet confirmed live. Verify the exact new release header, readiness body and deployed web assets after main qualification/automatic deployment.
+| Read-only production evidence, 3 October | Result |
+| --- | --- |
+| Initial readiness | Actual HTTP 200, ready body, previous `ac5d55a` header. |
+| 11:37:01 UTC rollout probe | HTTP 500 on the previous release; the following probe recovered. |
+| 11:37:50 UTC readiness | Actual HTTP 200, `{"status":"ready"}`, exact `X-GymMembership-Release: 97fd03cfad066fed5a64e3bd76d20b6fa7df06f3`. |
+| 11:39 UTC web assets | `/trainer/clients` HTTP 200. All four linked stylesheets HTTP 200. New `.workspace-dialog` and `.workspace.platform-ui` CSS rules present. |
+| Reconfirmation by 11:40 UTC | Actual HTTP 200, ready body and the same exact new release header. |
+
+The backend UI release is live. Authenticated trainer/admin workflows were verified in isolated local/CI fixtures; production verification used public readiness and route/asset GETs without creating records or calling paid models. No zero-downtime claim is made: the single failed readiness probe above was observed during rollout.
 
 Original implementation `98f7c46` had an exact local/GitHub tree match; follow-up commits are `89da01f` (translation/source checks) and `e0f7bbc` (native dialog interaction). The merge tree is the same tested application tree, `180d4c31015c24389812acf9732f78602d90cf12`.
 
-Release evidence and handoff checkpoint: `notes/backend-ui-release-2026-10-03`, descending from the merge commit and linked from PR #27. This records approval/progress without moving the application head being qualified. Reconcile it in the next release documentation merge.
+Final release evidence/handoff: `notes/backend-ui-release-2026-10-03`, descending from the merge commit and linked from PR #27. The notes preserve the qualified application head. Reconcile them in the next release documentation merge.
