@@ -1,6 +1,6 @@
 # Marketing refresh — 3 October 2026
 
-Owner approved the marketing audit fixes. Branch: `work/marketing-refresh-2026-10-03`, based on the saved subscriber release notes and verified live application `e5757e4`. This work is not deployed. Subdomain and custom-domain audits are next, read-only.
+Owner approved the marketing audit fixes. Branch: `work/marketing-refresh-2026-10-03`, based on the saved subscriber release notes and verified live application `e5757e4`. Saved as [draft PR #29](https://github.com/chordsnstrings/trainer_what/pull/29), application commit `799bd46c0463c22acac793e694ccda13c847ec38`; the GitHub tree matches the staged local tree. CI qualification is not claimed complete. This work is not deployed. Subdomain and custom-domain audits are next, read-only.
 
 ## Changes
 

@@ -179,5 +179,8 @@
   "visualReview": [
     "Desktop product illustrations and builder card",
     "Phone setup page"
-  ]
+  ],
+  "applicationCommit": "799bd46c0463c22acac793e694ccda13c847ec38",
+  "reviewUrl": "https://github.com/chordsnstrings/trainer_what/pull/29",
+  "deployment": "not deployed"
 }
