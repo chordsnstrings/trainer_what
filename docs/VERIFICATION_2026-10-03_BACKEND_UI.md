@@ -2,7 +2,7 @@
 
 ## Scope and status
 
-Owner approved all findings in `UI_UX_AUDIT_2026-10-03.md`. Implemented on `work/backend-ui-2026-10-03`, from audit `4dd80c8` / application main `ac5d55a`. Local verification passed. PR #27 has CI follow-up in progress; merge approval, main qualification and automatic deployment are pending. One agent. No paid model calls or production test records.
+Owner approved all findings in `UI_UX_AUDIT_2026-10-03.md`. Implemented on `work/backend-ui-2026-10-03`, from audit `4dd80c8` / application main `ac5d55a`. Local and full PR verification passed on `e0f7bbc2483caf31f0229c699db0349ce7a5a67d`. Specific merge approval, main qualification and automatic deployment remain pending. One agent. No paid model calls or production test records.
 
 ## Changes
 
@@ -30,8 +30,24 @@ Owner approved all findings in `UI_UX_AUDIT_2026-10-03.md`. Implemented on `work
 
 Evidence paths (ignored): `test-results/backend-ui/` and `test-results/backend-ui-final/`. The browser script refuses non-loopback or production targets. This is representative usability/accessibility verification, not a full accessibility certification or a production latency benchmark.
 
+## Final PR CI
+
+[Run 37104076842](https://github.com/chordsnstrings/trainer_what/actions/runs/37104076842) completed successfully at 07:10 UTC on 3 October 2026, on exact head `e0f7bbc2483caf31f0229c699db0349ce7a5a67d`. All three jobs passed:
+
+- PGlite: 1,653 tests, 1,648 passed, five skipped, zero failed.
+- Restricted PostgreSQL: 1,653 tests, 1,647 passed, six skipped, zero failed.
+- Root/web TypeScript, production build, deployment boundary, runtime grants/migrations, production container readiness and Compose topology.
+- General browser regression (consent, onboarding, galleries/publication, private downloads, notifications, mobile layout and offline replay).
+- All 16 builder journeys, including native confirmation click, Escape, focus return and retained local edits during stale-window recovery.
+- Layout matrix: 1,620 checks (270 layouts × three widths × English/Arabic), zero failures.
+- All 13 backend onboarding/navigation/responsive journeys. The workflow saved browser evidence as its `browser-evidence` artifact.
+
+The first CI run found three untranslated shared confirmation titles and an obsolete member-shell source assertion. Those now use existing translated action labels and check retained member chrome/refresh state. The second run passed full suites/build/general browser regression, then found fullscreen editor isolation made the shared native confirmation dialog inert. Native dialogs are now exempt from that background isolation; the builder regression checks actual click and keyboard behavior. No tests were bypassed. Local execution became unavailable after the local verification above; all follow-ups were saved through GitHub and verified in the final full CI run.
+
 ## Release
 
-Implementation `98f7c4680de565a1a885aabd2129e85089ef9dac` is saved in [PR #27](https://github.com/chordsnstrings/trainer_what/pull/27); its Git tree exactly matched the locally staged tree. Initial [CI run 37101590592](https://github.com/chordsnstrings/trainer_what/actions/runs/37101590592) passed Compose topology but found three untranslated dialog titles and an obsolete member-shell source assertion. The follow-up reuses existing translated action labels and verifies retained member chrome/refresh state. Follow-up `89da01f` passed full PGlite (1,648 pass/5 skip), restricted PostgreSQL (1,647 pass/6 skip), root/web TypeScript/build, container/topology and general browser regression in [run 37102593819](https://github.com/chordsnstrings/trainer_what/actions/runs/37102593819). The builder journey then found fullscreen isolation marked the shared native confirmation dialog inert. The correction exempts native dialogs and extends the stale-window journey to verify Escape, focus return and retained local edits before reloading. CI must pass on that updated head. Local execution became unavailable after the completed local verification above.
+Implementation is in [PR #27](https://github.com/chordsnstrings/trainer_what/pull/27), open and mergeable at the verified head above. Original implementation `98f7c46` had an exact local/GitHub tree match; follow-up commits are `89da01f` (translation/source checks) and `e0f7bbc` (native dialog interaction).
 
-Automatic approval review rejected the production-triggering PR #27 merge and requires specific user approval. Do not retry or bypass the rejected merge. Main remains `ac5d55a`; the backend changes are not live. After approval and green checks, deployment follows the existing newest-green-main automation and needs exact live release-header verification; no manual server deployment.
+Automatic approval review rejected merging PR #27 and requires specific user approval because the merge triggers production release. Do not retry or bypass that decision. Main remains `ac5d55a`; the backend UI changes are not live. After approval, merge the verified head, wait for main qualification/newest-green-main automation and verify the exact live release header. No manual deployment.
+
+This final evidence checkpoint is saved on `notes/backend-ui-verified-2026-10-03`, descending from the verified application head. It leaves the tested PR head unchanged while approval is pending. PR #27 links the checkpoint; reconcile it in the next handoff/release update.

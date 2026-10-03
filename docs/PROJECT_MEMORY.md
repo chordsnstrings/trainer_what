@@ -1,13 +1,13 @@
 # Project memory
 
-Updated: 2 October 2026. This is durable project context for future build sessions. It records decisions, not credentials or a claim about account capabilities.
+Updated: 3 October 2026. This is durable project context for future build sessions. It records decisions, not credentials or a claim about account capabilities.
 
 ## Owner decisions
 
 | Topic | Current decision |
 | --- | --- |
 | Project | `chordsnstrings/trainer_what`; Trainer Brain Platform |
-| Current request | 3 October: “Fix all” backend UI/UX audit findings. Implemented in PR #27 on `work/backend-ui-2026-10-03` (`98f7c46` plus CI follow-up). White shell/controls, role-aware navigation, reliable onboarding, scoped drafts/context and focused daily/admin views. Local TypeScript/build, 104 web contracts, 27 appearance/device/setup checks and browser passes (52 broad captures; final 13 workflows/23 captures) succeeded. Translation/source-assertion follow-ups passed full database suites, build and general browser regression at `89da01f`. Builder CI found its fullscreen isolation made native confirmations inert; an exemption plus Escape/focus/draft checks is now pending CI. Automatic approval review requires specific user approval before merging #27. Main remains `ac5d55a`; not deployed. See `VERIFICATION_2026-10-03_BACKEND_UI.md` and `CLAUDE_HANDOFF.md`. |
+| Current request | 3 October: all approved backend UI/UX audit findings implemented in PR #27, `e0f7bbc2483caf31f0229c699db0349ce7a5a67d`. Full PR CI run 37104076842 passed all three jobs at 07:10 UTC: PGlite 1,648 pass/5 skip; restricted PostgreSQL 1,647 pass/6 skip; TypeScript/build, container/topology, general browser regression, 16 builder journeys, 1,620 layout checks and 13 backend journeys. Automatic approval review requires specific user approval before merging #27. Main remains `ac5d55a`; backend changes are not live. Final evidence/handoff checkpoint: `notes/backend-ui-verified-2026-10-03`. See `VERIFICATION_2026-10-03_BACKEND_UI.md` and `CLAUDE_HANDOFF.md`. |
 | Visual website builder (2 October 2026) | Owner approved implementation with multiple agents: desktop-only editing, responsive published sites, professional drag-and-drop multipage composition, and a comprehensive library of many section types/variants. AI starters use Seed 2.0 to assemble prebuilt modules and bounded copy to keep costs down. Keep `CLAUDE_HANDOFF.md` updated during work. Existing drafts/publishing, native offers/inquiries, launch gates and tenant isolation remain the foundation. |
 | Coach onboarding (30 September) | Open self-serve sign-up (email code through Resend, key added later in Super admin; Google/Apple later) behind the legal gate; one six-step wizard (~15 min) with save/resume/skip; custom subdomain chosen in the wizard, live at go-live; automatic go-live checks instead of staff approval; launch in "Waits for me"; bank details at first payout; "Report this coach" for Super admin. See `docs/features/coach-setup.md`. |
 | Astra | Available for difficult design, implementation and review; use tokens wisely; do not use it for browsing |
