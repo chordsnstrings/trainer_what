@@ -1,4 +1,5 @@
 "use client";
+import { confirmWorkspace } from "./workspace-feedback";
 // The trainer's own voice clone (docs/features/trainer-voice.md): record or
 // upload, consent, Quick or Pro, preview, use, stop and delete.
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
@@ -296,8 +297,8 @@ export function TrainerVoiceClone({ fallback }: { fallback: ReactNode }) {
             <button
               type="button"
               disabled={busy}
-              onClick={() => {
-                if (window.confirm("Delete this voice? It is removed here and at the voice provider, and members stop hearing it."))
+              onClick={async () => {
+                if ((await confirmWorkspace({ title: "Confirm action", detail: "Delete this voice? It is removed here and at the voice provider, and members stop hearing it.", confirm: "Continue" })))
                   void deleteClone(clone);
               }}
             >

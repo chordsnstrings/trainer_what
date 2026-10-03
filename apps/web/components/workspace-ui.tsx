@@ -1,6 +1,6 @@
 "use client";
 import { pageKey } from "./workspace-paging";
-import { type ReactNode } from "react";
+import { useId, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { Layers, Brain } from "lucide-react";
 export type Row = {
   id: string;
@@ -102,23 +102,51 @@ export function Button({
   type = "button",
   secondary = false,
   disabled = false,
-}: {
-  children: ReactNode;
-  onClick?: () => void;
-  type?: "button" | "submit";
+  variant = "primary",
+  size = "default",
+  loading = false,
+  className = "",
+  ...rest
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
   secondary?: boolean;
-  disabled?: boolean;
+  variant?: "primary" | "secondary" | "quiet" | "danger";
+  size?: "default" | "small";
+  loading?: boolean;
 }) {
   return (
     <button
       type={type}
-      className={"button " + (secondary ? "secondary" : "")}
-      disabled={disabled}
+      {...rest}
+      className={`button ${secondary ? "secondary" : variant} ${size === "small" ? "button-small" : ""} ${className}`}
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
       onClick={onClick}
     >
-      {children}
+      {loading && <span className="button-spinner" aria-hidden="true" />}{children}
     </button>
   );
+}
+export function IconButton({ label, children, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string }) {
+  return <button type="button" {...props} className={`icon-button ${props.className ?? ""}`} aria-label={label} title={label}>{children}</button>;
+}
+
+/** One panel at a time, with roving focus and direction-aware arrow keys. */
+export function WorkspaceTabs({ label, items, value, onChange, panelId }: {
+  label: string; items: readonly (readonly [string, string])[]; value: string;
+  onChange: (value: string) => void; panelId: string;
+}) {
+  const id = useId();
+  return <div className="workspace-tabs" role="tablist" aria-label={label} onKeyDown={event => {
+    const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>("[role=tab]"));
+    const index = tabs.indexOf(document.activeElement as HTMLButtonElement);
+    const rtl = getComputedStyle(event.currentTarget).direction === "rtl";
+    const step = event.key === "ArrowRight" ? (rtl ? -1 : 1) : event.key === "ArrowLeft" ? (rtl ? 1 : -1) : 0;
+    const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : step ? (index + step + tabs.length) % tabs.length : -1;
+    if (next < 0) return;
+    event.preventDefault(); tabs[next]?.focus(); tabs[next]?.click();
+  }}>
+    {items.map(([key, text]) => <button key={key} id={`${id}-${key}`} type="button" role="tab" aria-selected={value === key} aria-controls={panelId} tabIndex={value === key ? 0 : -1} onClick={() => onChange(key)}>{text}</button>)}
+  </div>;
 }
 export function Empty({
   title,

@@ -123,6 +123,7 @@ export async function generateViewport({
   // The member app draws under the notch and home indicator and pads its top
   // bar, tab bar and sticky action bars with env(safe-area-inset-*)
   // (app/phone-first.css), which matters most once it is installed.
+  if (["trainer", "setup", "admin"].includes(path[0])) return { themeColor: BRAND_COLORS.white, colorScheme: "light" };
   const member: Viewport =
     path[0] === "app"
       ? { viewportFit: "cover", colorScheme: colorSchemeMeta(scheme) }

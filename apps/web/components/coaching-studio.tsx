@@ -1,4 +1,5 @@
 "use client";
+import { promptWorkspace } from "./workspace-feedback";
 import { Field } from "./field";
 import { BrainProgress } from "./brain-progress";
 import { useEffect, useState } from "react";
@@ -221,10 +222,8 @@ export function CoachingStudio({ path }: { path: string }) {
                 <button
                   className="text-button"
                   disabled={busy}
-                  onClick={() => {
-                    const reason = window.prompt(
-                      "Why is this teaching case being replaced?",
-                    );
+                  onClick={async () => {
+                    const reason = (await promptWorkspace("Why is this teaching case being replaced?"));
                     if (reason)
                       void action(
                         () =>
@@ -523,10 +522,8 @@ export function CoachingStudio({ path }: { path: string }) {
                 <button
                   className="text-button"
                   disabled={busy}
-                  onClick={() => {
-                    const reason = window.prompt(
-                      "Why are you removing this action?",
-                    );
+                  onClick={async () => {
+                    const reason = (await promptWorkspace("Why are you removing this action?"));
                     if (reason)
                       void action(
                         () =>
@@ -797,10 +794,8 @@ export function CoachingStudio({ path }: { path: string }) {
                   type="button"
                   className="text-button"
                   disabled={busy}
-                  onClick={() => {
-                    const reason = window.prompt(
-                      "Why are you replacing this practice question?",
-                    );
+                  onClick={async () => {
+                    const reason = (await promptWorkspace("Why are you replacing this practice question?"));
                     if (reason)
                       void action(
                         () =>

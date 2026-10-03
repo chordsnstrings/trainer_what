@@ -262,7 +262,7 @@ test("only subscriber surfaces follow the appearance choice", async () => {
   assert.match(site, /colorScheme=\{preview \? undefined : scheme\}/);
   assert.match(design, /<TrainerTheme theme=\{theme\}>/);
   // The trainer workspace keeps PlainShell with .platform-ui.
-  assert.match(workspace, /<PlainShell className="workspace platform-ui">/);
+  assert.match(workspace, /<PlainShell className=\{`workspace platform-ui/);
 
   const light = renderToStaticMarkup(
     createElement(TrainerTheme, { theme: {}, children: "x" }),

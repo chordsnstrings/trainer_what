@@ -82,51 +82,7 @@
   background: var(--paper);
   font-size: 14px;
 }
-/* Dark: only the trainer, team and operator workspace (.workspace
-   .platform-ui) follows the device setting. The public platform pages (the
-   marketing site, sign-in and recovery pages and the coach directory carry
-   .public.platform-ui) are always light: white and paper surfaces, ink text
-   and Pace accents (see below and docs/features/brand.md). The derived tints
-   are declared again because a custom property resolves where it is
-   declared. */
-@media (prefers-color-scheme: dark) {
-  .workspace.platform-ui,
-  /* The analytics preferences panel sits outside the page root. */
-  :root:has(.workspace.platform-ui) .acquisition-consent {
-    --canvas: var(--ty-ink);
-    --paper: var(--ty-ink);
-    --white: #202320;
-    --ink: var(--ty-paper);
-    --muted: #a9aea6;
-    --line: #3a3f39;
-    --field-border: #8a8f87;
-    --green: var(--ty-paper);
-    --green-hover: #d9dbd5;
-    --on-green: var(--ty-ink);
-    --mint: #272b27;
-    --sand: #272b27;
-    --blue: #272b27;
-    --success: #7fcb9f;
-    --warning: #e0b25c;
-    --error: #f08a80;
-    --success-bg: color-mix(in srgb, var(--success) 12%, var(--white));
-    --success-line: color-mix(in srgb, var(--success) 35%, var(--white));
-    --warning-bg: color-mix(in srgb, var(--warning) 12%, var(--white));
-    --warning-line: color-mix(in srgb, var(--warning) 35%, var(--white));
-    --error-bg: color-mix(in srgb, var(--error) 12%, var(--white));
-    --error-line: color-mix(in srgb, var(--error) 35%, var(--white));
-    --client-bubble: color-mix(in srgb, var(--lime) 14%, var(--white));
-    --band-ink: #262a26;
-    --on-status: var(--ty-ink);
-    --focus: var(--ty-paper);
-    color-scheme: dark;
-    color: var(--ink);
-  }
-  :root:has(.workspace.platform-ui) {
-    background: var(--ty-ink);
-    color-scheme: dark;
-  }
-}
+/* The backend uses its explicit light palette in workspace-system.css. */
 /* Public platform pages never follow the device into dark mode. */
 .public.platform-ui {
   color-scheme: light;
@@ -151,14 +107,7 @@
 .brand-logo .brand-logo-dark {
   display: none;
 }
-@media (prefers-color-scheme: dark) {
-  .workspace.platform-ui .brand-logo .brand-logo-light {
-    display: none;
-  }
-  .workspace.platform-ui .brand-logo .brand-logo-dark {
-    display: block;
-  }
-}
+
 .loading-indicator {
   inline-size: 40px;
   block-size: 4px;

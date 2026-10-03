@@ -177,10 +177,10 @@ test("new governance styles use logical properties for a later right-to-left pas
   // Media queries keep physical viewport widths, like the existing styles.
   assert.match(css, /@media \(max-width: 650px\)/);
   const layout = await readFile(
-    new URL("../apps/web/app/layout.tsx", import.meta.url),
+    new URL("../apps/web/components/backend-governance-views.tsx", import.meta.url),
     "utf8",
   );
-  assert.match(layout, /import "\.\/governance\.css";/);
+  assert.match(layout, /import "\.\.\/app\/governance\.css";/);
 });
 
 test("offline entries wait while a workspace is suspended instead of being rejected", () => {

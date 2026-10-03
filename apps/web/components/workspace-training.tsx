@@ -1,4 +1,5 @@
 "use client";
+import { confirmWorkspace } from "./workspace-feedback";
 import { Field } from "./field";
 import { TrainingHoldNotice } from "./coaching-completion";
 import { WorkoutTools } from "./training-workspace";
@@ -648,8 +649,8 @@ export function Workout({ state, records, action, busy, path }: ViewProps) {
                 <button
                   className="text-button"
                   type="button"
-                  onClick={() => {
-                    if (!window.confirm(t("discardConfirm"))) return;
+                  onClick={async () => {
+                    if (!(await confirmWorkspace({ title: "Confirm action", detail: t("discardConfirm"), confirm: "Continue" }))) return;
                     discardRejected<WorkoutQueueItem>(
                       localStorage,
                       keys,

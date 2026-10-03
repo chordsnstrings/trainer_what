@@ -1,4 +1,5 @@
 "use client";
+import { useWorkspaceQuery, useWorkspaceValue } from "./workspace-continuity";
 
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import Link from "next/link";
@@ -440,11 +441,12 @@ export function TrainerDesign({
   onSaved?: () => void | Promise<void>;
 }) {
   const [saved, setSaved] = useState(() => makeDraft(tenant));
-  const [draft, setDraft] = useState(() => makeDraft(tenant));
+  const [draft, setDraft, clearDraft] = useWorkspaceValue(`design:${tenant.theme?.brandVersion ?? 0}`, makeDraft(tenant), true);
   const [version, setVersion] = useState<number>(
     tenant.theme?.brandVersion ?? 0,
   );
-  const [tab, setTab] = useState("Identity");
+  const [requestedTab, setTab] = useWorkspaceQuery("tab", "Identity");
+  const tab = ["Identity", "Style", "Home layout", "Images", "Preview"].includes(requestedTab) ? requestedTab : "Identity";
   const [device, setDevice] = useState<"mobile" | "desktop">("mobile");
   const [mode, setMode] = useState<"app" | "store">("app");
   const [busy, setBusy] = useState(false),
@@ -562,8 +564,9 @@ export function TrainerDesign({
       setDraft(next);
       setSaved(next);
       setVersion(result.brandVersion ?? version + 1);
+      clearDraft();
       setNotice(
-        "Design saved. Your client app and published storefront now use this design.",
+        "Client app design saved. Website builder styles remain independent.",
       );
       await onSaved?.();
     } catch (cause) {
@@ -620,9 +623,9 @@ export function TrainerDesign({
       <div className="page-heading">
         <div>
           <p className="eyebrow">YOUR COACHING. YOUR EXPRESSION.</p>
-          <h1>Make this space yours.</h1>
+          <h1>Client app design</h1>
           <p className="muted">
-            Bring your personality to the app your clients open every day.
+            Style the app your clients use every day. Website pages and section styles are managed in the website builder.
           </p>
         </div>
         <div className="design-save-actions">
@@ -657,7 +660,7 @@ export function TrainerDesign({
           )}
 
           <span className={`design-save-state ${dirty ? "has-changes" : ""}`}>
-            {dirty ? "Unsaved changes" : "Saved design"}
+            {dirty ? "Draft kept in this tab" : "Saved design"}
           </span>
           <button
             className="button"
@@ -711,6 +714,7 @@ export function TrainerDesign({
           ["Identity", UserRound],
           ["Style", Palette],
           ["Home layout", LayoutDashboard],
+          ["Images", ImageIcon],
           ["Preview", Monitor],
         ].map(([label, Icon]) => (
           <button
@@ -727,7 +731,7 @@ export function TrainerDesign({
               )
                 return;
               event.preventDefault();
-              const tabs = ["Identity", "Style", "Home layout", "Preview"],
+              const tabs = ["Identity", "Style", "Home layout", "Images", "Preview"],
                 index = tabs.indexOf(tab);
               // The row mirrors right to left, so the next tab is then on the
               // left and ArrowLeft moves forward.
@@ -738,8 +742,8 @@ export function TrainerDesign({
                 event.key === "Home"
                   ? 0
                   : event.key === "End"
-                    ? 3
-                    : (index + (forward ? 1 : -1) + 4) % 4;
+                    ? tabs.length - 1
+                    : (index + (forward ? 1 : -1) + tabs.length) % tabs.length;
               setTab(tabs[next]);
               document
                 .getElementById(`design-tab-${tabs[next].replace(" ", "-")}`)
@@ -846,6 +850,10 @@ export function TrainerDesign({
                     />
                   </Field>
                 </section>
+              </>
+            )}
+            {tab === "Images" && (
+              <>
                 <section className="card">
                   <div className="design-section-heading">
                     <span>02</span>

@@ -309,7 +309,7 @@ test("platform surfaces carry .platform-ui; trainer-branded ones never show the 
   // Members get their trainer's brand in the member shell; everyone else
   // works in the platform identity.
   assert.match(workspace, /<TrainerTheme\s+className="workspace member-shell"/);
-  assert.match(workspace, /<PlainShell className="workspace platform-ui">/);
+  assert.match(workspace, /<PlainShell className=\{`workspace platform-ui/);
   assert.match(
     await source("components/public-pages.tsx"),
     /coach \? "public" : "public platform-ui"/,
@@ -371,14 +371,11 @@ function resolver(...layers: Record<string, string>[]) {
 
 const platformCssFiles = ["globals.css", "marketing.css", "analytics-consent.css", "platform-settings.css", "governance.css", "host-operations.css"];
 
-test("design tokens are the supplied palette and meet the contrast checks in light and dark", async () => {
+test("public and backend design tokens meet text, field and focus contrast checks", async () => {
   const css = await readFile(web("app/globals.css"), "utf8");
   const root = declarations(css.match(/:root \{([\s\S]*?)\n\}/)![1]);
-  const dark = declarations(
-    css.match(
-      /@media \(prefers-color-scheme: dark\) \{\s*\.workspace\.platform-ui,[^{]*\.acquisition-consent \{([\s\S]*?)\n  \}/,
-    )![1],
-  );
+  const backend = await readFile(web("app/workspace-system.css"), "utf8");
+  const dark = declarations(backend.match(/\.workspace\.platform-ui \{([\s\S]*?)\n\}/)![1]);
   // The supplied palette, value for value (digital/design-tokens.css).
   const palette: Record<string, string> = {
     "--ty-white": BRAND_COLORS.white,
@@ -399,7 +396,7 @@ test("design tokens are the supplied palette and meet the contrast checks in lig
   // The supplied contrast checks hold for the chosen roles.
   const light = resolver(root);
   const night = resolver(root, dark);
-  for (const [mode, color] of [["light", light], ["dark", night]] as const) {
+  for (const [mode, color] of [["public", light], ["backend (both OS schemes)", night]] as const) {
     const pairs: Array<[string, string]> = [
       ["--ink", "--white"],
       ["--ink", "--paper"],
@@ -490,17 +487,14 @@ test("design tokens are the supplied palette and meet the contrast checks in lig
   }
 });
 
-test("dark mode is the workspace's alone; public platform pages are always light", async () => {
+test("the backend and public platform stay light; member appearance is independent", async () => {
   const css = await readFile(web("app/globals.css"), "utf8");
-  // Every selector inside a dark-scheme block names the workspace.
-  const blocks = [...css.matchAll(/@media \(prefers-color-scheme: dark\) \{([\s\S]*?)\n\}/g)];
-  assert.equal(blocks.length, 2, "the token block and the logo swap");
-  for (const [, body] of blocks)
-    for (const rule of body.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{[^{}]*\}/g))
-      for (const selector of rule[1].split(","))
-        assert.match(selector.trim(), /\.workspace\.platform-ui/, `dark rule for ${selector.trim()}`);
-  assert.match(css, /\.workspace\.platform-ui \.brand-logo \.brand-logo-light \{\s*display: none;/);
-  assert.match(css, /\.workspace\.platform-ui \.brand-logo \.brand-logo-dark \{\s*display: block;/);
+  const backend = await readFile(web("app/workspace-system.css"), "utf8");
+  assert.doesNotMatch(css, /@media \(prefers-color-scheme: dark\)/);
+  assert.match(backend, /--paper: #ffffff;/);
+  assert.match(backend, /color-scheme: light;/);
+  assert.match(backend, /\.brand-logo-light \{ display: block;/);
+  assert.match(backend, /\.brand-logo-dark \{ display: none;/);
   // The public root and the document behind it stay light in any scheme.
   assert.match(css, /\n\.public\.platform-ui \{\s*color-scheme: light;\s*\}/);
   assert.match(

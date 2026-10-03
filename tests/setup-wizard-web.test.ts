@@ -257,7 +257,7 @@ test("the workspace opens the wizard, redirects the older checklist and lands si
   assert.match(workspace, /legacySetupRedirect\(path\) \?/);
   // One navigation: the four-section menu shows "Finish setup" (the wizard)
   // until the page is live, and every setup link uses the wizard's address.
-  assert.match(workspace, /setupOpen && \(\s*<Link\s+href=\{SETUP_HREF\}[\s\S]{0,300}Finish setup/);
+  assert.match(await source("components/workspace-navigation.tsx"), /setupOpen && <Link[^>]*href=\{SETUP_HREF\}>Finish setup/);
   const nav = await source("components/workspace-nav.tsx");
   assert.match(nav, /export const SETUP_HREF = SETUP_PATH;/);
   // After the wizard, My Brain leads to "Keep training".

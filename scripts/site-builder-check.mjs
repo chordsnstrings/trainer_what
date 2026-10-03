@@ -938,9 +938,29 @@ try {
         (await publicSite()).publishedRevision,
         firstBuilderRevision,
       );
-      page.once("dialog", (dialog) => dialog.accept());
       await page
         .getByRole("button", { name: "Load saved draft", exact: true })
+        .click();
+      const confirmation = page.getByRole("dialog", { name: "Confirm action" });
+      await expect(confirmation).toBeVisible();
+      assert.equal(
+        await confirmation.evaluate((dialog) => dialog.inert),
+        false,
+        "native confirmations must remain interactive inside the desktop editor",
+      );
+      await page.keyboard.press("Escape");
+      await expect(confirmation).not.toBeVisible();
+      await expect(
+        page.getByRole("button", { name: "Load saved draft", exact: true }),
+      ).toBeFocused();
+      await expect(
+        page.getByRole("textbox", { name: "Title", exact: true }),
+      ).toHaveValue(`Unsaved conflicting welcome ${run}`);
+      await page
+        .getByRole("button", { name: "Load saved draft", exact: true })
+        .click();
+      await confirmation
+        .getByRole("button", { name: "Continue", exact: true })
         .click();
       await saved();
       await expect(

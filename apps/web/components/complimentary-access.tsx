@@ -1,4 +1,5 @@
 "use client";
+import { confirmWorkspace, promptWorkspace } from "./workspace-feedback";
 import { formatDate } from "../lib/format";
 import { useLocale, useT } from "../lib/i18n/react";
 import { useCallback, useEffect, useState } from "react";
@@ -97,7 +98,7 @@ export function ComplimentaryAccessManager({ role }: { role: string }) {
       {data?.canManage && (
         <form
           className="comp-form"
-          onSubmit={(e) => {
+          onSubmit={async (e) => {
             e.preventDefault();
             const form = e.currentTarget,
               f = new FormData(form),
@@ -105,9 +106,7 @@ export function ComplimentaryAccessManager({ role }: { role: string }) {
             const existing = activeFor(userId);
             if (
               existing &&
-              !window.confirm(
-                "This follower already has complimentary access. Replace it with these terms?",
-              )
+              !(await confirmWorkspace({ title: "Confirm action", detail: "This follower already has complimentary access. Replace it with these terms?", confirm: "Continue" }))
             )
               return;
             void act(
@@ -239,10 +238,8 @@ export function ComplimentaryAccessManager({ role }: { role: string }) {
                     className="text-button"
                     type="button"
                     disabled={busy}
-                    onClick={() => {
-                      const reason = window.prompt(
-                        `Why are you ending ${g.name ?? "this follower"}'s complimentary access? (at least 5 characters)`,
-                      );
+                    onClick={async () => {
+                      const reason = (await promptWorkspace(`Why are you ending ${g.name ?? "this follower"}'s complimentary access? (at least 5 characters)`));
                       if (reason && reason.trim().length >= 5)
                         void act(
                           () =>
@@ -426,9 +423,7 @@ export function AdminComplimentaryAccess({
                     type="button"
                     disabled={busy}
                     onClick={async () => {
-                      const reason = window.prompt(
-                        "Reason for ending this complimentary access (recorded in the operator audit):",
-                      );
+                      const reason = (await promptWorkspace("Reason for ending this complimentary access (recorded in the operator audit):"));
                       if (!reason || reason.trim().length < 5) return;
                       setBusy(true);
                       setError("");

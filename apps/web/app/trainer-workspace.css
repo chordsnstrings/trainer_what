@@ -5,38 +5,7 @@
  * properties so the layout mirrors in Arabic.
  */
 
-/* Sidebar: four sections, then the grouped pages under them. */
-.workspace.platform-ui .sidebar {
-  overflow-y: auto;
-}
-.sidebar nav .nav-setup {
-  background: var(--lime);
-  color: var(--on-lime);
-  font-weight: 600;
-  margin-block-end: 6px;
-}
-.sidebar nav a.nav-sub {
-  padding-block: 7px;
-  padding-inline-start: 42px;
-  font-size: 11.5px;
-}
-.nav-group {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-block-start: 10px;
-}
-.nav-group-title {
-  font-size: 9px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
-  padding-inline-start: 12px;
-  padding-block: 6px 2px;
-}
-.nav-group a.nav-sub {
-  padding-inline-start: 12px;
-}
+/* Backend navigation foundations live in workspace-system.css. */
 
 /* Phone bottom bar: hidden on wider screens. */
 .trainer-tabbar {

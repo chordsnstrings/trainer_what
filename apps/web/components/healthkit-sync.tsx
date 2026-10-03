@@ -1,4 +1,5 @@
 "use client";
+import { confirmWorkspace } from "./workspace-feedback";
 import { useCallback, useEffect, useState } from "react";
 import { useErrorText, useLocale, useT } from "../lib/i18n/react";
 import { translator, type Locale } from "../lib/i18n/core";
@@ -148,18 +149,18 @@ export function HealthKitSyncPanel({ role = "subscriber" }: { role?: string }) {
           setPairing(null);
         }, t("codeCancelled"))
       }
-      onDisconnect={(d) => {
+      onDisconnect={async (d) => {
         if (
-          window.confirm(t("disconnectConfirm", { name: d.name }))
+          (await confirmWorkspace({ title: "Confirm action", detail: t("disconnectConfirm", { name: d.name }), confirm: "Continue" }))
         )
           void run(
             () => api(`/healthkit/devices/${d.id}/revoke`, "POST", {}),
             t("disconnected"),
           );
       }}
-      onDelete={() => {
+      onDelete={async () => {
         if (
-          window.confirm(t("deleteConfirm"))
+          (await confirmWorkspace({ title: "Confirm action", detail: t("deleteConfirm"), confirm: "Continue" }))
         )
           void run(
             () => api("/healthkit/data/delete", "POST", { confirm: true }),
