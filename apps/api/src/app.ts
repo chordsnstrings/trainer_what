@@ -97,7 +97,7 @@ import {
   workspaceLock,
 } from "./privacy-lifecycle.ts";
 import { privacyHooks } from "./privacy-hooks.ts";
-import { legalAcceptanceVersion, registerLegalStatus } from "./legal.ts";
+import { CONSENT_WITHDRAWAL_VERSION, legalAcceptanceVersion, registerLegalStatus } from "./legal.ts";
 import { registerAdminOperations } from "./admin-operations.ts";
 import { screenForSafety } from "./safety-policy.ts";
 import { registerMessaging } from "./messaging-admin.ts";
@@ -2075,7 +2075,9 @@ export async function buildApp(
     const suspended = a.workspaceState === "suspended";
     if (suspended && b.granted)
       throw fail(423, "WORKSPACE_SUSPENDED", workspaceSuspendedMessage());
-    const consentVersion = await legalAcceptanceVersion(db, b.type);
+    const consentVersion = b.granted
+      ? await legalAcceptanceVersion(db, b.type)
+      : CONSENT_WITHDRAWAL_VERSION;
     return db.tenant(a, async (tx) => {
       if (b.type === "voice" || b.type === "wearable") {
         await workspaceLock(tx, a.tenantId);

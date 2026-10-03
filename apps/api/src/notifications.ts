@@ -9,7 +9,7 @@ import {
   type Tx,
 } from "@trainer/db";
 import { hasMemberAccess } from "./entitlements.ts";
-import { legalAcceptanceVersion } from "./legal.ts";
+import { CONSENT_WITHDRAWAL_VERSION, legalAcceptanceVersion } from "./legal.ts";
 import { pushAvailable } from "../../../packages/providers/src/push.ts";
 import {
   criticalCategory,
@@ -116,10 +116,11 @@ export async function recordMarketingChoice(
   source: string,
 ) {
   if ((await marketingConsent(tx, a.userId)) === granted) return false;
-  if (version instanceof Error) throw version;
+  const documentVersion = granted ? version : CONSENT_WITHDRAWAL_VERSION;
+  if (documentVersion instanceof Error) throw documentVersion;
   await tx.query(
     "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,'marketing',$4,$5)",
-    [randomUUID(), a.tenantId, a.userId, version, granted],
+    [randomUUID(), a.tenantId, a.userId, documentVersion, granted],
   );
   await event(tx, a, "consent.changed", undefined, {
     type: "marketing",

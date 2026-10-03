@@ -40,3 +40,11 @@ Owner approved the marketing audit fixes. Branch: `work/marketing-refresh-2026-1
 - Current live frontier qualification is off. Public copy must not claim active frontier use until an operator has actually qualified and enabled it.
 
 No invented legal text, contact data or model qualification substitutes for these inputs. Registration, commerce and external-service gates remain in force.
+
+## Release review — 4 October 2026
+
+Owner requested review, then deployment at 00:43 Asia/Dubai. Reviewed public policy reads/history, consent callers, registration fallback, address display, shared content/assistant facts, UI changes and the successful CI run `37148643762` on `2bc26b8`.
+
+Found and corrected one release blocker: filtering test policies also blocked existing members withdrawing consent. The privacy route now records a withdrawal marker without requiring publication; notification preferences do the same for marketing opt-out. New grants still require real published documents. Existing cleanup, isolation, locking and immutable history remain intact. Reproduced HTTP 409 before the fix. Regression checks cover all seven consent types and notification preferences under production security, plus blocked re-grants.
+
+All 30 targeted privacy/public-page/notification/suspension checks pass. Root TypeScript passes. No web rendering changes were made during this review. No further release blockers found in the reviewed diff. Approved policies/company/contact remain owner inputs; their missing states stay explicit. The prior four-job CI result covers the pre-review-fix head; the release still requires full checks on the exact merged main commit before automatic deployment.
