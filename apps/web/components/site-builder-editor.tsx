@@ -405,7 +405,13 @@ function DesktopSiteBuilder({ tenant, returnTo }: { tenant: EditorTenant; return
       // from the tab order. This also covers the workspace navigation.
       while (child.parentElement && child !== document.body) {
         for (const sibling of Array.from(child.parentElement.children)) {
-          if (sibling !== child && sibling instanceof HTMLElement) {
+          // Native dialogs are hidden until opened and showModal owns their
+          // focus isolation. Explicit inert would block their own controls.
+          if (
+            sibling !== child &&
+            sibling instanceof HTMLElement &&
+            !(sibling instanceof HTMLDialogElement)
+          ) {
             previous.push([sibling, sibling.inert]);
             sibling.inert = true;
           }
