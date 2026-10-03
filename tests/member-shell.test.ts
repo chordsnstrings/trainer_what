@@ -446,7 +446,8 @@ test("the member app is installed-app ready and wired into the workspace", async
   assert.match(workspace, /<MemberShell/);
   assert.match(workspace, /path === "\/app\/more" && subscriber/);
   // A member keeps the frame while a page refreshes.
-  assert.match(workspace, /loading && state\.user\.role !== "subscriber"/);
+  assert.match(workspace, /if \(!state\)\s+return memberScreen/);
+  assert.match(workspace, /<MemberShell[\s\S]*?refreshing=\{loading\}/);
   const api = await source("apps/api/src/app.ts");
   assert.match(
     api,

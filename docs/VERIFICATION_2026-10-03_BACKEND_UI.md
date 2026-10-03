@@ -2,7 +2,7 @@
 
 ## Scope and status
 
-Owner approved all findings in `UI_UX_AUDIT_2026-10-03.md`. Implemented on `work/backend-ui-2026-10-03`, from audit `4dd80c8` / application main `ac5d55a`. Local verification passed; main qualification and automatic deployment are pending. One agent. No paid model calls or production test records.
+Owner approved all findings in `UI_UX_AUDIT_2026-10-03.md`. Implemented on `work/backend-ui-2026-10-03`, from audit `4dd80c8` / application main `ac5d55a`. Local verification passed. PR #27 has CI follow-up in progress; merge approval, main qualification and automatic deployment are pending. One agent. No paid model calls or production test records.
 
 ## Changes
 
@@ -32,4 +32,6 @@ Evidence paths (ignored): `test-results/backend-ui/` and `test-results/backend-u
 
 ## Release
 
-Source tree matched GitHub exactly before the final verification-note update. Pending final tree verification, main CI and exact live release-header verification. Deployment follows the existing newest-green-main automation; no manual server deployment.
+Implementation `98f7c4680de565a1a885aabd2129e85089ef9dac` is saved in [PR #27](https://github.com/chordsnstrings/trainer_what/pull/27); its Git tree exactly matched the locally staged tree. Initial [CI run 37101590592](https://github.com/chordsnstrings/trainer_what/actions/runs/37101590592) passed Compose topology but found three untranslated dialog titles and an obsolete member-shell source assertion. The follow-up reuses existing translated action labels and verifies retained member chrome/refresh state. CI must pass on the updated head. Local execution became unavailable after the completed local verification above.
+
+Automatic approval review rejected the production-triggering PR #27 merge and requires specific user approval. Do not retry or bypass the rejected merge. Main remains `ac5d55a`; the backend changes are not live. After approval and green checks, deployment follows the existing newest-green-main automation and needs exact live release-header verification; no manual server deployment.

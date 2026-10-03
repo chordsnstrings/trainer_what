@@ -484,7 +484,7 @@ export function InvitationJoin({
     return leaveSession(localStorage, v.tenantId, v.userId, {
       online: navigator.onLine,
       post: (p, b, h) => api(p, "POST", b, h),
-      confirm: async (n) => (await confirmWorkspace({ title: "Confirm action", detail: t("unsyncedReturn", { count: n }), confirm: "Continue" })),
+      confirm: async (n) => (await confirmWorkspace({ title: t("signOutContinue"), detail: t("unsyncedReturn", { count: n }), confirm: t("signOutContinue") })),
       leave,
       afterLeave: clearPersonalCaches,
     });
@@ -939,7 +939,7 @@ export function CoachSwitcher({
       const left = await leaveSession(localStorage, current, userId, {
         online: navigator.onLine,
         post: (p, b, h) => api(p, "POST", b, h),
-        confirm: async (n) => (await confirmWorkspace({ title: "Confirm action", detail: t("unsyncedSwitch", { count: n }), confirm: "Continue" })),
+        confirm: async (n) => (await confirmWorkspace({ title: t("switchCoach"), detail: t("unsyncedSwitch", { count: n }), confirm: t("switchCoach") })),
         leave: () =>
           api("/auth/workspace", "POST", { tenantId: next.tenantId }),
         afterLeave: clearPersonalCaches,

@@ -2400,7 +2400,7 @@ export function NutritionSubscriber({
     void sync().catch((e) => r.setError(toError(e)));
   }
   async function discardEntry(entry: RejectedEntry<NutritionQueueItem>) {
-    if (!(await confirmWorkspace({ title: "Confirm action", detail: t("discardConfirm"), confirm: "Continue" }))) return;
+    if (!(await confirmWorkspace({ title: t("discard"), detail: t("discardConfirm"), confirm: t("discard") }))) return;
     discardRejected<NutritionQueueItem>(
       localStorage,
       keys,
