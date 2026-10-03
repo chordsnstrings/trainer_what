@@ -187,7 +187,7 @@ function tr(
 }
 
 const DEFAULT_PROGRAM_LABELS = new Set([D.program.label, "My program"]);
-function program(options: MemberNavOptions): MemberDestination {
+function program(options: MemberNavOptions, compact = false): MemberDestination {
   // The coach's own name for the plan is theirs and never translated; the
   // default "Programme" (and the earlier default "My program") is the
   // product's words and is.
@@ -196,14 +196,14 @@ function program(options: MemberNavOptions): MemberDestination {
       ? options.programLabel
       : null;
   const d = tr(D.program, options);
-  return custom ? { ...d, label: custom } : d;
+  return custom ? { ...d, label: custom } : compact ? { ...d, label: nav(options)("programTab") } : d;
 }
 
 /** The five phone tabs: Today, the programme, Coach chat, Nutrition or Progress, More. */
 export function memberTabs(options: MemberNavOptions): MemberDestination[] {
   return [
     tr(D.today, options),
-    program(options),
+    program(options, true),
     { ...tr(D.chat, options), label: nav(options)("chatTab") },
     tr(options.nutrition ? D.nutrition : D.progress, options),
     tr(D.more, options),

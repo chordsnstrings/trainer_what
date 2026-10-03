@@ -1143,6 +1143,7 @@ export default function Workspace({
           );
   if (subscriber)
     return (
+      <WorkspaceScope.Provider key={`${state.user.tenantId}:${state.user.userId}:${state.user.role}`} value={`${state.user.tenantId}:${state.user.userId}:${state.user.role}`}>
       <TrainerTheme
         className="workspace member-shell"
         theme={state.tenant.theme}
@@ -1197,6 +1198,7 @@ export default function Workspace({
           {page}
         </MemberShell>
       </TrainerTheme>
+      </WorkspaceScope.Provider>
     );
   return (
     <WorkspaceScope.Provider key={`${state.user.tenantId}:${state.user.userId}:${state.user.role}:${state.user.platformRole}`} value={`${state.user.tenantId}:${state.user.userId}:${state.user.role}:${state.user.platformRole}`}>

@@ -13,6 +13,8 @@ import {
   playMotion,
 } from "./motion";
 import { useT } from "../lib/i18n/react";
+import { useWorkspaceValue } from "./workspace-continuity";
+import { unsavedMark } from "./pwa";
 
 /**
  * The coaching profile questions (/app/intake) as a phone step-by-step flow
@@ -60,15 +62,31 @@ export function MemberIntake({
   onSaved?: () => Promise<void> | void;
 }) {
   const t = useT("profile");
-  const [step, setStep] = useState(0),
-    [busy, setBusy] = useState(false),
-    [error, setError] = useState(""),
+  const [busy, setBusy] = useWorkspaceValue("member-intake-saving", false);
+  const [error, setError] = useState(""),
     [saved, setSaved] = useState(false);
+  const answers = {
+    age: String(intake?.age ?? ""), goal: intake?.goal ?? "",
+    experience: intake?.experience ?? "beginner", days: intake?.daysPerWeek ?? 3,
+    equipment: intake?.equipment ?? "", limitations: intake?.limitations ?? "",
+  };
+  const base = JSON.stringify(answers);
+  const initial = { ...answers, base, step: 0 };
+  const [stored, setStored, clearDraft] = useWorkspaceValue("member-intake", initial, true);
+  // New saved answers take precedence over a draft of an older profile.
+  const draft = stored.base === base ? stored : initial;
+  const update = (patch: Partial<typeof initial>) => setStored(current => ({ ...(current.base === base ? current : initial), ...patch }));
+  const step = Math.max(0, Math.min(INTAKE_STEPS.length - 1, draft.step));
   const form = useRef<HTMLFormElement>(null);
   const last = INTAKE_STEPS.length - 1;
   const answered = !!intake?.goal;
   /** Checks the current step's fields and shows the browser's hint. */
   const stepValid = () => {
+    if (step === 2) {
+      const days = form.current?.elements.namedItem("days") as HTMLInputElement | null;
+      const value = Number(days?.value);
+      days?.setCustomValidity(Number.isInteger(value) && value >= 1 && value <= 7 ? "" : t("inErrDays"));
+    }
     const current = form.current?.querySelector<HTMLFieldSetElement>(
       `[data-step="${step}"]`,
     );
@@ -86,7 +104,7 @@ export function MemberIntake({
   const go = (next: number) => {
     const forward = next > step;
     setError("");
-    setStep(next);
+    update({ step: next });
     requestAnimationFrame(() => {
       const fieldset = form.current?.querySelector<HTMLElement>(
         `[data-step="${next}"]`,
@@ -113,6 +131,7 @@ export function MemberIntake({
   };
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (busy) return;
     if (!stepValid()) return;
     if (step < last) return go(step + 1);
     const f = new FormData(event.currentTarget);
@@ -128,6 +147,7 @@ export function MemberIntake({
         limitations: String(f.get("limitations") ?? ""),
         consent: true,
       });
+      clearDraft();
       setSaved(true);
       await onSaved?.();
     } catch (e: any) {
@@ -184,8 +204,9 @@ export function MemberIntake({
         className="card intake-form"
         onSubmit={(e) => void submit(e)}
         noValidate
+        {...unsavedMark(JSON.stringify(draft) !== JSON.stringify(initial))}
       >
-        <fieldset data-step={0} hidden={step !== 0}>
+        <fieldset data-step={0} hidden={step !== 0} disabled={busy}>
           <h2 tabIndex={-1}>{t(INTAKE_STEPS[0].title)}</h2>
           <p className="muted">
             {answered ? t("inCheckAnswers") : t("inIntro")}
@@ -197,7 +218,8 @@ export function MemberIntake({
               inputMode="numeric"
               min={18}
               max={100}
-              defaultValue={intake?.age}
+              value={draft.age}
+              onChange={e => update({ age: e.target.value })}
               required
               enterKeyHint="next"
               autoComplete="off"
@@ -205,12 +227,13 @@ export function MemberIntake({
           </Field>
           <small>{t("inAgeNote")}</small>
         </fieldset>
-        <fieldset data-step={1} hidden={step !== 1}>
+        <fieldset data-step={1} hidden={step !== 1} disabled={busy}>
           <h2 tabIndex={-1}>{t(INTAKE_STEPS[1].title)}</h2>
           <Field label={t("inGoal")}>
             <textarea
               name="goal"
-              defaultValue={intake?.goal}
+              value={draft.goal}
+              onChange={e => update({ goal: e.target.value })}
               required
               minLength={3}
               maxLength={1000}
@@ -233,7 +256,8 @@ export function MemberIntake({
                   type="radio"
                   name="experience"
                   value={value}
-                  defaultChecked={(intake?.experience ?? "beginner") === value}
+                  checked={draft.experience === value}
+                  onChange={() => update({ experience: value })}
                   required
                 />
                 <strong>{t(label)}</strong>
@@ -242,31 +266,35 @@ export function MemberIntake({
             ))}
           </div>
         </fieldset>
-        <fieldset data-step={2} hidden={step !== 2}>
+        <fieldset data-step={2} hidden={step !== 2} disabled={busy}>
           <h2 tabIndex={-1}>{t(INTAKE_STEPS[2].title)}</h2>
           <NumberStepper
             label={t("inDays")}
             name="days"
-            defaultValue={intake?.daysPerWeek ?? 3}
+            key={base}
+            defaultValue={draft.days}
+            onValueChange={days => update({ days })}
             min={1}
             max={7}
           />
           <Field label={t("inEquipment")}>
             <textarea
               name="equipment"
-              defaultValue={intake?.equipment}
+              value={draft.equipment}
+              onChange={e => update({ equipment: e.target.value })}
               maxLength={1000}
               rows={3}
               placeholder={t("inEquipmentPlaceholder")}
             />
           </Field>
         </fieldset>
-        <fieldset data-step={3} hidden={step !== 3}>
+        <fieldset data-step={3} hidden={step !== 3} disabled={busy}>
           <h2 tabIndex={-1}>{t(INTAKE_STEPS[3].title)}</h2>
           <Field label={t("inLimits")}>
             <textarea
               name="limitations"
-              defaultValue={intake?.limitations}
+              value={draft.limitations}
+              onChange={e => update({ limitations: e.target.value })}
               maxLength={2000}
               rows={4}
               placeholder={t("inLimitsPlaceholder")}

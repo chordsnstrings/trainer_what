@@ -149,8 +149,10 @@ export function AccountSettings({
   useEffect(() => {
     void load();
     const params = new URLSearchParams(window.location.search);
-    const linked = params.get("linked"),
-      error = params.get("signin_error");
+    // Only the security section owns provider callbacks. The profile section
+    // can be mounted alongside it and must not consume its result first.
+    const linked = section !== "profile" ? params.get("linked") : null,
+      error = section !== "profile" ? params.get("signin_error") : null;
     if (linked)
       say(
         "methods",
@@ -399,7 +401,7 @@ export function AccountSettings({
         </form>
       </section>}
 
-      {section !== "profile" && methods.length > 0 && (
+      {section !== "profile" && (methods.length > 0 || messages.methods) && (
         <section className="card" aria-labelledby="acct-methods">
           <h2 id="acct-methods">{t("appleGoogle")}</h2>
           <p className="muted">{t("linkingAdds")}</p>

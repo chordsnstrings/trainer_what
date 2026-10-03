@@ -48,6 +48,33 @@ jobs:
           name: browser-evidence
           path: test-results/
           if-no-files-found: ignore
+  subscriber-ui:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium --only-shell
+      - name: Subscriber drafts, recovery and booking actions
+        run: node scripts/run-subscriber-ui-check.mjs
+        env:
+          RTL_CHECK_MODULE: ./subscriber-ui-check.mjs
+          RTL_WEB_MODE: start
+          RTL_WEB_PORT: "3143"
+          RTL_API_PORT: "4143"
+          RTL_DATA_DIR: .data/subscriber-ui-check
+          AUTHENTICATOR_REQUIRED: "false"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: subscriber-ui-evidence
+          path: test-results/
+          if-no-files-found: ignore
   postgres-and-container:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
