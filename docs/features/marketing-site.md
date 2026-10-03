@@ -29,6 +29,12 @@ your subscribers" (same capability count). The trainer-facing billing label
 page, every rendered site page, the feature matrix and the earnings
 calculator.
 
+## Current refresh — 3 October 2026
+
+See [marketing refresh](../MARKETING_REFRESH_2026-10-03.md) for the owner-approved audit fixes and verification. Public copy now describes the desktop multipage builder, catalogue-derived layout counts, AI module starters, transformation galleries, six-step setup, current member languages and voice modes. The shared registry feeds search and bounded assistant facts. Product illustrations use current navigation labels and remain explicitly illustrative.
+
+Public legal reads and consent resolution exclude explicit development placeholders, without editing their immutable records. Missing company/contact values are stated plainly. Address examples follow the existing configured platform root; routing and DNS are unchanged. An unavailable settings service defaults to early access. Frontier wording remains conditional on qualification. Historical implementation and verification below retain their original dates.
+
 ## What was built
 
 ### One registry, everything derived
@@ -331,8 +337,8 @@ the HTTP calls through `buildApp({ providers: { instagram } })`.
   codes), the follower estimate, and "I've shared my link" with the channels
   used (`PUT /api/v1/onboarding/share`). It is complete once the workspace is
   published and the owner saved it; before launch it shows "Launch first".
-  It never gates publishing. `SETUP_CHECKLIST` in contracts mirrors the
-  registry (a test keeps them equal); the checklist now has 17 base steps
+  It never gates publishing. At this historical stage the public checklist mirrored the
+  legacy registry; the current public checklist follows the six-step wizard. The legacy checklist had 17 base steps
   (23 with nutrition), and the three tests that counted steps were updated.
 - The signup form pre-fills the address typed in the public preview
   (`/signup?slug=`).

@@ -7,6 +7,7 @@ import {
   DEFAULT_FOLLOWER_MODEL,
   type FollowerModelAssumptions,
 } from "../../../../packages/domain/src/marketing-calculators";
+import { platformRootDomain } from "../../../../packages/domain/src/web-address";
 import { signedApiGet } from "../discovery-server";
 
 /** The platform facts the public pages need (GET /api/v1/public/platform). */
@@ -25,15 +26,16 @@ export type PublicPlatform = {
 
 function fallback(): PublicPlatform {
   const name = platformName(process.env.APP_NAME);
+  const root = platformRootDomain(process.env.PLATFORM_ROOT_DOMAIN);
   return {
     name,
     initials: appInitials(name),
     supportEmail: null,
     companyDetails: null,
-    registrationOpen: true,
-    coachAddressTemplate:
-      new URL(process.env.PUBLIC_APP_URL ?? "http://localhost:3000").origin +
-      "/coach/{slug}",
+    registrationOpen: false,
+    coachAddressTemplate: root
+      ? `https://{slug}.${root}`
+      : new URL(process.env.PUBLIC_APP_URL ?? "http://localhost:3000").origin + "/coach/{slug}",
     availability: {
       model: false,
       nutrition: false,

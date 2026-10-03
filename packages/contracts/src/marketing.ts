@@ -795,7 +795,11 @@ export function llmsFullTxt(ctx: MarketingContext): string {
       t(page.intro),
       "",
     );
-    for (const section of page.sections) out.push(...sectionMarkdown(section, t));
+    for (const section of page.sections) {
+      out.push(...sectionMarkdown(section, t));
+      if (page.path === "/get-started" && section.id === "checklist")
+        out.push(...SETUP_CHECKLIST.map((step, i) => `${i + 1}. ${step.label} (about ${step.minutes} min): ${step.summary}`));
+    }
     if (page.faqs.length) {
       out.push("### Frequently asked questions", "");
       for (const faq of page.faqs) out.push(`**${t(faq.q)}**`, "", t(faq.a), "");
@@ -859,7 +863,19 @@ export function marketingAssistantFacts(ctx: MarketingContext): string {
       seen.add(f.q);
       out.push(`Q: ${t(f.q)}`, `A: ${t(f.a)}`);
     }
+    if (path === "/get-started")
+      out.push(...SETUP_CHECKLIST.map((step, i) => `${i + 1}. ${step.label} (about ${step.minutes} min): ${step.summary}`));
     out.push("");
+  }
+  // Ground new product questions in shared answers without repeating whole feature pages.
+  for (const path of ["/features/website-and-domain", "/features/subscriber-app", "/features/voice-coach"]) {
+    const page = marketingPage(path)!;
+    out.push(`## ${t(page.navLabel)} (${path})`);
+    for (const faq of page.faqs) {
+      if (seen.has(faq.q)) continue;
+      seen.add(faq.q);
+      out.push(`Q: ${t(faq.q)}`, `A: ${t(faq.a)}`);
+    }
   }
   out.push("## Features (one line each)");
   for (const page of MARKETING_PAGES)

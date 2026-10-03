@@ -3,6 +3,7 @@
 // shipped code (see docs/features). Items that need an outside provider name
 // it in `availability`, so the page shows "Available soon" until the Super
 // admin enables that provider. {APP_NAME} is replaced when rendered.
+import { SITE_BUILDER_MODULES, SITE_BUILDER_PRESET_COUNT } from "./site-builder.ts";
 import type { AvailabilityKey } from "./marketing.ts";
 
 export type Capability = {
@@ -39,7 +40,7 @@ export const FEATURE_MATRIX: CapabilityGroup[] = [
       { name: "Coaching cases and examples", detail: "Teach real decisions, not just principles." },
       { name: "Your own documents", detail: "Import your material and review the extracted text privately before it is used.", availability: model },
       { name: "Conflict resolution", detail: "When two sources disagree, you decide which rule wins.", availability: model },
-      { name: "Held-out test scenarios", detail: "At least 20 situations with the answer you expect, written before launch." },
+      { name: "Held-out test scenarios", detail: "Start supervised with 8 quiz answers and 3 own cases. Automatic sending requires 20 cases and passing checks." },
       { name: "Evaluation before release", detail: "Every version is tested against your scenarios before it can go live.", availability: model },
       { name: "Versioned releases and rollback", detail: "Publish a version, compare it, and roll back at any time.", availability: model },
       { name: "Your confidence threshold", detail: "You choose which routine changes run automatically; the rest comes to you.", availability: model },
@@ -90,7 +91,8 @@ export const FEATURE_MATRIX: CapabilityGroup[] = [
     audience: "You and your subscribers",
     page: "/features/voice-coach",
     items: [
-      { name: "Sessions in your own voice", detail: "Cues, sets and rest, voiced from your own verified voice.", ...voice },
+      { name: "Sessions in your own voice", detail: "Personal narration in your coaching style, from your verified voice and approved plan.", ...voice },
+      { name: "Members’ own music", detail: "Short cues and tap-to-talk while members play their own music app, subject to device playback rules.", ...voice },
       { name: "Verified and consented", detail: "Identity verification and your separate, recorded consent, which you can withdraw.", ...voice },
       { name: "Only your subscribers", detail: "Used only for your own subscribers who add it, never for another trainer’s.", ...voice },
     ],
@@ -132,16 +134,21 @@ export const FEATURE_MATRIX: CapabilityGroup[] = [
     audience: "You",
     page: "/features/website-and-domain",
     items: [
-      { name: "Design Studio", detail: "Your name, headline, biography, colours and logo." },
-      { name: "Coaching website", detail: "Pages, photo galleries and a contact form whose messages reach your inbox." },
-      { name: "Private preview", detail: "See every change before it is public." },
+      { name: "Desktop visual website editor", detail: "Drag and drop sections, create multiple pages and manage navigation." },
+      { name: "Section template library", detail: `${SITE_BUILDER_PRESET_COUNT} layouts across ${SITE_BUILDER_MODULES.length} families, including heroes, videos, programmes, pricing, FAQs and contact forms.` },
+      { name: "AI starter sites", detail: "AI assembles existing modules into an editable starter. Manual templates work without AI.", availability: model },
+      { name: "Before-and-after galleries", detail: "Paired client transformation photos and captions, using material you have permission to publish." },
+      { name: "Separate website and app styles", detail: "Set website colours and typography independently from your member app." },
+      { name: "Draft recovery", detail: "Autosave, undo and redo, reusable sections and publication history. Restore to a draft before republishing." },
+      { name: "Coaching website", detail: "Responsive pages, videos, photo galleries and a contact form whose messages reach your inbox." },
+      { name: "Private preview", detail: "Preview desktop, tablet and phone layouts before publishing." },
       { name: "Your coaching address", detail: "Reserved the moment you sign up." },
       { name: "Your own domain, bought for you", detail: "Bought and renewed automatically, with the cost on your statement.", availability: ["customDomains"] },
       { name: "Connect a domain you own", detail: "Point an existing domain at your website.", availability: ["customDomains"] },
       { name: "Installable app", detail: "Subscribers add your app to their home screen with your name and icon." },
       { name: "Search titles and descriptions", detail: "Set how your pages appear in search results." },
       { name: "Coach directory listing", detail: "Optional: appear in the public directory of coaches." },
-      { name: "Arabic-ready layout", detail: "Right-to-left pages for Arabic." },
+      { name: "English and Arabic member controls", detail: "Core member screens support Arabic and right-to-left layouts. Coach content and marketing pages are not automatically translated." },
     ],
   },
   {
@@ -197,7 +204,7 @@ export const FEATURE_MATRIX: CapabilityGroup[] = [
 
 /** Generic tool categories one workspace replaces. Never a competitor's name. */
 export const REPLACES: Array<{ tool: string; instead: string }> = [
-  { tool: "A website builder", instead: "Your coaching website, galleries, contact form and address, from the Design Studio." },
+  { tool: "A website builder", instead: "A desktop drag-and-drop builder with multiple pages, section templates, galleries, videos and private previews." },
   { tool: "A booking tool", instead: "Session slots, paid bookings, cancellation rules and calendar export." },
   { tool: "A payment set-up and invoicing", instead: "Card checkout in AED, trials, promotions, refunds, statements and payouts." },
   { tool: "A client training app", instead: "A branded app with day-by-day plans, set logging, rest timers and offline mode." },

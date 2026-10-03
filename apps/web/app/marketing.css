@@ -1983,6 +1983,21 @@ a.mk-nav-top {
   font-size: 12px;
   overflow: hidden;
 }
+.mk-screen-builder {
+  grid-column: 1 / -1;
+}
+.mk-screen-builder .mk-device {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-block-size: 0;
+}
+.mk-screen-builder :is(.mk-screen-title, .mk-screen-sub, .mk-screen-note, .mk-fake-buttons) {
+  grid-column: 1 / -1;
+}
+@media (max-width: 640px) {
+  .mk-screen-builder .mk-device {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 .mk-screen-title {
   font-family: var(--ty-font-display);
   font-weight: 700;

@@ -114,6 +114,19 @@ test("the public platform endpoint gives the brand, availability and assumptions
   assert.doesNotMatch(JSON.stringify(platform), /fixture-secret|fixture-app/);
 });
 
+test("public address examples follow the configured subdomain root", async () => {
+  const before = process.env.PLATFORM_ROOT_DOMAIN;
+  try {
+    process.env.PLATFORM_ROOT_DOMAIN = "coaching.example";
+    assert.equal((await ok(h, "/public/platform")).coachAddressTemplate, "https://{slug}.coaching.example");
+    process.env.PLATFORM_ROOT_DOMAIN = "localhost";
+    assert.equal((await ok(h, "/public/platform")).coachAddressTemplate, PLATFORM + "/coach/{slug}");
+  } finally {
+    if (before === undefined) delete process.env.PLATFORM_ROOT_DOMAIN;
+    else process.env.PLATFORM_ROOT_DOMAIN = before;
+  }
+});
+
 test("Connect Instagram: owner only, single-use state bound to the session, token never stored", async () => {
   const owner = await coach(h, "ig-owner", "Layla Strength");
   const staff = await member(h, owner.tenantId, "staff");

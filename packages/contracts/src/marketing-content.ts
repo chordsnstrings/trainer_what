@@ -12,6 +12,8 @@
 //   words, eyebrow 4, hero lede 25, H2 6, card titles 4 and bodies 18,
 //   bullets 12 (5 per list), FAQ answers 45. Long detail belongs on a deeper
 //   page, not on the home page.
+import { SETUP_STEPS, SETUP_BRAIN_MINIMUM } from "./coach-setup.ts";
+import { SITE_BUILDER_MODULES, SITE_BUILDER_PRESET_COUNT } from "./site-builder.ts";
 import { BRAND_COPY } from "./brand.ts";
 import type {
   AvailabilityLine,
@@ -455,28 +457,19 @@ export const MARKETING_SOURCES: MarketingSource[] = [
  * The trainer's setup checklist, in order: the same keys and labels as the
  * onboarding registry in apps/api/src/onboarding.ts (a test keeps them equal).
  */
-export const SETUP_CHECKLIST: Array<{
-  key: string;
-  label: string;
-  required: boolean;
-  summary: string;
-}> = [
-  { key: "account", label: "Account", required: true, summary: "Verify your email; your coaching address is reserved." },
-  { key: "identity", label: "Business identity", required: true, summary: "Describe your coaching business and who you serve." },
-  { key: "brand", label: "Brand studio", required: true, summary: "Your public name, headline, biography and colours." },
-  { key: "interview", label: "Coaching interview", required: false, summary: "Explain your recommendations, reasons and limits." },
-  { key: "uploads", label: "Source material", required: false, summary: "Import your own documents and review the extracted text." },
-  { key: "knowledge", label: "Knowledge review", required: true, summary: "Confirm your rules and resolve conflicts between sources." },
-  { key: "scenarios", label: "Practice quiz", required: true, summary: "Take the practice quiz and write 3 to 5 of your own client questions." },
-  { key: "readiness", label: "Brain readiness", required: true, summary: "Publish your evaluated Brain and choose what runs automatically." },
-  { key: "offer", label: "Your offer", required: true, summary: "Set your price, programme length and billing." },
-  { key: "payout", label: "Bank details", required: false, summary: "Asked at your first payout, not before launch." },
-  { key: "wearables", label: "Wearable policy", required: false, summary: "Choose whether subscribers can share wearable data." },
-  { key: "voice", label: "Optional voice", required: false, summary: "Verify and consent to your own voice for guided sessions." },
-  { key: "preview", label: "Subscriber preview", required: true, summary: "See exactly what subscribers will see before launch." },
-  { key: "publish", label: "Publish", required: true, summary: "Launch once product, coaching, legal and payout checks pass." },
-  { key: "share", label: "Share your link", required: false, summary: "Put your tagged link in your bio and Stories." },
-];
+const SETUP_SUMMARIES: Record<(typeof SETUP_STEPS)[number]["key"], string> = {
+  account: "Create your account and verify your email.",
+  about: "Introduce your coaching, audience and approach.",
+  page: "Reserve your address and choose your name, colours and starter page.",
+  brain: `Confirm ${SETUP_BRAIN_MINIMUM.quiz} quiz answers and write ${SETUP_BRAIN_MINIMUM.own} client cases. Start with replies waiting for your approval.`,
+  plan: "Set your coaching offer and price. Add optional services when ready.",
+  live: "Preview your site and member app. Publish when the launch checks pass.",
+};
+/** Keep public onboarding aligned with the actual six-step wizard. */
+export const SETUP_CHECKLIST = SETUP_STEPS.map((step) => ({
+  ...step,
+  summary: SETUP_SUMMARIES[step.key],
+}));
 
 const CLAIM = { label: "Claim your coaching address", href: "/signup" };
 
@@ -526,7 +519,7 @@ function feature(
     ],
     faqs: options.faqs,
     related: options.related,
-    lastUpdated: UPDATED,
+    lastUpdated: ["website-and-domain", "subscriber-app", "voice-coach"].includes(slug) ? "2026-10-03" : UPDATED,
     indexable: true,
     jsonLd: ["WebPage", "FAQPage"],
     availability: options.availability,
@@ -647,7 +640,7 @@ function guide(
     sections: options.sections,
     faqs: options.faqs,
     related: options.related,
-    lastUpdated: UPDATED,
+    lastUpdated: slug === "writing-coaching-rules" ? "2026-10-03" : UPDATED,
     indexable: true,
     jsonLd: ["Article", "FAQPage"],
   };
@@ -785,7 +778,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
       INSTAGRAM_FAQ,
     ],
     related: ["/how-it-works", "/trainer-brain", "/features", "/pricing", "/follower-calculator"],
-    lastUpdated: UPDATED,
+    lastUpdated: "2026-10-03",
     indexable: true,
     jsonLd: ["WebPage", "FAQPage"],
   },
@@ -797,7 +790,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
     title: "How an AI trainer built from your method works",
     description:
       "Eight steps from your address to monthly payouts: teach your Trainer Brain, test it, publish your offer, share your link and let it coach every day.",
-    h1: "How {APP_NAME} turns your method into personalised coaching",
+    h1: "Your method, from setup to daily coaching",
     eyebrow: "HOW IT WORKS",
     lede: "Teach it your method, test it, then publish. It coaches every subscriber day by day and hands you what it’s unsure about.",
     intro:
@@ -806,16 +799,16 @@ export const MARKETING_CONTENT: MarketingPage[] = [
     sections: [
       {
         id: "steps",
-        heading: "Eight steps, start to finish",
+        heading: "From setup to daily coaching",
         steps: [
-          { title: "Claim your address", body: "Reserve your coaching address, then set your public name, headline, biography, colours and logo in the Design Studio." },
-          { title: "Teach your Brain", body: "Answer a guided interview, confirm rules, add cases and examples, and import documents after a private redaction review." },
-          { title: "Test it", body: "Write at least 20 held-out scenarios with your expected answers. Each version is evaluated on them before publishing." },
-          { title: "Create your offer", body: "Set your AED price, programme length and billing, trials, and an optional nutrition tier or voice add-on." },
+          { title: "Claim your address", body: "Reserve your address in the six-step setup. Personalise your page and brand." },
+          { title: "Teach your Brain", body: "Confirm rules, answer the quiz and add client cases. Import documents after a private redaction review." },
+          { title: "Test it", body: "Start supervised with 8 quiz answers and 3 own cases. Automatic sending needs 20 cases and passing checks." },
+          { title: "Create your offer", body: "Set your price and billing. Add nutrition or voice when available." },
           { title: "Publish and share", body: "Check the subscriber preview, launch, then share your tagged link in your bio and Stories." },
-          { title: "It coaches daily", body: "Each subscriber gets a dated plan from their input. Confident changes apply automatically; uncertain ones come to you." },
-          { title: "You correct, it learns", body: "Approve or correct what comes to you. Corrections and subscriber outcomes become teaching for the next evaluated release." },
-          { title: "Get paid monthly", body: "Subscribers pay by card in AED. Your statement itemises commission and costs; payouts go to your UAE bank." },
+          { title: "It coaches daily", body: "Each subscriber gets a dated plan. Replies wait for you unless you enable qualified automatic sending." },
+          { title: "You correct, it learns", body: "Review your Inbox. Corrections and subscriber outcomes teach the next tested release." },
+          { title: "Get paid monthly", body: "When enabled, subscribers pay in AED and payouts reach your UAE bank. Your statement itemises costs." },
         ],
       },
       {
@@ -853,7 +846,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
       SAFETY_FAQ,
     ],
     related: ["/trainer-brain", "/features", "/pricing", "/demo"],
-    lastUpdated: UPDATED,
+    lastUpdated: "2026-10-03",
     indexable: true,
     jsonLd: ["HowTo", "FAQPage"],
     cta: { label: "Get started", href: "/get-started" },
@@ -888,7 +881,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
           "Plain-language rules you confirm, edit or reject, each with its source.",
           "Coaching cases and worked examples of real decisions.",
           "Your own documents; you review the extracted text before use.",
-          "Held-out test scenarios: at least 20 situations with the answer you expect.",
+          "Practice quiz and client cases; 20 cases for automatic sending.",
         ],
       },
       {
@@ -962,7 +955,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
       },
     ],
     related: ["/demo", "/features/safety", "/features/ai-training-plans", "/guides/writing-coaching-rules"],
-    lastUpdated: UPDATED,
+    lastUpdated: "2026-10-03",
     indexable: true,
     jsonLd: ["WebPage", "FAQPage"],
     cta: { label: "Start teaching your Brain", href: "/signup" },
@@ -1082,7 +1075,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
       },
     ],
     related: ["/features/ai-training-plans", "/features/subscriber-app", "/pricing"],
-    lastUpdated: UPDATED,
+    lastUpdated: "2026-10-03",
     indexable: true,
     jsonLd: ["CollectionPage", "FAQPage"],
   },
@@ -1168,10 +1161,10 @@ export const MARKETING_CONTENT: MarketingPage[] = [
     subscriberSees: [
       "Your brand: name, colours, logo and an installable home-screen icon.",
       "Today’s session first, then the week ahead.",
-      "An Arabic-ready right-to-left layout.",
+      "English and Arabic member controls with right-to-left layouts.",
     ],
     youControl: [
-      "Your app design in the Design Studio.",
+      "Your member app appearance, separate from your website design.",
       "Approved exercise alternatives.",
       "Corrections to logged sets, kept with a history.",
     ],
@@ -1219,84 +1212,71 @@ export const MARKETING_CONTENT: MarketingPage[] = [
       },
       {
         q: "Is it available in Arabic?",
-        a: "The layout is Arabic-ready, including right-to-left pages. Full Arabic translation of the interface is not yet available.",
+        a: "Member navigation and core workout, chat, nutrition, booking and account controls support English and Arabic, including right-to-left layouts. Coach-written content and the public marketing site are not automatically translated; some specialist screens may still use English.",
       },
     ],
     related: ["/features/ai-training-plans", "/features/voice-coach", "/follower-calculator"],
   }),
   feature("website-and-domain", "Website and domain", {
-    title: "Your personal trainer website and domain",
+    title: "A visual website builder for personal trainers",
     description:
-      "Your own coaching website with your brand, galleries and contact form, on your own coaching address or your own domain, bought and renewed for you.",
-    h1: "Your own coaching website and web address, set up for you",
+      "Build a multipage coaching website with drag-and-drop sections, videos, before-and-after galleries, AI starters and a private preview before publishing.",
+    h1: "Build your coaching website your way",
     intro:
-      "Every trainer gets a coaching website with their brand, photos, offers and a contact form, published at their own coaching address. You can also use your own domain: {APP_NAME} can buy and renew it for you, or connect one you already own.",
-    keyword: "personal trainer website Dubai",
+      "Build a professional coaching website in a desktop-only editor. Drag sections into place, create multiple pages and personalise your brand. Start from a template or ask AI to assemble existing modules. Preview phone and tablet layouts, then publish at your coaching address when your launch checks pass.",
+    keyword: "personal trainer website builder",
     does: [
-      "Publishes your website from the Design Studio: headline, biography, colours, logo and pages.",
-      "Adds photo galleries and a contact form whose messages reach your inbox.",
-      "Sets search titles and descriptions for your pages.",
-      "Serves your site at your coaching address, or on your own domain.",
+      `Offers ${SITE_BUILDER_PRESET_COUNT} layouts across ${SITE_BUILDER_MODULES.length} section families, with searchable templates.`,
+      "Builds multiple pages with drag-and-drop sections, navigation and search metadata.",
+      "Adds hero sections, videos, programmes, pricing, FAQs and contact forms.",
+      "Shows client transformations in paired before-and-after photo galleries.",
+      "Assembles AI starter sites from the same editable module catalogue.",
     ],
     subscriberSees: [
-      "Your brand from the first visit to checkout.",
-      "Your offers, prices and how your coaching works.",
-      "A clear sign-up that joins your coaching directly.",
+      "Your branding and responsive pages on phone, tablet and desktop.",
+      "Your offers, client stories and clear ways to contact you.",
+      "Your published content; drafts and private previews stay private.",
     ],
     youControl: [
-      "Every page, photo and headline, with a private preview before publishing.",
-      "Whether you appear in the public coach directory.",
-      "Whether to use your own domain.",
+      "Desktop editing with responsive previews before publishing.",
+      "Website colours and typography separately from your member app.",
+      "Autosaved drafts, undo and redo, and reusable sections.",
+      "Publication history and restoring an earlier version to a draft.",
+      "Your coaching address, optional domain and directory visibility.",
     ],
     extra: [
       {
+        id: "modules",
+        heading: "Sections for your coaching business",
+        body: [
+          "Choose from heroes, about and team sections, coaching programmes, benefits, process steps, offers, pricing, testimonials, statistics, schedules, galleries, videos, FAQs, contact forms and flexible layouts. Each family has several designs, so you can match your coaching style without starting from a blank page.",
+          "Use real client photos and stories you have permission to publish. Before-and-after modules keep paired images and captions together. AI understands transformation requests and selects suitable modules; it does not invent client results or testimonials.",
+        ],
+      },
+      {
         id: "launch",
-        heading: "From draft to live",
+        heading: "From starter to published site",
         steps: [
-          {
-            title: "Design",
-            body: "Set your public name, headline, biography, colours and logo in the Design Studio."
-          },
-          {
-            title: "Add pages and galleries",
-            body: "Write your pages, add photo galleries and switch on the contact form."
-          },
-          {
-            title: "Preview privately",
-            body: "See the whole site exactly as visitors will, before anything is public."
-          },
-          {
-            title: "Publish",
-            body: "Launch once your checklist is complete; your site goes live at your coaching address."
-          },
-          {
-            title: "Share",
-            body: "Put your tagged link in your bio and Stories."
-          },
-          {
-            title: "Add your own domain",
-            body: "Optionally, have a domain bought and renewed for you, or connect one you already own."
-          }
-        ]
+          { title: "Choose a starter", body: "Pick a template, or describe your coaching for an AI starter assembled from existing modules when available." },
+          { title: "Make it yours", body: "Drag sections, edit copy and media, add pages and reuse sections across your site." },
+          { title: "Preview each screen", body: "Edit on desktop and preview desktop, tablet and phone layouts before publishing." },
+          { title: "Publish deliberately", body: "Autosave keeps your draft. Publishing updates your public site after its launch checks pass." },
+          { title: "Keep improving", body: "Use undo and redo while editing. Restore a previous publication to a draft, review it, then republish." },
+          { title: "Choose your address", body: "Use your reserved coaching address. Optional domain services show Available soon until enabled." },
+        ],
       },
     ],
     faqs: [
-      { q: "Can I preview changes before they go live?", a: "Yes. Every page, photo and headline has a private preview. Hidden pages are not published and are left out of the sitemap." },
-      {
-        q: "Where do contact-form messages go?",
-        a: "To the inquiries inbox in your workspace, so you can reply and follow up in one place."
-      },
-      {
-        q: "Can I use my own domain?",
-        a: "Yes. You can connect a domain you already own, or have one bought and renewed for you with the cost shown on your statement. Own domains show “Available soon” until domain services are enabled on the platform.",
-      },
-      {
-        q: "Will my website appear in search engines?",
-        a: "Published websites are included in the sitemap and can be indexed. Private previews and app pages are not.",
-      },
+      { q: "Which sections can I build?", a: `Choose from ${SITE_BUILDER_PRESET_COUNT} layouts across ${SITE_BUILDER_MODULES.length} module families: heroes, programmes, pricing, galleries, transformations, video, FAQs, contact forms and more. Drag sections between positions, reuse sections and create multiple pages.` },
+      { q: "Can I build the website on my phone?", a: "The website editor is desktop-only. Your published website works on phones and tablets, and the desktop editor includes responsive previews. Your member app has separate styling controls." },
+      { q: "How does the AI starter work?", a: "Describe your coaching and the pages you need. When the AI service is available, it assembles a starter from existing modules. You review and edit it before publishing. Manual templates work without AI." },
+      { q: "Can I show before-and-after transformations?", a: "Yes. Choose a transformation gallery with paired photos and captions. Publish only client material you have permission to share. AI can choose these modules, but real results and photos come from you." },
+      { q: "Can I preview and recover changes?", a: "Yes. Drafts autosave, the editor has undo and redo, and previews stay private. Publication history lets you restore a previous version to a draft. Restoring does not change the live site until you publish." },
+      { q: "Where do contact-form messages go?", a: "To the inquiries inbox in your workspace, so you can reply and follow up in one place." },
+      { q: "Can I use my own domain?", a: "You can connect a domain you own, or arrange purchase and renewal when domain services are enabled. The cost is shown before purchase and on your statement. Until enabled, these services show Available soon." },
+      { q: "Will my website appear in search engines?", a: "Published pages have editable search titles and descriptions and appear in your sitemap. Hidden pages, drafts and private previews are excluded. Search engines decide whether and when to index your pages." },
     ],
     related: ["/features/subscriber-app", "/follower-calculator", "/coaches"],
-    availability: ["customDomains"],
   }),
   feature("nutrition", "Nutrition", {
     title: "Meal plan app for personal trainers",
@@ -1377,23 +1357,23 @@ export const MARKETING_CONTENT: MarketingPage[] = [
   feature("voice-coach", "Voice coach", {
     title: "AI voice coach in your own voice",
     description:
-      "An optional add-on: a voice in your own verified voice runs the workout, with cues, sets and rest. Your identity is verified and your consent recorded.",
+      "An optional voice coach: personal session narration in your verified voice and coaching style, with workout cues, short music-friendly prompts and consent.",
     h1: "Your voice, running the session",
     intro:
-      "With the voice add-on, a voice in your own voice runs your subscribers’ workouts: it introduces each exercise, counts them through the session and calls the rest periods. Your identity is verified and your separate consent is recorded before your voice is used.",
+      "Subscribers can add guided workouts in your verified voice, with personal narration shaped by how you coach one to one. You describe your style, review and confirm it, and can withdraw voice consent. Cues follow the approved plan, with the same pause and pain controls.",
     keyword: "AI voice coach in my own voice",
     does: [
       "Runs the guided session in your voice: exercise cues, sets and rest.",
       "Follows the same plan and safety rules as the written workout.",
       "Uses your voice only for your own subscribers who add it.",
-      "Plays the session your plan already contains, so there is nothing extra to write.",
+      "Uses your coaching style and approved plan for personal session narration.",
     ],
     subscriberSees: [
       "Their trainer’s voice guiding the workout, clearly disclosed as generated.",
-      "The same pause and pain reporting as every workout.",
+      "The same pause and pain reporting as every workout, plus an own-music mode.",
     ],
     youControl: [
-      "Whether to offer voice, and its price as an add-on.",
+      "Whether to offer voice, its add-on price and your narration style.",
       "Your consent, which you can withdraw.",
     ],
     extra: [
@@ -1411,7 +1391,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
           },
           {
             title: "Guided sessions",
-            body: "Subscribers who add it hear the guided workout in your voice: each exercise, the sets and the rest periods."
+            body: "Subscribers hear personal narration in your coaching style, with cues, sets and rest from the approved plan."
           },
           {
             title: "Yours to withdraw",
@@ -1425,6 +1405,8 @@ export const MARKETING_CONTENT: MarketingPage[] = [
       },
     ],
     faqs: [
+      { q: "Can the narration follow my coaching style?", a: "Describe how you open sessions, cue exercises, motivate and close. Review and confirm the drafted style. Personal narration follows that style and your approved plan, with safety rules kept in place." },
+      { q: "Can members play their own music?", a: "Yes. Own-music mode uses short cues and tap-to-talk while members play their own music app. It does not supply or control their music; browser and device playback rules still apply." },
       { q: "Who can hear my voice?", a: "Only your own subscribers who add the voice add-on. Your voice is never used for another trainer’s subscribers." },
       {
         q: "Can I withdraw my voice later?",
@@ -2099,7 +2081,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         id: "sign-in",
         heading: "Sign-in security",
         bullets: [
-          "Authenticator app codes, required again for sensitive actions.",
+          "Authenticator apps and passkeys are supported; enforcement depends on deployment settings.",
           "Passkeys and one-time recovery codes.",
           "A list of signed-in devices, with remote sign-out.",
         ],
@@ -2141,7 +2123,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         id: "operators",
         heading: "Platform operators and audit",
         body: [
-          "Platform operators work in separate administration tools. Every operator change needs a fresh authenticator check, and operator actions are recorded in an audit log."
+          "Platform operators use separate administration tools with role-based access. Operator actions are recorded in an audit log. Fresh authenticator checks apply only when authenticator enforcement is enabled."
         ]
       },
       {
@@ -2153,7 +2135,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
       },
     ],
     faqs: [
-      { q: "Are sensitive actions protected?", a: "Yes. Sensitive actions ask for your authenticator code again and are recorded in an audit log." },
+      { q: "Are sensitive actions protected?", a: "Sensitive actions use permission checks and audit logs. Fresh authenticator codes are required when authenticator enforcement is enabled. The availability of authenticator and passkey features does not mean every deployment enforces them." },
       { q: "Who can see my Trainer Brain?", a: "You and team members whose role allows coaching screens. Your teaching is private to your workspace and never used for another trainer." },
       {
         q: "Can I download my data?",
@@ -2169,7 +2151,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
       },
     ],
     related: ["/features/safety", "/ai-disclosure", "/privacy"],
-    lastUpdated: UPDATED,
+    lastUpdated: "2026-10-03",
     indexable: true,
     jsonLd: ["WebPage", "FAQPage"],
     cta: { label: "Read the AI disclosure", href: "/ai-disclosure" },
@@ -2305,7 +2287,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         id: "where",
         heading: "Where we work",
         body: [
-          "{APP_NAME} is built for the UAE: prices and payouts in AED, English first with an Arabic-ready, right-to-left layout.",
+          "{APP_NAME} is built for the UAE: prices and payouts in AED, English and Arabic member controls with right-to-left layouts. Marketing pages remain in English.",
         ],
       },
     ],
@@ -2328,7 +2310,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
       },
     ],
     related: ["/methodology", "/security-and-privacy", "/how-it-works"],
-    lastUpdated: UPDATED,
+    lastUpdated: "2026-10-03",
     indexable: true,
     jsonLd: ["AboutPage"],
     cta: { label: "Get started", href: "/get-started" },
@@ -2425,12 +2407,12 @@ export const MARKETING_CONTENT: MarketingPage[] = [
     navLabel: "Get started",
     title: "How to start online personal training in the UAE",
     description:
-      "What you need to start: your identity, your method, an offer and a UAE bank account for payouts, then a guided setup checklist from address to launch.",
+      "Start in six steps: create your account, choose your page, teach your Brain and set your offer. Save progress; add bank details at your first payout.",
     h1: "Start your coaching business in {APP_NAME}",
     eyebrow: "GET STARTED",
-    lede: "A guided checklist takes you from your address to launch. Start teaching before every business detail is ready.",
+    lede: "Six steps, about 15 minutes for a starter setup. Save your progress and continue later. Add bank details at your first payout.",
     intro:
-      "To start, you need your coaching method, a clear offer and a UAE bank account for payouts. A guided checklist takes you from your address to teaching your Brain, testing it and setting your price. You can begin teaching before every business detail is ready.",
+      "Start with your coaching approach and an offer. Six guided steps take you from an account to your page, a supervised Brain and launch checks. A starter setup takes about 15 minutes; deeper teaching takes longer. Save and continue later. Bank details are collected at your first payout.",
     primaryKeyword: "how to start online personal training UAE",
     sections: [
       {
@@ -2440,15 +2422,15 @@ export const MARKETING_CONTENT: MarketingPage[] = [
           "Your identity and a short description of your coaching business.",
           "Your method: how you coach, and the limits you keep.",
           "An offer: who it’s for, your AED price, length and billing.",
-          "A UAE bank account (IBAN) for monthly payouts.",
+          "A UAE bank account at your first payout, not before setup.",
           "Photos or a logo for your brand, if you have them.",
         ],
       },
       {
         id: "checklist",
-        heading: "The setup checklist",
+        heading: "Six steps to get started",
         body: [
-          "Each step shows its status. Nutrition steps are added if you offer the nutrition tier.",
+          "Save and continue later. Optional work can wait; launch checks explain anything still needed before publishing.",
         ],
       },
       {
@@ -2465,8 +2447,8 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         heading: "What happens at launch",
         bullets: [
           "Your website and app go live at your coaching address.",
-          "Subscribers can join, choose your offer and pay in AED.",
-          "Your Brain starts planning for each new subscriber from their own input.",
+          "Subscribers join and pay in AED when payments and launch are enabled.",
+          "Your Brain plans from each subscriber’s input, within your approved mode.",
           "You get tagged links for your bio and Stories."
         ]
       },
@@ -2474,7 +2456,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         id: "time",
         heading: "How long it takes",
         body: [
-          "It depends on how much of your method you teach before launch. Most of the work is the interview, confirming rules and writing at least 20 test scenarios. The checklist shows what is left.",
+          "Allow about 15 minutes for the starter setup. Confirm 8 quiz answers and write 3 client cases for supervised replies. Automatic sending requires 20 cases and passing checks; deeper teaching takes longer.",
         ]
       },
     ],
@@ -2482,7 +2464,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
       { q: "Can I bring my existing clients?", a: "Yes. Invite subscribers you already coach with an invite link; each joins your workspace with their own account." },
       {
         q: "Do I need technical skills?",
-        a: "No. The website, app, payments and payouts are set up for you. You answer questions, confirm rules in plain language and set your offer."
+        a: "No coding is needed. Use the desktop website editor, confirm your teaching in plain language and set your offer. Payments, payouts and optional services have their own availability and launch checks."
       },
       {
         q: "Can I see it before subscribers do?",
@@ -2502,7 +2484,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
       },
     ],
     related: ["/how-it-works", "/pricing", "/follower-calculator"],
-    lastUpdated: UPDATED,
+    lastUpdated: "2026-10-03",
     indexable: true,
     jsonLd: ["WebPage", "FAQPage"],
   },
@@ -2768,11 +2750,11 @@ export const MARKETING_CONTENT: MarketingPage[] = [
     navLabel: "UAE",
     title: "Online coaching for UAE personal trainers",
     description:
-      "For personal trainers in Dubai, Abu Dhabi and across the UAE: AED pricing and card payments, monthly UAE payouts, an Arabic-ready layout and bookings.",
+      "For UAE personal trainers: AED pricing, card payments, monthly UAE payouts, English and Arabic member controls, and in-person bookings.",
     h1: "For personal trainers in the UAE: take your coaching online",
     eyebrow: "UNITED ARAB EMIRATES",
     intro:
-      "{APP_NAME} is built for trainers in the UAE: prices and card payments in AED, monthly payouts to a UAE bank account, an Arabic-ready layout and bookings for in-person sessions. Your future subscribers are likely already on Instagram, and a monthly price in your method reaches far more of them than your hours can.",
+      "{APP_NAME} is built for trainers in the UAE: prices and card payments in AED, monthly payouts to a UAE bank account, English and Arabic member controls and bookings for in-person sessions. Your future subscribers are likely already on Instagram, and a monthly price in your method reaches far more of them than your hours can.",
     primaryKeyword: "online coaching platform UAE",
     sections: [
       {
@@ -2790,7 +2772,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         bullets: [
           "Prices, payments and statements in AED.",
           "Monthly payouts to a verified UAE IBAN.",
-          "An Arabic-ready, right-to-left layout.",
+          "English and Arabic member controls, including right-to-left layouts.",
           "Paid bookings for in-person sessions in your city.",
           "Dates and reminders in the UAE time zone.",
         ],
@@ -2864,7 +2846,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
       },
       {
         q: "Is it available in Arabic?",
-        a: "The layout is Arabic-ready, including right-to-left pages. Full Arabic translation of the interface is not yet available.",
+        a: "Member navigation and core workout, chat, nutrition, booking and account controls support English and Arabic, including right-to-left layouts. Coach-written content and the public marketing site are not automatically translated; some specialist screens may still use English.",
       },
       {
         q: "Looking for a coach in Dubai or Abu Dhabi?",
@@ -2872,7 +2854,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
       },
     ],
     related: ["/guides/pricing-online-coaching-uae", "/guides/uae-advertiser-permit", "/for-trainers", "/coaches"],
-    lastUpdated: UPDATED,
+    lastUpdated: "2026-10-03",
     indexable: true,
     jsonLd: ["WebPage", "FAQPage"],
   },
@@ -3426,7 +3408,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         id: "test",
         heading: "Test with held-out scenarios",
         body: [
-          "Write situations you did not use while writing the rules, with the answer you expect, including cases that should come to you. {APP_NAME} requires at least 20 before a Brain can be published.",
+          "Write situations you did not use while writing the rules, with the answer you expect, including cases that should come to you. Supervised setup accepts 8 confirmed quiz answers and 3 cases you wrote. Automatic sending still requires at least 20 cases and passing release checks.",
           "A good set covers your most common decisions, the edges where an exception applies, and situations outside what you taught, where the right answer is to hand the decision to you."
         ]
       },
