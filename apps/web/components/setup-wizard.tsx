@@ -12,6 +12,10 @@ import {
 } from "lucide-react";
 import { STRIPE_MIN_CHARGE_AED_MINOR } from "@trainer/contracts";
 import { Meter } from "./phone-ui";
+import dynamic from "next/dynamic";
+import { confirmWorkspace } from "./workspace-feedback";
+import { flushWorkspaceEdits, useSaveBeforeLeave, useWorkspaceValue } from "./workspace-continuity";
+const WebsitePreview = dynamic(() => import("./coach-site").then(m => m.CoachWebsite), { loading: () => <p role="status">Loading your website preview…</p> });
 import { AssistantPanel } from "./setup-assistant-panel";
 import { BrainStep, KeepTraining, useTeach } from "./setup-brain";
 import { setupApi } from "./setup-wizard-api";
@@ -202,11 +206,12 @@ export function SetupWizard({
   const step = setup.steps[index];
   const { previous, next } = neighbours(current);
   const skip = async () => {
-    if (!canSkip(current)) return;
+    if (!canSkip(current) || !(await flushWorkspaceEdits())) return;
     try {
+      const fresh = await setupApi("/setup");
       await setupApi(`/setup/${current}`, "PUT", {
-        version: current === "about" ? setup.about.version : step.version,
-        values: {},
+        version: current === "about" ? fresh.about.version : fresh.steps.find((s: WizardStep) => s.key === current).version,
+        values: current === "about" ? Object.fromEntries(Object.entries(fresh.about.values).filter(([, v]) => v != null)) : {},
         skip: true,
       });
       await load();
@@ -381,8 +386,7 @@ function AccountStep({ setup }: { setup: Setup }) {
         </p>
       )}
       <p className="muted">
-        Everything you enter saves as you go, so you can stop and come back on
-        any device.
+        Your profile saves as you type. Unfinished page and plan drafts stay in this tab until you save them.
       </p>
     </div>
   );
@@ -411,14 +415,21 @@ function AboutStep({
     Object.fromEntries(
       ABOUT_FIELDS.map((k) => [k, String(setup.about.values[k] ?? "")]),
     ) as Record<(typeof ABOUT_FIELDS)[number], string>;
-  const [values, setValues] = useState(start),
+  const [answerDraft, setAnswerDraft, clearAnswerDraft] = useWorkspaceValue("setup:about", { values: start(), version: setup.about.version }, true),
     [status, setStatus] = useState("Your answers save as you type."),
+    [stale, setStale] = useState(false),
     [problem, setProblem] = useState("");
-  const version = useRef(setup.about.version),
-    savedJson = useRef(JSON.stringify(values)),
+  const values = answerDraft.values;
+  const version = useRef(answerDraft.version),
+    savedJson = useRef(JSON.stringify(start())),
     saving = useRef(false),
     latest = useRef(values);
   latest.current = values;
+  const setValues = (next: typeof values | ((previous: typeof values) => typeof values)) => {
+    const v = typeof next === "function" ? next(latest.current) : next;
+    latest.current = v;
+    setAnswerDraft({ values: v, version: version.current });
+  };
   // Assistant draft: copied into the form once, then saved like typing
   // (reloads after each save must not copy it over later edits).
   const offered = useRef(setup.about);
@@ -427,44 +438,66 @@ function AboutStep({
     if (!draft) return;
     setValues((v) => ({ ...v, ...aboutFromDraft(draft, offered.current) }));
   }, [draft]);
-  const persist = useCallback(async () => {
-    if (saving.current) return;
-    saving.current = true;
-    try {
-      while (savedJson.current !== JSON.stringify(latest.current)) {
-        const snapshot = latest.current,
-          json = JSON.stringify(snapshot);
-        setStatus("Saving…");
-        const body = Object.fromEntries(
-          Object.entries(snapshot).filter(([, v]) => v !== ""),
-        );
-        const out = await setupApi("/setup/about", "PUT", {
-          version: version.current,
-          values: body,
-        });
-        version.current = out.version;
-        savedJson.current = json;
-      }
-      setProblem("");
-      setStatus("Saved. You can continue on another device.");
-      await onSaved();
-    } catch (e) {
-      const err = e as ApiError;
-      setProblem(
-        err.code === "STALE_ONBOARDING"
-          ? "These answers changed in another window. Reload the page to see the saved version."
-          : err.message,
-      );
-      setStatus("");
-    } finally {
-      saving.current = false;
-    }
+  const pending = useRef<Promise<boolean> | null>(null);
+  const persist = useCallback((): Promise<boolean> => {
+    if (pending.current) return pending.current;
+    const save = async () => {
+      saving.current = true;
+      try {
+        do {
+        while (savedJson.current !== JSON.stringify(latest.current)) {
+          const snapshot = latest.current, json = JSON.stringify(snapshot);
+          setStatus("Saving…");
+          const out = await setupApi("/setup/about", "PUT", {
+            version: version.current,
+            values: { ...snapshot, ...(offered.current.values.programmeSourceId ? { programmeSourceId: offered.current.values.programmeSourceId } : {}) },
+          });
+          version.current = out.version;
+          savedJson.current = json;
+          setAnswerDraft({ values: latest.current, version: out.version });
+        }
+        await onSaved();
+        } while (savedJson.current !== JSON.stringify(latest.current));
+        clearAnswerDraft();
+        setStale(false);
+        setProblem("");
+        setStatus("Saved. You can continue on another device.");
+        return true;
+      } catch (e) {
+        const err = e as ApiError;
+        setStale(err.code === "STALE_ONBOARDING");
+        setProblem(err.code === "STALE_ONBOARDING"
+          ? "These answers changed in another window. Your edits are still here. Reload the saved version before replacing it."
+          : err.message);
+        setStatus("Not saved. Your answers are still here.");
+        return false;
+      } finally { saving.current = false; pending.current = null; }
+    };
+    pending.current = save();
+    return pending.current;
   }, [onSaved]);
+  useSaveBeforeLeave(() => savedJson.current !== JSON.stringify(latest.current) || saving.current, persist);
+  const leaveSave = useRef(persist);
+  leaveSave.current = persist;
+  useEffect(() => () => {
+    if (savedJson.current !== JSON.stringify(latest.current)) void leaveSave.current();
+  }, []);
   useEffect(() => {
     if (savedJson.current === JSON.stringify(values)) return;
-    const t = setTimeout(() => void persist(), 800);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => void persist(), 800);
+    return () => clearTimeout(timer);
   }, [values, persist]);
+  const reloadAnswers = async () => {
+    if (!(await confirmWorkspace({ title: "Load saved answers?", detail: "Your unsaved answers will be replaced with the latest saved version.", confirm: "Load saved answers" }))) return;
+    try {
+      const fresh = await setupApi("/setup");
+      const answers = Object.fromEntries(ABOUT_FIELDS.map(key => [key, String(fresh.about.values[key] ?? "")])) as typeof values;
+      version.current = fresh.about.version;
+      savedJson.current = JSON.stringify(answers);
+      setValues(answers); clearAnswerDraft(); setStale(false); setProblem("");
+      setStatus("Saved answers loaded."); await onSaved();
+    } catch (error) { setProblem((error as Error).message); }
+  };
   const set = (k: keyof typeof values) => (e: { target: { value: string } }) =>
     setValues({ ...values, [k]: e.target.value });
   return (
@@ -554,6 +587,7 @@ function AboutStep({
       <p className="muted" role="status">
         {status}
       </p>
+      {problem && (stale ? <button type="button" className="button secondary" onClick={() => void reloadAnswers()}>Load saved answers</button> : <button type="button" className="button secondary" onClick={() => void persist()}>Retry saving</button>)}
       <Problem text={problem} />
     </form>
   );
@@ -693,8 +727,8 @@ function PageStep({
   onSaved: () => Promise<void>;
 }) {
   const theme = tenant.theme ?? {};
-  const [headline, setHeadline] = useState(String(theme.headline ?? "")),
-    [bio, setBio] = useState(String(theme.bio ?? "")),
+  const [headline, setHeadline, clearHeadline] = useWorkspaceValue("setup:headline", String(theme.headline ?? ""), true),
+    [bio, setBio, clearBio] = useWorkspaceValue("setup:bio", String(theme.bio ?? ""), true),
     [busy, setBusy] = useState(false),
     [problem, setProblem] = useState(""),
     [note, setNote] = useState("");
@@ -711,12 +745,13 @@ function PageStep({
   const changed =
     headline !== String(theme.headline ?? "") ||
     bio !== String(theme.bio ?? "");
-  const run = async (fn: () => Promise<unknown>, done: string) => {
+  const run = async (fn: () => Promise<unknown>, done: string, clearText = false) => {
     setBusy(true);
     setProblem("");
     setNote("");
     try {
       await fn();
+      if (clearText) { clearHeadline(); clearBio(); }
       setNote(done);
       await onSaved();
     } catch (e) {
@@ -750,7 +785,7 @@ function PageStep({
                   : "#0F766E",
                 expectedVersion: Number(theme.brandVersion ?? 0),
               }),
-            "Saved to your page.",
+            "Saved to your page.", true,
           );
         }}
       >
@@ -758,6 +793,7 @@ function PageStep({
         <label className="field">
           <span>Headline</span>
           <input
+            disabled={busy}
             aria-label="Headline"
             value={headline}
             maxLength={160}
@@ -768,6 +804,7 @@ function PageStep({
         <label className="field">
           <span>About you</span>
           <textarea
+            disabled={busy}
             aria-label="About you"
             rows={5}
             value={bio}
@@ -787,20 +824,16 @@ function PageStep({
           Save page text
         </button>
       </form>
+      {changed && <p className="muted" role="status">Text draft kept on this device. Save page text to apply it.</p>}
+      <section className="setup-panel setup-builder-entry">
+        <div><h3>Your website</h3><p>Choose a starter, edit your pages and preview the site clients will see.</p></div>
+        <Link className="button" href="/trainer/website?from=setup">Open website builder</Link>
+      </section>
+      <div className="setup-real-preview" aria-label="Your website draft preview"><WebsitePreview preview path="" /></div>
       <SubdomainPicker setup={setup} onSaved={onSaved} />
       <section className="setup-panel" aria-labelledby="page-approve">
         <h3 id="page-approve">Approve your page</h3>
-        <div className="setup-preview">
-          <p className="eyebrow">{specialty ?? "Your specialty"}</p>
-          <strong className="setup-preview-name">{name || "Your name"}</strong>
-          <p className="setup-preview-headline">
-            {theme.headline || "Your headline"}
-          </p>
-          <p>{theme.bio || "Your text about you."}</p>
-          {setup.page.subdomain.host && (
-            <p className="muted">{setup.page.subdomain.host}</p>
-          )}
-        </div>
+        <p className="muted">Review the website above before approving. {setup.page.subdomain.host}</p>
         {setup.page.issues.length > 0 && (
           <ul className="setup-missing">
             {setup.page.issues.map((i) => (
@@ -878,7 +911,7 @@ function SubdomainPicker({
     sub.host && sub.host.startsWith(sub.name + ".")
       ? sub.host.slice(sub.name.length + 1)
       : null;
-  const [name, setName] = useState(sub.name),
+  const [name, setName, clearNameDraft] = useWorkspaceValue("setup:address", sub.name, true),
     [check, setCheck] = useState<SubdomainCheck | null>(null),
     [checking, setChecking] = useState(false),
     [busy, setBusy] = useState(false),
@@ -920,6 +953,7 @@ function SubdomainPicker({
             currentSlug: sub.name,
             version: sub.version,
           });
+          clearNameDraft();
           await onSaved();
         } catch (err) {
           const x = err as ApiError;
@@ -1053,13 +1087,11 @@ function PlanStep({
   const specialty = setup.about.specialties.find(
     (s) => s.id === setup.about.values.specialty,
   )?.label;
-  const [name, setName] = useState(
-      suggestedPlanName(String(setup.about.values.name ?? ""), specialty),
-    ),
-    [description, setDescription] = useState(""),
-    [price, setPrice] = useState(""),
-    [billing, setBilling] = useState<"monthly" | "upfront">("monthly"),
-    [days, setDays] = useState("84"),
+  const [name, setName, clearName] = useWorkspaceValue("setup:plan:name", suggestedPlanName(String(setup.about.values.name ?? ""), specialty), true),
+    [description, setDescription, clearDescription] = useWorkspaceValue("setup:plan:description", "", true),
+    [price, setPrice, clearPrice] = useWorkspaceValue("setup:plan:price", "", true),
+    [billing, setBilling, clearBilling] = useWorkspaceValue<"monthly" | "upfront">("setup:plan:billing", "monthly", true),
+    [days, setDays, clearDays] = useWorkspaceValue("setup:plan:days", "84", true),
     [busy, setBusy] = useState(false),
     [problem, setProblem] = useState(""),
     [note, setNote] = useState("");
@@ -1114,6 +1146,7 @@ function PlanStep({
             });
             setNote("Plan saved.");
             setPrice("");
+            [clearName, clearDescription, clearPrice, clearBilling, clearDays].forEach(clear => clear());
             await onSaved();
           } catch (err) {
             setProblem((err as Error).message);
@@ -1123,6 +1156,7 @@ function PlanStep({
         }}
       >
         <h3>{live.length ? "Add another plan" : "Your first plan"}</h3>
+        <p className="muted">Unfinished details stay on this device. Save plan when ready.</p>
         <label className="field">
           <span>Plan name</span>
           <input

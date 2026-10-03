@@ -1,4 +1,5 @@
 "use client";
+import { confirmWorkspace } from "./workspace-feedback";
 import {
   useCallback,
   useEffect,
@@ -483,7 +484,7 @@ export function InvitationJoin({
     return leaveSession(localStorage, v.tenantId, v.userId, {
       online: navigator.onLine,
       post: (p, b, h) => api(p, "POST", b, h),
-      confirm: (n) => window.confirm(t("unsyncedReturn", { count: n })),
+      confirm: async (n) => (await confirmWorkspace({ title: "Confirm action", detail: t("unsyncedReturn", { count: n }), confirm: "Continue" })),
       leave,
       afterLeave: clearPersonalCaches,
     });
@@ -835,11 +836,9 @@ export function FollowerInvitations({ role }: { role: string }) {
                       className="text-button"
                       type="button"
                       disabled={busy}
-                      onClick={() => {
+                      onClick={async () => {
                         if (
-                          window.confirm(
-                            "Send a fresh invitation email? The previous link for this invitation stops working.",
-                          )
+                          (await confirmWorkspace({ title: "Confirm action", detail: "Send a fresh invitation email? The previous link for this invitation stops working.", confirm: "Continue" }))
                         )
                           void act(
                             () =>
@@ -859,11 +858,9 @@ export function FollowerInvitations({ role }: { role: string }) {
                     className="text-button"
                     type="button"
                     disabled={busy}
-                    onClick={() => {
+                    onClick={async () => {
                       if (
-                        window.confirm(
-                          `Cancel the invitation for ${i.email}? The link stops working immediately.`,
-                        )
+                        (await confirmWorkspace({ title: "Confirm action", detail: `Cancel the invitation for ${i.email}? The link stops working immediately.`, confirm: "Continue" }))
                       )
                         void act(
                           () =>
@@ -942,7 +939,7 @@ export function CoachSwitcher({
       const left = await leaveSession(localStorage, current, userId, {
         online: navigator.onLine,
         post: (p, b, h) => api(p, "POST", b, h),
-        confirm: (n) => window.confirm(t("unsyncedSwitch", { count: n })),
+        confirm: async (n) => (await confirmWorkspace({ title: "Confirm action", detail: t("unsyncedSwitch", { count: n }), confirm: "Continue" })),
         leave: () =>
           api("/auth/workspace", "POST", { tenantId: next.tenantId }),
         afterLeave: clearPersonalCaches,

@@ -326,7 +326,7 @@ export async function leaveSession(
   options: {
     online: boolean;
     post: Post;
-    confirm: (unsynced: number) => boolean;
+    confirm: (unsynced: number) => boolean | Promise<boolean>;
     leave: () => Promise<unknown>;
     afterLeave?: () => Promise<unknown> | unknown;
   },
@@ -336,7 +336,7 @@ export async function leaveSession(
       () => {},
     );
   const unsynced = unsyncedCount(store, tenantId, userId);
-  if (unsynced > 0 && !options.confirm(unsynced)) return false;
+  if (unsynced > 0 && !(await options.confirm(unsynced))) return false;
   await options.leave();
   clearLocalData(store, { keepQueues: true });
   await options.afterLeave?.();

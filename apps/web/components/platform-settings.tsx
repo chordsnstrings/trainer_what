@@ -1,4 +1,5 @@
 "use client";
+import { useConfirmBeforeLeave } from "./workspace-continuity";
 
 import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
@@ -700,15 +701,7 @@ function IntegrationEditor({
     setSecrets({});
     setClearSecrets([]);
   }, [integration.id, integration.revision]);
-  useEffect(() => {
-    if (!dirty) return;
-    const beforeUnload = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = "";
-    };
-    window.addEventListener("beforeunload", beforeUnload);
-    return () => window.removeEventListener("beforeunload", beforeUnload);
-  }, [dirty]);
+  useConfirmBeforeLeave(dirty);
   async function mutate(
     action: "save" | "test" | "toggle" | "disconnect",
     payload?: unknown,
@@ -775,13 +768,7 @@ function IntegrationEditor({
       <Link
         href="/admin/settings"
         className="ps-back-link"
-        onClick={(event) => {
-          if (
-            dirty &&
-            !window.confirm("Discard the unsaved changes to this connection?")
-          )
-            event.preventDefault();
-        }}
+
       >
         <ArrowLeft size={15} />
         All settings & connections

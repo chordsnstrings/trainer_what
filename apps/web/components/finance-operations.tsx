@@ -1,4 +1,5 @@
 "use client";
+import { promptWorkspace } from "./workspace-feedback";
 import { useEffect, useState } from "react";
 import { money } from "@trainer/domain";
 export function FinanceOperations({ tenants }: { tenants: any[] }) {
@@ -491,10 +492,8 @@ export function FinanceOperations({ tenants }: { tenants: any[] }) {
                     type="button"
                     className="button secondary"
                     disabled={busy}
-                    onClick={() => {
-                      const reason = window.prompt(
-                        "Reason for canceling this unsent instruction (at least 10 characters)",
-                      );
+                    onClick={async () => {
+                      const reason = (await promptWorkspace("Reason for canceling this unsent instruction (at least 10 characters)"));
                       if (reason)
                         void act("/payouts/" + p.id + "/cancel", { reason });
                     }}

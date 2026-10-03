@@ -334,7 +334,7 @@ test("leaving a session clears cached pages after the sign-out, never before", a
   const stayed = await leaveSession(storage, "t", "u", {
     online: false,
     post: async () => {},
-    confirm: () => false,
+    confirm: async () => { await Promise.resolve(); return false; },
     leave: async () => void order.push("leave2"),
     afterLeave: async () => void order.push("caches2"),
   });

@@ -1,4 +1,5 @@
 "use client";
+import { promptWorkspace } from "./workspace-feedback";
 import { useCallback, useEffect, useState } from "react";
 import { Field } from "./field";
 import { GovernanceError, governanceApi, usd, when } from "./governance-shared";
@@ -128,8 +129,8 @@ export function PlatformCostsView({
                           type="button"
                           className="button secondary"
                           disabled={busy}
-                          onClick={() => {
-                            const reason = window.prompt("Why is this entry wrong? (at least 10 characters)");
+                          onClick={async () => {
+                            const reason = (await promptWorkspace("Why is this entry wrong? (at least 10 characters)"));
                             if (reason === null) return;
                             if (reason.trim().length < 10)
                               return setError({
@@ -230,8 +231,8 @@ export function PlatformCostsView({
                       type="button"
                       className="button secondary"
                       disabled={busy}
-                      onClick={() => {
-                        const endsMonth = window.prompt("Last month (YYYY-MM)", range.to);
+                      onClick={async () => {
+                        const endsMonth = (await promptWorkspace("Last month (YYYY-MM)", range.to));
                         if (endsMonth === null) return;
                         if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(endsMonth.trim()))
                           return setError({

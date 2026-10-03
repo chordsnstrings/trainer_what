@@ -7,6 +7,8 @@ import { ClientTwin } from "./client-twin";
 import { FollowerRemoval, FormerFollowers } from "./membership-exit";
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
+import { useWorkspaceQuery, useWorkspaceValue } from "./workspace-continuity";
+import { WorkspaceTabs } from "./workspace-ui";
 import {
   type State,
   api,
@@ -152,6 +154,8 @@ export function SubscriberDetail({
   userId: string;
   path?: string;
 }) {
+  const [listQuery] = useWorkspaceQuery("q");
+  const returnTo = "/trainer/subscribers" + (listQuery ? `?q=${encodeURIComponent(listQuery)}` : "");
   const known = state.members?.find((m) => m.id === userId);
   const [member, setMember] = useState<any>(known ?? null);
   const name: string | undefined = member?.name ?? known?.name;
@@ -171,7 +175,7 @@ export function SubscriberDetail({
   const base = `/trainer/subscribers/${userId}`;
   return (
     <div className="client-hub">
-      <Link href="/trainer/subscribers" className="text-button">
+      <Link href={returnTo} className="text-button">
         ← All clients
       </Link>
       <div className="client-hub-head">
@@ -190,7 +194,7 @@ export function SubscriberDetail({
         {HUB_TABS.map(([key, label]) => (
           <Link
             key={key}
-            href={key === "message" ? base : `${base}/${key}`}
+            href={(key === "message" ? base : `${base}/${key}`) + (listQuery ? `?q=${encodeURIComponent(listQuery)}` : "")}
             className={tab === key ? "active" : ""}
             aria-current={tab === key ? "page" : undefined}
           >
@@ -222,8 +226,10 @@ export function SubscriberDetail({
 export type MemberPage = { items: any[]; hasMore: boolean; cursor: string | null };
 /** Subscribers page from the server: search and "load more" reach everyone. */
 export function Members({ state }: ViewProps) {
-  const [query, setQuery] = useState(""),
-    [list, setList] = useState<MemberPage | null>(null),
+  const [query, setQuery] = useWorkspaceQuery("q");
+  const [view, setView] = useWorkspaceQuery("view", "clients");
+  const [depth, setDepth] = useWorkspaceValue(`clients:depth:${query}`, 1, true);
+  const [list, setList] = useWorkspaceValue<MemberPage | null>(`clients:list:${query}`, null),
     [loading, setLoading] = useState(false),
     [listError, setListError] = useState("");
   const currentQuery = useRef("");
@@ -247,7 +253,14 @@ export function Members({ state }: ViewProps) {
     const timer = setTimeout(
       () => {
         setLoading(true);
-        fetchPage(q)
+        (async () => {
+          let page = await fetchPage(q);
+          for (let n = 1; n < depth && page.hasMore && page.cursor && active; n++) {
+            const more = await fetchPage(q, page.cursor);
+            page = { ...more, items: [...page.items, ...more.items.filter(m => !page.items.some(p => p.id === m.id))] };
+          }
+          return page;
+        })()
           .then(
             (page) => {
               if (!active) return;
@@ -271,6 +284,7 @@ export function Members({ state }: ViewProps) {
     setLoading(true);
     try {
       const page = await fetchPage(q, list.cursor);
+      if (currentQuery.current === q) setDepth(depth + 1);
       if (currentQuery.current !== q) return;
       setList((prev) =>
         prev
@@ -304,8 +318,9 @@ export function Members({ state }: ViewProps) {
                 title="Your clients."
         detail="The right context for a more personal kind of coaching."
       />
-      <div className="two-columns wide-left">
-        <Card>
+      <WorkspaceTabs label="Client administration" items={[["clients", "Clients"], ["invitations", "Invitations"], ["access", "Complimentary access"], ["former", "Former clients"]]} value={["clients", "invitations", "access", "former"].includes(view) ? view : "clients"} onChange={setView} panelId="clients-panel" />
+      <div id="clients-panel" role="tabpanel" aria-label="Client administration">
+        {!["invitations", "access", "former"].includes(view) && <Card>
           <input
             className="search"
             placeholder="Search by name or email"
@@ -337,7 +352,7 @@ export function Members({ state }: ViewProps) {
                   {members.map((m) => (
                     <tr key={m.id}>
                       <td>
-                        <Link href={`/trainer/subscribers/${m.id}`}>
+                        <Link href={`/trainer/subscribers/${m.id}${query ? `?q=${encodeURIComponent(query)}` : ""}`}>
                           <strong>{m.name}</strong>
                         </Link>
                         <small>
@@ -378,11 +393,11 @@ export function Members({ state }: ViewProps) {
               </button>
             </div>
           )}
-        </Card>
-        <FollowerInvitations role={state.user.role} />
+        </Card>}
+        {view === "invitations" && <div className="workspace-form-page"><FollowerInvitations role={state.user.role} /></div>}
+        {view === "former" && <FormerFollowers />}
+        {view === "access" && <div className="workspace-form-page"><ComplimentaryAccessManager role={state.user.role} /></div>}
       </div>
-      <FormerFollowers />
-      <ComplimentaryAccessManager role={state.user.role} />
     </>
   );
 }

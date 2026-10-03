@@ -27,12 +27,9 @@ import "./meal-capture.css";
 import "./coach-site.css";
 import "./site-builder-public.css";
 import "./site-builder-layouts.css";
-import "./site-builder-editor.css";
 import "./account-settings.css";
 import "./joining.css";
-import "./governance.css";
 import "./coach-directory.css";
-import "./host-operations.css";
 import "./provider-sandbox.css";
 import "./programme.css";
 import "./brain-plans.css";
@@ -51,6 +48,7 @@ import "./analytics-consent.css";
 // Motion for subscriber surfaces: tokens, every animation and transition,
 // and the reduced-motion rules (docs/features/motion.md).
 import "./motion.css";
+import "./workspace-system.css";
 
 // The trainsyou typeface: Inter (SIL OFL 1.1, app/fonts/Inter-OFL.txt), the
 // variable-weight files of @fontsource-variable/inter 5.3.0 kept in the

@@ -1,3 +1,4 @@
+import { clearWorkspaceViews } from "./workspace-session";
 /**
  * The installable member app (docs/features/pwa.md): the service worker's
  * release and cache names, clearing personal caches, install detection and
@@ -66,6 +67,8 @@ export function registerServiceWorker() {
  * Also tells the service worker, in case another tab re-adds a page.
  */
 export async function clearPersonalCaches() {
+  clearWorkspaceViews();
+  try { localStorage.setItem("workspace-session-version", `${Date.now()}:${Math.random()}`); } catch {}
   try {
     localStorage.removeItem(LAUNCH_COLOUR_KEY);
   } catch {}

@@ -1,4 +1,5 @@
 "use client";
+import { confirmWorkspace } from "./workspace-feedback";
 import { useEffect, useState } from "react";
 import { money } from "@trainer/domain";
 import { SupportPreview, SupportPreviewLaunch } from "./support-preview";
@@ -802,8 +803,8 @@ function AdminOperationsWorkbench({
                       type="button"
                       className="button secondary"
                       disabled={busy}
-                      onClick={() => {
-                        if (window.confirm(`Erase the request from ${r.name}?`))
+                      onClick={async () => {
+                        if ((await confirmWorkspace({ title: "Confirm action", detail: `Erase the request from ${r.name}?`, confirm: "Continue" })))
                           void act(`/admin/early-access/${r.id}/erase`, {});
                       }}
                     >

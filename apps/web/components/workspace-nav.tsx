@@ -22,7 +22,9 @@ import {
   ChevronRight,
   type LucideIcon,
 } from "lucide-react";
-import { api } from "./workspace-ui";
+import { useSharedInbox } from "./workspace-inbox-store";
+import { type State } from "./workspace-ui";
+export { INBOX_CHANGED } from "./workspace-inbox-store";
 import { setAppBadge } from "./pwa";
 
 /**
@@ -47,7 +49,7 @@ export type MoreLink = {
 export type MoreGroup = { title: string; links: MoreLink[] };
 
 /** Fired on window when an inbox card is handled. */
-export const INBOX_CHANGED = "trainer-inbox-changed";
+
 
 /** Where the setup wizard lives: one address for every setup link. */
 export const SETUP_HREF = SETUP_PATH;
@@ -135,16 +137,16 @@ export function moreGroups(role: string): MoreGroup[] {
       title: "My page",
       links: [
         {
-          label: "Design",
+          label: "Client app design",
           href: "/trainer/design",
           icon: Palette,
-          detail: "Colours, logo and how your page looks",
+          detail: "Colours, logo and layout for your client app",
         },
         {
           label: "Website",
           href: "/trainer/website",
           icon: Globe,
-          detail: "The words and sections on your page",
+          detail: "Pages, sections and styles for your public website",
         },
         {
           label: "Photos",
@@ -164,7 +166,7 @@ export function moreGroups(role: string): MoreGroup[] {
       title: "Account",
       links: [
         {
-          label: "Security and settings",
+          label: "Workspace settings",
           href: "/trainer/settings",
           icon: Shield,
           detail: "Sign-in, two-step check and your details",
@@ -273,34 +275,11 @@ export function trainerTitle(path: string, role: string): string {
  * Open inbox items, refreshed every minute while the page is visible. The
  * same number shows on the Inbox tab and the installed app's icon.
  */
-export function useInboxCount(enabled: boolean, refreshKey?: unknown) {
-  const [count, setCount] = useState(0);
-  useEffect(() => {
-    if (!enabled) return;
-    let active = true;
-    const load = () =>
-      api("/trainer/inbox").then(
-        (r) => {
-          if (!active) return;
-          const n = Number(r?.counts?.total ?? 0);
-          setCount(n);
-          setAppBadge(n);
-        },
-        () => {},
-      );
-    void load();
-    const timer = setInterval(() => {
-      if (document.visibilityState === "visible") void load();
-    }, 60000);
-    // The inbox page announces each card it clears.
-    window.addEventListener(INBOX_CHANGED, load);
-    return () => {
-      active = false;
-      clearInterval(timer);
-      window.removeEventListener(INBOX_CHANGED, load);
-    };
-  }, [enabled, refreshKey]);
-  return count;
+export function useInboxCount(enabled: boolean, state?: State | null) {
+  const scope = state ? `${state.user.tenantId}:${state.user.userId}:${state.user.role}:${state.user.platformRole}` : "";
+  const { count } = useSharedInbox(scope, enabled);
+  useEffect(() => { if (enabled) setAppBadge(count); }, [enabled, count]);
+  return enabled ? count : 0;
 }
 
 /** The phone's bottom bar; hidden on wider screens by CSS. */

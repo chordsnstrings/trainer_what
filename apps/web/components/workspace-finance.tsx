@@ -1,4 +1,7 @@
 "use client";
+import { promptWorkspace } from "./workspace-feedback";
+import { useWorkspaceQuery } from "./workspace-continuity";
+import { WorkspaceTabs } from "./workspace-ui";
 import { Field } from "./field";
 import { MemberAccessCard } from "./complimentary-access";
 import { BillingHistory, TrainerFinanceTools } from "./finance-completion";
@@ -33,7 +36,8 @@ export function Finance({ state, records, action, busy, path, more }: ViewProps)
       !["canceled", "incomplete_expired"].includes(subscription.status)
         ? subscription
         : null;
-  const [offer, setOffer] = useState(path.includes("products"));
+  const [requested, setOffer] = useWorkspaceQuery("view", path.includes("products") ? "offers" : path.includes("payout") ? "payouts" : "overview");
+  const offer = ["overview", "ledger", "offers", "refunds", "payouts"].includes(requested) ? requested : "overview";
   const mt = useT("membership"),
     locale = useLocale();
   return (
@@ -55,7 +59,8 @@ export function Finance({ state, records, action, busy, path, more }: ViewProps)
           ) : undefined
         }
       />
-      {!sub && state.user.role === "owner" && <TrainerFinanceTools />}
+      {!sub && <WorkspaceTabs label="Finance" items={[["overview", "Overview"], ["ledger", "Transactions"], ["offers", "Plans"], ["refunds", "Refunds"], ["payouts", "Payouts"]]} value={offer} onChange={setOffer} panelId="finance-panel" />}
+      {!sub && offer === "payouts" && state.user.role === "owner" && <TrainerFinanceTools />}
       {sub ? (
         <>
           <MemberAccessCard />
@@ -203,7 +208,8 @@ export function Finance({ state, records, action, busy, path, more }: ViewProps)
           <BillingHistory />
         </>
       ) : (
-        <>
+        <div id="finance-panel" role="tabpanel" aria-label="Finance">
+          {offer === "overview" && <>
           <div className="stats-grid">
             <Card className="stat">
               <span className="small-label">Trainer payable</span>
@@ -287,27 +293,8 @@ export function Finance({ state, records, action, busy, path, more }: ViewProps)
               />
             </Card>
           )}
-          <div className="tabs">
-            {[
-              ["ledger", "Ledger"],
-              ["offers", "Offers"],
-              ["refunds", "Refunds"],
-              ["payouts", "Payouts"],
-            ].map(([v, l]) => (
-              <button
-                key={v}
-                className={
-                  (offer === true && v === "offers") || (offer as any) === v
-                    ? "selected"
-                    : ""
-                }
-                onClick={() => setOffer(v as any)}
-              >
-                {l}
-              </button>
-            ))}
-          </div>
-          {offer === true || (offer as any) === "offers" ? (
+          </>}
+          {offer === "offers" ? (
             <div className="two-columns">
               <Card>
                 <h2>A clear offer</h2>
@@ -347,7 +334,7 @@ export function Finance({ state, records, action, busy, path, more }: ViewProps)
                 ))}
               </div>
             </div>
-          ) : (offer as any) === "refunds" ? (
+          ) : offer === "refunds" ? (
             <Card>
               <h2>Refund requests</h2>
               {records("refund").length ? (
@@ -401,10 +388,8 @@ export function Finance({ state, records, action, busy, path, more }: ViewProps)
                         <Button
                           secondary
                           disabled={busy}
-                          onClick={() => {
-                            const reason = window.prompt(
-                              "Reason for declining",
-                            );
+                          onClick={async () => {
+                            const reason = (await promptWorkspace("Reason for declining"));
                             if (reason)
                               void action(
                                 () =>
@@ -436,7 +421,7 @@ export function Finance({ state, records, action, busy, path, more }: ViewProps)
                 label="Load older refund requests"
               />
             </Card>
-          ) : (offer as any) === "payouts" || path.includes("payout") ? (
+          ) : offer === "payouts" ? (
             <PayoutView
               state={state}
               records={records}
@@ -445,7 +430,7 @@ export function Finance({ state, records, action, busy, path, more }: ViewProps)
               path={path}
               more={more}
             />
-          ) : (
+          ) : offer === "ledger" ? (
             <Card>
               <div className="card-heading">
                 <h2>Financial activity</h2>
@@ -524,8 +509,8 @@ export function Finance({ state, records, action, busy, path, more }: ViewProps)
                 />
               )}
             </Card>
-          )}
-        </>
+          ) : null}
+        </div>
       )}
     </>
   );

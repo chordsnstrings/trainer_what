@@ -1,4 +1,5 @@
 "use client";
+import { confirmWorkspace } from "./workspace-feedback";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Send, X, RotateCcw } from "lucide-react";
 import { setupApi } from "./setup-wizard-api";
@@ -133,7 +134,7 @@ export function AssistantPanel({
     }
   };
   const restart = async () => {
-    if (!view || !window.confirm("Start this chat again? Your saved answers stay.")) return;
+    if (!view || !(await confirmWorkspace({ title: "Confirm action", detail: "Start this chat again? Your saved answers stay.", confirm: "Continue" }))) return;
     setBusy(true);
     try {
       await setupApi(`/setup-assistant/${step}/restart`, "POST", {

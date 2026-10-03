@@ -1,4 +1,8 @@
 "use client";
+import { useEffect } from "react";
+import { useWorkspaceQuery } from "./workspace-continuity";
+import { WorkspaceTabs } from "./workspace-ui";
+import { notifyWorkspace } from "./workspace-feedback";
 import { NotificationPreferences } from "./notifications";
 import { PushNotifications } from "./push-notifications";
 import { WorkoutNotificationPolicy } from "./lifecycle-policy";
@@ -74,7 +78,7 @@ export function Integrations({ state, action, busy, path }: ViewProps) {
             const file = e.target.files?.[0];
             if (!file) return;
             if (file.size > 15 * 1024 * 1024) {
-              window.alert("Use an export under 15 MB for this import.");
+              notifyWorkspace("Use an export under 15 MB for this import.");
               return;
             }
             const xml = new DOMParser().parseFromString(
@@ -99,7 +103,7 @@ export function Integrations({ state, action, busy, path }: ViewProps) {
                 measuredAt: new Date(x.measuredAt).toISOString(),
               }));
             if (observations.length > 2000) {
-              window.alert(
+              notifyWorkspace(
                 "This import supports up to 2,000 numeric observations. Select a smaller date range; no partial import has been made.",
               );
               return;
@@ -247,6 +251,13 @@ export function TrainerSettingsView({
   busy,
 }: Pick<ViewProps, "state" | "action" | "busy">) {
   const t = useT("profile");
+  const [requested, setTab] = useWorkspaceQuery("tab", "profile");
+  const tab = ["profile", "security", "notifications", "privacy", "workspace"].includes(requested) ? requested : "profile";
+  useEffect(() => {
+    const followHash = () => { if (window.location.hash === "#privacy") setTab("privacy"); };
+    followHash(); window.addEventListener("hashchange", followHash);
+    return () => window.removeEventListener("hashchange", followHash);
+  }, [setTab]);
   return (
     <>
       <Heading
@@ -254,17 +265,20 @@ export function TrainerSettingsView({
         title="Your workspace settings."
         detail="Keep your information useful, your permissions clear and your data under your control."
       />
-      <AccountSecurity />
-      <AccountExtras />
-      <AccountSettings returnTo="/trainer/settings" />
-      <PersonalPrivacyStatus />
-      {["owner", "staff"].includes(state.user.role) && (
+      <WorkspaceTabs label="Settings" items={[["profile", "Profile"], ["security", "Security"], ["notifications", "Notifications"], ["privacy", "Privacy"], ["workspace", "Workspace"]]} value={tab} onChange={value => { if (window.location.hash) window.history.replaceState(null, "", window.location.pathname + window.location.search); setTab(value); }} panelId="settings-panel" />
+      <div id="settings-panel" role="tabpanel" aria-label={`${tab} settings`} className="workspace-form-page">
+      {tab === "security" && <><AccountSecurity /><AccountSettings returnTo="/trainer/settings" section="security" /><details className="card"><summary>Passkeys, recovery and sessions</summary><AccountExtras /></details></>}
+      {tab === "profile" && <AccountSettings returnTo="/trainer/settings" section="profile" />}
+      {tab === "privacy" && <PersonalPrivacyStatus />}
+      {tab === "workspace" && ["owner", "staff"].includes(state.user.role) && (
         <WorkspaceLifecycle role={state.user.role} />
       )}
-      <div className="two-columns">
+      {tab === "notifications" && <>
         <NotificationPreferences />
         <PushNotifications />
         {state.user.role === "owner" && <WorkoutNotificationPolicy />}
+      </>}
+      {tab === "privacy" && (
         <Card id="privacy">
           <h2>Your data</h2>
           <p className="muted">{t("privacyText")}</p>
@@ -306,8 +320,8 @@ export function TrainerSettingsView({
           <div className="divider" />
           <AnalyticsSetting />
         </Card>
-      </div>
-      {state.user.role === "owner" && (
+      )}
+      {tab === "workspace" && state.user.role === "owner" && (
         <Card>
           <h2>Team access</h2>
           <p className="muted">
@@ -319,6 +333,8 @@ export function TrainerSettingsView({
           </Link>
         </Card>
       )}
+      {tab === "workspace" && <Card><h2>Connections</h2><p>Manage connected services and your coaching voice.</p><Link className="button secondary" href="/trainer/integrations">Manage connections</Link></Card>}
+      </div>
     </>
   );
 }

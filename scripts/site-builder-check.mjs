@@ -938,10 +938,10 @@ try {
         (await publicSite()).publishedRevision,
         firstBuilderRevision,
       );
-      page.once("dialog", (dialog) => dialog.accept());
       await page
         .getByRole("button", { name: "Load saved draft", exact: true })
         .click();
+      await page.getByRole("dialog", { name: "Confirm action" }).getByRole("button", { name: "Continue", exact: true }).click();
       await saved();
       await expect(
         heroSection().locator('[data-builder-field="title"]'),

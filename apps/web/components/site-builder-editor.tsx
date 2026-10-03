@@ -1,4 +1,7 @@
 "use client";
+import "../app/site-builder-editor.css";
+import { confirmWorkspace } from "./workspace-feedback";
+import { useSearchParams } from "next/navigation";
 
 import {
   useCallback,
@@ -268,6 +271,7 @@ function ModuleThumbnail({
 }
 
 export function SiteBuilderEditor({ tenant }: { tenant: EditorTenant }) {
+  const returnTo = useSearchParams().get("from") === "setup" ? "/setup/page" : "/trainer";
   const [mountedDesktop, setMountedDesktop] = useState(false);
   useEffect(() => {
     const query = window.matchMedia(
@@ -297,8 +301,8 @@ export function SiteBuilderEditor({ tenant }: { tenant: EditorTenant }) {
           trackpad, and a window at least 1,100 pixels wide. Your published
           website still works beautifully on phones and tablets.
         </p>
-        <a className="button" href="/trainer">
-          Back to workspace
+        <a className="button" href={returnTo}>
+          {returnTo === "/setup/page" ? "Back to setup" : "Back to workspace"}
         </a>
         {tenant.published && (
           <a href={`/coach/${tenant.slug}`}>
@@ -307,7 +311,7 @@ export function SiteBuilderEditor({ tenant }: { tenant: EditorTenant }) {
         )}
       </div>
       {mountedDesktop ? (
-        <DesktopSiteBuilder tenant={tenant} />
+        <DesktopSiteBuilder tenant={tenant} returnTo={returnTo} />
       ) : (
         <div className="sbe-desktop-loading">Opening Website Studio…</div>
       )}
@@ -315,7 +319,7 @@ export function SiteBuilderEditor({ tenant }: { tenant: EditorTenant }) {
   );
 }
 
-function DesktopSiteBuilder({ tenant }: { tenant: EditorTenant }) {
+function DesktopSiteBuilder({ tenant, returnTo }: { tenant: EditorTenant; returnTo: string }) {
   const editorRoot = useRef<HTMLDivElement>(null);
   const [history, setHistory] = useState<EditorHistory<EditorSite> | null>(
       null,
@@ -801,12 +805,10 @@ function DesktopSiteBuilder({ tenant }: { tenant: EditorTenant }) {
     });
     goPage(created.id);
   }
-  function deletePage(source: SiteBuilderPage) {
+  async function deletePage(source: SiteBuilderPage) {
     if (!builder || source.slug === "") return;
     if (
-      !window.confirm(
-        `Remove “${source.title}” from this draft? Buttons linking to it will lead to your home page. You can undo this change.`,
-      )
+      !(await confirmWorkspace({ title: "Confirm action", detail: `Remove “${source.title}” from this draft? Buttons linking to it will lead to your home page. You can undo this change.`, confirm: "Continue" }))
     )
       return;
     change((next) => {
@@ -1044,7 +1046,7 @@ function DesktopSiteBuilder({ tenant }: { tenant: EditorTenant }) {
           <>
             <p role="alert">{loadingError}</p>
             <button onClick={() => void load()}>Try again</button>
-            <a href="/trainer">Back to workspace</a>
+            <a href={returnTo}>{returnTo === "/setup/page" ? "Back to setup" : "Back to workspace"}</a>
           </>
         ) : (
           <p>Opening your private draft…</p>
@@ -1067,13 +1069,13 @@ function DesktopSiteBuilder({ tenant }: { tenant: EditorTenant }) {
       <header className="sbe-topbar">
         <div className="sbe-topbar-brand">
           <a
-            href="/trainer"
-            aria-label="Back to workspace"
-            title="Back to workspace"
+            href={returnTo}
+            aria-label={returnTo === "/setup/page" ? "Back to setup" : "Back to workspace"}
+            title={returnTo === "/setup/page" ? "Back to setup" : "Back to workspace"}
             onClick={(e) => {
               if (dirty) {
                 e.preventDefault();
-                void navigateAway("/trainer");
+                void navigateAway(returnTo);
               }
             }}
           >
@@ -1268,11 +1270,9 @@ function DesktopSiteBuilder({ tenant }: { tenant: EditorTenant }) {
             <>
               <button onClick={downloadDraft}>Download my draft</button>
               <button
-                onClick={() => {
+                onClick={async () => {
                   if (
-                    window.confirm(
-                      "Load the saved draft and discard the edits in this window? Download your draft first if you want to keep a copy.",
-                    )
+                    (await confirmWorkspace({ title: "Confirm action", detail: "Load the saved draft and discard the edits in this window? Download your draft first if you want to keep a copy.", confirm: "Continue" }))
                   )
                     void load();
                 }}

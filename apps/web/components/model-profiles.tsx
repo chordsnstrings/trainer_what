@@ -9,7 +9,8 @@
  */
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { api } from "./workspace-ui";
+import { useConfirmBeforeLeave } from "./workspace-continuity";
+import { api, Heading } from "./workspace-ui";
 
 type Check = {
   id: string;
@@ -85,16 +86,20 @@ function ProfileForm({
   busy,
 }: {
   profile?: Profile;
-  onSubmit: (body: Record<string, unknown>) => void;
+  onSubmit: (body: Record<string, unknown>) => Promise<boolean>;
   busy: boolean;
 }) {
+  const [formError, setFormError] = useState("");
+  const [dirty, setDirty] = useState(false);
+  useConfirmBeforeLeave(dirty);
   const s = profile?.settings ?? { requestStyle: "auto", reasoningEffort: "auto", sendTemperature: true, jsonMode: true };
   const inherit = !!profile?.inheritSettings;
-  const submit = (e: FormEvent<HTMLFormElement>) => {
+  const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const f = new FormData(e.currentTarget);
+    const form = e.currentTarget, f = new FormData(form);
+    setFormError("");
     try {
-      onSubmit({
+      const saved = await onSubmit({
         ...(profile ? { revision: profile.revision } : { slug: String(f.get("slug") ?? "").trim() }),
         name: String(f.get("name") ?? "").trim(),
         label: String(f.get("label") ?? "").trim(),
@@ -102,12 +107,14 @@ function ProfileForm({
         adapter: inherit ? "openai_compatible" : f.get("adapter"),
         settings: settingsFrom(f, inherit),
       });
+      if (saved) { setDirty(false); if (!profile) form.reset(); }
     } catch {
-      alert("Budgets must be JSON, for example {\"coach_selection\": {\"maxTokens\": 4000, \"timeoutMs\": 60000}}");
+      setFormError("Budgets must be JSON, for example {\"coach_selection\": {\"maxTokens\": 4000, \"timeoutMs\": 60000}}");
     }
   };
   return (
-    <form className="grid-form" onSubmit={submit}>
+    <form className="grid-form" onSubmit={submit} onChange={() => setDirty(true)}>
+      {formError && <p className="notice error" role="alert">{formError}</p>}
       {!profile && (
         <label>
           Short name (letters, digits, dashes)
@@ -265,8 +272,10 @@ export function ModelProfiles() {
       setMessage(typeof result?.message === "string" ? result.message : done);
       setEditing(null);
       await load();
+      return true;
     } catch (e: any) {
       setMessage(e.message);
+      return false;
     } finally {
       setBusy(false);
     }
@@ -274,11 +283,11 @@ export function ModelProfiles() {
   if (!data) return <section className="card">{message ?? "Loading model profiles…"}</section>;
   const back = data.profiles.find((p) => p.id === data.switchBackTo);
   return (
-    <section className="card model-profiles">
+    <section className="model-profiles">
       <Link href="/admin/settings" className="ps-back-link">
         Return to settings & connections
       </Link>
-      <h2>AI model profiles</h2>
+      <Heading title="AI model profiles" />
       <p className="muted">
         Add a profile, enter its key, test the connection and run the switch check; then activate it. On activation
         every coach's Brain is checked again on the new model in the background: coaches who pass keep sending
@@ -312,24 +321,23 @@ export function ModelProfiles() {
             Connection: {p.lastTest ? `${p.lastTest.status}${p.lastTest.current ? "" : " (settings changed since)"}` : p.inheritSettings ? "see Settings, AI model" : "not tested"}
           </p>
           <CheckSummary check={p.latestCheck} />
+            {!p.inheritSettings && (
+              <form
+                className="profile-key-form"
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const form = e.currentTarget, key = String(new FormData(form).get("key") ?? "");
+                  if (await act(() => api(`/admin/model-profiles/${p.id}/key`, "PUT", { key }), "Key stored (sealed).")) form.reset();
+                }}
+              >
+                <label className="field"><span>{p.name} API key</span><input name="key" disabled={busy} type="password" autoComplete="off" required minLength={8} /></label>
+                <button className="button secondary" disabled={busy}>Save key</button>
+              </form>
+            )}
           <div className="button-row">
             <button className="button secondary" disabled={busy} onClick={() => setEditing(editing === p.id ? null : p.id)}>
               {editing === p.id ? "Close" : "Edit"}
             </button>
-            {!p.inheritSettings && (
-              <form
-                className="inline-form"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const key = String(new FormData(e.currentTarget).get("key") ?? "");
-                  void act(() => api(`/admin/model-profiles/${p.id}/key`, "PUT", { key }), "Key stored (sealed).");
-                  e.currentTarget.reset();
-                }}
-              >
-                <input name="key" type="password" autoComplete="off" placeholder="API key" required minLength={8} />
-                <button className="button secondary" disabled={busy}>Save key</button>
-              </form>
-            )}
             {!p.inheritSettings && (
               <button className="button secondary" disabled={busy || !p.ready.key} onClick={() => void act(() => api(`/admin/model-profiles/${p.id}/test`, "POST"), "Connection tested.")}>
                 Test connection
@@ -355,13 +363,13 @@ export function ModelProfiles() {
             )}
           </div>
           {editing === p.id && (
-            <ProfileForm profile={p} busy={busy} onSubmit={(body) => void act(() => api(`/admin/model-profiles/${p.id}`, "PUT", body), "Profile saved.")} />
+            <ProfileForm profile={p} busy={busy} onSubmit={(body) => act(() => api(`/admin/model-profiles/${p.id}`, "PUT", body), "Profile saved.")} />
           )}
         </article>
       ))}
       <details className="card">
         <summary>Add a profile</summary>
-        <ProfileForm busy={busy} onSubmit={(body) => void act(() => api("/admin/model-profiles", "POST", body), "Profile added. Enter its key next.")} />
+        <ProfileForm busy={busy} onSubmit={(body) => act(() => api("/admin/model-profiles", "POST", body), "Profile added. Enter its key next.")} />
       </details>
     </section>
   );

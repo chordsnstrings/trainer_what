@@ -1,6 +1,8 @@
 "use client";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { WorkspaceScope, useWorkspaceQuery, useWorkspaceValue } from "./workspace-continuity";
+import { useSharedInbox } from "./workspace-inbox-store";
 import {
   AlertCircle,
   Brain,
@@ -117,16 +119,19 @@ function InboxCard({
   item: InboxItem;
   onDone: (id: string, message: string) => void;
 }) {
-  const [mode, setMode] = useState<Mode>(null),
-    [text, setText] = useState(""),
+  const [mode, setMode, clearMode] = useWorkspaceValue<Mode>(`inbox:${item.id}:mode`, null),
+    [drafts, setDrafts, clearText] = useWorkspaceValue<Record<string, string>>(`inbox:${item.id}:reply`, {}, true),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
+  const text = drafts[mode ?? "reply"] ?? (mode === "edit" ? item.draft ?? "" : "");
+  const setText = (value: string) => setDrafts(previous => ({ ...previous, [mode ?? "reply"]: value }));
   const has = (a: string) => item.actions.includes(a);
   const run = async (fn: () => Promise<unknown>, message: string) => {
     setBusy(true);
     setError("");
     try {
       await fn();
+      clearMode(); clearText();
       onDone(item.id, message);
     } catch (e) {
       setError((e as Error).message);
@@ -136,7 +141,6 @@ function InboxCard({
   const open = (next: Mode) => {
     setError("");
     setMode(next);
-    setText(next === "edit" ? (item.draft ?? "") : "");
   };
   const exception = `/exceptions/${item.recordId}/resolve`;
   const approve = () =>
@@ -354,28 +358,6 @@ function InboxCard({
   );
 }
 
-function useInbox() {
-  const [items, setItems] = useState<InboxItem[] | null>(null),
-    [error, setError] = useState("");
-  const load = useCallback(async () => {
-    try {
-      const r = await api("/trainer/inbox");
-      setItems(r.items);
-      setError("");
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  }, []);
-  useEffect(() => {
-    void load();
-    const timer = setInterval(() => {
-      if (document.visibilityState === "visible") void load();
-    }, 30000);
-    return () => clearInterval(timer);
-  }, [load]);
-  return { items, error, load, setItems };
-}
-
 export function useChats() {
   const [chats, setChats] = useState<ChatSummary[] | null>(null),
     [error, setError] = useState("");
@@ -469,15 +451,14 @@ export function ChatList({
 }
 
 export function Inbox({ state }: { state: State }) {
-  const { items, error, load, setItems } = useInbox();
+  const { items, error, load, setItems } = useSharedInbox(useContext(WorkspaceScope));
   const chats = useChats();
   const [done, setDone] = useState(""),
-    [view, setView] = useState<"todo" | "chats">("todo");
+    [view, setView] = useWorkspaceQuery("view", "todo");
   const onDone = (id: string, message: string) => {
     setItems((list) => list?.filter((i) => i.id !== id) ?? list);
     setDone(message);
     window.dispatchEvent(new Event(INBOX_CHANGED));
-    void load();
     void chats.load();
   };
   const unread = chats.chats?.filter((c) => c.awaitingReply).length ?? 0;

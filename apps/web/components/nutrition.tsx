@@ -1,4 +1,5 @@
 "use client";
+import { confirmWorkspace } from "./workspace-feedback";
 import { queuedLabel, queuedSummary, unsavedMark } from "./pwa";
 import {
   deviceTimeZone,
@@ -2398,8 +2399,8 @@ export function NutritionSubscriber({
     refreshQueue();
     void sync().catch((e) => r.setError(toError(e)));
   }
-  function discardEntry(entry: RejectedEntry<NutritionQueueItem>) {
-    if (!window.confirm(t("discardConfirm"))) return;
+  async function discardEntry(entry: RejectedEntry<NutritionQueueItem>) {
+    if (!(await confirmWorkspace({ title: "Confirm action", detail: t("discardConfirm"), confirm: "Continue" }))) return;
     discardRejected<NutritionQueueItem>(
       localStorage,
       keys,

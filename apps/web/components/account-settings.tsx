@@ -111,10 +111,12 @@ function ProofFields({
 export function AccountSettings({
   returnTo,
   leave = true,
+  section = "all",
 }: {
   returnTo: ReturnPath;
   /** Show "Leave your coach" here (the member Profile puts it last instead). */
   leave?: boolean;
+  section?: "all" | "profile" | "security";
 }) {
   const [account, setAccount] = useState<Account | null>(null),
     [loadError, setLoadError] = useState(""),
@@ -211,6 +213,7 @@ export function AccountSettings({
   const unread = account.notices.filter((n) => !n.readAt).length;
   return (
     <div className="acct-stack">
+      {section !== "security" && <>
       <section className="card" aria-labelledby="acct-profile">
         <h2 id="acct-profile">{t("yourName")}</h2>
         <p className="muted">{t("nameShown")}</p>
@@ -320,7 +323,8 @@ export function AccountSettings({
         )}
       </section>
 
-      <section className="card" aria-labelledby="acct-password">
+      </>}
+      {section !== "profile" && <section className="card" aria-labelledby="acct-password">
         <h2 id="acct-password">
           {account.profile.hasPassword ? t("changePassword") : t("setPassword")}
         </h2>
@@ -393,9 +397,9 @@ export function AccountSettings({
               : t("savePassword")}
           </button>
         </form>
-      </section>
+      </section>}
 
-      {methods.length > 0 && (
+      {section !== "profile" && methods.length > 0 && (
         <section className="card" aria-labelledby="acct-methods">
           <h2 id="acct-methods">{t("appleGoogle")}</h2>
           <p className="muted">{t("linkingAdds")}</p>

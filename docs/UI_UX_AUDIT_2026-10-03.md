@@ -55,3 +55,7 @@ Acceptance: white workspace at light/dark OS settings; one sidebar scroll area; 
 - `apps/web/components/workspace.tsx`, `workspace-nav.tsx`, `workspace-ui.tsx`.
 - `apps/web/components/setup-wizard.tsx`, `setup-wizard-model.ts`, `workspace-inbox.tsx`, `workspace-clients.tsx`.
 - `apps/web/components/workspace-settings.tsx`, `workspace-finance.tsx`, `model-profiles.tsx`.
+
+## Implementation follow-up
+
+The owner approved “Fix all”. Findings are implemented on `work/backend-ui-2026-10-03`; see [verification and release status](VERIFICATION_2026-10-03_BACKEND_UI.md). The audit above remains the original evidence, rather than a description of the new UI.

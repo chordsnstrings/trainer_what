@@ -33,6 +33,15 @@ jobs:
         run: npm run test:site-builder
       - name: Section layout matrix (three widths, English and Arabic)
         run: node --import tsx scripts/site-builder-layout-check.ts
+      - name: Backend onboarding, navigation and responsive UI
+        run: node scripts/run-rtl-check.mjs
+        env:
+          RTL_CHECK_MODULE: ./backend-ui-check.mjs
+          RTL_WEB_MODE: start
+          RTL_WEB_PORT: "3137"
+          RTL_API_PORT: "4137"
+          RTL_DATA_DIR: .data/backend-ui-check
+          AUTHENTICATOR_REQUIRED: "false"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

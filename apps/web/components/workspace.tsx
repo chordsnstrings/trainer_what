@@ -1,13 +1,9 @@
 "use client";
+import dynamic from "next/dynamic";
 import { Inbox, Chats, ChatThread } from "./workspace-inbox";
 import {
-  CLIENT_TOOLS,
-  SETUP_HREF,
   TrainerMore,
   TrainerTabBar,
-  moreGroups,
-  sectionFor,
-  trainerSections,
   trainerTitle,
   useInboxCount,
 } from "./workspace-nav";
@@ -15,7 +11,7 @@ import { TeamControls } from "./team-controls";
 import { CoachSwitcher } from "./joining";
 import { AdminComplimentaryAccess } from "./complimentary-access";
 import { Affiliates } from "./affiliates";
-import { InfrastructureActions } from "./infrastructure-actions";
+const InfrastructureActions = dynamic(() => import("./infrastructure-actions").then(m => m.InfrastructureActions), { loading: () => <p role="status">Loading…</p> });
 import { NotificationInbox } from "./notifications";
 import {
   IntegrationCenter,
@@ -23,7 +19,7 @@ import {
   IntegrationOperations,
 } from "./integration-center";
 import { VoiceSessionRunner } from "./voice-session";
-import { CoachingStudio } from "./coaching-studio";
+const CoachingStudio = dynamic(() => import("./coaching-studio").then(m => m.CoachingStudio), { loading: () => <p role="status">Loading…</p> });
 import { BrainPlans } from "./brain-plans";
 import { AdminOperations, TrainerAnalytics } from "./admin-operations";
 import { RetentionPanel } from "./retention";
@@ -43,12 +39,13 @@ import {
   isSetupPath,
   legacySetupRedirect,
 } from "./setup-wizard-model";
-import { NutritionCoach, NutritionSubscriber } from "./nutrition";
-import { InfrastructureObserver } from "./infrastructure-observer";
-import { HostOperations } from "./host-operations";
+const NutritionCoach = dynamic(() => import("./nutrition").then(m => m.NutritionCoach));
+const NutritionSubscriber = dynamic(() => import("./nutrition").then(m => m.NutritionSubscriber));
+const InfrastructureObserver = dynamic(() => import("./infrastructure-observer").then(m => m.InfrastructureObserver), { loading: () => <p role="status">Loading…</p> });
+const HostOperations = dynamic(() => import("./backend-host-view").then(m => m.HostOperations), { loading: () => <p role="status">Loading…</p> });
 import { Public } from "./public-pages";
 import { PlatformLogo } from "./brand-logo";
-import { TrainerGrowth } from "./trainer-growth";
+const TrainerGrowth = dynamic(() => import("./trainer-growth").then(m => m.TrainerGrowth), { loading: () => <p role="status">Loading…</p> });
 import { Bookings } from "./bookings";
 import { Support } from "./support";
 import { AccountSecurity } from "./account-security";
@@ -64,9 +61,9 @@ import { useErrorText, useLocale, useT } from "../lib/i18n/react";
 import { MemberAppearance, useColorScheme } from "./appearance";
 import { type ColorSchemeChoice } from "../color-scheme";
 import { DirectoryListingSettings } from "./directory-listing";
-import { PlatformSettings } from "./platform-settings";
-import { ModelProfiles } from "./model-profiles";
-import { MarketingAssistantAdmin } from "./marketing-assistant-admin";
+const PlatformSettings = dynamic(() => import("./platform-settings").then(m => m.PlatformSettings), { loading: () => <p role="status">Loading…</p> });
+const ModelProfiles = dynamic(() => import("./model-profiles").then(m => m.ModelProfiles), { loading: () => <p role="status">Loading…</p> });
+const MarketingAssistantAdmin = dynamic(() => import("./marketing-assistant-admin").then(m => m.MarketingAssistantAdmin), { loading: () => <p role="status">Loading…</p> });
 import { ProviderSandboxBanner } from "./provider-sandbox-banner";
 import { MealCapture } from "./meal-capture";
 import { ProgrammeTimeline } from "./programme-today";
@@ -87,10 +84,10 @@ import {
   usesBrandIdentity,
 } from "@trainer/contracts";
 import { adminRoute } from "./app-routes";
-import { WorkspaceGovernance } from "./workspace-governance";
-import { BusinessMetrics } from "./business-metrics";
-import { PlatformFinance } from "./platform-finance";
-import { PlatformAlerts } from "./platform-alerts";
+const WorkspaceGovernance = dynamic(() => import("./backend-governance-views").then(m => m.WorkspaceGovernance), { loading: () => <p role="status">Loading…</p> });
+const BusinessMetrics = dynamic(() => import("./backend-governance-views").then(m => m.BusinessMetrics), { loading: () => <p role="status">Loading…</p> });
+const PlatformFinance = dynamic(() => import("./backend-governance-views").then(m => m.PlatformFinance), { loading: () => <p role="status">Loading…</p> });
+const PlatformAlerts = dynamic(() => import("./backend-governance-views").then(m => m.PlatformAlerts), { loading: () => <p role="status">Loading…</p> });
 import { WorkspaceSuspended } from "./workspace-suspended";
 import {
   appendPage,
@@ -120,6 +117,9 @@ import {
 } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
+import { WorkspaceNavigation } from "./workspace-navigation";
+import { WorkspaceScope, WorkspaceContinuity, clearWorkspaceViews, flushWorkspaceEdits } from "./workspace-continuity";
+import { WorkspaceFeedback, confirmWorkspace } from "./workspace-feedback";
 import {
   Check,
   ChevronRight,
@@ -219,6 +219,7 @@ function WorkspaceSwitcher({
         onChange={async (e) => {
           const next = choices.find((c) => c.tenantId === e.target.value);
           if (!next || next.tenantId === current) return;
+          if (!(await flushWorkspaceEdits())) return;
           setBusy(true);
           setError("");
           try {
@@ -228,12 +229,12 @@ function WorkspaceSwitcher({
               online: navigator.onLine,
               post: (p, b, h) => api(p, "POST", b, h),
               confirm: (n) =>
-                window.confirm(
+                confirmWorkspace({ title: "Switch workspace?", confirm: "Switch workspace", detail:
                   `${n} workout or meal ${n === 1 ? "entry has" : "entries have"} not synced. ${n === 1 ? "It stays" : "They stay"} on this device and will sync when you return to this workspace. Switch anyway?`,
-                ),
+                }),
               leave: () =>
                 api("/auth/workspace", "POST", { tenantId: next.tenantId }),
-              afterLeave: clearPersonalCaches,
+              afterLeave: clearWorkspaceSession,
             });
             if (!left) {
               setBusy(false);
@@ -280,16 +281,17 @@ const defaultPlatform: WorkspacePlatform = {
   initials: appInitials(DEFAULT_PLATFORM_NAME),
   registrationOpen: true,
 };
-/**
- * A member's last workspace state, kept in this tab's memory. Next renders
- * this page afresh for every path, so without it each tap on a tab would
- * blank the member app behind the full-screen loader while the bootstrap
- * reloads. The next member page instead opens at once on this state (the
- * top bar shows the refresh) and updates when the bootstrap answers.
- * Members only (the trainer workspace is unchanged); set only by `load`,
- * which runs in the browser; cleared on sign-out, 401 and suspension.
- */
+/** Tab-local confirmed state. Members reuse their page; backend routes reuse
+ * only chrome while bootstrap revalidates the session. Never stored on disk.
+ * Authentication, workspace changes, suspension and 401 clear these caches. */
 let memberStateCache: State | null = null;
+// Only chrome is reused until the server confirms the new route/session.
+let backendStateCache: State | null = null;
+let sessionEpoch = 0;
+async function clearWorkspaceSession() {
+  memberStateCache = backendStateCache = null; sessionEpoch++;
+  await clearPersonalCaches();
+}
 export default function Workspace({
   platform = defaultPlatform,
   coachSlug = null,
@@ -304,7 +306,7 @@ export default function Workspace({
   const path = usePathname(),
     router = useRouter();
   // Subscriber surfaces follow the member's Light, Dark or System choice
-  // (components/appearance.tsx); the trainer workspace keeps the device's.
+  // (components/appearance.tsx); the backend uses an explicit white palette.
   const scheme = useColorScheme(colorScheme);
   // Subscriber text follows the document language (lib/i18n/react.tsx).
   const locale = useLocale(),
@@ -325,7 +327,7 @@ export default function Workspace({
   const [state, setState] = useState<State | null>(() =>
       path.startsWith("/app") && memberStateCache?.user.role === "subscriber"
         ? memberStateCache
-        : null,
+        : /^\/(trainer|setup|admin)(\/|$)/.test(path) ? backendStateCache : null,
     ),
     [error, setError] = useState(""),
     [bootstrapError, setBootstrapError] = useState(""),
@@ -333,6 +335,7 @@ export default function Workspace({
     [loading, setLoading] = useState(true),
     [busy, setBusy] = useState(false),
     [mobile, setMobile] = useState(false),
+    [compactNav, setCompactNav] = useState(false),
     [online, setOnline] = useState(true),
     [suspended, setSuspended] = useState(false),
     // No connection and nothing saved on this phone to show instead.
@@ -377,8 +380,11 @@ export default function Workspace({
     path.startsWith("/join/") ||
     path.startsWith("/coach/");
   const load = useCallback(async () => {
+    const epoch = sessionEpoch;
     try {
       const next = await api("/bootstrap");
+      if (epoch !== sessionEpoch) return;
+      backendStateCache = next.user.role !== "subscriber" ? next : null;
       memberStateCache = next.user.role === "subscriber" ? next : null;
       generation.current++;
       setExtra({});
@@ -405,9 +411,11 @@ export default function Workspace({
           }),
         );
     } catch (e) {
+      if (epoch !== sessionEpoch) return;
       if ((e as any).code === "WORKSPACE_SUSPENDED") {
         // A platform suspension: show its status instead of the workspace.
-        memberStateCache = null;
+        memberStateCache = backendStateCache = null;
+        clearWorkspaceViews();
         setState(null);
         setBootstrapError("");
         setSuspended(true);
@@ -417,8 +425,9 @@ export default function Workspace({
         // Unsynced set logs and diary entries stay scoped to their member and
         // replay after that person signs in again; caches are removed.
         clearLocalData(localStorage, { keepQueues: true });
-        void clearPersonalCaches();
-        memberStateCache = null;
+        void clearWorkspaceSession();
+        memberStateCache = backendStateCache = null;
+        clearWorkspaceViews();
         setState(null);
         setBootstrapError("");
         if (!publicPath) router.replace("/login");
@@ -466,7 +475,7 @@ export default function Workspace({
         setBootstrapError((e as any).status === 429 ? "429" : "failed");
       }
     } finally {
-      setLoading(false);
+      if (epoch === sessionEpoch) setLoading(false);
     }
   }, [publicPath, router, path]);
   useEffect(() => {
@@ -489,6 +498,46 @@ export default function Workspace({
       window.removeEventListener("offline", update);
     };
   }, []);
+  useEffect(() => {
+    const cleared = () => { memberStateCache = backendStateCache = null; sessionEpoch++; };
+    window.addEventListener("workspace-session-cleared", cleared);
+    return () => window.removeEventListener("workspace-session-cleared", cleared);
+  }, []);
+  useEffect(() => {
+    const changed = (event: StorageEvent) => {
+      if (event.key !== "workspace-session-version") return;
+      memberStateCache = backendStateCache = null; sessionEpoch++;
+      clearWorkspaceViews(); setState(null);
+      if (!publicPath) void load();
+    };
+    window.addEventListener("storage", changed);
+    return () => window.removeEventListener("storage", changed);
+  }, [publicPath, load]);
+  useEffect(() => {
+    if (publicPath) { memberStateCache = backendStateCache = null; clearWorkspaceViews(); }
+  }, [publicPath]);
+  useEffect(() => {
+    const media = matchMedia("(max-width: 900px)");
+    const update = () => setCompactNav(media.matches);
+    update(); media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+  useEffect(() => {
+    if (!mobile) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const nav = document.querySelector<HTMLElement>(".workspace .sidebar");
+    const controls = () => Array.from(nav?.querySelectorAll<HTMLElement>("a[href],button,select,summary") ?? []).filter(el => el.getClientRects().length);
+    controls()[0]?.focus();
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { setMobile(false); return; }
+      if (event.key !== "Tab") return;
+      const elements = controls(), first = elements[0], last = elements.at(-1);
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    };
+    document.addEventListener("keydown", keydown);
+    return () => { document.removeEventListener("keydown", keydown); previous?.focus(); };
+  }, [mobile]);
   // Enrolling an authenticator clears the Superadmin setup banner.
   useEffect(() => {
     const refresh = () => void load();
@@ -526,6 +575,7 @@ export default function Workspace({
         coachSlug={coachSlug}
         colorScheme={scheme}
         onAuthenticated={async () => {
+          await clearWorkspaceSession();
           await load();
           const s = await api("/bootstrap").catch(async (e) => {
             if ((e as any).code !== "WORKSPACE_SUSPENDED") throw e;
@@ -579,7 +629,7 @@ export default function Workspace({
     );
   // A member keeps the app frame while a page refreshes (the top bar shows
   // the refresh); the full-screen loader is only for the first load.
-  if (!state || (loading && state.user.role !== "subscriber"))
+  if (!state)
     return memberScreen(
       <main className="loading-screen">
         {/* Neutral: a member app may carry its trainer's brand, which is
@@ -621,13 +671,12 @@ export default function Workspace({
     ? "Platform operations"
     : subscriber
       ? (items.find((x) => x[1] === path)?.[0] ?? "Your workspace")
-      : trainerTitle(path, state.user.role);
+      : isSetupPath(path) ? "Setup" : trainerTitle(path, state.user.role);
   // The setup wizard (/setup) stays one tap away until the page is live;
   // a platform administration workspace has no page to set up.
   const setupOpen = coachSetupOpen(state);
   // The phone's bottom bar shows in the trainer workspace, not /admin.
   const trainerNav = !subscriber && path.startsWith("/trainer");
-  const activeSection = sectionFor(path);
   const props = {
     state: view,
     records,
@@ -639,17 +688,18 @@ export default function Workspace({
   };
   // Subscribers see their trainer's Design Studio brand in the phone-first
   // member shell (member-shell.tsx); trainers, their team and operators work
-  // in the platform's own identity (light and dark).
+  // in the platform's white workspace.
   const platformName = state.platform?.name || DEFAULT_PLATFORM_NAME;
   const signOut = async () => {
+    if (!(await flushWorkspaceEdits())) return;
     const { tenantId, userId } = state.user;
     const left = await leaveSession(localStorage, tenantId, userId, {
       online: navigator.onLine,
       post: (p, b, h) => api(p, "POST", b, h),
       confirm: (unsynced) =>
-        window.confirm(shellT("signOutUnsynced", { count: unsynced })),
+        confirmWorkspace({ title: "Sign out?", detail: shellT("signOutUnsynced", { count: unsynced }), confirm: "Sign out" }),
       leave: () => api("/auth/logout", "POST", {}),
-      afterLeave: clearPersonalCaches,
+      afterLeave: clearWorkspaceSession,
     });
     if (left) {
       memberStateCache = null;
@@ -1149,13 +1199,17 @@ export default function Workspace({
       </TrainerTheme>
     );
   return (
-    <PlainShell className="workspace platform-ui">
+    <WorkspaceScope.Provider key={`${state.user.tenantId}:${state.user.userId}:${state.user.role}:${state.user.platformRole}`} value={`${state.user.tenantId}:${state.user.userId}:${state.user.role}:${state.user.platformRole}`}>
+    <PlainShell className={`workspace platform-ui${isSetupPath(path) ? " is-setup" : ""}${path.startsWith("/admin") || state.platformWorkspace ? " is-admin" : ""}`}>
+      <WorkspaceContinuity scope={`${state.user.tenantId}:${state.user.userId}`} />
+      <WorkspaceFeedback />
+      <a href="#workspace-content" className="workspace-skip">Skip to content</a>
       <MemberLanguage member={`${state.user.tenantId}:${state.user.userId}`} />
       {!path.startsWith("/admin") && (
         <MemberAppManifest tenantId={state.tenant.id} role={state.user.role} />
       )}
-      <aside className={"sidebar " + (mobile ? "is-open" : "")}>
-        <Link href={subscriber ? "/app" : "/trainer"} className="wordmark">
+      <aside className={"sidebar " + (mobile ? "is-open" : "")} inert={compactNav && !mobile} aria-label="Workspace navigation">
+        <Link href={path.startsWith("/admin") || state.platformWorkspace ? "/admin" : "/trainer"} className="wordmark">
           {subscriber ? (
             <CoachIdentity
               name={state.tenant.name}
@@ -1178,7 +1232,7 @@ export default function Workspace({
           <div>
             <strong>{state.tenant.name}</strong>
             <span>
-              {subscriber ? "Your coaching space" : "Your coaching business"}
+              {path.startsWith("/admin") || state.platformWorkspace ? "Platform administration" : "Coaching workspace"}
             </span>
           </div>
         </div>
@@ -1186,119 +1240,8 @@ export default function Workspace({
           current={state.user.tenantId}
           userId={state.user.userId}
         />
-        <nav aria-label="Main navigation">
-          {!subscriber && (
-            <>
-              {setupOpen && (
-                <Link
-                  href={SETUP_HREF}
-                  className="nav-setup"
-                >
-                  <CheckCircle size={18} />
-                  Finish setup
-                </Link>
-              )}
-              {trainerSections(state.user.role).map(
-                ({ key, label, href, icon: Icon }) => {
-                  const current =
-                    state.user.role === "finance"
-                      ? path === href
-                      : key === activeSection && key !== "more";
-                  return (
-                    <Link
-                      key={href}
-                      href={href}
-                      className={current ? "active" : ""}
-                      aria-current={current ? "page" : undefined}
-                    >
-                      <Icon size={18} />
-                      {label}
-                      {key === "inbox" &&
-                        state.user.role !== "finance" &&
-                        inboxCount > 0 && (
-                          <span className="nav-count">{inboxCount}</span>
-                        )}
-                    </Link>
-                  );
-                },
-              )}
-              {state.user.role !== "finance" &&
-                CLIENT_TOOLS.map(({ label, href }) => (
-                  <Link
-                    key={href}
-                    href={href}
-                    className={
-                      "nav-sub " +
-                      (path === href || path.startsWith(href + "/")
-                        ? "active"
-                        : "")
-                    }
-                  >
-                    {label}
-                  </Link>
-                ))}
-              {moreGroups(state.user.role).map((group) => (
-                <div key={group.title} className="nav-group">
-                  <span className="nav-group-title">{group.title}</span>
-                  {group.links.map(({ label, href }) => (
-                    <Link
-                      key={href}
-                      href={href}
-                      className={
-                        "nav-sub " +
-                        (path === href.split("#")[0] && !href.includes("#")
-                          ? "active"
-                          : "")
-                      }
-                    >
-                      {label}
-                    </Link>
-                  ))}
-                </div>
-              ))}
-            </>
-          )}
-          {state.user.platformRole !== "none" && (
-            <Link href="/admin" className={path === "/admin" ? "active" : ""}>
-              <Shield size={18} />
-              Platform admin
-            </Link>
-          )}
-          {state.user.platformRole === "admin" && (
-            <Link
-              href="/admin/settings"
-              className={`platform-settings-link ${path.startsWith("/admin/settings") || path.startsWith("/admin/integrations") ? "active" : ""}`}
-            >
-              <Settings size={16} />
-              Settings & API connections
-            </Link>
-          )}
-          {state.user.platformRole === "admin" && (
-            <Link
-              href="/admin/model-profiles"
-              className={`platform-settings-link ${path === "/admin/model-profiles" ? "active" : ""}`}
-            >
-              <Settings size={16} />
-              AI model profiles
-            </Link>
-          )}
-          {state.user.platformRole === "admin" && (
-            <Link
-              href="/admin/marketing-assistant"
-              className={`platform-settings-link ${path === "/admin/marketing-assistant" ? "active" : ""}`}
-            >
-              <Settings size={16} />
-              Home page assistant
-            </Link>
-          )}
-        </nav>
+        <WorkspaceNavigation state={state} path={path} count={inboxCount} setupOpen={setupOpen} />
         <div className="sidebar-bottom">
-          <div className="small-label">BUILT AROUND YOU</div>
-          <p>
-            Your methods.
-            <br />
-            Your brand. Your business.
-          </p>
           <button className="text-button" onClick={() => void signOut()}>
             <LogOut size={15} /> Sign out
           </button>
@@ -1314,7 +1257,7 @@ export default function Workspace({
             >
               <Menu />
             </button>
-            <span className="muted">Workspace</span>
+            <span className="muted">{path.startsWith("/admin") || state.platformWorkspace ? "Platform" : "Workspace"}</span>
             <ChevronRight size={14} />
             <strong>{topTitle}</strong>
           </div>
@@ -1328,14 +1271,14 @@ export default function Workspace({
             )}
             <span className="connection-dot" />
             <span>
-              {state.tenant.published ? "Published" : "Private workspace"}
+              {loading ? "Refreshing…" : path.startsWith("/admin") || state.platformWorkspace ? "Administration" : state.tenant.published ? "Website live" : "Private workspace"}
             </span>
             <span className="avatar small">{firstName[0]}</span>
           </div>
         </header>
-        <div className="content">
+        <div className="content" id="workspace-content" tabIndex={-1}>
           {notices}
-          {page}
+          {loading ? <div className="workspace-loading" role="status"><span className="loading-indicator" aria-hidden="true" />Loading…</div> : page}
         </div>
         {trainerNav && (
           <TrainerTabBar
@@ -1360,5 +1303,6 @@ export default function Workspace({
         </footer>
       </main>
     </PlainShell>
+    </WorkspaceScope.Provider>
   );
 }

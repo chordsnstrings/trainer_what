@@ -971,21 +971,6 @@
 .ps-admin-links a:hover {
   background: var(--mint);
 }
-.sidebar nav a.platform-settings-link {
-  margin-inline-start: 13px;
-  font-size: 11px;
-}
-.sidebar nav {
-  min-height: 0;
-  overflow-y: auto;
-  flex: 1;
-  scrollbar-width: thin;
-}
-.sidebar-bottom,
-.sidebar > .wordmark,
-.sidebar > .workspace-label {
-  flex-shrink: 0;
-}
 @media (max-width: 1180px) {
   .ps-catalog-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
