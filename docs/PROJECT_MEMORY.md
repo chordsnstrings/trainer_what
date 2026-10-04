@@ -1,13 +1,13 @@
 # Project memory
 
-Updated: 3 October 2026. This is durable project context for future build sessions. It records decisions, not credentials or a claim about account capabilities.
+Updated: 4 October 2026. This is durable project context for future build sessions. It records decisions, not credentials or a claim about account capabilities.
 
 ## Owner decisions
 
 | Topic | Current decision |
 | --- | --- |
 | Project | `chordsnstrings/trainer_what`; Trainer Brain Platform |
-| Current request | 4 October: review, then deploy marketing. PR #29 merged as `012ff78`; reviewed consent-withdrawal fix passes 30 targeted checks. Main PostgreSQL qualification caught a test-fixture scope error. Test-only PR #30 (`6b2c3be`) corrects it; 2 regressions and TypeScript pass, PR CI is running. Automatic approval review rejected PR #30’s merge, citing separate approval required for each PR. Ask for approval to merge PR #30 once checks pass; do not bypass the rejection. Production remains healthy at `e5757e4`. Domain audits remain read-only. |
+| Current request | 4 October: review and deployment complete. Owner explicitly approved PR #30 with “Yes” at 08:46:40 Asia/Dubai. PRs #29/#30 are live as `f114d16145cdad0ffa2bfdec91524b2e20742441`. Main run `37178154258` passed all four jobs (attempt 2); only an unchanged clock-boundary TOTP fixture needed a database-job retry. PGlite 1,652 pass/5 skip; PostgreSQL 1,651 pass/6 skip. HTTP 200 readiness/exact release verified at 05:29:21 UTC; 23 public requests/12 content-state checks completed 2026-10-04 05:31:19 UTC. Evidence: `docs/evidence/marketing-release-2026-10-04.json`. Notes saved on `notes/marketing-release-2026-10-04`; reconcile into next application release. Next: subdomain audit, then custom-domain audit, read-only. |
 | Visual website builder (2 October 2026) | Owner approved implementation with multiple agents: desktop-only editing, responsive published sites, professional drag-and-drop multipage composition, and a comprehensive library of many section types/variants. AI starters use Seed 2.0 to assemble prebuilt modules and bounded copy to keep costs down. Keep `CLAUDE_HANDOFF.md` updated during work. Existing drafts/publishing, native offers/inquiries, launch gates and tenant isolation remain the foundation. |
 | Coach onboarding (30 September) | Open self-serve sign-up (email code through Resend, key added later in Super admin; Google/Apple later) behind the legal gate; one six-step wizard (~15 min) with save/resume/skip; custom subdomain chosen in the wizard, live at go-live; automatic go-live checks instead of staff approval; launch in "Waits for me"; bank details at first payout; "Report this coach" for Super admin. See `docs/features/coach-setup.md`. |
 | Astra | Available for difficult design, implementation and review; use tokens wisely; do not use it for browsing |
