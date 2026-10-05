@@ -143,6 +143,10 @@ export async function verifyRuntimeAccess(client) {
     // Marketing assistant (082): counts and cost only, service only.
     marketing_assistant_days: ["SELECT", "INSERT", "UPDATE"],
     marketing_assistant_counters: ["SELECT", "INSERT", "UPDATE", "DELETE"],
+    // Shared workout music (085): service only; audit entries are immutable.
+    workout_music_jobs: ["SELECT", "INSERT", "UPDATE"],
+    workout_music_tracks: ["SELECT", "INSERT", "UPDATE"],
+    workout_music_audit: ["SELECT", "INSERT"],
   };
   for (const [table, grants] of Object.entries(systemTables)) {
     for (const privilege of ["SELECT", "INSERT", "UPDATE", "DELETE"]) {
@@ -158,6 +162,28 @@ export async function verifyRuntimeAccess(client) {
     }
     // Also plans actual statements, exercising RLS helper-function permissions.
     await query(`SELECT * FROM public.${table} LIMIT 0`);
+  }
+  for (const table of [
+    "workout_music_jobs",
+    "workout_music_tracks",
+    "workout_music_audit",
+  ]) {
+    const [security] = await query(
+      "SELECT relrowsecurity,relforcerowsecurity,EXISTS(SELECT 1 FROM pg_policies p WHERE p.schemaname='public' AND p.tablename=$1 AND p.cmd='ALL' AND p.qual LIKE '%trainer_app%' AND p.with_check LIKE '%trainer_app%') AS service_only FROM pg_class WHERE oid=$1::regclass",
+      [table],
+    );
+    assert.deepEqual(
+      security,
+      { relrowsecurity: true, relforcerowsecurity: true, service_only: true },
+      `${table} must be service-only under forced row security`,
+    );
+    for (const privilege of ["SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"]) {
+      const [tenant] = await query(
+        "SELECT has_table_privilege('trainer_app',$1,$2) AS allowed",
+        [table, privilege],
+      );
+      assert.equal(tenant.allowed, false, `Tenant actor must not have ${privilege} on ${table}`);
+    }
   }
   // Domain pricing (071): registrar prices are platform rows hidden from the
   // tenant role by row security as well as by grants.

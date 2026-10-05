@@ -1,5 +1,7 @@
 # Guided-session implementation — 5 October 2026
 
+Deployment follow-up: owner authorized deployment on 5 October. CI caught missing music-table registration in the runtime privilege gate. Fresh-host service grants and forced-RLS/tenant-denial verification are corrected; the complete local runtime gate passes with 75 migrations. Corrected-head CI and actual deployment verification remain pending.
+
 Branch: `feat/guided-session-complete-2026-10-05`. Built into the existing web app. The owner superseded the native-prototype-first gate. Not deployed.
 
 ## Implemented

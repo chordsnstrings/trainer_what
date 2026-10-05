@@ -1,5 +1,7 @@
 # Project memory
 
+Deployment active, 5 October: owner requested PR #34 deployment. CI identified missing shared-music table registration in the runtime privilege gate. Added explicit fresh-host service grants and forced-RLS/tenant-denial checks; full isolated local gate passes (75 migrations). Await the corrected head’s CI, exact-main checks and observed production serving SHA.
+
 Active 5 October 2026: guided-session overhaul implemented on `feat/guided-session-complete-2026-10-05`. Existing web app, no native prototype. Progression, account/device recovery, deliberate speech, optional Coach remote and the reusable music pipeline are implemented. See `docs/GUIDED_SESSION_IMPLEMENTATION_2026-10-05.md` for checks and exact limits. 38 distinct songs are durably saved; provider network policy interrupted the 240-song build. Preserve 21 known tasks and one unknown intent; resume the bounded script and review before publishing full playlists. Not deployed. Existing Claude DigitalOcean authority continues.
 
 Updated: 5 October 2026. This is durable project context for future build sessions. It records decisions, not credentials or a claim about account capabilities.

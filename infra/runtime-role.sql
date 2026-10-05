@@ -106,6 +106,9 @@ GRANT SELECT,INSERT ON model_profile_audit TO trainer_service;
 -- counters deleted after two days; service only.
 GRANT SELECT,INSERT,UPDATE ON marketing_assistant_days TO trainer_service;
 GRANT SELECT,INSERT,UPDATE,DELETE ON marketing_assistant_counters TO trainer_service;
+-- Shared workout music (085): service-only jobs/assets and append-only audit.
+GRANT SELECT,INSERT,UPDATE ON workout_music_jobs,workout_music_tracks TO trainer_service;
+GRANT SELECT,INSERT ON workout_music_audit TO trainer_service;
 
 -- Tenant transactions SET ROLE trainer_app; it must never bypass RLS.
 ALTER ROLE trainer_app NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
