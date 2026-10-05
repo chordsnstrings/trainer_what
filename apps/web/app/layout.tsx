@@ -49,6 +49,7 @@ import "./analytics-consent.css";
 // and the reduced-motion rules (docs/features/motion.md).
 import "./motion.css";
 import "./workspace-system.css";
+import "./affiliates.css";
 
 // The trainsyou typeface: Inter (SIL OFL 1.1, app/fonts/Inter-OFL.txt), the
 // variable-weight files of @fontsource-variable/inter 5.3.0 kept in the

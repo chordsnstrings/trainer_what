@@ -1,8 +1,10 @@
 # Claude continuation handoff
 
-Updated 5 October 2026. The owner authorized deployment of the domain/subdomain fixes and authorized Claude to finish the remaining DigitalOcean work autonomously using its account access.
+Updated 5 October 2026. Domain/subdomain fixes are deployed. The owner's subsequent screenshot identifies the Affiliate earnings page; its UI repair follows that completed release. Claude remains authorized to finish the DigitalOcean work autonomously using its account access.
 
 ## Work in progress (5 October 2026)
+
+**Affiliate page follow-up:** `fix/affiliate-admin-ui-2026-10-05` repairs the screenshot's `/admin/affiliates` layout: consistent card/form spacing, aligned desktop fields, full-width disclosure, checkbox/action rows, bounded workspace selector and responsive receipt/bank-evidence forms. Refresh retains drafts; loading, directory retry, empty states, save failures and workspace switching are handled. Root TypeScript, production build, formatting and isolated Chromium checks pass: directory/refresh/save failures, retained drafts, agreement/earnings submissions, workspace switching and six layout captures across 1920/1440/768/390 px including RTL. No field/action overlap, horizontal overflow or page errors. Desktop, phone, agreement and expanded bank-evidence screenshots were reviewed. Evidence: `docs/evidence/affiliate-ui-2026-10-05.json`. The fixture is included in the existing backend CI check. These UI changes are not deployed; save/review the PR before the next release. Domain release notes are included in this branch. Preserve the DigitalOcean authorization and runbook below.
 
 **Current authority:** owner at 11:09 Asia/Dubai: “deploy and update what needs to be done on claude handoff so that claude can do the rest of the work it has access to DO account and can do it by itself.” Claude may complete the DNS, certificate, host configuration, domain-connection activation, verification and any necessary repair/deployment work with its existing DigitalOcean access, without another owner confirmation. This supersedes earlier no-deployment, owner-console-only and no-SSH directions for this task. Use authenticated APIs and available host access. Keep credentials in protected runtime storage.
 

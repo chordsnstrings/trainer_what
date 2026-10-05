@@ -1,0 +1,131 @@
+{
+  "recordedAt": "2026-10-05T08:51:24.693187+00:00",
+  "branch": "fix/affiliate-admin-ui-2026-10-05",
+  "baseCommit": "61530e4c98258171ff9a2e8441b55d371fc0c6c6",
+  "scope": "Affiliate earnings UI; isolated synthetic browser fixtures; no production data writes",
+  "status": "locally verified; not deployed",
+  "checks": {
+    "rootTypeScript": "passed",
+    "productionWebBuild": "passed",
+    "prettierWebFiles": "passed",
+    "diffWhitespace": "passed",
+    "browser": "passed",
+    "browserEngine": "Chromium 153.0.8010.0",
+    "journeys": [
+      "directory failure and retry",
+      "refresh failure retains agreement draft",
+      "agreement edit focus and 32.5 percent conversion",
+      "earnings save failure retains inputs",
+      "successful earnings save converts 123.45 AED to 12345 minor units and resets form",
+      "workspace switching removes prior records",
+      "empty and populated desktop/mobile layouts",
+      "RTL phone layout",
+      "expanded receipt reversal and bank-evidence forms"
+    ],
+    "measurements": [
+      {
+        "width": 1920,
+        "rtl": "ltr",
+        "overflow": false,
+        "overlaps": [],
+        "textareaWidth": 1150,
+        "labelWidth": 1150,
+        "textareaHeight": 112,
+        "formBorder": "0px",
+        "checkLabels": [
+          "flex",
+          "flex"
+        ]
+      },
+      {
+        "width": 1920,
+        "rtl": "ltr",
+        "overflow": false,
+        "overlaps": [],
+        "textareaWidth": 1150,
+        "labelWidth": 1150,
+        "textareaHeight": 112,
+        "formBorder": "0px",
+        "checkLabels": [
+          "flex",
+          "flex"
+        ]
+      },
+      {
+        "width": 1440,
+        "rtl": "ltr",
+        "overflow": false,
+        "overlaps": [],
+        "textareaWidth": 1094,
+        "labelWidth": 1094,
+        "textareaHeight": 112,
+        "formBorder": "0px",
+        "checkLabels": [
+          "flex",
+          "flex"
+        ]
+      },
+      {
+        "width": 768,
+        "rtl": "ltr",
+        "overflow": false,
+        "overlaps": [],
+        "textareaWidth": 678,
+        "labelWidth": 678,
+        "textareaHeight": 112,
+        "formBorder": "0px",
+        "checkLabels": [
+          "flex",
+          "flex"
+        ]
+      },
+      {
+        "width": 390,
+        "rtl": "ltr",
+        "overflow": false,
+        "overlaps": [],
+        "textareaWidth": 324,
+        "labelWidth": 324,
+        "textareaHeight": 112,
+        "formBorder": "0px",
+        "checkLabels": [
+          "flex",
+          "flex"
+        ]
+      },
+      {
+        "width": 390,
+        "rtl": "rtl",
+        "overflow": false,
+        "overlaps": [],
+        "textareaWidth": 324,
+        "labelWidth": 324,
+        "textareaHeight": 112,
+        "formBorder": "0px",
+        "checkLabels": [
+          "flex",
+          "flex"
+        ]
+      }
+    ],
+    "pageErrors": [],
+    "visualReview": [
+      "desktop page",
+      "phone full page",
+      "agreement form",
+      "expanded bank-evidence form"
+    ]
+  },
+  "sourceSha256": {
+    "apps/web/components/affiliates.tsx": "ead002646980f6801ac300da684558c97d163a66218471b0a80cc5ad6ee48db0",
+    "apps/web/app/affiliates.css": "fc673edd488c1a5250dc3bcd9800b8a3a8e7fccb552d09835d2b1b031ee1901c",
+    "apps/web/app/layout.tsx": "4e532fe9125f733529a8b50dc27419a75a07153ef787cae72417ea2b6f36081a",
+    "scripts/affiliate-ui-check.mjs": "f12be928c3d69106f4691c1110fd7dac71805fb38e972f1c25ec9d8d2aced6cb",
+    "scripts/backend-ui-check.mjs": "99e3d345861592850e900d44ad31789a2e6cfdbc541cb55e1cf6b27c909e14cc"
+  },
+  "ciIntegration": "scripts/backend-ui-check.mjs imports and runs the affiliate journey in its own authenticated page",
+  "limitations": [
+    "Browser responses are synthetic; unchanged financial API/ledger behavior is not requalified by this UI-only fixture.",
+    "GitHub CI and deployment are separate from these local checks."
+  ]
+}

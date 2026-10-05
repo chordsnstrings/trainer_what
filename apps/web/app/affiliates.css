@@ -1,0 +1,134 @@
+/* Affiliate forms share the workspace controls; layout stays local to this page. */
+.workspace.platform-ui .affiliate-page {
+  display: grid;
+  gap: 24px;
+  max-inline-size: 1200px;
+  margin-inline: auto;
+  min-inline-size: 0;
+}
+.workspace.platform-ui .affiliate-page > :is(.page-heading, .card, .notice, p) {
+  margin-block: 0;
+}
+.workspace.platform-ui .affiliate-page .card > p {
+  max-inline-size: 85ch;
+}
+.workspace.platform-ui .affiliate-page .af-toolbar,
+.workspace.platform-ui .affiliate-page .af-actions,
+.workspace.platform-ui .affiliate-page .af-feedback {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+.workspace.platform-ui .affiliate-page .af-toolbar {
+  align-items: flex-end;
+}
+.workspace.platform-ui .affiliate-page .af-workspace {
+  flex: 1 1 280px;
+  max-inline-size: 480px;
+  margin: 0;
+}
+.workspace.platform-ui .affiliate-page .af-feedback {
+  justify-content: space-between;
+}
+.workspace.platform-ui .affiliate-page .af-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.workspace.platform-ui .affiliate-page .af-form > label {
+  margin: 0;
+  font-size: 13px;
+}
+.workspace.platform-ui
+  .affiliate-page
+  .af-form
+  > :is(.af-wide, legend, p, button) {
+  grid-column: 1 / -1;
+}
+.workspace.platform-ui .affiliate-page .af-form > legend {
+  padding: 0;
+  margin-block-end: 16px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.workspace.platform-ui .affiliate-page .af-form textarea {
+  min-block-size: 112px;
+}
+.workspace.platform-ui .affiliate-page .af-form > button {
+  justify-self: start;
+}
+.workspace.platform-ui .affiliate-page .af-actions {
+  padding-block-start: 4px;
+}
+.workspace.platform-ui .affiliate-page .check-field {
+  color: var(--ink);
+}
+.workspace.platform-ui .affiliate-page .check-field input {
+  flex: 0 0 18px;
+  inline-size: 18px;
+  block-size: 18px;
+  min-block-size: 18px;
+  margin-block-start: 2px;
+}
+.workspace.platform-ui .affiliate-page .list-row {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.workspace.platform-ui .affiliate-page .list-row > div {
+  flex: 1 1 240px;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+.workspace.platform-ui .affiliate-page .list-row button {
+  flex-shrink: 0;
+}
+.workspace.platform-ui .affiliate-page .af-empty {
+  color: var(--muted);
+  line-height: 1.6;
+}
+.workspace.platform-ui .affiliate-page .af-record {
+  border-block-start: 1px solid var(--line);
+  padding-block: 16px;
+  overflow-wrap: anywhere;
+}
+.workspace.platform-ui .affiliate-page .af-record:last-child {
+  padding-block-end: 0;
+}
+.workspace.platform-ui .affiliate-page .af-record > summary {
+  cursor: pointer;
+  font-weight: 550;
+  padding-block: 4px;
+}
+.workspace.platform-ui .affiliate-page .af-record[open] > summary {
+  margin-block-end: 16px;
+}
+.workspace.platform-ui .affiliate-page .af-record form {
+  margin-block-start: 20px;
+}
+@media (max-width: 700px) {
+  .workspace.platform-ui .affiliate-page {
+    gap: 20px;
+  }
+  .workspace.platform-ui .affiliate-page .af-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .workspace.platform-ui .affiliate-page .af-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .workspace.platform-ui .affiliate-page .af-workspace {
+    flex-basis: auto;
+    max-inline-size: none;
+  }
+  .workspace.platform-ui .affiliate-page .af-toolbar > button {
+    align-self: flex-start;
+  }
+  .workspace.platform-ui .affiliate-page .af-actions > button {
+    flex: 1 1 auto;
+  }
+}
