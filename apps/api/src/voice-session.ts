@@ -65,13 +65,27 @@ import { legalAcceptanceVersion } from "./legal.ts";
 import { lockTraining, openTrainingHold } from "./coaching-completion.ts";
 import { screenForSafety } from "./safety-policy.ts";
 import { modelAccounting } from "./model-accounting.ts";
-import { narrate, narrationRequest, type PreparedNarration } from "./voice-narration.ts";
-import { costEstimated, costNotSent, reserveVoiceCost } from "./cost-accounting.ts";
+import {
+  narrate,
+  narrationRequest,
+  type PreparedNarration,
+} from "./voice-narration.ts";
+import {
+  costEstimated,
+  costNotSent,
+  reserveVoiceCost,
+} from "./cost-accounting.ts";
+
+import {
+  guidedProgressSchema,
+  checkpointMatches,
+} from "../../../packages/domain/src/guided-progress.ts";
 
 const id = z.string().uuid();
 const fail = (statusCode: number, code: string, message: string) =>
   Object.assign(new Error(message), { statusCode, code });
-const hash = (value: string) => createHash("sha256").update(value).digest("hex");
+const hash = (value: string) =>
+  createHash("sha256").update(value).digest("hex");
 function identity(req: FastifyRequest): Actor {
   if (!req.identity) throw fail(401, "AUTH_REQUIRED", "Please sign in.");
   return req.identity;
@@ -127,7 +141,9 @@ async function memberLanguage(tx: Tx, userId: string): Promise<"en" | "ar"> {
 export async function currentVoiceStyle(
   tx: Tx,
 ): Promise<{ version: number; style: VoiceStyle }> {
-  const [row] = await tx.query("SELECT version,style FROM voice_session_style()");
+  const [row] = await tx.query(
+    "SELECT version,style FROM voice_session_style()",
+  );
   if (!row) return { version: 0, style: defaultVoiceStyle() };
   const parsed = voiceStyleSchema.safeParse(row.style);
   return {
@@ -219,7 +235,8 @@ async function voiceGate(tx: Tx, a: Actor) {
     speechProvider: speech
       ? {
           name: speech.provider === "cartesia" ? "Cartesia" : "ElevenLabs",
-          zeroRetention: speech.provider === "elevenlabs" && speech.zeroRetention,
+          zeroRetention:
+            speech.provider === "elevenlabs" && speech.zeroRetention,
         }
       : null,
     held: held?.held === true,
@@ -278,7 +295,13 @@ async function sessionPlan(tx: Tx, session: any) {
       "SELECT status,data FROM records WHERE id=$1 AND kind='workout' AND owner_user_id=$2",
       [session.workout_id, session.user_id],
     );
-    return w ? { status: w.status as string, program: w.data?.program, workoutId: session.workout_id as string | null } : null;
+    return w
+      ? {
+          status: w.status as string,
+          program: w.data?.program,
+          workoutId: session.workout_id as string | null,
+        }
+      : null;
   }
   const [p] = await tx.query(
     "SELECT status,data FROM records WHERE id=$1 AND kind='planned_session' AND owner_user_id=$2",
@@ -291,9 +314,19 @@ async function sessionPlan(tx: Tx, session: any) {
       "SELECT status,data FROM records WHERE id=$1 AND kind='workout' AND owner_user_id=$2",
       [p.data.workoutId, session.user_id],
     );
-    return w ? { status: w.status as string, program: w.data?.program, workoutId: p.data.workoutId as string } : null;
+    return w
+      ? {
+          status: w.status as string,
+          program: w.data?.program,
+          workoutId: p.data.workoutId as string,
+        }
+      : null;
   }
-  return { status: p.status === "planned" ? "planned" : String(p.status), program: p.data?.program, workoutId: null };
+  return {
+    status: p.status === "planned" ? "planned" : String(p.status),
+    program: p.data?.program,
+    workoutId: null,
+  };
 }
 async function revokeStale(tx: Tx, sessionId: string) {
   await tx.query(
@@ -311,7 +344,12 @@ async function revokeStale(tx: Tx, sessionId: string) {
  * script is re-validated against the workout's plan. `stale` sessions must not
  * be run (the caller prepares again).
  */
-async function sessionForWorkout(tx: Tx, a: Actor, workout: any, bind: boolean) {
+async function sessionForWorkout(
+  tx: Tx,
+  a: Actor,
+  workout: any,
+  bind: boolean,
+) {
   const plannedId = workout.data?.plannedSessionId ?? null;
   const [session] = await tx.query(
     "SELECT * FROM voice_sessions WHERE user_id=$1 AND status<>'revoked' AND (workout_id=$2 OR (workout_id IS NULL AND planned_session_id=$3::uuid)) ORDER BY (workout_id IS NOT NULL) DESC,created_at DESC LIMIT 1",
@@ -326,7 +364,9 @@ async function sessionForWorkout(tx: Tx, a: Actor, workout: any, bind: boolean) 
       [session.id, workout.id],
     );
     if (bound) {
-      await event(tx, a, "voice_session.bound", session.id, { workoutId: workout.id });
+      await event(tx, a, "voice_session.bound", session.id, {
+        workoutId: workout.id,
+      });
       return { session: bound, stale: false };
     }
   }
@@ -355,7 +395,9 @@ export const clipFingerprint = (
       voice.model ?? pricing.model,
       pricing.priceVersion,
       // Unchanged for ElevenLabs voices made before the provider was recorded.
-      ...(voice.provider && voice.provider !== "elevenlabs" ? [voice.provider] : []),
+      ...(voice.provider && voice.provider !== "elevenlabs"
+        ? [voice.provider]
+        : []),
       // A line spoken in another language than English (an Arabic phrase or
       // cue) is its own clip: audio made before lines carried their language
       // was read as English and is never reused.
@@ -405,6 +447,27 @@ async function sessionView(
   gate?: VoiceGate,
   stale = false,
 ) {
+  const logged = session.workout_id
+    ? await tx.query(
+        "SELECT data FROM workout_events WHERE workout_id=$1 AND user_id=$2",
+        [session.workout_id, session.user_id],
+      )
+    : [];
+  const completedSets = logged.flatMap(({ data }: any) => {
+    const script = session.script as SessionScript;
+    const matching = script.exercises
+      .map((e, i) => ({ e, i }))
+      .filter(({ e }) => e.name === data.exercise);
+    const index =
+      data.exerciseIndex ?? (matching.length === 1 ? matching[0].i : -1);
+    const exercise = script.exercises[index];
+    return exercise &&
+      exercise.name === data.exercise &&
+      data.set >= 1 &&
+      data.set <= exercise.sets
+      ? [`${index}:${data.set}`]
+      : [];
+  });
   const clips = await tx.query(
     "SELECT id,clip_key,status FROM voice_session_clips WHERE session_id=$1",
     [session.id],
@@ -431,24 +494,34 @@ async function sessionView(
     unavailableReason: session.unavailable_reason
       ? {
           code: session.unavailable_reason,
-          message: REASONS[session.unavailable_reason] ?? "Voice is unavailable.",
+          message:
+            REASONS[session.unavailable_reason] ?? "Voice is unavailable.",
         }
       : null,
     generator: session.generator,
     styleVersion: session.style_version,
     scriptFingerprint: session.script_fingerprint,
+    progress: session.runner_progress ?? null,
+    progressVersion: Number(session.progress_version ?? 0),
+    completedSets,
     script: session.script as SessionScript,
     audio: {
       ready: count(clips, "ready"),
       total: clips.length,
-      failed: clips.filter((c) => ["unknown", "skipped", "revoked"].includes(c.status)).length,
+      failed: clips.filter((c) =>
+        ["unknown", "skipped", "revoked"].includes(c.status),
+      ).length,
       sharedReady: count(shared, "ready"),
       sharedTotal: shared.length,
       // The runner fetches newly ready clips by key while audio is being made.
       readyKeys: voiced
         ? [
-            ...clips.filter((c) => c.status === "ready").map((c) => "l:" + c.clip_key),
-            ...shared.filter((c) => c.status === "ready").map((c) => "s:" + c.clip_key),
+            ...clips
+              .filter((c) => c.status === "ready")
+              .map((c) => "l:" + c.clip_key),
+            ...shared
+              .filter((c) => c.status === "ready")
+              .map((c) => "s:" + c.clip_key),
           ]
         : [],
     },
@@ -469,7 +542,11 @@ async function sessionView(
 async function brainSuggestions(db: Database, a: Actor, style: VoiceStyle) {
   const config = runtimeConfig();
   if (!config.MODEL_BASE_URL || !config.MODEL_API_KEY || !config.MODEL_NAME)
-    throw fail(503, "MODEL_UNAVAILABLE", "The Brain's model is not configured, so it cannot suggest wording yet.");
+    throw fail(
+      503,
+      "MODEL_UNAVAILABLE",
+      "The Brain's model is not configured, so it cannot suggest wording yet.",
+    );
   const release = await db.tenant(a, async (tx) => {
     const [r] = await tx.query(
       "SELECT data FROM records WHERE kind='brain_release' AND status='published' ORDER BY created_at DESC LIMIT 1",
@@ -490,11 +567,17 @@ async function brainSuggestions(db: Database, a: Actor, style: VoiceStyle) {
     }));
   const prompt = JSON.stringify({
     tone: style.tone,
-    trainerPhrases: Object.fromEntries(SUGGESTION_FIELDS.map((f) => [f, style[f]])),
+    trainerPhrases: Object.fromEntries(
+      SUGGESTION_FIELDS.map((f) => [f, style[f]]),
+    ),
     communicationRules: rules,
   });
   if (prompt.length > 40000)
-    throw fail(400, "VOICE_STYLE_TOO_LONG", "The style is too long to send for suggestions.");
+    throw fail(
+      400,
+      "VOICE_STYLE_TOO_LONG",
+      "The style is too long to send for suggestions.",
+    );
   let content: unknown;
   try {
     const { payload } = await modelCompletion(
@@ -518,23 +601,35 @@ async function brainSuggestions(db: Database, a: Actor, style: VoiceStyle) {
     content = modelReplyJson(payload);
   } catch (e: any) {
     if (e?.statusCode && e.statusCode < 500) throw e;
-    throw fail(502, "MODEL_UNCONFIRMED", "The Brain could not suggest wording now. Try again later.");
+    throw fail(
+      502,
+      "MODEL_UNCONFIRMED",
+      "The Brain could not suggest wording now. Try again later.",
+    );
   }
   // Read leniently (extra lines and unknown keys dropped); every line is still
   // checked and only ever stored for the trainer's review.
   const read = readVoiceSuggestions(content);
   if (!read)
-    throw fail(502, "MODEL_UNCONFIRMED", "The Brain's suggestions were not in the expected form.");
+    throw fail(
+      502,
+      "MODEL_UNCONFIRMED",
+      "The Brain's suggestions were not in the expected form.",
+    );
   return checkedSuggestions(read, style);
 }
 /** Stored suggestions minus the lines the trainer has already saved into the style. */
 function pendingSuggestions(stored: unknown, style: VoiceStyle) {
   const parsed = voiceSuggestionsSchema.safeParse(
     stored && typeof stored === "object"
-      ? Object.fromEntries(SUGGESTION_FIELDS.map((f) => [f, (stored as any)[f] ?? []]))
+      ? Object.fromEntries(
+          SUGGESTION_FIELDS.map((f) => [f, (stored as any)[f] ?? []]),
+        )
       : {},
   );
-  return parsed.success ? checkedSuggestions(parsed.data, style).accepted : null;
+  return parsed.success
+    ? checkedSuggestions(parsed.data, style).accepted
+    : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -545,7 +640,11 @@ function pendingSuggestions(stored: unknown, style: VoiceStyle) {
 // sent with a short declared duration is reserved at its real upper bound.
 // ---------------------------------------------------------------------------
 const SPEECH_FLOOR_BITS_PER_SECOND = 6000;
-export function billableSpeechMs(audio: Buffer, type: SpeechAudioType, declaredMs: number) {
+export function billableSpeechMs(
+  audio: Buffer,
+  type: SpeechAudioType,
+  declaredMs: number,
+) {
   let derived = (audio.length * 8 * 1000) / SPEECH_FLOOR_BITS_PER_SECOND;
   if (type === "audio/wav") {
     let offset = 12,
@@ -573,7 +672,8 @@ export function billableSpeechMs(audio: Buffer, type: SpeechAudioType, declaredM
         )
           byteRate = declaredRate;
       }
-      if (chunk === "data") dataBytes = Math.min(size, audio.length - offset - 8);
+      if (chunk === "data")
+        dataBytes = Math.min(size, audio.length - offset - 8);
       offset += 8 + size + (size % 2);
     }
     if (byteRate && dataBytes >= 0) derived = (dataBytes / byteRate) * 1000;
@@ -583,6 +683,7 @@ export function billableSpeechMs(audio: Buffer, type: SpeechAudioType, declaredM
 
 const outcomeSchema = z
   .object({
+    eventKey: z.string().uuid().optional(),
     type: z.enum([
       "started",
       "set_logged",
@@ -621,7 +722,11 @@ export function summarizeOutcomes(script: SessionScript, events: Outcome[]) {
   return { totals, byExercise };
 }
 const unheard = () =>
-  fail(502, "SPEECH_UNCONFIRMED", "Your reply could not be heard. Say it again or use the buttons.");
+  fail(
+    502,
+    "SPEECH_UNCONFIRMED",
+    "Your reply could not be heard. Say it again or use the buttons.",
+  );
 /**
  * Screens a spoken reply and opens the safety hold for pain or a red flag.
  * `transcripts` are one reply as heard, in order: a device transcript, or the
@@ -641,7 +746,10 @@ async function heldByScreen(
   session: any,
   transcripts: string[],
 ) {
-  let flagged: { transcript: string; screen: Awaited<ReturnType<typeof screenForSafety>> } | null = null;
+  let flagged: {
+    transcript: string;
+    screen: Awaited<ReturnType<typeof screenForSafety>>;
+  } | null = null;
   for (const { transcript, screened } of readingsToScreen(transcripts)) {
     const screen = await screenForSafety(tx, screened);
     if (screen.hold || parseVoiceCommand(screened).type === "pain") {
@@ -651,7 +759,11 @@ async function heldByScreen(
   }
   if (!flagged) {
     const transcript = replyTranscript(transcripts);
-    return { transcript, command: parseVoiceCommand(transcript), trainingHeld: false };
+    return {
+      transcript,
+      command: parseVoiceCommand(transcript),
+      trainingHeld: false,
+    };
   }
   const { transcript, screen } = flagged;
   const [workout] = await tx.query(
@@ -694,7 +806,11 @@ export function decodeSpeech(
     !/^[A-Za-z0-9+/]+={0,2}$/.test(base64) ||
     base64.length > Math.ceil((maxBytes * 4) / 3) + 16000
   )
-    throw fail(400, "SPEECH_AUDIO", `Send a short audio clip under ${limitKb} KB.`);
+    throw fail(
+      400,
+      "SPEECH_AUDIO",
+      `Send a short audio clip under ${limitKb} KB.`,
+    );
   const b = Buffer.from(base64, "base64");
   const ok =
     b.length >= 16 &&
@@ -720,6 +836,57 @@ export function decodeSpeech(
 }
 
 export function registerVoiceSessions(app: FastifyInstance, db: Database) {
+  app.post(
+    "/api/v1/voice-sessions/:id/progress",
+    { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } },
+    async (req) => {
+      const a = identity(req);
+      const b = z
+        .object({
+          fingerprint: z.string().min(1).max(100),
+          version: z.number().int().min(0),
+          state: guidedProgressSchema,
+        })
+        .strict()
+        .parse(req.body);
+      return db.tenant(a, async (tx) => {
+        const session = await ownSession(tx, a, (req.params as any).id);
+        if (
+          session.script_fingerprint !== b.fingerprint ||
+          !checkpointMatches(b.state, session.script)
+        )
+          throw fail(
+            409,
+            "GUIDED_PLAN_CHANGED",
+            "The session plan changed. Prepare it again.",
+          );
+        const plan = await sessionPlan(tx, session);
+        if (!plan || !scriptCurrent(session.script, plan.program))
+          throw fail(
+            409,
+            "GUIDED_PLAN_CHANGED",
+            "The session plan changed. Prepare it again.",
+          );
+        const progress = {
+          version: 1,
+          fingerprint: b.fingerprint,
+          state: b.state,
+          savedAt: Date.now(),
+        };
+        const [updated] = await tx.query(
+          "UPDATE voice_sessions SET runner_progress=$2,progress_version=progress_version+1 WHERE id=$1 AND user_id=$3 AND progress_version=$4 RETURNING progress_version",
+          [session.id, JSON.stringify(progress), a.userId, b.version],
+        );
+        if (!updated)
+          throw fail(
+            409,
+            "GUIDED_PROGRESS_CONFLICT",
+            "This session changed on another device. Reload before continuing.",
+          );
+        return { version: Number(updated.progress_version) };
+      });
+    },
+  );
   // ------------------------------------------------------------------ member
   app.get("/api/v1/voice-sessions/workout/:workoutId", async (req) => {
     const a = identity(req),
@@ -734,7 +901,8 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
         gate,
         workoutStatus: workout.status,
         stale: !!found?.stale,
-        session: found && !found.stale ? await sessionView(tx, found.session) : null,
+        session:
+          found && !found.stale ? await sessionView(tx, found.session) : null,
       };
     });
   });
@@ -748,7 +916,8 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
         "SELECT * FROM voice_sessions WHERE user_id=$1 AND planned_session_id=$2 AND status<>'revoked' ORDER BY (workout_id IS NULL) DESC,created_at DESC LIMIT 1",
         [a.userId, planned.id],
       );
-      const stale = !!session && !scriptCurrent(session.script, planned.data?.program);
+      const stale =
+        !!session && !scriptCurrent(session.script, planned.data?.program);
       return {
         gate,
         planned: {
@@ -774,7 +943,10 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
           playbackConsent: z.literal(true).optional(),
         })
         .strict()
-        .refine((v) => !!v.workoutId !== !!v.plannedSessionId, "Name a workout or a planned session.")
+        .refine(
+          (v) => !!v.workoutId !== !!v.plannedSessionId,
+          "Name a workout or a planned session.",
+        )
         .parse(req.body);
     const consentVersion = b.playbackConsent
       ? (await legalAcceptanceVersion(db, "voice")) + "|voice-session:v1"
@@ -784,151 +956,188 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
     // transaction, and the second pass builds the session with whatever
     // passed the checks (none when the call failed). An existing session is
     // returned as it is (its lines were written when it was prepared).
-    const run = (narration: PreparedNarration | null | undefined) => db.tenant(a, async (tx): Promise<any> => {
-      await lockTraining(tx, a);
-      const access = await memberAccess(tx, a.userId);
-      if (!access.active)
-        throw fail(402, "MEMBERSHIP_REQUIRED", REASONS.MEMBERSHIP_REQUIRED);
-      // What is being prepared: an active workout, or a planned session ahead of
-      // its day (a started planned session resolves to its workout).
-      let workout: any = null,
-        planned: any = null;
-      if (b.plannedSessionId) {
-        planned = await ownPlanned(tx, a, b.plannedSessionId);
-        if (planned.status === "started" && planned.data?.workoutId) {
-          workout = await ownWorkout(tx, a, planned.data.workoutId);
-          planned = null;
-        } else if (planned.status !== "planned")
-          throw fail(409, "SESSION_CHANGED", "This planned session is unavailable.");
-      } else workout = await ownWorkout(tx, a, b.workoutId!);
-      if (workout && workout.status !== "active")
-        throw fail(409, "WORKOUT_STATE", "Start this workout before its voice session.");
-      const program = workout ? workout.data?.program : planned.data?.program;
-      if (b.playbackConsent && narration === undefined)
-        await recordConsent(tx, a, "voice_playback", true, consentVersion);
-      const { gate, voice, pricing } = await voiceGate(tx, a);
-      if (gate.held) throw fail(409, "TRAINING_HELD", REASONS.TRAINING_HELD);
-      const plan = planExercises(program);
-      const style = await currentVoiceStyle(tx);
-      let existing: any = null,
-        stale: any = null;
-      if (workout) {
-        const found = await sessionForWorkout(tx, a, workout, true);
-        if (found?.stale) stale = found.session;
-        else existing = found?.session ?? null;
-      } else {
-        const [found] = await tx.query(
-          "SELECT * FROM voice_sessions WHERE user_id=$1 AND planned_session_id=$2 AND workout_id IS NULL AND status<>'revoked' ORDER BY created_at DESC LIMIT 1",
-          [a.userId, planned.id],
-        );
-        if (found && !scriptCurrent(found.script, program)) stale = found;
-        else existing = found ?? null;
-      }
-      const voiceMode = gate.mode === "voice" && !!voice && !!pricing;
-      if (existing) {
-        const [session] = await tx.query(
-          "SELECT * FROM voice_sessions WHERE id=$1 AND user_id=$2 FOR UPDATE",
-          [existing.id, a.userId],
-        );
-        // Give a text-guided, revoked or capped session the current voice.
-        const upgradable =
-          voiceMode &&
-          ["ready", "running"].includes(session.status) &&
-          (session.mode === "text" || ["revoked", "capped"].includes(session.audio_status));
-        if (!upgradable) return sessionView(tx, session, gate);
-        if (
-          session.audio_status === "capped" &&
-          session.voice_id === voice.id &&
-          session.voice_version === voice.version
-        )
-          await tx.query(
-            "UPDATE voice_session_clips SET status='pending',updated_at=now() WHERE session_id=$1 AND status='skipped'",
-            [session.id],
+    const run = (narration: PreparedNarration | null | undefined) =>
+      db.tenant(a, async (tx): Promise<any> => {
+        await lockTraining(tx, a);
+        const access = await memberAccess(tx, a.userId);
+        if (!access.active)
+          throw fail(402, "MEMBERSHIP_REQUIRED", REASONS.MEMBERSHIP_REQUIRED);
+        // What is being prepared: an active workout, or a planned session ahead of
+        // its day (a started planned session resolves to its workout).
+        let workout: any = null,
+          planned: any = null;
+        if (b.plannedSessionId) {
+          planned = await ownPlanned(tx, a, b.plannedSessionId);
+          if (planned.status === "started" && planned.data?.workoutId) {
+            workout = await ownWorkout(tx, a, planned.data.workoutId);
+            planned = null;
+          } else if (planned.status !== "planned")
+            throw fail(
+              409,
+              "SESSION_CHANGED",
+              "This planned session is unavailable.",
+            );
+        } else workout = await ownWorkout(tx, a, b.workoutId!);
+        if (workout && workout.status !== "active")
+          throw fail(
+            409,
+            "WORKOUT_STATE",
+            "Start this workout before its voice session.",
           );
-        else
-          await queueSessionClips(tx, a, session.id, session.script, voice, pricing!);
-        const [updated] = await tx.query(
-          "UPDATE voice_sessions SET mode='voice',audio_status='generating',unavailable_reason=NULL,voice_id=$2,voice_version=$3,version=version+1,updated_at=now() WHERE id=$1 RETURNING *",
-          [session.id, voice.id, voice.version],
-        );
-        await event(tx, a, "voice_session.voice_queued", session.id);
-        return sessionView(tx, updated, gate);
-      }
-      // A substitution or plan change makes the old script stale: it is
-      // revoked (never spoken) and the session is built anew.
-      if (stale) await revokeStale(tx, stale.id);
-      const title = String(program?.title ?? "Workout");
-      const language = await memberLanguage(tx, a.userId);
-      if (narration === undefined) {
-        const request = await narrationRequest(tx, a, {
-          plan,
-          style: style.style,
+        const program = workout ? workout.data?.program : planned.data?.program;
+        if (b.playbackConsent && narration === undefined)
+          await recordConsent(tx, a, "voice_playback", true, consentVersion);
+        const { gate, voice, pricing } = await voiceGate(tx, a);
+        if (gate.held) throw fail(409, "TRAINING_HELD", REASONS.TRAINING_HELD);
+        const plan = planExercises(program);
+        const style = await currentVoiceStyle(tx);
+        let existing: any = null,
+          stale: any = null;
+        if (workout) {
+          const found = await sessionForWorkout(tx, a, workout, true);
+          if (found?.stale) stale = found.session;
+          else existing = found?.session ?? null;
+        } else {
+          const [found] = await tx.query(
+            "SELECT * FROM voice_sessions WHERE user_id=$1 AND planned_session_id=$2 AND workout_id IS NULL AND status<>'revoked' ORDER BY created_at DESC LIMIT 1",
+            [a.userId, planned.id],
+          );
+          if (found && !scriptCurrent(found.script, program)) stale = found;
+          else existing = found ?? null;
+        }
+        const voiceMode = gate.mode === "voice" && !!voice && !!pricing;
+        if (existing) {
+          const [session] = await tx.query(
+            "SELECT * FROM voice_sessions WHERE id=$1 AND user_id=$2 FOR UPDATE",
+            [existing.id, a.userId],
+          );
+          // Give a text-guided, revoked or capped session the current voice.
+          const upgradable =
+            voiceMode &&
+            ["ready", "running"].includes(session.status) &&
+            (session.mode === "text" ||
+              ["revoked", "capped"].includes(session.audio_status));
+          if (!upgradable) return sessionView(tx, session, gate);
+          if (
+            session.audio_status === "capped" &&
+            session.voice_id === voice.id &&
+            session.voice_version === voice.version
+          )
+            await tx.query(
+              "UPDATE voice_session_clips SET status='pending',updated_at=now() WHERE session_id=$1 AND status='skipped'",
+              [session.id],
+            );
+          else
+            await queueSessionClips(
+              tx,
+              a,
+              session.id,
+              session.script,
+              voice,
+              pricing!,
+            );
+          const [updated] = await tx.query(
+            "UPDATE voice_sessions SET mode='voice',audio_status='generating',unavailable_reason=NULL,voice_id=$2,voice_version=$3,version=version+1,updated_at=now() WHERE id=$1 RETURNING *",
+            [session.id, voice.id, voice.version],
+          );
+          await event(tx, a, "voice_session.voice_queued", session.id);
+          return sessionView(tx, updated, gate);
+        }
+        // A substitution or plan change makes the old script stale: it is
+        // revoked (never spoken) and the session is built anew.
+        if (stale) await revokeStale(tx, stale.id);
+        const title = String(program?.title ?? "Workout");
+        const language = await memberLanguage(tx, a.userId);
+        if (narration === undefined) {
+          const request = await narrationRequest(tx, a, {
+            plan,
+            style: style.style,
+            title,
+            language,
+            workoutId: workout?.id ?? null,
+          });
+          if (request) return { narrationRequest: request };
+        }
+        // A bilingual trainer's phrases in the member's language come first.
+        const built = buildSessionScript({
           title,
+          exercises: plan,
+          style: style.style,
           language,
-          workoutId: workout?.id ?? null,
+          narration: narration ?? null,
         });
-        if (request) return { narrationRequest: request };
-      }
-      // A bilingual trainer's phrases in the member's language come first.
-      const built = buildSessionScript({
-        title,
-        exercises: plan,
-        style: style.style,
-        language,
-        narration: narration ?? null,
-      });
-      if (scriptIssues(built.script, plan).length)
-        throw fail(409, "VOICE_SCRIPT_INVALID", "This workout cannot be voiced safely; use the written session.");
-      const fingerprint = hash(JSON.stringify(built.script));
-      const firstReason = gate.reasons[0]?.code ?? null;
-      const plannedId = planned?.id ?? workout?.data?.plannedSessionId ?? null;
-      const [session] = await tx.query(
-        "INSERT INTO voice_sessions(id,tenant_id,user_id,workout_id,planned_session_id,script_fingerprint,mode,status,audio_status,script,script_version,style_version,generator,voice_id,voice_version,unavailable_reason) VALUES($1,$2,$3,$4,$5,$6,$7,'ready',$8,$9,$10,$11,'rules',$12,$13,$14) ON CONFLICT DO NOTHING RETURNING *",
-        [
-          randomUUID(),
-          a.tenantId,
-          a.userId,
-          workout?.id ?? null,
-          plannedId,
-          fingerprint,
-          voiceMode ? "voice" : "text",
-          voiceMode ? "generating" : "none",
-          JSON.stringify(built.script),
-          VOICE_SCRIPT_VERSION,
-          style.version,
-          voiceMode ? voice.id : null,
-          voiceMode ? voice.version : null,
-          voiceMode ? null : firstReason,
-        ],
-      );
-      if (!session) {
-        const [raced] = await tx.query(
-          "SELECT * FROM voice_sessions WHERE user_id=$1 AND script_fingerprint=$2 AND (workout_id=$3 OR ($3::uuid IS NULL AND workout_id IS NULL AND planned_session_id=$4::uuid))",
-          [a.userId, fingerprint, workout?.id ?? null, plannedId],
+        if (scriptIssues(built.script, plan).length)
+          throw fail(
+            409,
+            "VOICE_SCRIPT_INVALID",
+            "This workout cannot be voiced safely; use the written session.",
+          );
+        const fingerprint = hash(JSON.stringify(built.script));
+        const firstReason = gate.reasons[0]?.code ?? null;
+        const plannedId =
+          planned?.id ?? workout?.data?.plannedSessionId ?? null;
+        const [session] = await tx.query(
+          "INSERT INTO voice_sessions(id,tenant_id,user_id,workout_id,planned_session_id,script_fingerprint,mode,status,audio_status,script,script_version,style_version,generator,voice_id,voice_version,unavailable_reason) VALUES($1,$2,$3,$4,$5,$6,$7,'ready',$8,$9,$10,$11,'rules',$12,$13,$14) ON CONFLICT DO NOTHING RETURNING *",
+          [
+            randomUUID(),
+            a.tenantId,
+            a.userId,
+            workout?.id ?? null,
+            plannedId,
+            fingerprint,
+            voiceMode ? "voice" : "text",
+            voiceMode ? "generating" : "none",
+            JSON.stringify(built.script),
+            VOICE_SCRIPT_VERSION,
+            style.version,
+            voiceMode ? voice.id : null,
+            voiceMode ? voice.version : null,
+            voiceMode ? null : firstReason,
+          ],
         );
-        if (!raced) throw fail(409, "VOICE_SESSION_CHANGED", "This session changed. Open it again.");
-        return sessionView(tx, raced, gate);
-      }
-      if (voiceMode)
-        await queueSessionClips(tx, a, session.id, built.script, voice, pricing!);
-      await event(tx, a, "voice_session.prepared", session.id, {
-        mode: session.mode,
-        ahead: !workout,
-        rejectedLines: built.rejected.length,
-        // Brain lines: "off" (no confirmed style or no model use), "failed"
-        // (the call failed; the session runs without them) or the counts.
-        brain:
-          narration === undefined
-            ? "off"
-            : narration === null
-              ? "failed"
-              : {
-                  added: built.brain?.added ?? 0,
-                  dropped: (built.brain?.dropped ?? []).map((d) => ({ slot: d.slot, issues: d.issues })),
-                },
+        if (!session) {
+          const [raced] = await tx.query(
+            "SELECT * FROM voice_sessions WHERE user_id=$1 AND script_fingerprint=$2 AND (workout_id=$3 OR ($3::uuid IS NULL AND workout_id IS NULL AND planned_session_id=$4::uuid))",
+            [a.userId, fingerprint, workout?.id ?? null, plannedId],
+          );
+          if (!raced)
+            throw fail(
+              409,
+              "VOICE_SESSION_CHANGED",
+              "This session changed. Open it again.",
+            );
+          return sessionView(tx, raced, gate);
+        }
+        if (voiceMode)
+          await queueSessionClips(
+            tx,
+            a,
+            session.id,
+            built.script,
+            voice,
+            pricing!,
+          );
+        await event(tx, a, "voice_session.prepared", session.id, {
+          mode: session.mode,
+          ahead: !workout,
+          rejectedLines: built.rejected.length,
+          // Brain lines: "off" (no confirmed style or no model use), "failed"
+          // (the call failed; the session runs without them) or the counts.
+          brain:
+            narration === undefined
+              ? "off"
+              : narration === null
+                ? "failed"
+                : {
+                    added: built.brain?.added ?? 0,
+                    dropped: (built.brain?.dropped ?? []).map((d) => ({
+                      slot: d.slot,
+                      issues: d.issues,
+                    })),
+                  },
+        });
+        return sessionView(tx, session, gate);
       });
-      return sessionView(tx, session, gate);
-    });
     const first = await run(undefined);
     if (!first?.narrationRequest) return first;
     return run(await narrate(db, a, first.narrationRequest));
@@ -955,7 +1164,9 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
             .string()
             .max(6000)
             .transform((v) => v.split(",").filter(Boolean))
-            .pipe(z.array(z.string().regex(/^[ls]:[a-z0-9_:.-]{1,80}$/)).max(60))
+            .pipe(
+              z.array(z.string().regex(/^[ls]:[a-z0-9_:.-]{1,80}$/)).max(60),
+            )
             .optional(),
         })
         .parse(req.query ?? {});
@@ -965,19 +1176,34 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
         throw fail(409, "VOICE_UNAVAILABLE", REASONS.VOICE_UNAVAILABLE);
       const { gate } = await voiceGate(tx, a);
       const blocking = gate.reasons.find((r) =>
-        ["MEMBERSHIP_REQUIRED", "TRAINING_HELD", "VOICE_MEMBERSHIP", "VOICE_NOT_VERIFIED", "VOICE_UNAVAILABLE", "PLAYBACK_CONSENT", "VOICE_CONTRACT"].includes(r.code),
+        [
+          "MEMBERSHIP_REQUIRED",
+          "TRAINING_HELD",
+          "VOICE_MEMBERSHIP",
+          "VOICE_NOT_VERIFIED",
+          "VOICE_UNAVAILABLE",
+          "PLAYBACK_CONSENT",
+          "VOICE_CONTRACT",
+        ].includes(r.code),
       );
       if (blocking) throw fail(409, blocking.code, blocking.message);
       const [voice] = await tx.query(
         "SELECT id FROM guided_voice() WHERE id=$1 AND version=$2 AND consented",
         [session.voice_id, session.voice_version],
       );
-      if (!voice) throw fail(409, "VOICE_UNAVAILABLE", REASONS.VOICE_UNAVAILABLE);
+      if (!voice)
+        throw fail(409, "VOICE_UNAVAILABLE", REASONS.VOICE_UNAVAILABLE);
       // Session clips first (by key), then the workspace's shared clips. The
       // page is chosen from sizes first; audio is read only for that page.
       const index = await tx.query(
         "SELECT id,clip_key,session_id IS NULL AS shared,octet_length(audio) AS bytes FROM voice_session_clips WHERE status='ready' AND ((session_id=$1) OR (session_id IS NULL AND voice_id=$2 AND voice_version=$3)) AND ($4::text IS NULL OR (CASE WHEN session_id IS NULL THEN '1' ELSE '0' END)||clip_key>$4) AND ($5::text[] IS NULL OR (CASE WHEN session_id IS NULL THEN 's:' ELSE 'l:' END)||clip_key=ANY($5::text[])) ORDER BY (CASE WHEN session_id IS NULL THEN '1' ELSE '0' END)||clip_key LIMIT 400",
-        [session.id, session.voice_id, session.voice_version, q.after ?? null, q.keys ?? null],
+        [
+          session.id,
+          session.voice_id,
+          session.voice_version,
+          q.after ?? null,
+          q.keys ?? null,
+        ],
       );
       const chosen: typeof index = [];
       let bytes = 0,
@@ -1000,7 +1226,11 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
       const byId = new Map(audio.map((r) => [r.id, r.audio as string]));
       const clips = chosen
         .filter((r) => byId.has(r.id))
-        .map((r) => ({ key: r.clip_key as string, shared: r.shared as boolean, audio: byId.get(r.id)! }));
+        .map((r) => ({
+          key: r.clip_key as string,
+          shared: r.shared as boolean,
+          audio: byId.get(r.id)!,
+        }));
       const last = chosen[chosen.length - 1];
       return {
         clips,
@@ -1027,14 +1257,19 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
     "/api/v1/voice-sessions/:id/transcribe",
     {
       bodyLimit: 800000,
-      config: { rateLimit: { max: 40, timeWindow: "1 minute" } },
+      config: { rateLimit: { max: 12, timeWindow: "1 minute" } },
     },
     async (req) => {
       const a = identity(req),
         b = z
           .object({
             audio: z.string().min(16).max(700000),
-            type: z.enum(Object.keys(SPEECH_AUDIO_TYPES) as [SpeechAudioType, ...SpeechAudioType[]]),
+            type: z.enum(
+              Object.keys(SPEECH_AUDIO_TYPES) as [
+                SpeechAudioType,
+                ...SpeechAudioType[],
+              ],
+            ),
             durationMs: z.number().int().min(200).max(15000),
             // The language the member replies in (chosen on the runner); the
             // member's saved language when absent.
@@ -1045,7 +1280,11 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
       const speech = speechPricing(),
         pricing = voicePricing();
       if (!speech || !pricing)
-        throw fail(503, "SPEECH_UNAVAILABLE", "Spoken replies are not switched on. Use the buttons.");
+        throw fail(
+          503,
+          "SPEECH_UNAVAILABLE",
+          "Spoken replies are not switched on. Use the buttons.",
+        );
       const audio = decodeSpeech(b.audio, b.type);
       const reservation = await db.tenant(a, async (tx) => {
         const session = await ownSession(tx, a, (req.params as any).id);
@@ -1053,9 +1292,14 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
           throw fail(409, "VOICE_SESSION_ENDED", "This session has ended.");
         const { gate } = await voiceGate(tx, a);
         if (gate.held) throw fail(409, "TRAINING_HELD", REASONS.TRAINING_HELD);
-        if (!gate.premium) throw fail(402, "VOICE_MEMBERSHIP", REASONS.VOICE_MEMBERSHIP);
+        if (!gate.premium)
+          throw fail(402, "VOICE_MEMBERSHIP", REASONS.VOICE_MEMBERSHIP);
         if (!gate.transcriptionConsent)
-          throw fail(409, "TRANSCRIPTION_CONSENT", "Switch on spoken replies and agree to transcription first.");
+          throw fail(
+            409,
+            "TRANSCRIPTION_CONSENT",
+            "Switch on spoken replies and agree to transcription first.",
+          );
         // Replies are recognised in the member's language (English or Arabic).
         const language = b.language ?? (await memberLanguage(tx, a.userId));
         // Cartesia's batch model is told the language and cannot detect it: a
@@ -1064,9 +1308,15 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
         // With Cartesia the reply is also transcribed in the other language,
         // so pain is heard in either. ElevenLabs detects the language itself.
         const languages: Array<"en" | "ar"> =
-          speech.provider === "cartesia" ? [language, language === "ar" ? "en" : "ar"] : [language];
-        await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [a.tenantId + ":voice-budget"]);
-        const [spent] = await tx.query("SELECT voice_guidance_spent_today() AS total");
+          speech.provider === "cartesia"
+            ? [language, language === "ar" ? "en" : "ar"]
+            : [language];
+        await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+          a.tenantId + ":voice-budget",
+        ]);
+        const [spent] = await tx.query(
+          "SELECT voice_guidance_spent_today() AS total",
+        );
         // Reserved at the larger of the declared and the byte-derived duration,
         // once per transcription.
         const billableMs = billableSpeechMs(audio, b.type, b.durationMs);
@@ -1102,7 +1352,12 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
         }
         return { session, usageIds, billableMs, languages };
       });
-      let heard: Array<{ text: string; language: "en" | "ar"; usageId: string; seconds: number | null } | null>;
+      let heard: Array<{
+        text: string;
+        language: "en" | "ar";
+        usageId: string;
+        seconds: number | null;
+      } | null>;
       try {
         heard = await Promise.all(
           reservation.languages.map((language, index) => {
@@ -1112,12 +1367,20 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
               b.type,
               async () => {
                 await db.tenant(a, (tx) =>
-                  tx.query("UPDATE cost_events SET status='unknown' WHERE id=$1 AND status='reserved'", [usageId]),
+                  tx.query(
+                    "UPDATE cost_events SET status='unknown' WHERE id=$1 AND status='reserved'",
+                    [usageId],
+                  ),
                 );
               },
               { language },
             ).then(
-              (result) => ({ text: result.text.trim(), language, usageId, seconds: result.durationSeconds }),
+              (result) => ({
+                text: result.text.trim(),
+                language,
+                usageId,
+                seconds: result.durationSeconds,
+              }),
               () => null,
             );
           }),
@@ -1134,7 +1397,9 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
         if (!result) continue;
         // Transcribed: priced now at the reserved estimate ('estimated'); the
         // provider invoice can still correct it (docs/features/platform-finance.md).
-        await db.tenant(a, (tx) => costEstimated(tx, result.usageId)).catch(() => {});
+        await db
+          .tenant(a, (tx) => costEstimated(tx, result.usageId))
+          .catch(() => {});
         // The provider's own timing (end of the last word) is kept for
         // reconciliation in the audit event; audio the provider timed beyond
         // the reservation is recorded as an estimated supplement so the
@@ -1143,12 +1408,19 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
         if (providerSeconds !== null)
           await db
             .tenant(a, async (tx) => {
-              await event(tx, a, "voice_session.transcribed", reservation.session.id, {
-                usageId: result.usageId,
-                language: result.language,
-                reservedSeconds: Math.round(reservation.billableMs / 100) / 10,
-                providerSeconds: Math.round(providerSeconds * 10) / 10,
-              });
+              await event(
+                tx,
+                a,
+                "voice_session.transcribed",
+                reservation.session.id,
+                {
+                  usageId: result.usageId,
+                  language: result.language,
+                  reservedSeconds:
+                    Math.round(reservation.billableMs / 100) / 10,
+                  providerSeconds: Math.round(providerSeconds * 10) / 10,
+                },
+              );
               const extraMs = providerSeconds * 1000 - reservation.billableMs;
               if (extraMs > 0)
                 await reserveVoiceCost(tx, {
@@ -1184,7 +1456,11 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
       const replyHeard = !!heard[0];
       if (!transcripts.some(Boolean)) {
         if (!replyHeard) throw unheard();
-        return { transcript: "", command: { type: "unknown" }, trainingHeld: false };
+        return {
+          transcript: "",
+          command: { type: "unknown" },
+          trainingHeld: false,
+        };
       }
       const result = await db.tenant(a, async (tx) => {
         await lockTraining(tx, a);
@@ -1193,7 +1469,8 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
       });
       // The reply-language reading failed or heard nothing while the other
       // heard words: without pain, the member says it again.
-      if ((!replyHeard || !transcripts[0].trim()) && !result.trainingHeld) throw unheard();
+      if ((!replyHeard || !transcripts[0].trim()) && !result.trainingHeld)
+        throw unheard();
       return result;
     },
   );
@@ -1212,30 +1489,59 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
         "SELECT * FROM voice_sessions WHERE id=$1 AND user_id=$2 FOR UPDATE",
         [id.parse((req.params as any).id), a.userId],
       );
-      if (!session) throw fail(404, "NOT_FOUND", "This voice session is unavailable.");
+      if (!session)
+        throw fail(404, "NOT_FOUND", "This voice session is unavailable.");
       if (b.status === "running" && !session.workout_id)
-        throw fail(409, "WORKOUT_STATE", "Start the workout before running its voice session.");
+        throw fail(
+          409,
+          "WORKOUT_STATE",
+          "Start the workout before running its voice session.",
+        );
       const script = session.script as SessionScript;
       for (const o of b.outcomes) {
         if (o.exercise !== undefined && !script.exercises[o.exercise])
-          throw fail(400, "VOICE_OUTCOME", "An outcome names an exercise outside this session.");
+          throw fail(
+            400,
+            "VOICE_OUTCOME",
+            "An outcome names an exercise outside this session.",
+          );
         if (o.type === "adjusted") {
           const ex = script.exercises[o.exercise ?? -1];
           if (
             !ex ||
             o.toKg === undefined ||
-            !adjustmentAllowed(ex, { reps: ex.reps, loadKg: o.toKg }, script.rules)
+            !adjustmentAllowed(
+              ex,
+              { reps: ex.reps, loadKg: o.toKg },
+              script.rules,
+            )
           )
-            throw fail(400, "VOICE_ADJUSTMENT", "This adjustment is outside the plan or your trainer's rule.");
+            throw fail(
+              400,
+              "VOICE_ADJUSTMENT",
+              "This adjustment is outside the plan or your trainer's rule.",
+            );
         }
       }
+      const recorded = Array.isArray(session.events) ? session.events : [];
+      const seen = new Set(
+        recorded.map((o: any) => o.eventKey).filter(Boolean),
+      );
+      const additions = b.outcomes.filter((o) => {
+        if (!o.eventKey) return true;
+        if (seen.has(o.eventKey)) return false;
+        seen.add(o.eventKey);
+        return true;
+      });
       const events = [
-        ...(Array.isArray(session.events) ? session.events : []),
-        ...b.outcomes.map((o) => ({ ...o, at: new Date().toISOString() })),
+        ...recorded,
+        ...additions.map((o) => ({ ...o, at: new Date().toISOString() })),
       ].slice(0, 500);
       // An ended session (for example stopped for pain on the server) keeps
       // its status; late outcomes are still recorded for the trainer.
-      const status = ["completed", "stopped", "revoked"].includes(session.status)
+      const status = ["completed", "stopped", "revoked"].includes(
+        session.status,
+      )
         ? undefined
         : b.status === "running" && session.status === "running"
           ? undefined
@@ -1266,15 +1572,29 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
           transcription: z.boolean().optional(),
         })
         .strict()
-        .refine((v) => v.playback !== undefined || v.transcription !== undefined)
+        .refine(
+          (v) => v.playback !== undefined || v.transcription !== undefined,
+        )
         .parse(req.body);
-    const version = (await legalAcceptanceVersion(db, "voice")) + "|voice-session:v1";
+    const version =
+      (await legalAcceptanceVersion(db, "voice")) + "|voice-session:v1";
     return db.tenant(a, async (tx) => {
       if (b.playback !== undefined)
         await recordConsent(tx, a, "voice_playback", b.playback, version);
       if (b.transcription !== undefined)
-        await recordConsent(tx, a, "voice_transcription", b.transcription, version);
+        await recordConsent(
+          tx,
+          a,
+          "voice_transcription",
+          b.transcription,
+          version,
+        );
       if (b.playback === false) {
+        // Revoke every playback path, including recordings from the old runner.
+        await tx.query(
+          "UPDATE guided_audio SET status='revoked',audio=NULL WHERE user_id=$1 AND status<>'revoked'",
+          [a.userId],
+        );
         // Stored trainer-voice audio for this member stops being available now.
         await tx.query(
           "UPDATE voice_session_clips SET status='revoked',audio=NULL,updated_at=now() WHERE user_id=$1 AND status<>'revoked'",
@@ -1296,7 +1616,9 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
     const a = coach(req);
     return db.tenant(a, async (tx) => {
       const current = await currentVoiceStyle(tx);
-      const [row] = await tx.query("SELECT suggestions FROM voice_session_styles");
+      const [row] = await tx.query(
+        "SELECT suggestions FROM voice_session_styles",
+      );
       return {
         ...current,
         defaults: defaultVoiceStyle(),
@@ -1317,26 +1639,41 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
         "VOICE_STYLE_WORDING",
         "Some phrases cannot be spoken (numbers, medical or treatment wording, red-flag terms, unsafe technique, links and workout changes belong elsewhere): " +
           issues
-            .map((i) => `${i.field} line ${i.index + 1}: ${i.issues.join(", ")}`)
+            .map(
+              (i) => `${i.field} line ${i.index + 1}: ${i.issues.join(", ")}`,
+            )
             .join("; "),
       );
     return db.tenant(a, async (tx) => {
-      await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [a.tenantId + ":voice-style"]);
-      const [prior] = await tx.query("SELECT version,suggestions,style FROM voice_session_styles");
+      await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+        a.tenantId + ":voice-style",
+      ]);
+      const [prior] = await tx.query(
+        "SELECT version,suggestions,style FROM voice_session_styles",
+      );
       if (Number(prior?.version ?? 0) !== b.revision)
-        throw fail(409, "VOICE_STYLE_CHANGED", "The voice style changed. Reload before saving.");
+        throw fail(
+          409,
+          "VOICE_STYLE_CHANGED",
+          "The voice style changed. Reload before saving.",
+        );
       // Suggestions the trainer saved into the style are no longer pending.
       const left = pendingSuggestions(prior?.suggestions, b.style) ?? {};
       // "Your one-on-one sessions" is saved through its own routes
       // (voice-narration.ts): this form keeps whatever is stored.
       const { oneOnOne: _ignored, ...phrases } = b.style;
       const kept = voiceStyleSchema.safeParse(prior?.style ?? {});
-      const style = kept.success && kept.data.oneOnOne ? { ...phrases, oneOnOne: kept.data.oneOnOne } : phrases;
+      const style =
+        kept.success && kept.data.oneOnOne
+          ? { ...phrases, oneOnOne: kept.data.oneOnOne }
+          : phrases;
       const [row] = await tx.query(
         "INSERT INTO voice_session_styles(tenant_id,version,style,suggestions,updated_by) VALUES($1,1,$2,$3,$4) ON CONFLICT(tenant_id) DO UPDATE SET version=voice_session_styles.version+1,style=EXCLUDED.style,suggestions=EXCLUDED.suggestions,updated_by=EXCLUDED.updated_by,updated_at=now() RETURNING version,style",
         [a.tenantId, JSON.stringify(style), JSON.stringify(left), a.userId],
       );
-      await event(tx, a, "voice_session.style_saved", undefined, { version: row.version });
+      await event(tx, a, "voice_session.style_saved", undefined, {
+        version: row.version,
+      });
       return { version: row.version, style: row.style, suggestions: left };
     });
   });
@@ -1346,10 +1683,17 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
     const current = await db.tenant(a, (tx) => currentVoiceStyle(tx));
     const { accepted, rejected } = await brainSuggestions(db, a, current.style);
     return db.tenant(a, async (tx) => {
-      await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [a.tenantId + ":voice-style"]);
+      await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+        a.tenantId + ":voice-style",
+      ]);
       const [row] = await tx.query(
         "INSERT INTO voice_session_styles(tenant_id,version,style,suggestions,updated_by) VALUES($1,0,$2,$3,$4) ON CONFLICT(tenant_id) DO UPDATE SET suggestions=EXCLUDED.suggestions,updated_at=now() RETURNING version,style",
-        [a.tenantId, JSON.stringify(current.style), JSON.stringify(accepted), a.userId],
+        [
+          a.tenantId,
+          JSON.stringify(current.style),
+          JSON.stringify(accepted),
+          a.userId,
+        ],
       );
       await event(tx, a, "voice_session.suggestions_made", undefined, {
         accepted: SUGGESTION_FIELDS.reduce((n, f) => n + accepted[f].length, 0),
@@ -1365,7 +1709,9 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
   app.delete("/api/v1/voice-sessions/style/suggestions", async (req) => {
     const a = coach(req);
     return db.tenant(a, async (tx) => {
-      await tx.query("UPDATE voice_session_styles SET suggestions='{}',updated_at=now()");
+      await tx.query(
+        "UPDATE voice_session_styles SET suggestions='{}',updated_at=now()",
+      );
       return { suggestions: null };
     });
   });
@@ -1376,16 +1722,33 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
         .strict()
         .parse(req.body ?? {});
     const style =
-      b.style ?? (await db.tenant(a, async (tx) => (await currentVoiceStyle(tx)).style));
+      b.style ??
+      (await db.tenant(a, async (tx) => (await currentVoiceStyle(tx)).style));
     const plan = planExercises({
       exercises: [
-        { name: "Goblet squat", sets: 3, reps: 10, loadKg: 16, restSeconds: 60, cue: "Sit between your heels and keep your chest tall." },
+        {
+          name: "Goblet squat",
+          sets: 3,
+          reps: 10,
+          loadKg: 16,
+          restSeconds: 60,
+          cue: "Sit between your heels and keep your chest tall.",
+        },
         { name: "Push-up", sets: 2, reps: 8, restSeconds: 45 },
       ],
     });
-    const built = buildSessionScript({ title: "Preview session", exercises: plan, style });
+    const built = buildSessionScript({
+      title: "Preview session",
+      exercises: plan,
+      style,
+    });
     return {
-      lines: spokenLines(built.script).map((l) => ({ id: l.id, kind: l.kind, owner: l.owner, text: l.text })),
+      lines: spokenLines(built.script).map((l) => ({
+        id: l.id,
+        kind: l.kind,
+        owner: l.owner,
+        text: l.text,
+      })),
       rejected: built.rejected,
       issues: styleIssues(style),
     };
@@ -1506,7 +1869,11 @@ export async function processVoiceSessionAudio(
         GUIDED_VOICE + " WHERE id=$1 AND version=$2",
         [session.voice_id, session.voice_version],
       );
-      if (!voice?.consented || !voice.provider_voice_id || voice.provider !== pricing.provider) {
+      if (
+        !voice?.consented ||
+        !voice.provider_voice_id ||
+        voice.provider !== pricing.provider
+      ) {
         await stopSessionAudio(tx, session.id, "revoked", "VOICE_UNAVAILABLE");
         return null;
       }
@@ -1523,7 +1890,12 @@ export async function processVoiceSessionAudio(
       // session's (or, once started, that workout's).
       const plan = await sessionPlan(tx, session);
       if (!plan || !scriptCurrent(session.script, plan.program)) {
-        await stopSessionAudio(tx, session.id, "revoked", "VOICE_SCRIPT_INVALID");
+        await stopSessionAudio(
+          tx,
+          session.id,
+          "revoked",
+          "VOICE_SCRIPT_INVALID",
+        );
         return null;
       }
       if (!["active", "planned"].includes(plan.status)) {
@@ -1545,12 +1917,22 @@ export async function processVoiceSessionAudio(
         await stopSessionAudio(tx, session.id, "capped", "TRAINING_HELD");
         return null;
       }
-      const allowed = new Map(spokenLines(session.script).map((l) => [l.id, l]));
+      const allowed = new Map(
+        spokenLines(session.script).map((l) => [l.id, l]),
+      );
       // The workspace's short reusable clips for this voice version.
       for (const clip of sharedClips())
         await tx.query(
-          "INSERT INTO voice_session_clips(id,tenant_id,clip_key,text_content,voice_id,voice_version,fingerprint,priority,status) VALUES($1,$2,$3,$4,$5,$6,$7,2,'pending') ON CONFLICT (tenant_id,voice_id,voice_version,clip_key) WHERE session_id IS NULL DO NOTHING",
-          [randomUUID(), tenantId, clip.key, clip.text, voice.id, voice.version, clipFingerprint(voice, pricing, clip.text, "en")],
+          "INSERT INTO voice_session_clips(id,tenant_id,clip_key,text_content,voice_id,voice_version,fingerprint,priority,status) VALUES($1,$2,$3,$4,$5,$6,$7,2,'pending') ON CONFLICT (tenant_id,voice_id,voice_version,clip_key) WHERE session_id IS NULL DO UPDATE SET text_content=EXCLUDED.text_content,fingerprint=EXCLUDED.fingerprint,status='pending',audio=NULL,updated_at=now() WHERE voice_session_clips.fingerprint<>EXCLUDED.fingerprint",
+          [
+            randomUUID(),
+            tenantId,
+            clip.key,
+            clip.text,
+            voice.id,
+            voice.version,
+            clipFingerprint(voice, pricing, clip.text, "en"),
+          ],
         );
       return { voice, providerVoiceId: voice.provider_voice_id, allowed };
     });
@@ -1564,57 +1946,77 @@ export async function processVoiceSessionAudio(
     for (const clip of pending) {
       if (budget <= 0) break;
       // Only lines of the validated script (or code-owned shared phrases) are spoken.
-      const line = clip.session_id ? valid.allowed.get(clip.clip_key) : undefined;
+      const line = clip.session_id
+        ? valid.allowed.get(clip.clip_key)
+        : undefined;
       if (clip.session_id && line?.text !== clip.text_content) {
         await db.tenant(actor, (tx) =>
-          tx.query("UPDATE voice_session_clips SET status='skipped',updated_at=now() WHERE id=$1 AND status='pending'", [clip.id]),
+          tx.query(
+            "UPDATE voice_session_clips SET status='skipped',updated_at=now() WHERE id=$1 AND status='pending'",
+            [clip.id],
+          ),
         );
         continue;
       }
-      if (!clip.session_id && !sharedClips().some((s) => s.key === clip.clip_key && s.text === clip.text_content)) {
+      if (
+        !clip.session_id &&
+        !sharedClips().some(
+          (s) => s.key === clip.clip_key && s.text === clip.text_content,
+        )
+      ) {
         await db.tenant(actor, (tx) =>
-          tx.query("UPDATE voice_session_clips SET status='skipped',updated_at=now() WHERE id=$1 AND status='pending'", [clip.id]),
+          tx.query(
+            "UPDATE voice_session_clips SET status='skipped',updated_at=now() WHERE id=$1 AND status='pending'",
+            [clip.id],
+          ),
         );
         continue;
       }
       budget--;
-      const reservation = await db.tenant(actor, async (tx) => {
-        // Cached: the same member's audio for the same text, voice, model and price.
-        const [copy] = await tx.query(
-          "UPDATE voice_session_clips c SET status='ready',audio=src.audio,data=c.data||jsonb_build_object('copiedFrom',src.id),updated_at=now() FROM (SELECT id,audio FROM voice_session_clips WHERE status='ready' AND fingerprint=$2 AND id<>$1 AND user_id IS NOT DISTINCT FROM $3 LIMIT 1) src WHERE c.id=$1 AND c.status='pending' RETURNING c.id",
-          [clip.id, clip.fingerprint, clip.user_id],
-        );
-        if (copy) return { reused: true as const };
-        await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [tenantId + ":voice-budget"]);
-        const [spent] = await tx.query("SELECT voice_guidance_spent_today() AS total");
-        const estimate = (clip.text_content.length * pricing.price) / 1000;
-        if (Number(spent.total) + estimate > pricing.cap) return { capped: true as const };
-        const usageId = randomUUID();
-        await reserveVoiceCost(tx, {
-          id: usageId,
-          tenantId,
-          userId: clip.user_id,
-          // The member the clip is for (none for a shared phrase clip).
-          memberId: clip.user_id,
-          task: "voice.session",
-          provider: pricing.provider,
-          model: valid.voice.model ?? pricing.model,
-          priceVersion: pricing.priceVersion,
-          pricing: {
-            basis: "characters",
-            characters: clip.text_content.length,
-            usdPer1000Characters: pricing.price,
-            reservedCostUsd: estimate,
-          },
-          traceId: clip.id,
-        });
-        const [claimed] = await tx.query(
-          "UPDATE voice_session_clips SET status='reserved',usage_id=$2,updated_at=now() WHERE id=$1 AND status='pending' RETURNING id",
-          [clip.id, usageId],
-        );
-        if (!claimed) throw fail(409, "VOICE_CLIP_CHANGED", "Clip changed");
-        return { usageId };
-      }).catch(() => null);
+      const reservation = await db
+        .tenant(actor, async (tx) => {
+          // Cached: the same member's audio for the same text, voice, model and price.
+          const [copy] = await tx.query(
+            "UPDATE voice_session_clips c SET status='ready',audio=src.audio,data=c.data||jsonb_build_object('copiedFrom',src.id),updated_at=now() FROM (SELECT id,audio FROM voice_session_clips WHERE status='ready' AND fingerprint=$2 AND id<>$1 AND user_id IS NOT DISTINCT FROM $3 LIMIT 1) src WHERE c.id=$1 AND c.status='pending' RETURNING c.id",
+            [clip.id, clip.fingerprint, clip.user_id],
+          );
+          if (copy) return { reused: true as const };
+          await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+            tenantId + ":voice-budget",
+          ]);
+          const [spent] = await tx.query(
+            "SELECT voice_guidance_spent_today() AS total",
+          );
+          const estimate = (clip.text_content.length * pricing.price) / 1000;
+          if (Number(spent.total) + estimate > pricing.cap)
+            return { capped: true as const };
+          const usageId = randomUUID();
+          await reserveVoiceCost(tx, {
+            id: usageId,
+            tenantId,
+            userId: clip.user_id,
+            // The member the clip is for (none for a shared phrase clip).
+            memberId: clip.user_id,
+            task: "voice.session",
+            provider: pricing.provider,
+            model: valid.voice.model ?? pricing.model,
+            priceVersion: pricing.priceVersion,
+            pricing: {
+              basis: "characters",
+              characters: clip.text_content.length,
+              usdPer1000Characters: pricing.price,
+              reservedCostUsd: estimate,
+            },
+            traceId: clip.id,
+          });
+          const [claimed] = await tx.query(
+            "UPDATE voice_session_clips SET status='reserved',usage_id=$2,updated_at=now() WHERE id=$1 AND status='pending' RETURNING id",
+            [clip.id, usageId],
+          );
+          if (!claimed) throw fail(409, "VOICE_CLIP_CHANGED", "Clip changed");
+          return { usageId };
+        })
+        .catch(() => null);
       if (!reservation) continue;
       if ("reused" in reservation) {
         reused++;
@@ -1622,7 +2024,9 @@ export async function processVoiceSessionAudio(
       }
       if ("capped" in reservation) {
         capped = true;
-        await db.tenant(actor, (tx) => stopSessionAudio(tx, session.id, "capped", "VOICE_BUDGET"));
+        await db.tenant(actor, (tx) =>
+          stopSessionAudio(tx, session.id, "capped", "VOICE_BUDGET"),
+        );
         break;
       }
       try {
@@ -1635,7 +2039,12 @@ export async function processVoiceSessionAudio(
                 "SELECT id FROM guided_voice() WHERE id=$1 AND version=$2 AND consented",
                 [session.voice_id, session.voice_version],
               );
-              if (!voice) throw fail(409, "VOICE_REVOKED", "Trainer voice permission changed.");
+              if (!voice)
+                throw fail(
+                  409,
+                  "VOICE_REVOKED",
+                  "Trainer voice permission changed.",
+                );
               const [r] = await tx.query(
                 "UPDATE voice_session_clips SET status='unknown',updated_at=now() WHERE id=$1 AND status='reserved' RETURNING id",
                 [clip.id],
@@ -1663,7 +2072,10 @@ export async function processVoiceSessionAudio(
               clip.id,
               !!voice,
               audio.audio,
-              JSON.stringify({ providerRequestId: audio.requestId, estimatedCostUsd: audio.estimatedCost }),
+              JSON.stringify({
+                providerRequestId: audio.requestId,
+                estimatedCostUsd: audio.estimatedCost,
+              }),
             ],
           );
           // Made: priced now at the reserved estimate ('estimated'); the

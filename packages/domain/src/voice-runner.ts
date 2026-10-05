@@ -870,6 +870,8 @@ export type RunnerState = {
    * Null until the round's prompt has been spoken and the clock started.
    */
   workLeft?: number | null;
+  promptReady?: boolean;
+  restReady?: boolean;
   targets: SetTarget[][];
   logged: string[];
   skipped: string[];
@@ -902,6 +904,7 @@ export type RunnerEvent =
   /** The current spoken prompt finished (or, in text mode, was read). */
   | { type: "prompt_done" }
   | { type: "tick"; seconds: number }
+  | { type: "extend_rest" }
   | { type: "command"; command: VoiceCommand }
   /** The server reports a training hold (for example, a red flag in a note). */
   | { type: "held" }
@@ -910,6 +913,9 @@ export type RunnerEvent =
 export type RunnerContext = {
   script: SessionScript;
   rules: VoiceAdjustmentRules;
+  /** Deliberate completion/readiness for the guided app. */
+  deliberate?: boolean;
+  autoPace?: boolean;
 };
 
 export function initialRunnerState(script: SessionScript): RunnerState {
@@ -1005,14 +1011,59 @@ function setPrompt(ctx: RunnerContext, s: RunnerState, exercise: number, set: nu
     wait: true,
   };
 }
-function beginExercise(ctx: RunnerContext, s: RunnerState, exercise: number): [RunnerState, RunnerEffect[]] {
+function beginExercise(
+  ctx: RunnerContext,
+  s: RunnerState,
+  exercise: number,
+): [RunnerState, RunnerEffect[]] {
+  let set = 1;
+  while (exercise < ctx.script.exercises.length) {
+    while (
+      set <= ctx.script.exercises[exercise].sets &&
+      (s.logged.includes(key(exercise, set)) ||
+        s.skipped.includes(key(exercise, set)))
+    )
+      set++;
+    if (set <= ctx.script.exercises[exercise].sets) break;
+    exercise++;
+    set = 1;
+  }
+  if (exercise >= ctx.script.exercises.length) return beginCooldown(ctx, s);
   const ex = ctx.script.exercises[exercise];
-  const next: RunnerState = { ...s, phase: "setup", exercise, set: 1, restRemaining: 0, setElapsed: 0 };
+  const next: RunnerState = {
+    ...s,
+    phase: "setup",
+    exercise,
+    set,
+    restRemaining: 0,
+    setElapsed: 0,
+  };
   return [next, [say([ex.setup, ex.cueLine, ex.brain?.lead, ex.form[0]])]];
 }
-function beginSet(ctx: RunnerContext, s: RunnerState, exercise: number, set: number, lead: RunnerEffect[] = []): [RunnerState, RunnerEffect[]] {
+function beginSet(
+  ctx: RunnerContext,
+  s: RunnerState,
+  exercise: number,
+  set: number,
+  lead: RunnerEffect[] = [],
+): [RunnerState, RunnerEffect[]] {
+  if (
+    s.logged.includes(key(exercise, set)) ||
+    s.skipped.includes(key(exercise, set))
+  )
+    return advance(ctx, { ...s, exercise, set }, lead);
   return [
-    { ...s, phase: "set", exercise, set, restRemaining: 0, setElapsed: 0, workLeft: null },
+    {
+      ...s,
+      phase: "set",
+      exercise,
+      set,
+      restRemaining: 0,
+      setElapsed: 0,
+      workLeft: null,
+      promptReady: false,
+      restReady: false,
+    },
     [...lead, setPrompt(ctx, s, exercise, set)],
   ];
 }
@@ -1028,10 +1079,10 @@ function afterSet(ctx: RunnerContext, s: RunnerState, lead: RunnerEffect[], rest
   const lastSet = s.set >= ex.sets,
     lastExercise = s.exercise >= ctx.script.exercises.length - 1;
   if (lastSet && lastExercise) return beginCooldown(ctx, s, lead);
-  if (!rest || ex.restSeconds <= 0) return advance(ctx, s, lead);
+  if (!rest || (ex.restSeconds <= 0 && (!ctx.deliberate || ctx.autoPace))) return advance(ctx, s, lead);
   // The Brain's rest talk is spoken in an exercise's first rest only.
   return [
-    { ...s, phase: "rest", restRemaining: ex.restSeconds, setElapsed: 0 },
+    { ...s, phase: "rest", restRemaining: ex.restSeconds, restReady: false, setElapsed: 0 },
     [...lead, say([ex.rest, s.set === 1 ? ex.brain?.rest : null], [], [], false)],
   ];
 }
@@ -1050,7 +1101,7 @@ function stopForPain(s: RunnerState, transcript: string): [RunnerState, RunnerEf
   return [
     { ...s, phase: "stopped", resume: undefined, stopReason: "pain", restRemaining: 0 },
     [
-      phrase("stopping", "Stopping the session now. Your trainer has been told. If your symptoms are severe, get urgent medical help.", true),
+      phrase("stopping", "Stopping the session now. Your report will be sent to your trainer. If your symptoms are severe, get urgent medical help.", true),
       { type: "report_pain", description },
       outcome({ type: "pain", exercise: s.exercise, set: s.set }),
     ],
@@ -1090,7 +1141,7 @@ function finishRound(ctx: RunnerContext, s: RunnerState, lead: RunnerEffect[] = 
   const ex = ctx.script.exercises[s.exercise];
   if (timedExercise(ex)) {
     const full = ex.durationSeconds!;
-    const lasted = typeof s.workLeft === "number" ? Math.max(0, full - s.workLeft) : full;
+    const lasted = typeof s.workLeft === "number" ? Math.max(0, full - s.workLeft) : ctx.deliberate ? 0 : full;
     return logSet(ctx, s, 0, { durationSeconds: lasted }, lead);
   }
   return logSet(ctx, s, 0, { distanceMeters: ex.distanceMeters! }, lead);
@@ -1200,6 +1251,8 @@ export function stepRunner(ctx: RunnerContext, s: RunnerState, event: RunnerEven
   if (event.type === "command" && event.command.type === "pain")
     return stopForPain(s, event.command.transcript);
   if (s.phase === "finished") return [s, []];
+  if (event.type === "extend_rest") return s.phase === "rest"
+    ? [{ ...s, restRemaining: Math.min(900, s.restRemaining + 15) }, []] : [s, []];
   if (event.type === "end")
     return [
       { ...s, phase: "stopped", resume: undefined, stopReason: "member", restRemaining: 0 },
@@ -1212,13 +1265,13 @@ export function stepRunner(ctx: RunnerContext, s: RunnerState, event: RunnerEven
   if (event.type === "command" && event.command.type === "not_done")
     return s.phase === "ready" ? [s, []] : notDone(ctx, s, event.command);
   if (s.phase === "paused") {
-    if (event.type === "command" && ["resume", "done"].includes(event.command.type)) {
+    if (event.type === "command" && (event.command.type === "resume" || (!ctx.deliberate && event.command.type === "done"))) {
       const back = s.resume ?? "set";
-      const resumed: RunnerState = { ...s, phase: back, resume: undefined };
+      const resumed: RunnerState = { ...s, phase: back, resume: undefined, ...(ctx.deliberate && back === "set" ? { promptReady: false } : {}) };
       if (back === "set") {
         // A timed round whose clock had started carries on from where it stopped.
         if (timedExercise(ctx.script.exercises[s.exercise]) && typeof s.workLeft === "number")
-          return [resumed, [phrase("resuming", "Resuming."), phrase("go", "Go.")]];
+          return [resumed, [phrase("resuming", "Resuming."), phrase("go", "Go.", ctx.deliberate === true)]];
         const [, effects] = beginSet(ctx, resumed, s.exercise, s.set);
         return [resumed, [phrase("resuming", "Resuming."), ...effects]];
       }
@@ -1263,11 +1316,11 @@ export function stepRunner(ctx: RunnerContext, s: RunnerState, event: RunnerEven
       }
       return [s, []];
     case "setup":
-      if (event.type === "prompt_done" || (event.type === "command" && ["done", "resume"].includes(event.command.type)))
-        return beginSet(ctx, s, s.exercise, 1);
+      if ((!ctx.deliberate && event.type === "prompt_done") || (event.type === "command" && ["done", "resume"].includes(event.command.type)))
+        return beginSet(ctx, s, s.exercise, s.set);
       if (event.type === "command") {
         if (event.command.type === "repeat") return beginExercise(ctx, s, s.exercise);
-        if (event.command.type === "too_heavy") return tooHeavy(ctx, s, s.exercise, 1);
+        if (event.command.type === "too_heavy") return tooHeavy(ctx, s, s.exercise, s.set);
         if (event.command.type === "skip") {
           if (!ctx.rules.allowSkip) return [s, [phrase("no_skip", "Your trainer's plan keeps this part. Say pain if something hurts.")]];
           const skipped = { ...s, set: ex.sets, skipped: [...s.skipped, ...Array.from({ length: ex.sets }, (_, k) => key(s.exercise, k + 1))] };
@@ -1278,13 +1331,16 @@ export function stepRunner(ctx: RunnerContext, s: RunnerState, event: RunnerEven
     case "set": {
       const measure = workMeasure(ex);
       if (event.type === "tick") {
+        if (ctx.deliberate && !s.promptReady) return [s, []];
         const elapsed = { ...s, setElapsed: s.setElapsed + Math.max(0, event.seconds) };
         // The clock of a timed round: ten seconds, three-two-one, then time.
         if (measure !== "time" || typeof s.workLeft !== "number") return [elapsed, []];
         const before = s.workLeft,
           after = Math.max(0, before - Math.max(0, event.seconds));
         const next = { ...elapsed, workLeft: after };
-        if (after === 0) return finishRound(ctx, next, [phrase("time_up", "Time.")]);
+        if (after === 0) return ctx.deliberate
+          ? [next, before > 0 ? [phrase("time_up", "Time. Confirm when you have finished.")] : []]
+          : finishRound(ctx, next, [phrase("time_up", "Time.")]);
         const cues: RunnerEffect[] = [];
         if (ex.durationSeconds! >= 20 && before > 10 && after <= 10) cues.push(phrase("ten_seconds", "Ten seconds."));
         if (before > 3 && after <= 3) cues.push(phrase("countdown", "Three. Two. One."));
@@ -1293,10 +1349,11 @@ export function stepRunner(ctx: RunnerContext, s: RunnerState, event: RunnerEven
       // The round's prompt has been spoken: the clock starts.
       if (event.type === "prompt_done") {
         if (measure === "time" && typeof s.workLeft !== "number")
-          return [{ ...s, workLeft: ex.durationSeconds!, setElapsed: 0 }, []];
-        return [s, []];
+          return [{ ...s, workLeft: ex.durationSeconds!, setElapsed: 0, promptReady: true }, []];
+        return [{ ...s, promptReady: true }, []];
       }
       if (event.type !== "command") return [s, []];
+      if (ctx.deliberate && !s.promptReady && ["done", "reps"].includes(event.command.type)) return [s, []];
       switch (event.command.type) {
         // Only an explicit completion or a rep count logs the set.
         case "done":
@@ -1306,7 +1363,7 @@ export function stepRunner(ctx: RunnerContext, s: RunnerState, event: RunnerEven
           return [s, measure === "reps" ? [sayDone()] : []];
         case "reps": {
           // A number means reps only for rep work; a round is simply done.
-          if (measure !== "reps") return finishRound(ctx, s);
+          if (measure !== "reps") return ctx.deliberate ? [s, []] : finishRound(ctx, s);
           const reps = Math.max(0, Math.min(200, Math.round(event.command.reps)));
           // A heard count that is implausible for the set is asked again.
           if (!event.command.typed && !plausibleReps(reps, s.targets[s.exercise][s.set - 1].reps)) return [s, [sayDone()]];
@@ -1321,10 +1378,12 @@ export function stepRunner(ctx: RunnerContext, s: RunnerState, event: RunnerEven
           const [next, logged] = logSet(ctx, s, reps);
           return [next, [...logged, outcome({ type: "too_heavy_kept", exercise: s.exercise, set: s.set })]];
         }
-        case "too_heavy":
-          return tooHeavy(ctx, s, s.exercise, s.set);
+        case "too_heavy": {
+          const [next, effects] = tooHeavy(ctx, s, s.exercise, s.set);
+          return [next, !s.promptReady && ctx.deliberate ? [...effects, setPrompt(ctx, next, s.exercise, s.set)] : effects];
+        }
         case "too_easy":
-          return [s, [noted(), outcome({ type: "too_easy", exercise: s.exercise, set: s.set })]];
+          return [s, [noted(), outcome({ type: "too_easy", exercise: s.exercise, set: s.set }), ...(!s.promptReady && ctx.deliberate ? [setPrompt(ctx, s, s.exercise, s.set)] : [])]];
         case "repeat":
           return [s, [setPrompt(ctx, s, s.exercise, s.set)]];
         case "skip": {
@@ -1341,6 +1400,7 @@ export function stepRunner(ctx: RunnerContext, s: RunnerState, event: RunnerEven
           after = Math.max(0, before - Math.max(0, event.seconds));
         const next = { ...s, restRemaining: after };
         if (after === 0) {
+          if (ctx.deliberate && !ctx.autoPace && !s.restReady) return [next, before > 0 ? [say([ex.restEnd], [], [], false)] : []];
           const lead = [say([ex.restEnd], [], [], false)];
           return advance(ctx, next, lead);
         }
@@ -1354,6 +1414,7 @@ export function stepRunner(ctx: RunnerContext, s: RunnerState, event: RunnerEven
         case "done":
         case "resume":
         case "skip":
+          if (ctx.deliberate && s.restRemaining > 0) return [{ ...s, restReady: true }, []];
           return advance(ctx, { ...s, restRemaining: 0 });
         case "too_heavy":
           // After an exercise's final set there is no next set of it to lighten:
@@ -1368,7 +1429,7 @@ export function stepRunner(ctx: RunnerContext, s: RunnerState, event: RunnerEven
       }
       return [s, []];
     case "cooldown":
-      if (event.type === "prompt_done" || (event.type === "command" && ["done", "resume", "skip"].includes(event.command.type)))
+      if ((!ctx.deliberate && event.type === "prompt_done") || (event.type === "command" && ["done", "resume", "skip"].includes(event.command.type)))
         return [{ ...s, phase: "finished" }, [outcome({ type: "completed" }), { type: "finished" }]];
       return [s, []];
   }
@@ -1406,7 +1467,7 @@ export function runnerStatus(ctx: RunnerContext, s: RunnerState) {
       return "Paused.";
     case "stopped":
       return s.stopReason === "pain"
-        ? "Stopped. Your trainer has been told."
+        ? "Stopped. Check the pain report delivery status."
         : s.stopReason === "member"
           ? "Session ended."
           : "Stopped for your trainer's review.";

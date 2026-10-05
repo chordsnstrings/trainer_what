@@ -993,7 +993,7 @@ async function guidedMaterial(tx: Tx, a: Actor, workoutId: string) {
     }`,
     restSeconds: Math.max(
       0,
-      Math.min(900, Number(ex.restSeconds ?? ex.rest ?? 60) || 60),
+      Math.min(900, Number(ex.restSeconds ?? ex.rest ?? 60)),
     ),
     sets: ex.sets,
     reps: ex.reps,
@@ -1484,7 +1484,19 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
           "AUDIO_UNAVAILABLE",
           "This voice recording is no longer available.",
         );
-      await guidedMaterial(tx, a, r.workout_id);
+      const material = await guidedMaterial(tx, a, r.workout_id);
+      if (!material.premium)
+        throw fail(
+          402,
+          "VOICE_MEMBERSHIP",
+          "Your membership no longer includes trainer voice.",
+        );
+      if (!(await latestConsent(tx, a.userId, "voice_playback")))
+        throw fail(
+          403,
+          "PLAYBACK_CONSENT",
+          "Voice playback permission is required.",
+        );
       return Buffer.from(r.audio);
     });
     reply.header("Cache-Control", "private,no-store").type("audio/mpeg");

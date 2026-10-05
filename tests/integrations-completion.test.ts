@@ -488,6 +488,48 @@ test("voice enrollment requires reviewed identity/rights, premium membership and
     ],
     "audio/mpeg",
   );
+  await db.tenant(owner, (tx) =>
+    tx.query(
+      'UPDATE subscriptions SET data=\'{"modules":["training"]}\' WHERE user_id=$1',
+      [user.userId],
+    ),
+  );
+  assert.equal(
+    (await request(generated.audioUrl.replace("/api/v1", ""))).statusCode,
+    402,
+  );
+  await db.tenant(owner, (tx) =>
+    tx.query(
+      'UPDATE subscriptions SET data=\'{"modules":["training","voice"]}\' WHERE user_id=$1',
+      [user.userId],
+    ),
+  );
+  await db.tenant(owner, (tx) =>
+    tx.query(
+      "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,'voice_playback','fixture',false)",
+      [randomUUID(), tenantId, user.userId],
+    ),
+  );
+  assert.equal(
+    (await request(generated.audioUrl.replace("/api/v1", ""))).statusCode,
+    403,
+  );
+  await db.tenant(owner, (tx) =>
+    tx.query(
+      "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,'voice_playback','fixture',true)",
+      [randomUUID(), tenantId, user.userId],
+    ),
+  );
+  await db.tenant(owner, (tx) =>
+    tx.query(
+      "UPDATE records SET data=jsonb_set(data,'{program,exercises,0,restSeconds}','0'::jsonb) WHERE id=$1",
+      [workoutId],
+    ),
+  );
+  assert.equal(
+    (await ok(`/guided/${workoutId}`)).json().segments[0].restSeconds,
+    0,
+  );
 });
 test("ambiguous voice results are never re-sent and safety holds block existing audio playback", async () => {
   rejectAudio = true;
@@ -600,7 +642,9 @@ test("domain quote approval uses exact price, CAS, DNS proof and administrator T
   // A forwarding choice left on this name by an earlier bought domain (of
   // another workspace) never carries over to a manual connection.
   const [previous] = await db.system((tx) =>
-    tx.query("SELECT id FROM tenants WHERE id<>$1 ORDER BY id LIMIT 1", [tenantId]),
+    tx.query("SELECT id FROM tenants WHERE id<>$1 ORDER BY id LIMIT 1", [
+      tenantId,
+    ]),
   );
   await db.system((tx) =>
     tx.query(
@@ -623,11 +667,16 @@ test("domain quote approval uses exact price, CAS, DNS proof and administrator T
   ).json();
   assert.equal(active.status, "active");
   const [mapping] = await db.system((tx) =>
-    tx.query("SELECT tenant_id,active,redirect FROM domain_mappings WHERE hostname=$1", [
-      "trainer.example.com",
-    ]),
+    tx.query(
+      "SELECT tenant_id,active,redirect FROM domain_mappings WHERE hostname=$1",
+      ["trainer.example.com"],
+    ),
   );
-  assert.deepEqual(mapping, { tenant_id: tenantId, active: true, redirect: null });
+  assert.deepEqual(mapping, {
+    tenant_id: tenantId,
+    active: true,
+    redirect: null,
+  });
   assert.equal(
     (await ok("/domains", "GET", undefined, other)).json().length,
     0,

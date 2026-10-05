@@ -3,7 +3,7 @@
   "branch": "fix/affiliate-admin-ui-2026-10-05",
   "baseCommit": "61530e4c98258171ff9a2e8441b55d371fc0c6c6",
   "scope": "Affiliate earnings UI; isolated synthetic browser fixtures; no production data writes",
-  "status": "locally verified; not deployed",
+  "status": "Local verification passed; subsequently deployed and verified on 5 October 2026.",
   "checks": {
     "rootTypeScript": "passed",
     "productionWebBuild": "passed",
@@ -127,5 +127,6 @@
   "limitations": [
     "Browser responses are synthetic; unchanged financial API/ledger behavior is not requalified by this UI-only fixture.",
     "GitHub CI and deployment are separate from these local checks."
-  ]
+  ],
+  "releaseEvidence": "docs/evidence/affiliate-ui-release-2026-10-05.json"
 }

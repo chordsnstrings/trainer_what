@@ -9,6 +9,114 @@
   display: grid;
   gap: 14px;
 }
+.voice-session {
+  max-inline-size: 960px;
+  margin-inline: auto;
+}
+.voice-session > .page-heading {
+  display: block;
+}
+.voice-session > .page-heading h1 {
+  overflow-wrap: break-word;
+}
+.voice-session > * + * {
+  margin-block-start: 18px;
+}
+.voice-status-card > summary,
+.guided-music > summary {
+  cursor: pointer;
+  font-weight: 650;
+  padding-block: 8px;
+}
+.voice-status-card[open] > summary,
+.guided-music[open] > summary {
+  margin-block-end: 16px;
+}
+.voice-session .voice-runner {
+  padding: clamp(20px, 3vw, 32px);
+  gap: 20px;
+  background: var(--white, #fff);
+}
+.voice-session .voice-clock {
+  font-size: clamp(2.75rem, 7vw, 4.25rem);
+  letter-spacing: -0.04em;
+}
+.voice-session .voice-prompt {
+  line-height: 1.65;
+  color: var(--muted);
+}
+.voice-session .button {
+  min-block-size: 48px;
+}
+.guided-auto {
+  padding-block: 8px;
+  line-height: 1.55;
+}
+.guided-music {
+  border-block-start: 1px solid var(--line);
+  padding-block: 16px;
+}
+.guided-music > .stack {
+  gap: 16px;
+}
+.guided-music label {
+  display: grid;
+  gap: 8px;
+  min-inline-size: 0;
+}
+.guided-music .voice-check {
+  display: flex;
+  align-items: center;
+}
+.guided-music .button-row {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.guided-music-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: center;
+}
+.guided-music select,
+.guided-music input[type="range"] {
+  inline-size: 100%;
+}
+.music-catalogue-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  gap: 12px;
+}
+.music-playlist-choice {
+  display: grid;
+  text-align: start;
+  gap: 8px;
+  cursor: pointer;
+}
+.music-playlist-choice[aria-pressed="true"] {
+  border-color: var(--brand);
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+.music-admin audio {
+  inline-size: 100%;
+  max-inline-size: 540px;
+}
+.music-admin code {
+  overflow-wrap: anywhere;
+}
+.guided-question textarea {
+  inline-size: 100%;
+  min-block-size: 96px;
+}
+@media (max-width: 480px) {
+  .guided-music-options {
+    grid-template-columns: 1fr;
+  }
+  .guided-music .button-row > .button {
+    flex: 1 1 auto;
+  }
+}
 .voice-now {
   margin-block: 0;
   font-size: 1.35rem;

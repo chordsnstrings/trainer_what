@@ -7,6 +7,31 @@ import { defineMessages } from "../core";
  */
 export default defineMessages(
   {
+    holdTalk: "Hold to talk",
+    loadProgress: "Load latest progress",
+    questionConfirm:
+      "Question captured. Review it under Ask Coach before sending.",
+    askCoach: "Ask Coach",
+    askHelp:
+      "One deliberate question uses the digital coach. The session pauses until you resume. Your trainer may review the reply.",
+    yourQuestion: "Your question",
+    questionSaved:
+      "Question saved. Check your coaching conversation for the reply.",
+    retryPain: "Retry pain report",
+    effortTarget: "Target: {n} reps in reserve",
+    watchDemo: "Watch demonstration",
+    sessionOptions: "Session options",
+    musicLibrary: "Workout library",
+    voiceVolume: "Coach volume",
+    progressUnsaved:
+      "Progress could not be saved on this device. Keep this page open.",
+    interrupted:
+      "Session paused after an interruption. Check your position, then resume.",
+    readyNext: "Ready",
+    moreRest: "+15 seconds rest",
+    autoPace:
+      "Start the next set automatically after the full rest. New exercises wait for Ready.",
+    nextTarget: "Next: {name} · set {set}",
     loading: "Loading your session…",
     eyebrow: "Voice-led session",
     fallbackTitle: "Your workout, guided",
@@ -164,7 +189,7 @@ export default defineMessages(
     status_cooldown: "Cooling down.",
     status_finished: "Session complete.",
     status_paused: "Paused.",
-    status_pain: "Stopped. Your coach has been told.",
+    status_pain: "Stopped. Check the pain report delivery status.",
     status_member: "Session ended.",
     status_review: "Stopped for your coach’s review.",
     eyebrowGuided: "Text guidance",
@@ -190,9 +215,31 @@ export default defineMessages(
     talkOpening: "Opening the microphone…",
     talkListening: "Listening. Tap again when you’re done.",
     talkSending: "Checking what you said…",
-    talkHelp: "Tap, then say done, a number of reps, too heavy, pause, skip or pain.",
+    talkHelp:
+      "Tap, then say done, a number of reps, too heavy, pause, skip or pain.",
   },
   {
+    holdTalk: "الضغط المستمر للتحدث",
+    loadProgress: "تحميل أحدث تقدم",
+    questionConfirm: "تم التقاط السؤال. راجعه في «اسأل المدرب» قبل إرساله.",
+    askCoach: "سؤال للمدرب",
+    askHelp:
+      "يجيب المدرب الرقمي عن سؤال ترسله بنفسك. تتوقف الجلسة حتى تستأنفها. قد يراجع مدربك الإجابة.",
+    yourQuestion: "سؤالك",
+    questionSaved: "تم حفظ السؤال. راجع محادثة التدريب للاطلاع على الرد.",
+    retryPain: "إعادة إرسال بلاغ الألم",
+    effortTarget: "الهدف: {n} تكرارات احتياطية",
+    watchDemo: "مشاهدة الشرح",
+    sessionOptions: "خيارات الجلسة",
+    musicLibrary: "مكتبة التمرين",
+    voiceVolume: "مستوى صوت المدرب",
+    progressUnsaved: "تعذر حفظ التقدم على هذا الجهاز. أبق الصفحة مفتوحة.",
+    interrupted: "توقفت الجلسة مؤقتاً بعد انقطاع. راجع موضعك ثم استأنف.",
+    readyNext: "جاهز",
+    moreRest: "+١٥ ثانية راحة",
+    autoPace:
+      "بدء المجموعة التالية تلقائياً بعد الراحة الكاملة. التمرين الجديد ينتظر تأكيد الجاهزية.",
+    nextTarget: "التالي: {name} · المجموعة {set}",
     loading: "جارٍ تحميل جلستك…",
     eyebrow: "جلسة بتوجيه صوتي",
     fallbackTitle: "تمرينك بتوجيه",
@@ -237,7 +284,8 @@ export default defineMessages(
     textSession: "جلسة بتوجيه نصي",
     preparingAhead:
       "جارٍ تجهيز صوت مدربك. يمكنك مغادرة هذه الصفحة؛ يستمر التجهيز في الخلفية.",
-    readyAhead: "كل شيء جاهز. يمكنك بدء التمرين متى شئت، وستكون الجلسة بانتظارك.",
+    readyAhead:
+      "كل شيء جاهز. يمكنك بدء التمرين متى شئت، وستكون الجلسة بانتظارك.",
     switchVoice: "التبديل إلى صوت مدربك",
     startWithVoice: "بدء هذا التمرين بالجلسة الصوتية",
     openLog: "فتح سجل التمرين",
@@ -276,8 +324,7 @@ export default defineMessages(
       "توقفت الردود الصوتية: الميكروفون أو التعرّف على الكلام على الجهاز غير متاح. يُرجى استخدام الأزرار.",
     micPermission: "يلزم إذن الميكروفون للردود الصوتية. يُرجى استخدام الأزرار.",
     agreeFirst: "يُرجى الموافقة على التفريغ النصي أولًا.",
-    voiceOff:
-      "أُوقف صوت مدربك وحُذف الصوت المخزّن لك. تستمر الجلسة نصيًا.",
+    voiceOff: "أُوقف صوت مدربك وحُذف الصوت المخزّن لك. تستمر الجلسة نصيًا.",
     generating:
       "جارٍ تجهيز صوت مدربك. يمكنك البدء الآن؛ تظهر الجمل غير الجاهزة بعد كنص.",
     capped: "صوت مدربك متوقف حاليًا، وتظهر بقية هذه الجلسة كنص.",
@@ -369,7 +416,7 @@ export default defineMessages(
     status_cooldown: "التهدئة.",
     status_finished: "اكتملت الجلسة.",
     status_paused: "متوقف مؤقتًا.",
-    status_pain: "توقفت الجلسة وأُبلغ مدربك.",
+    status_pain: "توقفت الجلسة. راجع حالة إرسال بلاغ الألم.",
     status_member: "انتهت الجلسة.",
     status_review: "توقفت الجلسة لمراجعة مدربك.",
     eyebrowGuided: "بتوجيه نصي",
@@ -393,6 +440,7 @@ export default defineMessages(
     talkOpening: "جارٍ فتح الميكروفون…",
     talkListening: "جارٍ الاستماع. يمكنك الضغط مرة أخرى عند الانتهاء.",
     talkSending: "جارٍ التحقق مما قلته…",
-    talkHelp: "بعد الضغط على «التحدث» يمكنك قول «خلصت» أو «تم» أو عدد التكرارات أو «ثقيل» أو «وقف» أو «ألم». الأزرار تعمل دائمًا.",
+    talkHelp:
+      "بعد الضغط على «التحدث» يمكنك قول «خلصت» أو «تم» أو عدد التكرارات أو «ثقيل» أو «وقف» أو «ألم». الأزرار تعمل دائمًا.",
   },
 );

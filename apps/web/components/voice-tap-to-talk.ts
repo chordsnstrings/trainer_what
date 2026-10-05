@@ -3,8 +3,15 @@
 // closed after it (apps/web/lib/tap-to-talk.ts holds the states). The audio
 // session is "play-and-record" only while recording, "ambient" otherwise.
 import { useCallback, useEffect, useRef, useState } from "react";
+import { SpeechGate, speechBand } from "../lib/speech-gate";
 import { setAudioSessionType } from "../lib/audio-session";
-import { idleTalk, stepTalk, type TalkEffect, type TalkEvent, type TalkState } from "../lib/tap-to-talk";
+import {
+  idleTalk,
+  stepTalk,
+  type TalkEffect,
+  type TalkEvent,
+  type TalkState,
+} from "../lib/tap-to-talk";
 
 export type TalkCapture = "server" | "device";
 type Options = {
@@ -15,7 +22,12 @@ type Options = {
   /** Milliseconds left in the echo grace after the last cue. */
   graceLeftMs: () => number;
   /** A recorded reply for the speech service. */
-  onAudio: (audio: Blob, durationMs: number, sincePlaybackMs: number) => Promise<void>;
+  onAudio: (
+    audio: Blob,
+    durationMs: number,
+    sincePlaybackMs: number,
+    current: () => boolean,
+  ) => Promise<void>;
   /** On-device words. */
   onWords: (text: string) => void;
   onMicError: () => void;
@@ -24,7 +36,11 @@ type Options = {
 };
 function recognitionConstructor(): any {
   if (typeof window === "undefined") return null;
-  return (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition ?? null;
+  return (
+    (window as any).SpeechRecognition ??
+    (window as any).webkitSpeechRecognition ??
+    null
+  );
 }
 export function useTapToTalk(options: Options) {
   const [state, setState] = useState<TalkState>(idleTalk);
@@ -61,9 +77,13 @@ export function useTapToTalk(options: Options) {
         break;
       case "open_mic": {
         const ready = () =>
-          setTimeout(() => {
-            if (attempt.current === mine) dispatchRef.current({ type: "mic_ready", now: Date.now() });
-          }, Math.max(0, o.graceLeftMs()));
+          setTimeout(
+            () => {
+              if (attempt.current === mine)
+                dispatchRef.current({ type: "mic_ready", now: Date.now() });
+            },
+            Math.max(0, o.graceLeftMs()),
+          );
         if (o.capture === "device") {
           const Ctor = recognitionConstructor();
           if (!Ctor) {
@@ -83,21 +103,34 @@ export function useTapToTalk(options: Options) {
             opts.current.onWords(String(result[0]?.transcript ?? ""));
           };
           r.onend = () => {
-            if (attempt.current === mine) dispatchRef.current({ type: "cancel" });
+            if (attempt.current === mine)
+              dispatchRef.current({ type: "cancel" });
           };
           r.onerror = (e: any) => {
             if (attempt.current !== mine) return;
             dispatchRef.current({ type: "cancel" });
-            if (["not-allowed", "service-not-allowed", "language-not-supported"].includes(e?.error)) opts.current.onMicError();
+            if (
+              [
+                "not-allowed",
+                "service-not-allowed",
+                "language-not-supported",
+              ].includes(e?.error)
+            )
+              opts.current.onMicError();
           };
           m.recognition = r;
           ready();
           return;
         }
         void navigator.mediaDevices
-          .getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } })
+          .getUserMedia({
+            audio: { echoCancellation: true, noiseSuppression: true },
+          })
           .then((stream) => {
-            if (attempt.current !== mine || stateRef.current.phase !== "opening") {
+            if (
+              attempt.current !== mine ||
+              stateRef.current.phase !== "opening"
+            ) {
               stream.getTracks().forEach((t) => t.stop());
               return;
             }
@@ -126,7 +159,15 @@ export function useTapToTalk(options: Options) {
             return;
           }
           // The clock drives the no-speech and 6-second limits.
-          m.ticker = setInterval(() => dispatchRef.current({ type: "level", loud: false, now: Date.now() }), 250);
+          m.ticker = setInterval(
+            () =>
+              dispatchRef.current({
+                type: "level",
+                loud: false,
+                now: Date.now(),
+              }),
+            250,
+          );
           return;
         }
         if (!m.stream || !m.analyser) return;
@@ -143,21 +184,52 @@ export function useTapToTalk(options: Options) {
         rec.onstop = () => {
           if (m.discard || attempt.current !== mine) return;
           const duration = Date.now() - (m.started ?? Date.now());
-          const blob = new Blob(m.chunks, { type: rec.mimeType || "audio/webm" });
+          const blob = new Blob(m.chunks, {
+            type: rec.mimeType || "audio/webm",
+          });
           void opts.current
-            .onAudio(blob, duration, m.sincePlayback ?? 0)
+            .onAudio(
+              blob,
+              duration,
+              m.sincePlayback ?? 0,
+              () => attempt.current === mine,
+            )
             .finally(() => {
-              if (attempt.current === mine) dispatchRef.current({ type: "done" });
+              if (attempt.current === mine)
+                dispatchRef.current({ type: "done" });
             });
         };
         rec.start();
         const samples = new Float32Array(m.analyser.fftSize);
+        const spectrum = new Float32Array(m.analyser.frequencyBinCount);
+        const gate = new SpeechGate();
         const loop = () => {
-          if (attempt.current !== mine || stateRef.current.phase !== "recording" || !m.analyser) return;
+          if (
+            attempt.current !== mine ||
+            stateRef.current.phase !== "recording" ||
+            !m.analyser
+          )
+            return;
           m.analyser.getFloatTimeDomainData(samples);
           let sum = 0;
           for (const v of samples) sum += v * v;
-          dispatchRef.current({ type: "level", loud: Math.sqrt(sum / samples.length) > 0.03, now: Date.now() });
+          m.analyser.getFloatFrequencyData(spectrum);
+          const band = speechBand(
+            spectrum,
+            m.audioContext?.sampleRate ?? 48000,
+            m.analyser.fftSize,
+          );
+          const now = Date.now();
+          dispatchRef.current({
+            type: "level",
+            loud: gate.sample(
+              Math.sqrt(sum / samples.length),
+              band.ratio,
+              band.activeBins,
+              now,
+            ),
+            now,
+          });
           m.frame = requestAnimationFrame(loop);
         };
         loop();
@@ -198,6 +270,7 @@ export function useTapToTalk(options: Options) {
     }
   };
   const dispatch = useCallback((e: TalkEvent) => {
+    if (e.type === "cancel") attempt.current++;
     const before = stateRef.current;
     const [next, effects] = stepTalk(before, e);
     if (before.phase === "idle" && next.phase === "opening") attempt.current++;
@@ -207,7 +280,10 @@ export function useTapToTalk(options: Options) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   dispatchRef.current = dispatch;
-  const tap = useCallback(() => dispatch({ type: "tap", now: Date.now() }), [dispatch]);
+  const tap = useCallback(
+    () => dispatch({ type: "tap", now: Date.now() }),
+    [dispatch],
+  );
   const cancel = useCallback(() => dispatch({ type: "cancel" }), [dispatch]);
   // Leaving the page closes everything.
   useEffect(() => () => dispatchRef.current({ type: "cancel" }), []);

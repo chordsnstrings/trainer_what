@@ -6,6 +6,7 @@ import { withRuntimeConfig } from "../../../packages/providers/src/configuration
 import { loadRuntimeSettings } from "../../api/src/platform-settings.ts";
 import { purgeExpiredMealCaptures } from "../../api/src/meal-capture.ts";
 import { processIntegrationJobs } from "../../api/src/integrations-completion.ts";
+import { processWorkoutMusic } from "../../api/src/workout-music.ts";
 import { processVoiceSessions } from "../../api/src/voice-session.ts";
 import { processVoiceClones } from "../../api/src/voice-clones.ts";
 import { purgeExpiredAcquisition } from "../../api/src/acquisition.ts";
@@ -37,6 +38,8 @@ if (!process.env.DATABASE_URL) {
   let lastAlertEvaluation = 0;
   let integrationTask: Promise<void> | undefined;
   let voiceTask: Promise<void> | undefined;
+  let musicTask: Promise<void> | undefined;
+  let lastMusicTick = 0;
   let lastWebAddressTick = 0;
   let webAddressTask: Promise<void> | undefined;
   let lastVoiceCloneTick = 0;
@@ -46,6 +49,14 @@ if (!process.env.DATABASE_URL) {
   let modelSwitchTask: Promise<void> | undefined;
   let lastModelSwitchTick = 0;
   async function tick() {
+    if (!musicTask && Date.now() - lastMusicTick >= 30000) {
+      lastMusicTick = Date.now();
+      musicTask = processWorkoutMusic(db)
+        .catch(() => console.error("Workout music needs review"))
+        .finally(() => {
+          musicTask = undefined;
+        });
+    }
     if (!voiceTask)
       // Trainer-voice audio for prepared sessions, off the delivery path like
       // wearable reads; it keeps this cycle's reviewed provider configuration.
@@ -90,7 +101,10 @@ if (!process.env.DATABASE_URL) {
           voiceCloneTask = undefined;
         });
     }
-    if (!platformFinanceTask && Date.now() - lastPlatformFinanceTick >= 300000) {
+    if (
+      !platformFinanceTask &&
+      Date.now() - lastPlatformFinanceTick >= 300000
+    ) {
       lastPlatformFinanceTick = Date.now();
       // Platform finance summary, fees, platform costs and billing imports
       // (docs/features/platform-finance.md); each job records its own runs
@@ -177,9 +191,21 @@ if (!process.env.DATABASE_URL) {
           webAddressTask,
           new Promise<void>((resolve) => setTimeout(resolve, 30000)),
         ]);
-      if (integrationTask || voiceTask || voiceCloneTask || platformFinanceTask || modelSwitchTask)
+      if (
+        integrationTask ||
+        voiceTask ||
+        voiceCloneTask ||
+        platformFinanceTask ||
+        modelSwitchTask
+      )
         await Promise.race([
-          Promise.all([integrationTask, voiceTask, voiceCloneTask, platformFinanceTask, modelSwitchTask]),
+          Promise.all([
+            integrationTask,
+            voiceTask,
+            voiceCloneTask,
+            platformFinanceTask,
+            modelSwitchTask,
+          ]),
           new Promise<void>((resolve) => setTimeout(resolve, 30000)),
         ]);
       await infrastructure.settled().catch(() => {});

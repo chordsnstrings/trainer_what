@@ -56,6 +56,7 @@ export const setSchema = z
   .object({
     eventKey: z.string().uuid(),
     exercise: z.string().min(1).max(100),
+    exerciseIndex: z.number().int().min(0).max(100).optional(),
     set: z.number().int().min(1).max(20),
     // A round of timed or distance work logs reps 0 with the time or distance done.
     reps: z.number().int().min(0).max(200),

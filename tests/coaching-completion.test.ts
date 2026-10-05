@@ -77,7 +77,7 @@ after(async () => {
   await app.close();
   await db.close();
 });
-async function program() {
+async function program(extraBlock = false) {
   const r = await request(
     "/programs",
     "POST",
@@ -96,6 +96,17 @@ async function program() {
             loadKg: 12,
             cue: "Controlled reps",
           },
+          ...(extraBlock
+            ? [
+                {
+                  name: "Goblet squat round 2",
+                  sets: 3,
+                  reps: 10,
+                  restSeconds: 90,
+                  loadKg: 12,
+                },
+              ]
+            : []),
         ],
       },
     },
@@ -104,6 +115,48 @@ async function program() {
   assert.equal(r.statusCode, 200, r.body);
   return r.json();
 }
+test("set indexes match ordered exercise blocks and preserve legacy retry keys", async () => {
+  const p = await program(true);
+  const started = await request(
+    "/workouts/start",
+    "POST",
+    { programId: p.id },
+    client,
+  );
+  assert.equal(started.statusCode, 200, started.body);
+  const path = `/workouts/${started.json().id}/sets`;
+  const body = {
+    eventKey: randomUUID(),
+    exercise: "Goblet squat",
+    set: 1,
+    reps: 10,
+    loadKg: 12,
+  };
+  assert.equal((await request(path, "POST", { ...body, exerciseIndex: 1 }, client)).statusCode, 400);
+  const first = await request(
+    path,
+    "POST",
+    { ...body, exerciseIndex: 0 },
+    client,
+  );
+  const second = await request(
+    path,
+    "POST",
+    { ...body, exercise: "Goblet squat round 2", eventKey: randomUUID(), exerciseIndex: 1 },
+    client,
+  );
+  assert.equal(first.statusCode, 200, first.body);
+  assert.equal(second.statusCode, 200, second.body);
+  assert.notEqual(first.json().id, second.json().id);
+  assert.equal((await request(path, "POST", body, client)).json().duplicate, true);
+  assert.equal(
+    (await request(path, "POST", { ...body, exerciseIndex: 0 }, client)).json()
+      .duplicate,
+    true,
+  );
+  assert.equal((await request(`/workouts/${started.json().id}/abandon`, "POST", { note: "Index fixture complete" }, client)).statusCode, 200);
+});
+
 test("a pain hold blocks new sessions, logging, finish, abandonment and generic exception resolution", async () => {
   const p = await program();
   const started = await request(

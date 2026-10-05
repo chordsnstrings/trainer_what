@@ -29,6 +29,7 @@ export type WorkoutQueueItem = {
   body: {
     eventKey: string;
     exercise: string;
+    exerciseIndex?: number;
     set: number;
     reps: number;
     loadKg: number;

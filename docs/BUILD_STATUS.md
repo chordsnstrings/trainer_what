@@ -1,5 +1,7 @@
 # Build status
 
+5 October guided-session checkpoint: existing-web-app implementation passes TypeScript, production build, 188 focused tests and eight browser journeys. Not deployed. Music bank is 38/240 saved tracks; provider network policy interrupted the remaining build. See [implementation and continuation](GUIDED_SESSION_IMPLEMENTATION_2026-10-05.md).
+
 > **27 September completion:** application work and the job audit passed both CI jobs in [PR #1](https://github.com/chordsnstrings/trainer_what/pull/1): 367 tests on each database path, build, 50-route browser journey, runtime permissions and container readiness. See [current verification](VERIFICATION_2026-09-27.md) and [handoff](../CLAUDE_HANDOFF.md). All older pending-check and feature-gap statements below are historical; real-service qualification and deployment remain separate.
 
 

@@ -1,0 +1,97 @@
+{
+  "provider": "sunoapi.org",
+  "trial": {
+    "createdAt": "2026-10-05T12:10:24.399652+00:00",
+    "status": "pending",
+    "playlist": "flow",
+    "slot": 0,
+    "creditsBefore": 2788.1,
+    "request": {
+      "customMode": true,
+      "instrumental": true,
+      "title": "Flow State 01",
+      "style": "deep house, flowing ambient electronica, steady pulse, warm pads; warm and spacious; 110 BPM; workout accompaniment; instrumental only, no vocals or speech; consistent energy; clean beginning and ending; avoid sudden volume jumps",
+      "negativeTags": "vocals, singing, speech, lyrics, spoken word, crowd chanting, clipping, abrupt silence",
+      "model": "V6",
+      "duration": 240,
+      "variety": 1,
+      "callBackUrl": "https://trainsyou.com/api/v1/public/music/callback"
+    },
+    "response": {
+      "code": 200,
+      "msg": "success",
+      "data": {
+        "taskId": "de7b93dd86688b1b21f1017bc231ca05"
+      }
+    },
+    "result": {
+      "code": 200,
+      "msg": "success",
+      "data": {
+        "taskId": "de7b93dd86688b1b21f1017bc231ca05",
+        "parentMusicId": "",
+        "param": "{\"callBackUrl\":\"https://trainsyou.com/api/v1/public/music/callback\",\"customMode\":true,\"duration\":240,\"instrumental\":true,\"model\":\"V6\",\"negativeTags\":\"vocals, singing, speech, lyrics, spoken word, crowd chanting, clipping, abrupt silence\",\"style\":\"deep house, flowing ambient electronica, steady pulse, warm pads; warm and spacious; 110 BPM; workout accompaniment; instrumental only, no vocals or speech; consistent energy; clean beginning and ending; avoid sudden volume jumps\",\"title\":\"Flow State 01\",\"variety\":1}",
+        "response": {
+          "taskId": "de7b93dd86688b1b21f1017bc231ca05",
+          "sunoData": [
+            {
+              "id": "ec5f1d57-8b3b-4d2a-831a-f07176c52c90",
+              "prompt": "",
+              "title": "Flow State 01",
+              "tags": "Deep house, flowing ambient electronica; clean, even-level production with gradual opening and resolved fade; instrumental; warm sustained pads, rounded sub-bass, soft four-on-the-floor kick and crisp restrained percussion; steady 110 BPM pulse for workout accompaniment, consistent energy and spacious mix.",
+              "createTime": 1791202290854,
+              "duration": 239.84,
+              "audio_url": "https://tempfile.aiquickdraw.com/r/ec5f1d57-8b3b-4d2a-831a-f07176c52c90.mp3",
+              "source_audio_url": "",
+              "stream_audio_url": "https://audiostream.api.box/stream/ec5f1d57-8b3b-4d2a-831a-f07176c52c90.mp3",
+              "source_stream_audio_url": "https://audiostream.api.box/stream/ec5f1d57-8b3b-4d2a-831a-f07176c52c90.mp3",
+              "image_url": "https://musicfile.removeai.ai/ZWM1ZjFkNTctOGIzYi00ZDJhLTgzMWEtZjA3MTc2YzUyYzkw.jpeg",
+              "source_image_url": "https://cdn2.suno.ai/image_ec5f1d57-8b3b-4d2a-831a-f07176c52c90.jpeg",
+              "model_name": "chirp-hawk",
+              "audioUrl": "https://tempfile.aiquickdraw.com/r/ec5f1d57-8b3b-4d2a-831a-f07176c52c90.mp3",
+              "sourceAudioUrl": "",
+              "streamAudioUrl": "https://audiostream.api.box/stream/ec5f1d57-8b3b-4d2a-831a-f07176c52c90.mp3",
+              "sourceStreamAudioUrl": "https://audiostream.api.box/stream/ec5f1d57-8b3b-4d2a-831a-f07176c52c90.mp3",
+              "imageUrl": "https://musicfile.removeai.ai/ZWM1ZjFkNTctOGIzYi00ZDJhLTgzMWEtZjA3MTc2YzUyYzkw.jpeg",
+              "sourceImageUrl": "https://cdn2.suno.ai/image_ec5f1d57-8b3b-4d2a-831a-f07176c52c90.jpeg",
+              "modelName": "chirp-hawk"
+            },
+            {
+              "id": "13d1a09f-388a-4b0c-9305-8b842bfd4834",
+              "prompt": "",
+              "title": "Flow State 01",
+              "tags": "Deep house with flowing ambient electronica; fully instrumental. Warm, spacious pads lead a clean, even mix, with rounded kick, soft syncopated bass, and restrained percussion sustaining a steady 110 BPM workout pulse. Smooth energy throughout, with a gradual opening and resolved ending.",
+              "createTime": 1791202290854,
+              "duration": 240.0,
+              "audio_url": "https://tempfile.aiquickdraw.com/r/13d1a09f-388a-4b0c-9305-8b842bfd4834.mp3",
+              "source_audio_url": "",
+              "stream_audio_url": "https://audiostream.api.box/stream/13d1a09f-388a-4b0c-9305-8b842bfd4834.mp3",
+              "source_stream_audio_url": "https://audiostream.api.box/stream/13d1a09f-388a-4b0c-9305-8b842bfd4834.mp3",
+              "image_url": "https://musicfile.removeai.ai/MTNkMWEwOWYtMzg4YS00YjBjLTkzMDUtOGI4NDJiZmQ0ODM0.jpeg",
+              "source_image_url": "https://cdn2.suno.ai/image_13d1a09f-388a-4b0c-9305-8b842bfd4834.jpeg",
+              "model_name": "chirp-hawk",
+              "audioUrl": "https://tempfile.aiquickdraw.com/r/13d1a09f-388a-4b0c-9305-8b842bfd4834.mp3",
+              "sourceAudioUrl": "",
+              "streamAudioUrl": "https://audiostream.api.box/stream/13d1a09f-388a-4b0c-9305-8b842bfd4834.mp3",
+              "sourceStreamAudioUrl": "https://audiostream.api.box/stream/13d1a09f-388a-4b0c-9305-8b842bfd4834.mp3",
+              "imageUrl": "https://musicfile.removeai.ai/MTNkMWEwOWYtMzg4YS00YjBjLTkzMDUtOGI4NDJiZmQ0ODM0.jpeg",
+              "sourceImageUrl": "https://cdn2.suno.ai/image_13d1a09f-388a-4b0c-9305-8b842bfd4834.jpeg",
+              "modelName": "chirp-hawk"
+            }
+          ]
+        },
+        "status": "SUCCESS",
+        "type": "chirp-hawk",
+        "operationType": "generate",
+        "errorCode": null,
+        "errorMessage": null,
+        "createTime": 1791202236000
+      }
+    },
+    "balance": {
+      "code": 200,
+      "msg": "success",
+      "data": 2776.1
+    }
+  }
+}

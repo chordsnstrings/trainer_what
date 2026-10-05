@@ -434,10 +434,7 @@ export function Workout({ state, records, action, busy, path }: ViewProps) {
       );
     else if (result.rejected.length) setNotice(t("rejectedOne"));
     // Back online and everything sent: say so plainly (then it goes).
-    else if (
-      result.synced.length &&
-      !readList(localStorage, key).length
-    )
+    else if (result.synced.length && !readList(localStorage, key).length)
       setNotice(t("allSynced"));
   }, [tenantId, userId, refreshQueue, t, toError, key]);
   useEffect(() => {
@@ -483,9 +480,7 @@ export function Workout({ state, records, action, busy, path }: ViewProps) {
     };
   }, [workout?.id, path]);
   if (!workout)
-    return (
-      <Empty title={t("unavailable")} detail={t("unavailableDetail")} />
-    );
+    return <Empty title={t("unavailable")} detail={t("unavailableDetail")} />;
   const active = workout.status === "active";
   const pendingItems = readList<WorkoutQueueItem>(localStorage, key);
   // Every set's state: logged (with the values actually saved), saved on
@@ -495,16 +490,21 @@ export function Workout({ state, records, action, busy, path }: ViewProps) {
       ex,
       i,
       sets: Array.from({ length: ex.sets }, (_, set) => {
-        const logicalKey = workout.id + ":" + ex.name + ":" + (set + 1);
-        const pending = pendingItems.find((p) => p.logicalKey === logicalKey);
+        const logicalKey = workout.id + ":" + i + ":" + (set + 1);
+        const legacyKey = workout.id + ":" + ex.name + ":" + (set + 1);
+        const pending = pendingItems.find(
+          (p) => p.logicalKey === logicalKey || p.logicalKey === legacyKey,
+        );
         const saved = loggedSets.find(
           (s) =>
             s.workout_id === workout.id &&
             s.data.exercise === ex.name &&
-            s.data.set === set + 1,
+            s.data.set === set + 1 &&
+            (s.data.exerciseIndex == null || s.data.exerciseIndex === i),
         );
         const needsAttention = rejected.some(
-          (r) => r.item.logicalKey === logicalKey,
+          (r) =>
+            r.item.logicalKey === logicalKey || r.item.logicalKey === legacyKey,
         );
         const values = saved?.data ?? pending?.body ?? submitted[logicalKey];
         return {
@@ -512,7 +512,11 @@ export function Workout({ state, records, action, busy, path }: ViewProps) {
           logicalKey,
           formId: `set-${i}-${set + 1}`,
           pending: !!pending,
-          done: !!pending || !!saved || localDone.includes(logicalKey),
+          done:
+            !!pending ||
+            !!saved ||
+            localDone.includes(logicalKey) ||
+            localDone.includes(legacyKey),
           needsAttention,
           values: values
             ? {
@@ -534,9 +538,8 @@ export function Workout({ state, records, action, busy, path }: ViewProps) {
   const current =
     exercises
       .flatMap(({ ex, sets }) => sets.map((s) => ({ ...s, ex })))
-      .find(
-        (s) => s.logicalKey === openSet && !s.done && !s.needsAttention,
-      ) ?? next;
+      .find((s) => s.logicalKey === openSet && !s.done && !s.needsAttention) ??
+    next;
 
   const remaining = exercises.reduce(
     (n, { sets }) => n + sets.filter((s) => !s.done).length,
@@ -582,13 +585,6 @@ export function Workout({ state, records, action, busy, path }: ViewProps) {
           <Link className="button secondary" href={`/app/guided/${workout.id}`}>
             <Play size={16} aria-hidden="true" />
             {t("guided")}
-          </Link>
-          <Link
-            className="button secondary"
-            href={`/app/voice-session/${workout.id}`}
-          >
-            <MessageCircle size={16} aria-hidden="true" />
-            {t("voiceLed")}
           </Link>
           <p className="muted">{t("modesHelp")}</p>
         </div>
@@ -650,7 +646,14 @@ export function Workout({ state, records, action, busy, path }: ViewProps) {
                   className="text-button"
                   type="button"
                   onClick={async () => {
-                    if (!(await confirmWorkspace({ title: "Confirm action", detail: t("discardConfirm"), confirm: "Continue" }))) return;
+                    if (
+                      !(await confirmWorkspace({
+                        title: "Confirm action",
+                        detail: t("discardConfirm"),
+                        confirm: "Continue",
+                      }))
+                    )
+                      return;
                     discardRejected<WorkoutQueueItem>(
                       localStorage,
                       keys,
@@ -728,6 +731,7 @@ export function Workout({ state, records, action, busy, path }: ViewProps) {
                     rir: Number(f.get("rir")),
                     notes: String(f.get("notes") || ""),
                     exercise: ex.name,
+                    exerciseIndex: i,
                     set: row.set,
                     reps: measure === "reps" ? Number(f.get("reps")) : 0,
                     loadKg: Number(f.get("load")),
@@ -754,7 +758,11 @@ export function Workout({ state, records, action, busy, path }: ViewProps) {
                   localDone.includes(row.logicalKey)
                 )
                   return;
-                pending.push({ path: endpoint, body, logicalKey: row.logicalKey });
+                pending.push({
+                  path: endpoint,
+                  body,
+                  logicalKey: row.logicalKey,
+                });
                 setSubmitted((old) => ({
                   ...old,
                   [row.logicalKey]: {
@@ -849,94 +857,94 @@ export function Workout({ state, records, action, busy, path }: ViewProps) {
                 !row.done &&
                 !row.needsAttention &&
                 row.logicalKey === current?.logicalKey && (
-                <>
-                  <NumberStepper
-                    label={t("weightKg")}
-                    name="load"
-                    decimal
-                    step={0.5}
-                    min={0}
-                    max={500}
-                    defaultValue={ex.loadKg}
-                    inputLabel={t("weightLabel", {
-                      exercise: ex.name,
-                      set: row.set,
-                    })}
-                  />
-                  {workMeasure(ex) === "time" ? (
+                  <>
                     <NumberStepper
-                      label={t("seconds")}
-                      name="duration"
+                      label={t("weightKg")}
+                      name="load"
+                      decimal
+                      step={0.5}
                       min={0}
-                      max={36000}
-                      defaultValue={ex.durationSeconds}
-                      inputLabel={t("secondsLabel", {
+                      max={500}
+                      defaultValue={ex.loadKg}
+                      inputLabel={t("weightLabel", {
                         exercise: ex.name,
                         set: row.set,
                       })}
                     />
-                  ) : workMeasure(ex) === "distance" ? (
-                    <NumberStepper
-                      label={t("metres")}
-                      name="distance"
-                      min={0}
-                      max={200000}
-                      defaultValue={ex.distanceMeters}
-                      inputLabel={t("metresLabel", {
-                        exercise: ex.name,
-                        set: row.set,
-                      })}
-                    />
-                  ) : (
-                    <NumberStepper
-                      label={t("reps")}
-                      name="reps"
-                      min={0}
-                      max={200}
-                      defaultValue={ex.reps}
-                      inputLabel={t("repsLabel", {
-                        exercise: ex.name,
-                        set: row.set,
-                      })}
-                    />
-                  )}
-                  <NumberStepper
-                    label={t("repsLeft")}
-                    name="rir"
-                    min={0}
-                    max={10}
-                    defaultValue={ex.rir ?? 2}
-                    enterKeyHint="done"
-                    inputLabel={t("rirLabel", {
-                      exercise: ex.name,
-                      set: row.set,
-                    })}
-                  />
-                  <button
-                    type="submit"
-                    className="button secondary set-log"
-                    disabled={busy}
-                  >
-                    {t("logSet", { n: row.set })}
-                  </button>
-                  <details className="set-note">
-                    <summary>{t("addNote", { n: row.set })}</summary>
-                    <label className="field">
-                      <span>{t("note")}</span>
-                      <textarea
-                        name="notes"
-                        maxLength={1000}
-                        rows={2}
-                        enterKeyHint="done"
-                        aria-label={t("noteLabel", {
+                    {workMeasure(ex) === "time" ? (
+                      <NumberStepper
+                        label={t("seconds")}
+                        name="duration"
+                        min={0}
+                        max={36000}
+                        defaultValue={ex.durationSeconds}
+                        inputLabel={t("secondsLabel", {
                           exercise: ex.name,
                           set: row.set,
                         })}
                       />
-                    </label>
-                  </details>
-                </>
-              )}
+                    ) : workMeasure(ex) === "distance" ? (
+                      <NumberStepper
+                        label={t("metres")}
+                        name="distance"
+                        min={0}
+                        max={200000}
+                        defaultValue={ex.distanceMeters}
+                        inputLabel={t("metresLabel", {
+                          exercise: ex.name,
+                          set: row.set,
+                        })}
+                      />
+                    ) : (
+                      <NumberStepper
+                        label={t("reps")}
+                        name="reps"
+                        min={0}
+                        max={200}
+                        defaultValue={ex.reps}
+                        inputLabel={t("repsLabel", {
+                          exercise: ex.name,
+                          set: row.set,
+                        })}
+                      />
+                    )}
+                    <NumberStepper
+                      label={t("repsLeft")}
+                      name="rir"
+                      min={0}
+                      max={10}
+                      defaultValue={ex.rir ?? 2}
+                      enterKeyHint="done"
+                      inputLabel={t("rirLabel", {
+                        exercise: ex.name,
+                        set: row.set,
+                      })}
+                    />
+                    <button
+                      type="submit"
+                      className="button secondary set-log"
+                      disabled={busy}
+                    >
+                      {t("logSet", { n: row.set })}
+                    </button>
+                    <details className="set-note">
+                      <summary>{t("addNote", { n: row.set })}</summary>
+                      <label className="field">
+                        <span>{t("note")}</span>
+                        <textarea
+                          name="notes"
+                          maxLength={1000}
+                          rows={2}
+                          enterKeyHint="done"
+                          aria-label={t("noteLabel", {
+                            exercise: ex.name,
+                            set: row.set,
+                          })}
+                        />
+                      </label>
+                    </details>
+                  </>
+                )}
             </form>
           ))}
         </Card>
@@ -1063,7 +1071,8 @@ export function Workout({ state, records, action, busy, path }: ViewProps) {
             setPainOpen(false);
             setPainText("");
             void action(
-              () => api(`/workouts/${workout.id}/pain`, "POST", { description }),
+              () =>
+                api(`/workouts/${workout.id}/pain`, "POST", { description }),
               t("paused"),
             );
           }}
