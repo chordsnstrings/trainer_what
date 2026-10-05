@@ -456,6 +456,66 @@ test("provider cancellation during an unknown renewal outcome clears the pending
   assert.equal(view.billingStatus, "canceled");
 });
 
+test("deadline maintenance preserves a price approval committed while DNS was checked", async (t) => {
+  const person = await f.person(),
+    o = await order(person, "active"),
+    offer = {
+      id: randomUUID(),
+      amountMinor: 3499,
+      currency: "USD",
+      state: "offered",
+      purchasable: true,
+      expiresAt: new Date(Date.now() + 60000).toISOString(),
+    };
+  await f.db.tenant(person, (tx) =>
+    tx.query(
+      "UPDATE domain_orders SET evidence=evidence||$2::jsonb WHERE id=$1",
+      [o.id, JSON.stringify({ renewalOffer: offer })],
+    ),
+  );
+  let checked = false,
+    clock = Date.now();
+  t.mock.method(Date, "now", () => clock);
+  await processWebAddressOrder(
+    f.db,
+    person.tenantId,
+    o.id,
+    {
+      ...deps,
+      httpsCheck: async () => {
+        if (checked) return;
+        checked = true;
+        const response = await post(
+          o.id,
+          "renewal-price",
+          {
+            offerId: offer.id,
+            amountMinor: offer.amountMinor,
+            currency: "USD",
+            accepted: true,
+          },
+          person,
+        );
+        assert.equal(response.statusCode, 200, response.body);
+        assert.equal(response.json().renewalPending, true);
+        clock += 120000;
+      },
+    },
+    { force: true },
+  );
+  assert.equal(checked, true);
+  await processWebAddressOrder(f.db, person.tenantId, o.id, deps, {
+    force: true,
+  });
+  const view = (
+    await f.call(`/web-address/orders/${o.id}`, { cookie: person.cookie })
+  ).json();
+  assert.equal(view.renewalEnabled, true);
+  assert.equal(view.renewalPriceMinor, 3499);
+  assert.equal(view.renewalOffer.state, "accepted");
+  assert.equal(subscriptions.get(o.sub).cancel_at_period_end, false);
+});
+
 test("legacy closed workspaces get billing cleanup even when their next domain visit was months away", async () => {
   const person = await f.person(),
     o = await order(person, "active");

@@ -3729,13 +3729,29 @@ async function maintainActive(
     !order.evidence?.renewalIntent
   ) {
     await db.tenant(workerActor(tenantId), async (tx) => {
+      // A trainer can approve while the worker checks DNS outside this
+      // transaction. Re-read under lock before replacing a billing intent.
+      const [current] = await tx.query(
+        "SELECT evidence,renewal_status FROM domain_orders WHERE id=$1 FOR UPDATE",
+        [order.id],
+      );
+      const currentOffer = current?.evidence?.renewalOffer;
+      if (
+        currentOffer?.id !== offer.id ||
+        currentOffer?.state !== "offered" ||
+        Date.parse(currentOffer.expiresAt) > Date.now() ||
+        current.evidence.renewalIntent ||
+        current.evidence.endBillingRequested ||
+        ["paid", "renewing", "failed"].includes(current.renewal_status)
+      )
+        return;
       await mergeEvidence(tx, order.id, {
         renewalIntent: {
           id: "price-deadline:" + offer.id,
           enabled: false,
           requestedAt: new Date().toISOString(),
         },
-        renewalOffer: { ...offer, state: "expired" },
+        renewalOffer: { ...currentOffer, state: "expired" },
       });
       await update(tx, order.id, { next_attempt_at: new Date() });
       await notifyOwner(tx, tenantId, order, {
