@@ -25,6 +25,7 @@ try {
   failRead = false;
   await page.getByRole("button", { name: "Retry", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Your web address", exact: true })).toBeVisible();
+  await expect(page.getByText("Synthetic address outage", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Domain connections are not enabled yet.", { exact: false })).toBeVisible();
   await expect(page.getByRole("button", { name: "Add domain", exact: true })).toHaveCount(0);
   await expect(page.getByText("Changing needs a recent authenticator check.", { exact: false })).toHaveCount(0);

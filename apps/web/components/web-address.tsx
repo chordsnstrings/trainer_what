@@ -229,7 +229,7 @@ export function WebAddressCenter({
     }
   }, []);
   useEffect(() => {
-    void refresh().catch((e) => setMessage(e.message));
+    void refresh().catch(() => {});
   }, [refresh]);
   // Live progress while an order is being set up.
   const working = !!state?.orders.some(

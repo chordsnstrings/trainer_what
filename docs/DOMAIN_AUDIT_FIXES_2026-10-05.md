@@ -23,7 +23,7 @@ Migration: `084_domain_audit.sql`. It adds reservation expiry and replaces unver
 
 Final counts and commit are recorded in `CLAUDE_HANDOFF.md`. Focused checks cover concurrency, unknown outcomes, closure and old-closure cleanup, ownership collisions, A/www activation, stale/failed health, wrong-site/502 HTTPS, billing isolation, exact price approval and missed approval deadlines. Production web build and root TypeScript are required. Deployment unit tests cover the optional wildcard configuration and secret handling.
 
-Local browser verification was blocked by a corrupt/empty browser download; PostgreSQL, Docker and Caddy binaries are absent locally. Added CI gates run the browser journey, restricted PostgreSQL suite, custom Caddy module build and existing application/container checks. These are not claimed passed before their results exist.
+Local browser verification was blocked by a corrupt/empty browser download; PostgreSQL, Docker and Caddy binaries are absent locally. Added CI gates run the browser journey, restricted PostgreSQL suite, custom Caddy module build and existing application/container checks. Initial PR #31 CI run `37274380161` passed the pinned Caddy build/module check, subscriber UI and Compose topology. Application and PostgreSQL checks were still running at that checkpoint. Final head qualification is recorded in the handoff.
 
 ## Deployment boundary
 
