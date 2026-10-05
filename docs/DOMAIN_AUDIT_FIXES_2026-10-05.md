@@ -1,6 +1,6 @@
 # Domain and subdomain audit fixes — 5 October 2026
 
-Owner authorized fixing all audit findings, then deployment and autonomous Claude completion of DigitalOcean setup on 5 October at 11:09 Asia/Dubai. Branch: `fix/web-address-audit-2026-10-05`. No deployment, paid transaction, registrar operation or production DNS change was performed. Production remains the previously verified `f114d16` release.
+Owner authorized fixing all audit findings, then deployment and autonomous Claude completion of DigitalOcean setup on 5 October at 11:09 Asia/Dubai. PR #31 is merged and deployed as `9fab808ee5be57160068dc371bb415fa2c089ced`. All five PR and exact-main checks passed. HTTPS readiness and served pages/assets were verified on 5 October at 08:16–08:18 UTC. Paid provider transactions, registrar operations and DigitalOcean DNS/wildcard activation remain separate from this completed application deployment.
 
 | Finding | Implemented behavior |
 | --- | --- |
@@ -23,11 +23,11 @@ Migration: `084_domain_audit.sql`. It adds reservation expiry and replaces unver
 
 Final counts and commit are recorded in `CLAUDE_HANDOFF.md`. Focused checks cover concurrency, unknown outcomes, closure and old-closure cleanup, ownership collisions, A/www activation, stale/failed health, wrong-site/502 HTTPS, billing isolation, exact price approval and missed approval deadlines. Production web build and root TypeScript are required. Deployment unit tests cover the optional wildcard configuration and secret handling.
 
-Local browser verification was blocked by a corrupt/empty browser download; PostgreSQL, Docker and Caddy binaries are absent locally. Added CI gates run the browser journey, restricted PostgreSQL suite, custom Caddy module build and existing application/container checks. Initial PR #31 CI run `37274380161` passed the pinned Caddy build/module check, subscriber UI and Compose topology. Application and PostgreSQL checks were still running at that checkpoint. Final head qualification is recorded in the handoff.
+Local browser download and database/container tooling were unavailable, so CI qualified those paths. Final PR run `37276788555` and exact-main run `37279158034` passed all five jobs, including the new domain browser journey and pinned Caddy module build. PR application tests: 1,666 passed/five skipped; restricted PostgreSQL: 1,665 passed/six skipped; zero failures. CI registration omissions for the new health worker and two notification templates were corrected. Exact deployment proof is `docs/evidence/domain-release-2026-10-05.json`.
 
 ## Deployment boundary
 
-Deployment is authorized. Complete review and qualification, then merge and verify the live release. Claude is authorized to finish the DigitalOcean DNS/TLS activation and necessary repairs with its account/host access; see the current handoff for exact steps. Application fixes do not turn on purchases, payments or domain operations. Real Stripe/registrar/CA qualification remains separate.
+Application deployment and live verification are complete. Claude is authorized to finish the DigitalOcean DNS/TLS activation and necessary repairs with its account/host access; see the current handoff for exact steps. Application fixes do not turn on purchases, payments or domain operations. Real Stripe/registrar/CA qualification remains separate.
 
 Wildcard TLS needs one host upgrade after the qualified application release, now assigned and authorized to Claude. Run `python3 infra/digitalocean/wildcard_tls.py` from that release as the host administrator. It prompts without echo for a DigitalOcean DNS-only token covering the platform zone, builds the pinned image, validates the Caddy configuration, retains credentials in root-only `edge-dns.env`, reapplies the release and verifies a wildcard SAN. Failure restores the prior edge configuration. Existing deploy/rollback code honors `EDGE_WILDCARD_TLS`; it is off by default. No real token or wildcard certificate was obtained in this implementation turn.
 
