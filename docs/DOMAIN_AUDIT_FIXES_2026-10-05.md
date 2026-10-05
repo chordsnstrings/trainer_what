@@ -1,6 +1,6 @@
 # Domain and subdomain audit fixes — 5 October 2026
 
-Owner authorized fixing all audit findings. Branch: `fix/web-address-audit-2026-10-05`. No deployment, paid transaction, registrar operation or production DNS change was performed. Production remains the previously verified `f114d16` release.
+Owner authorized fixing all audit findings, then deployment and autonomous Claude completion of DigitalOcean setup on 5 October at 11:09 Asia/Dubai. Branch: `fix/web-address-audit-2026-10-05`. No deployment, paid transaction, registrar operation or production DNS change was performed. Production remains the previously verified `f114d16` release.
 
 | Finding | Implemented behavior |
 | --- | --- |
@@ -27,8 +27,8 @@ Local browser verification was blocked by a corrupt/empty browser download; Post
 
 ## Deployment boundary
 
-Merge only after review and qualification, under the existing owner release authority. Application fixes do not turn on purchases, payments or domain operations. Real Stripe/registrar/CA qualification remains separate.
+Deployment is authorized. Complete review and qualification, then merge and verify the live release. Claude is authorized to finish the DigitalOcean DNS/TLS activation and necessary repairs with its account/host access; see the current handoff for exact steps. Application fixes do not turn on purchases, payments or domain operations. Real Stripe/registrar/CA qualification remains separate.
 
-Wildcard TLS needs one explicit host upgrade after the qualified application release. Run `python3 infra/digitalocean/wildcard_tls.py` from that release as the host administrator. It prompts without echo for a DigitalOcean DNS-only token covering the platform zone, builds the pinned image, validates the Caddy configuration, retains credentials in root-only `edge-dns.env`, reapplies the release and verifies a wildcard SAN. Failure restores the prior edge configuration. Existing deploy/rollback code honors `EDGE_WILDCARD_TLS`; it is off by default. No real token or wildcard certificate was obtained in this implementation turn.
+Wildcard TLS needs one host upgrade after the qualified application release, now assigned and authorized to Claude. Run `python3 infra/digitalocean/wildcard_tls.py` from that release as the host administrator. It prompts without echo for a DigitalOcean DNS-only token covering the platform zone, builds the pinned image, validates the Caddy configuration, retains credentials in root-only `edge-dns.env`, reapplies the release and verifies a wildcard SAN. Failure restores the prior edge configuration. Existing deploy/rollback code honors `EDGE_WILDCARD_TLS`; it is off by default. No real token or wildcard certificate was obtained in this implementation turn.
 
 Provider references used: Stripe subscription updates and customer portal API; Caddy custom-build documentation and the DigitalOcean DNS module. Pinned module: `v0.0.0-20250606074528-04bde2867106`.

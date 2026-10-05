@@ -207,6 +207,8 @@ export async function checkTenantAddresses(
   tenantId: string,
   deps: AddressHealthDeps = {},
 ) {
+  // Worker elevation records health for this workspace's published addresses;
+  // it is used by the scheduled sweep, never a subscriber request.
   const actor = elevated("worker", { tenantId, role: "owner" });
   const [tenant] = await db.system((tx) =>
     tx.query(
