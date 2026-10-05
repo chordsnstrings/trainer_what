@@ -1,0 +1,326 @@
+{
+  "authorization": {
+    "response": "Yes",
+    "at": "2026-10-04T08:46:40+04:00",
+    "scope": "Merge PR #30 after checks pass; complete the previously authorized deployment."
+  },
+  "pr": {
+    "number": 30,
+    "head": "6b2c3be33115c3e51fd4efc21be3672ae9aefee7",
+    "mergedAt": "2026-10-04T04:50:20Z",
+    "merge": "f114d16145cdad0ffa2bfdec91524b2e20742441",
+    "tree": "ee13360226cc06a5ac8c1233e6ac81c4e10a4c56",
+    "checks": [
+      {
+        "name": "application",
+        "conclusion": "success",
+        "completedAt": "2026-10-03T21:39:52Z",
+        "url": "https://github.com/chordsnstrings/trainer_what/actions/runs/37154122810/job/111293863025"
+      },
+      {
+        "name": "subscriber-ui",
+        "conclusion": "success",
+        "completedAt": "2026-10-03T21:11:44Z",
+        "url": "https://github.com/chordsnstrings/trainer_what/actions/runs/37154122810/job/111293862854"
+      },
+      {
+        "name": "postgres-and-container",
+        "conclusion": "success",
+        "completedAt": "2026-10-03T21:17:18Z",
+        "url": "https://github.com/chordsnstrings/trainer_what/actions/runs/37154122810/job/111293862842"
+      },
+      {
+        "name": "compose-topology",
+        "conclusion": "success",
+        "completedAt": "2026-10-03T21:11:35Z",
+        "url": "https://github.com/chordsnstrings/trainer_what/actions/runs/37154122810/job/111293862833"
+      }
+    ]
+  },
+  "main": {
+    "runId": 37178154258,
+    "event": "push",
+    "sha": "f114d16145cdad0ffa2bfdec91524b2e20742441",
+    "status": "completed",
+    "url": "https://github.com/chordsnstrings/trainer_what/actions/runs/37178154258",
+    "firstAttemptDatabaseFailure": {
+      "jobId": 111365020209,
+      "test": "tests/accounts-membership-exit.test.ts:773",
+      "at": "2026-10-04T04:51:30.0888010Z",
+      "error": "MFA_REQUIRED: 401 !== 200",
+      "diagnosis": "Existing previous-period TOTP fixture crossed a 30-second boundary; test and helper are unchanged from the prior live release.",
+      "withdrawalRegressions": "both passed",
+      "nextAction": "Only the failed database job was retried after the first attempt finished.",
+      "retryResult": "Passed: 1651 tests passed, six skipped, zero failures; container build/readiness passed."
+    },
+    "attempt": 2,
+    "retryJobId": 111368353407,
+    "application": {
+      "sourceJobId": 111365020137,
+      "passed": 1652,
+      "failed": 0,
+      "skipped": 5,
+      "browserRegression": "passed",
+      "builderJourneys": 16,
+      "layoutMatrix": "passed",
+      "backendUI": "passed"
+    },
+    "conclusion": "success",
+    "completedAt": "2026-10-04T05:24:04Z",
+    "jobs": [
+      {
+        "id": 111368353407,
+        "name": "postgres-and-container",
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-04T05:13:55Z",
+        "completedAt": "2026-10-04T05:24:03Z"
+      },
+      {
+        "id": 111368353986,
+        "name": "subscriber-ui",
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-04T04:50:25Z",
+        "completedAt": "2026-10-04T04:52:17Z"
+      },
+      {
+        "id": 111368371053,
+        "name": "application",
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-04T04:50:25Z",
+        "completedAt": "2026-10-04T05:13:35Z"
+      },
+      {
+        "id": 111368373759,
+        "name": "compose-topology",
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-04T04:50:26Z",
+        "completedAt": "2026-10-04T04:52:08Z"
+      }
+    ],
+    "postgres": {
+      "tests": 1657,
+      "pass": 1651,
+      "fail": 0,
+      "skipped": 6
+    }
+  },
+  "previousLive": {
+    "sha": "e5757e4f02f25fd291ba23cbbcc12d8d820a83af",
+    "status": 200,
+    "body": {
+      "status": "ready"
+    },
+    "checkedAt": "2026-10-04T04:52:54.974743+00:00"
+  },
+  "deployed": true,
+  "deployment": {
+    "method": "existing newest-green-main automatic deployment",
+    "firstHealthy": {
+      "status": 200,
+      "release": "f114d16145cdad0ffa2bfdec91524b2e20742441",
+      "body": "{\"status\":\"ready\"}",
+      "checkedAt": "2026-10-04T05:29:21.704043+00:00"
+    },
+    "transientProbe": {
+      "checkedAt": "2026-10-04T05:28:41.509899+00:00",
+      "status": 502,
+      "release": null
+    },
+    "verification": {
+      "expectedRelease": "f114d16145cdad0ffa2bfdec91524b2e20742441",
+      "readOnly": true,
+      "requests": [
+        {
+          "path": "/api/v1/ready",
+          "status": 200,
+          "release": "f114d16145cdad0ffa2bfdec91524b2e20742441",
+          "checkedAt": "2026-10-04T05:29:59.297715+00:00",
+          "body": {
+            "status": "ready"
+          }
+        },
+        {
+          "path": "/",
+          "status": 200,
+          "release": "f114d16145cdad0ffa2bfdec91524b2e20742441",
+          "checkedAt": "2026-10-04T05:30:12.896427+00:00"
+        },
+        {
+          "path": "/features",
+          "status": 200,
+          "release": "f114d16145cdad0ffa2bfdec91524b2e20742441",
+          "checkedAt": "2026-10-04T05:30:12.905787+00:00"
+        },
+        {
+          "path": "/features/website-and-domain",
+          "status": 200,
+          "release": "f114d16145cdad0ffa2bfdec91524b2e20742441",
+          "checkedAt": "2026-10-04T05:30:12.652613+00:00"
+        },
+        {
+          "path": "/features/subscriber-app",
+          "status": 200,
+          "release": "f114d16145cdad0ffa2bfdec91524b2e20742441",
+          "checkedAt": "2026-10-04T05:30:12.612596+00:00"
+        },
+        {
+          "path": "/features/voice-coach",
+          "status": 200,
+          "release": "f114d16145cdad0ffa2bfdec91524b2e20742441",
+          "checkedAt": "2026-10-04T05:30:24.986656+00:00"
+        },
+        {
+          "path": "/get-started",
+          "status": 200,
+          "release": "f114d16145cdad0ffa2bfdec91524b2e20742441",
+          "checkedAt": "2026-10-04T05:30:24.904790+00:00"
+        },
+        {
+          "path": "/how-it-works",
+          "status": 200,
+          "release": "f114d16145cdad0ffa2bfdec91524b2e20742441",
+          "checkedAt": "2026-10-04T05:30:24.834968+00:00"
+        },
+        {
+          "path": "/about",
+          "status": 200,
+          "release": "f114d16145cdad0ffa2bfdec91524b2e20742441",
+          "checkedAt": "2026-10-04T05:30:24.966195+00:00"
+        },
+        {
+          "path": "/security-and-privacy",
+          "status": 200,
+          "release": "f114d16145cdad0ffa2bfdec91524b2e20742441",
+          "checkedAt": "2026-10-04T05:30:36.296955+00:00"
+        },
+        {
+          "path": "/terms",
+          "status": 200,
+          "release": "f114d16145cdad0ffa2bfdec91524b2e20742441",
+          "checkedAt": "2026-10-04T05:30:36.004435+00:00"
+        },
+        {
+          "path": "/privacy",
+          "status": 200,
+          "release": "f114d16145cdad0ffa2bfdec91524b2e20742441",
+          "checkedAt": "2026-10-04T05:30:36.018724+00:00"
+        },
+        {
+          "path": "/ai-disclosure",
+          "status": 200,
+          "release": "f114d16145cdad0ffa2bfdec91524b2e20742441",
+          "checkedAt": "2026-10-04T05:30:35.976451+00:00"
+        },
+        {
+          "path": "/llms-full.txt",
+          "status": 200,
+          "release": "f114d16145cdad0ffa2bfdec91524b2e20742441",
+          "checkedAt": "2026-10-04T05:30:48.091693+00:00"
+        },
+        {
+          "path": "/api/v1/public/platform",
+          "status": 200,
+          "release": "f114d16145cdad0ffa2bfdec91524b2e20742441",
+          "checkedAt": "2026-10-04T05:30:58.833018+00:00"
+        },
+        {
+          "path": "/api/v1/public/legal-status",
+          "status": 200,
+          "release": "f114d16145cdad0ffa2bfdec91524b2e20742441",
+          "checkedAt": "2026-10-04T05:30:58.465206+00:00"
+        },
+        {
+          "path": "/api/v1/public/documents/terms",
+          "status": 404,
+          "release": "f114d16145cdad0ffa2bfdec91524b2e20742441",
+          "checkedAt": "2026-10-04T05:30:58.713040+00:00"
+        },
+        {
+          "path": "/api/v1/public/documents/terms?version=1",
+          "status": 404,
+          "release": "f114d16145cdad0ffa2bfdec91524b2e20742441",
+          "checkedAt": "2026-10-04T05:30:58.197579+00:00"
+        },
+        {
+          "path": "/api/v1/public/documents/privacy",
+          "status": 404,
+          "release": "f114d16145cdad0ffa2bfdec91524b2e20742441",
+          "checkedAt": "2026-10-04T05:31:08.764090+00:00"
+        },
+        {
+          "path": "/api/v1/public/documents/privacy?version=1",
+          "status": 404,
+          "release": "f114d16145cdad0ffa2bfdec91524b2e20742441",
+          "checkedAt": "2026-10-04T05:31:09.018046+00:00"
+        },
+        {
+          "path": "/api/v1/public/documents/ai-disclosure",
+          "status": 404,
+          "release": "f114d16145cdad0ffa2bfdec91524b2e20742441",
+          "checkedAt": "2026-10-04T05:31:08.748377+00:00"
+        },
+        {
+          "path": "/api/v1/public/documents/ai-disclosure?version=1",
+          "status": 404,
+          "release": "f114d16145cdad0ffa2bfdec91524b2e20742441",
+          "checkedAt": "2026-10-04T05:31:09.054683+00:00"
+        },
+        {
+          "path": "/api/v1/ready",
+          "status": 200,
+          "release": "f114d16145cdad0ffa2bfdec91524b2e20742441",
+          "checkedAt": "2026-10-04T05:31:19.174014+00:00",
+          "body": {
+            "status": "ready"
+          }
+        }
+      ],
+      "checks": [
+        "Catalogue: 270 layouts and 38 module families",
+        "Desktop-only multipage editor",
+        "Before-and-after galleries and coach-supplied evidence",
+        "Six setup steps",
+        "Member Arabic and RTL claim",
+        "Voice own-music limits",
+        "Discovery copy current",
+        "Provider-neutral marketing",
+        "Configured coach subdomain example",
+        "Registration remains gated",
+        "Placeholder policies unavailable including historical versions",
+        "Unpublished company and support states explicit"
+      ],
+      "publicPlatform": {
+        "coachAddressTemplate": "https://{slug}.trainsyou.com",
+        "registrationOpen": false,
+        "companyDetails": null,
+        "supportEmail": null
+      },
+      "legalStatus": {
+        "joiningOpen": false,
+        "documents": [
+          {
+            "key": "terms",
+            "published": false,
+            "version": null
+          },
+          {
+            "key": "privacy",
+            "published": false,
+            "version": null
+          },
+          {
+            "key": "ai-disclosure",
+            "published": false,
+            "version": null
+          }
+        ]
+      },
+      "passed": true,
+      "completedAt": "2026-10-04T05:31:19.174147+00:00"
+    }
+  }
+}

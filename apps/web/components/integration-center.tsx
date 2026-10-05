@@ -17,12 +17,9 @@ import {
 } from "./phone-ui";
 import { VoiceSessionStyle } from "./voice-session-style";
 import { VoiceOneOnOne } from "./voice-one-on-one";
-import { WebAddressCenter } from "./web-address";
+import { WebAddressCenter, type WebAddressState } from "./web-address";
 import { WebAddressOperations } from "./web-address-operations";
-import {
-  TrainerVoiceClone,
-  VoiceCloneOperations,
-} from "./trainer-voice-clone";
+import { TrainerVoiceClone, VoiceCloneOperations } from "./trainer-voice-clone";
 import { useErrorText, useLocale, useT } from "../lib/i18n/react";
 import {
   formatCountdown,
@@ -45,13 +42,7 @@ async function api(path: string, method = "GET", body?: unknown) {
     throw new Error(data.message ?? "The request could not be completed.");
   return data;
 }
-function Panel({
-  title,
-  children,
-}: {
-  title: ReactNode;
-  children: ReactNode;
-}) {
+function Panel({ title, children }: { title: ReactNode; children: ReactNode }) {
   return (
     <section className="card">
       <h2>{title}</h2>
@@ -137,7 +128,9 @@ export function IntegrationCenter({
           <VoiceOneOnOne />
         </>
       ) : trainer && path.includes("/domains") ? (
-        <WebAddressCenter manual={<DomainCenter />} />
+        <WebAddressCenter
+          manual={(connection) => <DomainCenter connection={connection} />}
+        />
       ) : (
         <>
           <HealthConnections integrations={integrations} trainer={trainer} />
@@ -212,14 +205,11 @@ function HealthConnections({
     setObservations([]);
     setConsent(false);
     setFileName(file.name);
-    if (file.size > 15 * 1024 * 1024)
-      throw new Error(t("tooLarge"));
+    if (file.size > 15 * 1024 * 1024) throw new Error(t("tooLarge"));
     const content = await file.text();
-    if (/<!DOCTYPE|<!ENTITY/i.test(content))
-      throw new Error(t("entities"));
+    if (/<!DOCTYPE|<!ENTITY/i.test(content)) throw new Error(t("entities"));
     const xml = new DOMParser().parseFromString(content, "text/xml");
-    if (xml.querySelector("parsererror"))
-      throw new Error(t("invalidXml"));
+    if (xml.querySelector("parsererror")) throw new Error(t("invalidXml"));
     const rows = Array.from(xml.querySelectorAll("Record"))
       .filter((n) => n.getAttribute("value")?.trim())
       .map((n) => ({
@@ -235,10 +225,8 @@ function HealthConnections({
           Number.isFinite(Date.parse(r.measuredAt)),
       )
       .map((r) => ({ ...r, measuredAt: new Date(r.measuredAt).toISOString() }));
-    if (!rows.length)
-      throw new Error(t("noNumbers"));
-    if (rows.length > 2000)
-      throw new Error(t("tooMany"));
+    if (!rows.length) throw new Error(t("noNumbers"));
+    if (rows.length > 2000) throw new Error(t("tooMany"));
     setObservations(rows);
     action.setMessage(t("reviewFirst"));
   };
@@ -260,7 +248,8 @@ function HealthConnections({
       )}
       <div className="integration-grid">
         {DEVICE_PROVIDERS.filter(
-          (provider) => trainer || !comingDevices.includes(DEVICE_NAMES[provider]),
+          (provider) =>
+            trainer || !comingDevices.includes(DEVICE_NAMES[provider]),
         ).map((provider) => {
           const setting = integrations.find((i) => i.id === provider),
             connection = data.connections.find(
@@ -268,10 +257,7 @@ function HealthConnections({
             ),
             enabled = setting?.configured && setting?.approved;
           return (
-            <Panel
-              key={provider}
-              title={DEVICE_NAMES[provider]}
-            >
+            <Panel key={provider} title={DEVICE_NAMES[provider]}>
               <p className="muted">
                 {connection
                   ? connectionStatus(connection.status)
@@ -293,50 +279,50 @@ function HealthConnections({
                 <p dir="auto">{connection.summary.message}</p>
               )}
               {(enabled || connection || trainer) && (
-              <>
-              <p>{t("usedFor")}</p>
-              <label>
-                <input
-                  type="checkbox"
-                  name={`${provider}-consent`}
-                  form={`${provider}-form`}
-                  required
-                />{" "}
-                {t("allowImport")}
-              </label>
-              <form
-                id={`${provider}-form`}
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void action.run(async () => {
-                    const r = await api(
-                      `/integrations/${provider}/connect`,
-                      "POST",
-                      { consent: true },
-                    );
-                    window.location.assign(r.url);
-                  }, t("opening"));
-                }}
-              >
-                <button
-                  type="submit"
-                  disabled={
-                    action.busy ||
-                    !enabled ||
-                    connection?.status === "revocation_pending"
-                  }
-                >
-                  {connection ? t("reconnect") : t("connect")}
-                </button>
-                {!enabled && (
-                  <p className="control-reason">
-                    {trainer
-                      ? "This provider is waiting for platform setup and approval."
-                      : t("cannotConnect")}
-                  </p>
-                )}
-              </form>
-              </>
+                <>
+                  <p>{t("usedFor")}</p>
+                  <label>
+                    <input
+                      type="checkbox"
+                      name={`${provider}-consent`}
+                      form={`${provider}-form`}
+                      required
+                    />{" "}
+                    {t("allowImport")}
+                  </label>
+                  <form
+                    id={`${provider}-form`}
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      void action.run(async () => {
+                        const r = await api(
+                          `/integrations/${provider}/connect`,
+                          "POST",
+                          { consent: true },
+                        );
+                        window.location.assign(r.url);
+                      }, t("opening"));
+                    }}
+                  >
+                    <button
+                      type="submit"
+                      disabled={
+                        action.busy ||
+                        !enabled ||
+                        connection?.status === "revocation_pending"
+                      }
+                    >
+                      {connection ? t("reconnect") : t("connect")}
+                    </button>
+                    {!enabled && (
+                      <p className="control-reason">
+                        {trainer
+                          ? "This provider is waiting for platform setup and approval."
+                          : t("cannotConnect")}
+                      </p>
+                    )}
+                  </form>
+                </>
               )}
               {connection?.status === "active" && (
                 <button
@@ -695,15 +681,14 @@ export function GuidedSession({ workoutId }: { workoutId: string }) {
       t("gPausedNotified"),
     );
   };
-  const restText = rest > 0 ? t("rest", { time: formatCountdown(rest, locale) }) : "";
+  const restText =
+    rest > 0 ? t("rest", { time: formatCountdown(rest, locale) }) : "";
   return (
     <div className="stack guided-session">
       <div className="page-heading">
         <h1 dir="auto">{data?.name ?? t("gTitle")}</h1>
         {/* One plain safety line; the voice state is shown once, below. */}
-        <p>
-          {t("gWarning")}
-        </p>
+        <p>{t("gWarning")}</p>
       </div>
       <Notice value={action.message} />
       {/* The step card is on its way: never a page with only the stop card. */}
@@ -773,11 +758,7 @@ export function GuidedSession({ workoutId }: { workoutId: string }) {
               </button>
             )}
           </div>
-          {paused && (
-            <p className="control-reason">
-              {t("gPaused")}
-            </p>
-          )}
+          {paused && <p className="control-reason">{t("gPaused")}</p>}
           <div className="divider" />
           {data.audioAvailable ? (
             <>
@@ -935,7 +916,11 @@ export function GuidedSession({ workoutId }: { workoutId: string }) {
   );
 }
 
-function DomainCenter() {
+function DomainCenter({
+  connection,
+}: {
+  connection?: WebAddressState["connection"];
+}) {
   const [orders, setOrders] = useState<any[]>([]),
     refresh = useCallback(async () => setOrders(await api("/domains")), []),
     action = useAction(refresh);
@@ -945,39 +930,61 @@ function DomainCenter() {
   return (
     <>
       <Notice value={action.message} />
+      {action.message && (
+        <button
+          type="button"
+          disabled={action.busy}
+          onClick={() => void action.run(refresh, "Address status refreshed.")}
+        >
+          Refresh status
+        </button>
+      )}
       <Panel title="Connect a custom domain">
         <p>
           Your existing coaching address continues to work while your domain is
           prepared.
         </p>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            const f = new FormData(e.currentTarget);
-            void action.run(
-              () =>
-                api("/domains", "POST", {
-                  hostname: f.get("hostname"),
-                  alreadyOwned: f.get("owned") === "on",
-                }),
-              "Domain request saved",
-            );
-          }}
-        >
-          <label>
-            Domain
-            <input
-              name="hostname"
-              placeholder="coach.example.com"
-              required
-              maxLength={253}
-            />
-          </label>
-          <label>
-            <input name="owned" type="checkbox" /> I already own this domain.
-          </label>
-          <button disabled={action.busy}>Add domain</button>
-        </form>
+        {!connection?.enabled ? (
+          <p className="muted">
+            Domain connections are not enabled yet. Your platform address
+            continues to work.
+          </p>
+        ) : (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const f = new FormData(e.currentTarget);
+              void action.run(
+                () =>
+                  api("/domains", "POST", {
+                    hostname: f.get("hostname"),
+                    alreadyOwned: true,
+                    includeWww: f.get("www") === "on",
+                  }),
+                "Domain request saved",
+              );
+            }}
+          >
+            <label>
+              Domain
+              <input
+                name="hostname"
+                placeholder="coach.example.com"
+                required
+                maxLength={253}
+              />
+            </label>
+            <label>
+              <input name="owned" type="checkbox" required /> I own this domain
+              and can edit its DNS.
+            </label>
+            <label>
+              <input name="www" type="checkbox" /> Also connect www and redirect
+              it here.
+            </label>
+            <button disabled={action.busy}>Add domain</button>
+          </form>
+        )}
       </Panel>
       {orders.map((order) => (
         <Panel key={order.id} title={order.hostname}>
@@ -987,6 +994,15 @@ function DomainCenter() {
               ? ` · Expires ${new Date(order.expires_at).toLocaleDateString()}`
               : ""}
           </p>
+          {order.health && <p role="status">{order.health.message}</p>}
+          {order.reservationExpiresAt &&
+            !["active", "expired", "cancelled"].includes(order.status) && (
+              <p className="muted">
+                Complete setup by{" "}
+                {new Date(order.reservationExpiresAt).toLocaleDateString()}.
+                Unverified requests do not reserve the domain.
+              </p>
+            )}
           {order.quote && (
             <p>
               Registration: {(order.quote.amountMinor / 100).toFixed(2)}{" "}
@@ -1028,30 +1044,103 @@ function DomainCenter() {
           )}
           {["owned", "verified"].includes(order.status) && (
             <>
-              <p>Add this TXT record at your DNS provider:</p>
+              <p>
+                Add these records at your DNS provider. Use the full hostname,
+                or @ when your provider asks for the root name. Keep email
+                records unchanged.
+              </p>
+              <div className="table-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Type</th>
+                      <th>Name</th>
+                      <th>Value</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[
+                      order.hostname,
+                      ...(order.includeWww ? ["www." + order.hostname] : []),
+                    ].map((host) => (
+                      <tr key={host}>
+                        <td>{connection?.ipv4 ? "A" : "CNAME"}</td>
+                        <td>{host}</td>
+                        <td>
+                          {connection?.ipv4 ||
+                            connection?.cname ||
+                            "Platform setup pending"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="muted">
+                Remove conflicting A/AAAA records for these names. A root domain
+                needs A records or CNAME flattening. DNS updates may take up to
+                48 hours.
+              </p>
+              <p>Add this ownership TXT record:</p>
               <dl>
                 <dt>Name</dt>
                 <dd>
-                  <code>_trainer-verify.{order.hostname}</code>
+                  <code>_trainer-verify.{order.hostname}</code>{" "}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void action.run(
+                        () =>
+                          navigator.clipboard.writeText(
+                            `_trainer-verify.${order.hostname}`,
+                          ),
+                        "Record name copied.",
+                      )
+                    }
+                  >
+                    Copy name
+                  </button>
                 </dd>
                 <dt>Value</dt>
                 <dd style={{ overflowWrap: "anywhere" }}>
-                  <code>trainer-verification={order.token}</code>
+                  <code>trainer-verification={order.token}</code>{" "}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void action.run(
+                        () =>
+                          navigator.clipboard.writeText(
+                            `trainer-verification=${order.token}`,
+                          ),
+                        "TXT value copied.",
+                      )
+                    }
+                  >
+                    Copy value
+                  </button>
                 </dd>
               </dl>
               <button
-                disabled={action.busy}
+                disabled={action.busy || !connection?.enabled}
                 onClick={() =>
-                  void action.run(
-                    () =>
-                      api(`/domains/${order.id}/verify`, "POST", {
-                        revision: order.version,
-                      }),
-                    "Ownership verified; DNS and TLS activation awaits the operator",
-                  )
+                  void action.run(async () => {
+                    try {
+                      const verified =
+                        order.status === "verified"
+                          ? order
+                          : await api(`/domains/${order.id}/verify`, "POST", {
+                              revision: order.version,
+                            });
+                      await api(`/domains/${order.id}/connect`, "POST", {
+                        revision: verified.version,
+                      });
+                    } finally {
+                      await refresh();
+                    }
+                  }, "Connection checked. Website verification status is shown above.")
                 }
               >
-                Check ownership
+                Verify and connect
               </button>
             </>
           )}
@@ -1067,17 +1156,23 @@ function DomainCenter() {
           {!["cancelled", "expired"].includes(order.status) && (
             <button
               disabled={action.busy}
-              onClick={() =>
+              onClick={() => {
+                if (
+                  !window.confirm(
+                    `Disconnect ${order.hostname}? Visitors will need your platform address. This does not cancel registration at your domain provider.`,
+                  )
+                )
+                  return;
                 void action.run(
                   () =>
                     api(`/domains/${order.id}/cancel`, "POST", {
                       revision: order.version,
                     }),
                   order.alreadyOwned
-                    ? "Domain disconnected; your own registration is not affected"
+                    ? "Domain disconnected; your registration is not affected."
                     : "Domain disconnected",
-                )
-              }
+                );
+              }}
             >
               Disconnect domain
             </button>

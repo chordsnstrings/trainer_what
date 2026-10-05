@@ -66,6 +66,7 @@ export const ELEVATIONS = {
       "apps/api/src/safety-policy.ts",
       "apps/api/src/voice-clones.ts",
       "apps/api/src/voice-session.ts",
+      "apps/api/src/web-address-health.ts",
       "apps/api/src/web-address-orders.ts",
       "apps/worker/src/dispatch.ts",
       "apps/worker/src/email-delivery.ts",

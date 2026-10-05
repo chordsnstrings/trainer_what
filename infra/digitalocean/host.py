@@ -120,7 +120,7 @@ def valid_root(root):
     return root
 
 
-def edge_config(endpoint, revision=None, ask=None, root=None, moved=()):
+def edge_config(endpoint, revision=None, ask=None, root=None, moved=(), wildcard_tls=None):
     # Overwrite X-Forwarded-For with the connecting address: the web proxy signs it
     # for the API's per-client budgets, so a client must not be able to choose it.
     release = "    header X-GymMembership-Release " + valid_sha(revision) + "\n" if revision else ""
@@ -144,7 +144,10 @@ def edge_config(endpoint, revision=None, ask=None, root=None, moved=()):
         if urlsplit(endpoint).hostname == root:
             # The platform is served at the root: www.<root> redirects to it.
             www = "    @www host www." + root + "\n    redir @www https://" + root + "{uri} 308\n"
-        wildcard = "*." + root + " {\n    tls {\n        on_demand\n    }\n" + www + site + "}\n\n"
+        enabled = edge_wildcard() if wildcard_tls is None else wildcard_tls
+        tls = ("    tls {\n        dns digitalocean {env.DIGITALOCEAN_DNS_TOKEN}\n    }\n" if enabled
+               else "    tls {\n        on_demand\n    }\n")
+        wildcard = "*." + root + " {\n" + tls + www + site + "}\n\n"
     # Coach domains: Caddy obtains a certificate on the first TLS handshake for a
     # name only when the API's ask endpoint answers 200 (an active, verified
     # mapping or a short activation allowance). The platform keeps its own block.
@@ -175,6 +178,11 @@ def edge_ask(values=None):
         return None
     token = hmac.new(secret.encode(), b"gymmembership-tls-ask-v1", hashlib.sha256).hexdigest()
     return TLS_ASK_URL + token
+
+
+def edge_wildcard(values=None):
+    values = runtime_values() if values is None else values
+    return values.get("EDGE_WILDCARD_TLS", "false").strip().lower() == "true"
 
 
 def edge_root(values=None):
@@ -267,6 +275,7 @@ def ensure_runtime():
 SERVICES = frozenset({"database", "migrate", "api", "web", "worker", "edge"})
 NAMED_VOLUMES = {"database": {"postgres_data"}, "edge": {"caddy_data", "caddy_config"}}
 EDGE_IMAGE = "caddy:2.11.4-alpine"
+WILDCARD_EDGE_IMAGE = "gymmembership-caddy-dns:2.11.4-04bde2867106"
 # Service settings that reach the host kernel, devices, namespaces, engine or files.
 # This is a deny-list so that benign keys a newer Compose renders cannot halt every
 # future deployment; only truthy values are rejected.
@@ -295,8 +304,14 @@ def validate_exposure(rendered, release=None):
         raise DeploymentError("The web port must bind to localhost behind HTTPS")
     if services["database"].get("image") != "postgres:17.6-alpine":
         raise DeploymentError("Database image changes require an explicit upgrade procedure")
-    if services["edge"].get("image") != EDGE_IMAGE:
+    expected_edge = WILDCARD_EDGE_IMAGE if edge_wildcard() else EDGE_IMAGE
+    if services["edge"].get("image") != expected_edge:
         raise DeploymentError("Edge image changes require an explicit upgrade procedure")
+    edge_env = services["edge"].get("environment") or {}
+    if edge_wildcard() and (not edge_env.get("DIGITALOCEAN_DNS_TOKEN") or not edge_root()):
+        raise DeploymentError("Wildcard TLS requires a DNS token and platform root")
+    if set(edge_env) - {"DIGITALOCEAN_DNS_TOKEN"}:
+        raise DeploymentError("Unexpected edge environment setting")
     for name, service in sorted(services.items()):
         denied = [key for key in HOST_ACCESS_KEYS if service.get(key)]
         reservations = ((service.get("deploy") or {}).get("resources") or {}).get("reservations") or {}

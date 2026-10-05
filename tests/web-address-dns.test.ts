@@ -664,6 +664,53 @@ test("the HTTPS check: any answer (a 301 included) with a valid certificate pass
       }),
     );
     await httpsProbe("shop.test", loopback, { port: forwarding, ca: material.ca, timeoutMs: 5000 });
+    // Activation readiness is stricter than the pre-mapping certificate probe.
+    let status = 502,
+      site = "shop",
+      location: string | undefined;
+    const website = await listen(
+      createHttpsServer(
+        { key: material.domains!.key, cert: material.domains!.cert },
+        (_req, res) => {
+          res.writeHead(status, {
+            "X-Trainer-Site": site,
+            ...(location ? { location } : {}),
+          });
+          res.end();
+        },
+      ),
+    );
+    const health = {
+      port: website,
+      ca: material.ca,
+      timeoutMs: 5000,
+      siteSlug: "shop",
+    };
+    await assert.rejects(
+      () => httpsProbe("shop.test", loopback, health),
+      "502 cannot be Live",
+    );
+    status = 200;
+    site = "another-coach";
+    await assert.rejects(
+      () => httpsProbe("shop.test", loopback, health),
+      "Wrong tenant cannot be Live",
+    );
+    site = "shop";
+    await httpsProbe("shop.test", loopback, health);
+    status = 301;
+    location = "https://wrong.example/";
+    await assert.rejects(() =>
+      httpsProbe("shop.test", loopback, {
+        ...health,
+        redirectHost: "shop.example",
+      }),
+    );
+    location = "https://shop.example/";
+    await httpsProbe("shop.test", loopback, {
+      ...health,
+      redirectHost: "shop.example",
+    });
     // A certificate for another name (or an untrusted one) never passes.
     const wrongName = await listen(
       createHttpsServer({ key: material.key, cert: material.cert }, (req, res) => res.end("ok")),

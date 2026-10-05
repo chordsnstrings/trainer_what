@@ -1,0 +1,4 @@
+FROM caddy:2.11.4-builder AS builder
+RUN xcaddy build v2.11.4 --with github.com/caddy-dns/digitalocean@v0.0.0-20250606074528-04bde2867106
+FROM caddy:2.11.4-alpine
+COPY --from=builder /usr/bin/caddy /usr/bin/caddy

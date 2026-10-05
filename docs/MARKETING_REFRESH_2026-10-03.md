@@ -1,6 +1,6 @@
 # Marketing refresh — 3 October 2026
 
-Owner approved the marketing audit fixes. Branch: `work/marketing-refresh-2026-10-03`, based on the saved subscriber release notes and verified live application `e5757e4`. Saved as [draft PR #29](https://github.com/chordsnstrings/trainer_what/pull/29), application commit `799bd46c0463c22acac793e694ccda13c847ec38`; the GitHub tree matches the staged local tree. CI qualification is not claimed complete. This work is not deployed. Subdomain and custom-domain audits are next, read-only.
+Owner approved the marketing audit fixes, review and deployment. PRs [#29](https://github.com/chordsnstrings/trainer_what/pull/29) and [#30](https://github.com/chordsnstrings/trainer_what/pull/30) are deployed as `f114d16145cdad0ffa2bfdec91524b2e20742441`, verified 4 October 2026. All four exact-main release jobs passed. The earlier checkpoints below remain historical; the final deployment evidence follows them. Next: subdomain audit, then custom-domain audit, read-only.
 
 ## Changes
 
@@ -31,7 +31,7 @@ Owner approved the marketing audit fixes. Branch: `work/marketing-refresh-2026-1
 - Root TypeScript and the production build pass.
 - Local Chromium: 12 pages at 390 and 1440 px, plus the settings-unavailable state: 25 checks, no page errors, horizontal overflow or broken in-page anchors. Setup has six steps, transformation FAQ opens, company links follow registration state and all three unpublished policy screens render correctly. API guards were tested separately against the database.
 - Visually reviewed desktop product illustrations/builder card and the phone setup page. Evidence: `docs/evidence/marketing-refresh-2026-10-03.json`.
-- No paid/live model calls, production records, domain operations or deployments.
+- During implementation verification: no paid/live model calls, production records, domain operations or deployments. The later authorized deployment is recorded below.
 
 ## Owner inputs still required
 
@@ -48,3 +48,26 @@ Owner requested review, then deployment at 00:43 Asia/Dubai. Reviewed public pol
 Found and corrected one release blocker: filtering test policies also blocked existing members withdrawing consent. The privacy route now records a withdrawal marker without requiring publication; notification preferences do the same for marketing opt-out. New grants still require real published documents. Existing cleanup, isolation, locking and immutable history remain intact. Reproduced HTTP 409 before the fix. Regression checks cover all seven consent types and notification preferences under production security, plus blocked re-grants.
 
 All 30 targeted privacy/public-page/notification/suspension checks pass. Root TypeScript passes. No web rendering changes were made during this review. No further release blockers found in the reviewed diff. Approved policies/company/contact remain owner inputs; their missing states stay explicit. The prior four-job CI result covers the pre-review-fix head; the release still requires full checks on the exact merged main commit before automatic deployment.
+
+## Deployment checkpoint — 4 October 2026
+
+PR #29 merged as `012ff78e3841f468e152a64edb29893cb51c7cd0`. Main run `37153199581` caught a permission error in the new regression fixture, which inserted/read tenant consent records through the system role. The application correctly restricts that role.
+
+PR #30 (`6b2c3be33115c3e51fd4efc21be3672ae9aefee7`) moves those fixture operations to tenant scope, without changing application permissions, runtime code or assertions. Both regressions and root TypeScript pass locally; PR run `37154122810` is pending. Automatic approval review rejected the merge, requiring separate owner approval for this new PR. Deployment has not occurred. Next: owner approval for PR #30, passing checks, merge, exact-main qualification, then public verification.
+
+
+## Approved release continuation — 4 October 2026
+
+Owner explicitly approved PR #30 with “Yes” at 08:46:40 Asia/Dubai. All four PR jobs passed in run `37154122810`. Merged as `f114d16145cdad0ffa2bfdec91524b2e20742441`; tree `ee13360226cc06a5ac8c1233e6ac81c4e10a4c56` matches the checked PR head. Exact-main push qualification `37178154258` is running. Existing automatic deployment follows successful qualification; production verification remains pending.
+
+
+## Verified production release — 4 October 2026
+
+- Approved PR #30 merged at 04:50:20 UTC as `f114d16145cdad0ffa2bfdec91524b2e20742441`; its tree matches the checked head exactly.
+- Main [qualification 37178154258](https://github.com/chordsnstrings/trainer_what/actions/runs/37178154258) passed at 05:24:04 UTC, attempt 2. PGlite: 1,652 pass/5 skip. Restricted PostgreSQL: 1,651 pass/6 skip. All final checks have zero failures. TypeScript/build, browser regression, 16 builder journeys, layout matrix, backend/subscriber UI, container readiness and Compose topology passed.
+- First database attempt: an unchanged account fixture generated a previous-period authenticator code across a 30-second clock boundary (`tests/accounts-membership-exit.test.ts:773`, `MFA_REQUIRED`). Only that failed job was retried successfully. Both new withdrawal regressions passed in both attempts. No production code, security settings, workflow or permission changes were made for the retry. The timing-sensitive fixture is a follow-up.
+- Existing automatic deployment returned healthy HTTP 200 readiness and the exact new release header at 05:29:21 UTC. One earlier probe returned 502 at 05:28:41 UTC during rollout.
+- Public verification completed 2026-10-04 05:31:19 UTC: 23 requests, 12 content/state checks, all passed and carrying the exact release header. Thirteen public pages/text endpoints return 200. Builder/transformations/setup/Arabic/voice/discovery copy is current and provider-neutral. Latest and historical test policies return 404 `LEGAL_NOT_PUBLISHED`; registration remains closed. Configured subdomain examples and explicit unpublished company/support states are correct.
+- These were signed-out, read-only production checks. Authenticated workflows are covered by isolated CI. No paid/live model calls, production fixtures, DNS/domain operations, cloud browser, SSH or manual deployment were used.
+
+Exact evidence: `docs/evidence/marketing-release-2026-10-04.json`. Handoff, project memory and release evidence are saved on `notes/marketing-release-2026-10-04`; reconcile these notes into the next application release. Owner inputs above remain outstanding. Next work is the read-only subdomain audit, then custom-domain audit.

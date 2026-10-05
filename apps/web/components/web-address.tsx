@@ -95,6 +95,18 @@ export type WebAddressOrder = {
   expiresAt?: string | null;
   liveAt?: string | null;
   renewalEnabled: boolean;
+  renewalPending?: boolean;
+  billingAvailable?: boolean;
+  renewalOffer?: {
+    id: string;
+    state: string;
+    amountMinor: number;
+    currency: string;
+    expiresAt: string;
+    effectiveAt: string;
+    purchasable: boolean;
+  } | null;
+  health?: { state: string; checkedAt: string | null; message: string } | null;
   renewalStatus?: string | null;
   billingStatus?: string | null;
   nextRenewalChargeAt?: string | null;
@@ -104,6 +116,8 @@ export type WebAddressOrder = {
   serveMode?: ServeMode;
 };
 export type WebAddressState = {
+  authenticatorRequired?: boolean;
+  connection?: { enabled: boolean; cname: string | null; ipv4: string | null };
   slug: string;
   published: boolean;
   path: string;
@@ -113,6 +127,11 @@ export type WebAddressState = {
     host: string | null;
     url: string | null;
     live: boolean;
+    health?: {
+      state: string;
+      checkedAt: string | null;
+      message: string;
+    } | null;
   };
   slugChanges: { used: number; limit: number; redirectDays: number };
   redirects: Array<{ slug: string; until: string }>;
@@ -187,24 +206,41 @@ export function WebAddressCenter({
   manual,
   initial = null,
 }: {
-  manual?: ReactNode;
+  manual?:
+    ReactNode | ((connection: WebAddressState["connection"]) => ReactNode);
   /** Server-provided or test state shown before the first refresh. */
   initial?: WebAddressState | null;
 }) {
   const [state, setState] = useState<WebAddressState | null>(initial),
     [message, setMessage] = useState(""),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [readError, setReadError] = useState("");
   const refresh = useCallback(async () => {
-    setState(await api("/web-address"));
+    try {
+      setState(await api("/web-address"));
+      setReadError("");
+    } catch (e) {
+      setReadError(
+        e instanceof Error
+          ? e.message
+          : "Address status could not be refreshed.",
+      );
+      throw e;
+    }
   }, []);
   useEffect(() => {
-    void refresh().catch((e) => setMessage(e.message));
+    void refresh().catch(() => {});
   }, [refresh]);
   // Live progress while an order is being set up.
-  const working = !!state?.orders.some((o) => IN_PROGRESS.includes(o.status));
+  const working = !!state?.orders.some(
+    (o) => IN_PROGRESS.includes(o.status) || o.renewalPending,
+  );
   useEffect(() => {
     if (!working) return;
-    const timer = setInterval(() => void refresh().catch(() => {}), 5000);
+    const timer = setInterval(
+      () => void refresh().catch((e) => setReadError(e.message)),
+      5000,
+    );
     return () => clearInterval(timer);
   }, [working, refresh]);
   const run = async (fn: () => Promise<unknown>, done = "Saved") => {
@@ -225,7 +261,19 @@ export function WebAddressCenter({
       <>
         <Status value={message} />
         <Panel title="Your web address">
-          <p className="muted">Loading your address…</p>
+          {readError ? (
+            <>
+              <p role="alert">{readError}</p>
+              <button
+                type="button"
+                onClick={() => void refresh().catch(() => {})}
+              >
+                Retry
+              </button>
+            </>
+          ) : (
+            <p className="muted">Loading your address…</p>
+          )}
         </Panel>
       </>
     );
@@ -236,6 +284,14 @@ export function WebAddressCenter({
       : null;
   return (
     <div className="stack web-address">
+      {readError && (
+        <p role="alert">
+          {readError}{" "}
+          <button type="button" onClick={() => void refresh().catch(() => {})}>
+            Retry refresh
+          </button>
+        </p>
+      )}
       <Status value={message} />
       <Panel title="Your web address">
         {state.subdomain.enabled && state.subdomain.url ? (
@@ -250,7 +306,11 @@ export function WebAddressCenter({
             <span
               className={"badge " + (state.subdomain.live ? "green" : "amber")}
             >
-              {state.subdomain.live ? "Live" : "Live after you publish"}
+              {state.subdomain.live
+                ? "Live"
+                : state.published
+                  ? "Website check needed"
+                  : "Live after you publish"}
             </span>
           </p>
         ) : state.subdomain.enabled ? (
@@ -259,6 +319,30 @@ export function WebAddressCenter({
             address below to get one.
           </p>
         ) : null}
+        {state.published && state.subdomain.url && (
+          <div className="button-row">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() =>
+                void run(
+                  () => api("/web-address/health", "POST", {}),
+                  "Address check complete.",
+                )
+              }
+            >
+              Check website
+            </button>
+            {state.subdomain.health && (
+              <p className="muted">
+                {state.subdomain.health.message}
+                {state.subdomain.health.checkedAt
+                  ? ` Checked ${new Date(state.subdomain.health.checkedAt).toLocaleString()}.`
+                  : ""}
+              </p>
+            )}
+          </div>
+        )}
         <p className="muted">
           Also available at <span className="ltr-data">{state.path}</span> on
           the platform. Your website and member app sign-in work on every
@@ -282,6 +366,13 @@ export function WebAddressCenter({
             const slug = String(form.get("slug") ?? "")
               .trim()
               .toLowerCase();
+            if (slug === state.slug) return;
+            if (
+              !window.confirm(
+                `Change your address to ${slug}? This uses one of your ${state.slugChanges.limit} yearly changes. Old links redirect for ${state.slugChanges.redirectDays} days, then the old address can be reused. Members may need to sign in again and reinstall the app.`,
+              )
+            )
+              return;
             void run(
               () =>
                 api("/web-address/slug", "POST", {
@@ -311,7 +402,10 @@ export function WebAddressCenter({
         </form>
         <p className="muted small-label">
           {state.slugChanges.used} of {state.slugChanges.limit} changes used in
-          the last year. Changing needs a recent authenticator check.
+          the last year.{" "}
+          {state.authenticatorRequired
+            ? "Changing needs a recent authenticator check."
+            : "Confirm the new address before changing."}
         </p>
       </Panel>
       {state.purchases.enabled ? (
@@ -326,8 +420,10 @@ export function WebAddressCenter({
       ) : (
         <Panel title="Your own domain">
           <p className="muted">
-            Buying a domain here is not available yet. You can still connect a
-            domain you already own below.
+            Buying a domain here is not available yet.{" "}
+            {state.connection?.enabled
+              ? "You can connect a domain you already own below."
+              : "Your platform address remains available."}
           </p>
         </Panel>
       )}
@@ -340,7 +436,7 @@ export function WebAddressCenter({
           subdomainHost={forwardTarget}
         />
       ))}
-      {manual}
+      {typeof manual === "function" ? manual(state.connection) : manual}
     </div>
   );
 }
@@ -451,9 +547,7 @@ export function DomainSearch({
     setAgreedTo(null);
     onError("");
     try {
-      setAnswer(
-        await api("/web-address/search?q=" + encodeURIComponent(q)),
-      );
+      setAnswer(await api("/web-address/search?q=" + encodeURIComponent(q)));
     } catch (e) {
       onError(e instanceof Error ? e.message : "Search failed.");
     } finally {
@@ -499,9 +593,8 @@ export function DomainSearch({
         have, with the first-year price and the yearly renewal price in US
         dollars, paid by card. Both are the full price you pay. Some endings
         cost much more to renew than for the first year: compare both before
-        choosing. Some endings may not be available for every name. We
-        register the domain, set it up and renew it every year. Endings
-        checked:{" "}
+        choosing. Some endings may not be available for every name. We register
+        the domain, set it up and renew it every year. Endings checked:{" "}
         <span className="ltr-data">
           {endings.map((e) => "." + e).join(" ")}
         </span>
@@ -549,9 +642,7 @@ export function DomainSearch({
           <span className={"badge " + requestedStatus.tone}>
             {requestedStatus.badge}
           </span>{" "}
-          <span className="muted">
-            This name {requestedStatus.sentence}.
-          </span>
+          <span className="muted">This name {requestedStatus.sentence}.</span>
         </p>
       )}
       {answer && answer.results.length > 0 && (
@@ -595,8 +686,8 @@ export function DomainSearch({
       )}
       {answer?.incomplete && (
         <p className="muted small-label">
-          Some endings could not be checked right now. Search again in a
-          minute to see them.
+          Some endings could not be checked right now. Search again in a minute
+          to see them.
         </p>
       )}
       {chosen ? (
@@ -641,8 +732,7 @@ export function DomainSearch({
                 setAgreedTo(event.target.checked ? agreementKey(chosen) : null)
               }
             />{" "}
-            I agree to pay{" "}
-            {formatMoney(chosen.firstYearPriceMinor)} now and{" "}
+            I agree to pay {formatMoney(chosen.firstYearPriceMinor)} now and{" "}
             {formatMoney(chosen.renewalPriceMinor)} every year after, renewed
             automatically.
           </label>
@@ -679,7 +769,11 @@ export function Prices({
         <span className="small-label">Renewal, every year after</span>{" "}
         <strong>{formatMoney(renewal, currency)}</strong>
       </span>
-      <RenewalNote firstYear={firstYear} renewal={renewal} currency={currency} />
+      <RenewalNote
+        firstYear={firstYear}
+        renewal={renewal}
+        currency={currency}
+      />
     </span>
   );
 }
@@ -726,19 +820,16 @@ export function OrderCard({
 }) {
   const reached = new Set(order.progress.map((p) => p.step));
   const mode: ServeMode = order.serveMode === "forward" ? "forward" : "site";
-  const choosable = ![
-    "checkout",
-    "cancelled",
-    "failed",
-    "expired",
-  ].includes(order.status);
+  const choosable = !["checkout", "cancelled", "failed", "expired"].includes(
+    order.status,
+  );
   return (
     <Panel title={order.hostname}>
       <p>
         <span
           className={
             "badge " +
-            (order.status === "active"
+            (order.statusLabel === "Live"
               ? "green"
               : ["failed", "expired", "cancelled"].includes(order.status)
                 ? "red"
@@ -762,10 +853,111 @@ export function OrderCard({
           ))}
         </ol>
       )}
+      {order.health && order.health.state !== "healthy" && (
+        <p role="status">{order.health.message}</p>
+      )}
+      {order.renewalOffer?.state === "offered" && (
+        <div className="notice">
+          <p>
+            New yearly renewal:{" "}
+            <strong>
+              {formatMoney(
+                order.renewalOffer.amountMinor,
+                order.renewalOffer.currency,
+              )}
+            </strong>{" "}
+            on {day(order.renewalOffer.effectiveAt)}. Approve by{" "}
+            {day(order.renewalOffer.expiresAt)}. Otherwise, automatic renewal
+            switches off. Your current paid term stays unchanged.
+          </p>
+          {order.renewalOffer.purchasable ? (
+            <button
+              type="button"
+              disabled={busy || order.renewalPending}
+              onClick={() => {
+                const offer = order.renewalOffer!;
+                if (
+                  !window.confirm(
+                    `Approve ${formatMoney(offer.amountMinor, offer.currency)} per year from ${day(offer.effectiveAt)}? This also enables automatic renewal.`,
+                  )
+                )
+                  return;
+                void run(
+                  () =>
+                    api(
+                      `/web-address/orders/${order.id}/renewal-price`,
+                      "POST",
+                      {
+                        offerId: offer.id,
+                        amountMinor: offer.amountMinor,
+                        currency: offer.currency,
+                        accepted: true,
+                      },
+                    ),
+                  "Price approval submitted. Waiting for billing confirmation.",
+                );
+              }}
+            >
+              Approve this yearly price
+            </button>
+          ) : (
+            <a href="/trainer/support">Discuss renewal options</a>
+          )}
+        </div>
+      )}
+      {order.renewalPending && (
+        <p role="status">
+          Confirming your billing change. The last confirmed setting remains
+          shown below.
+        </p>
+      )}
+      {order.billingAvailable && (
+        <div className="button-row">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() =>
+              void run(async () => {
+                const result = await api(
+                  `/web-address/orders/${order.id}/billing`,
+                  "POST",
+                  {},
+                );
+                window.location.assign(result.url);
+              }, "Opening payment settings…")
+            }
+          >
+            Update payment method
+          </button>
+          {["past_due", "unpaid", "incomplete"].includes(
+            order.billingStatus ?? "",
+          ) && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() =>
+                void run(async () => {
+                  const result = await api(
+                    `/web-address/orders/${order.id}/billing`,
+                    "POST",
+                    { action: "invoice" },
+                  );
+                  window.location.assign(result.url);
+                }, "Opening renewal payment…")
+              }
+            >
+              Pay outstanding renewal
+            </button>
+          )}
+          <a className="button secondary" href="/trainer/support">
+            Get billing help
+          </a>
+        </div>
+      )}
       {order.needsReview && (
         <p className="muted">
           The platform team is checking this step. You do not need to do
-          anything.
+          anything unless a payment or price approval is requested below.
         </p>
       )}
       {order.status === "active" && (
@@ -849,21 +1041,23 @@ export function OrderCard({
           </button>
         </div>
       )}
-      {["owned", "zone", "delegating", "dns", "active"].includes(order.status) &&
-        order.billingStatus !== "canceled" && (
+      {["owned", "zone", "delegating", "dns", "active"].includes(
+        order.status,
+      ) &&
+        !["canceled", "incomplete_expired"].includes(
+          order.billingStatus ?? "",
+        ) && (
           <button
             type="button"
             className="text-button"
-            disabled={busy}
+            disabled={busy || order.renewalPending}
             onClick={() =>
               void run(
                 () =>
                   api(`/web-address/orders/${order.id}/renewal`, "POST", {
                     enabled: !order.renewalEnabled,
                   }),
-                order.renewalEnabled
-                  ? "Renewal turned off"
-                  : "Renewal turned on",
+                "Renewal change requested. Confirmation appears above.",
               )
             }
           >
@@ -872,6 +1066,43 @@ export function OrderCard({
               : "Turn renewal back on"}
           </button>
         )}
+      {order.status === "active" &&
+        !["canceled", "incomplete_expired"].includes(
+          order.billingStatus ?? "",
+        ) && (
+          <button
+            type="button"
+            className="text-button"
+            disabled={busy || order.renewalPending}
+            onClick={() => {
+              if (
+                !window.confirm(
+                  "End this domain's billing subscription now? Your paid registration remains until expiry. Re-enabling renewal will require support. This allows workspace closure once other balances are settled.",
+                )
+              )
+                return;
+              void run(
+                () =>
+                  api(`/web-address/orders/${order.id}/end-billing`, "POST", {
+                    confirmed: true,
+                  }),
+                "Billing cancellation requested.",
+              );
+            }}
+          >
+            End domain billing
+          </button>
+        )}
+      {["canceled", "incomplete_expired"].includes(
+        order.billingStatus ?? "",
+      ) && (
+        <p>
+          Billing has ended.{" "}
+          <a href="/trainer/support">
+            Contact support to arrange renewal before expiry.
+          </a>
+        </p>
+      )}
     </Panel>
   );
 }

@@ -1,5 +1,8 @@
 # Web addresses: automatic subdomains and autonomous domain purchase
 
+> 5 October 2026: the [domain audit fixes](../DOMAIN_AUDIT_FIXES_2026-10-05.md) supersede older statements below about operator-only activation, unchecked Live status, reservation ownership and renewal recovery. This branch is not deployed; see `CLAUDE_HANDOFF.md` for qualification.
+
+
 Branch `core/web-addresses`, based on `b9ec7c1`. Migration `066_web_addresses`. Nothing here was
 deployed, no live DNS or server was changed, no domain was bought and no real Stripe request was
 made. All evidence below is local. One honest exception is recorded under "Checks actually run":

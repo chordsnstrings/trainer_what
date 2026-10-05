@@ -578,6 +578,28 @@ export const MESSAGE_KINDS: readonly MessageKind[] = Object.freeze([
     },
   ),
   kind(
+    "web-address-renewal-price",
+    "trainer",
+    "account",
+    "A changed yearly domain price needs the trainer's exact approval",
+    {
+      title: "Review your domain renewal price",
+      body: "The next yearly price for laylastrength.com is USD 29.99, charged on 2027-08-29. Approve this exact price in Web address before 2027-08-26. Without approval, automatic renewal switches off; the current paid term remains unchanged.",
+      href: "/trainer/domains",
+    },
+  ),
+  kind(
+    "web-address-price-expired",
+    "trainer",
+    "account",
+    "An unapproved price offer expired and renewal is being switched off",
+    {
+      title: "Domain renewal approval expired",
+      body: "The new yearly price for laylastrength.com was not approved. Automatic renewal is being switched off; your paid registration remains until 2027-09-28. Open Web address for status or contact support before expiry.",
+      href: "/trainer/domains",
+    },
+  ),
+  kind(
     "web-address-renewal-reminder",
     "trainer",
     "account",

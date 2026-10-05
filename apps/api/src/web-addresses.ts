@@ -61,7 +61,12 @@ import {
   type EndingPrice,
 } from "./web-address-prices.ts";
 import { newToken } from "./auth.ts";
-import { requireRecentMfa } from "./security.ts";
+import {
+  checkAddressHealth,
+  readAddressHealth,
+  targetAddress,
+} from "./web-address-health.ts";
+import { authenticatorRequired, requireRecentMfa } from "./security.ts";
 import { platformRoot } from "./host-routing.ts";
 import type { HostContext } from "./host-routing.ts";
 import { normalizeDomain } from "./integrations-completion.ts";
@@ -583,7 +588,11 @@ async function quote(registrar: Registrar, domain: string, db: Database) {
     availability.checkFailed ||
     availability.domain !== domain
   )
-    throw fail(409, "DOMAIN_UNAVAILABLE", "This domain is no longer available.");
+    throw fail(
+      409,
+      "DOMAIN_UNAVAILABLE",
+      "This domain is no longer available.",
+    );
   const cost = nameCost(registrar, availability, price);
   const priced = cost && trainerDomainPrices(cost, settings.rule);
   if (!cost || !priced?.offered)
@@ -659,7 +668,8 @@ async function operatorPrices(db: Database, deps: { registrar?: Registrar }) {
       renewUsd: price.renewUsd,
       firstYearPriceMinor: priced.firstYear.priceCents,
       renewalPriceMinor: priced.renewal.priceCents,
-      firstYearMarginMinor: priced.firstYear.priceCents - priced.firstYear.costCents,
+      firstYearMarginMinor:
+        priced.firstYear.priceCents - priced.firstYear.costCents,
       renewalMarginMinor: priced.renewal.priceCents - priced.renewal.costCents,
       firstYear: year(priced.firstYear),
       renewal: year(priced.renewal),
@@ -699,13 +709,25 @@ export function trainerOrderView(order: Record<string, any>) {
     id: order.id,
     hostname: order.hostname,
     status: order.status,
-    statusLabel: TRAINER_STEPS[order.status] ?? order.status,
+    statusLabel:
+      order.status === "active"
+        ? order.evidence?.websiteHealth?.state === "healthy" &&
+          Date.now() - Date.parse(order.evidence.websiteHealth.checkedAt) <
+            7200000
+          ? "Live"
+          : "Website check needed"
+        : (TRAINER_STEPS[order.status] ?? order.status),
+    health: order.evidence?.websiteHealth ?? null,
     firstYearPriceMinor: prices.firstYearMinor,
     renewalPriceMinor: prices.renewalMinor,
     currency: prices.currency,
     expiresAt: order.expires_at,
     liveAt: order.live_at,
     renewalEnabled: order.renewal_enabled,
+    renewalPending:
+      !!order.evidence?.renewalIntent || !!order.evidence?.endBillingRequested,
+    billingAvailable: !!order.stripe_customer_id,
+    renewalOffer: order.evidence?.renewalOffer ?? null,
     renewalStatus: order.renewal_status,
     billingStatus: order.billing_status,
     nextRenewalChargeAt:
@@ -820,7 +842,20 @@ export function registerWebAddresses(
     } catch {
       rule = null;
     }
+    const health =
+      root && eligible
+        ? await readAddressHealth(db, a, subdomainHost(tenant.slug, root))
+        : null;
     return {
+      authenticatorRequired: authenticatorRequired(),
+      connection: {
+        enabled: config.DOMAIN_OPERATIONS_ENABLED === "true",
+        cname: config.DOMAIN_CNAME_TARGET || root || null,
+        ipv4:
+          config.DOMAIN_OPERATIONS_ENABLED === "true"
+            ? await targetAddress(db, deps).catch(() => null)
+            : null,
+      },
       slug: tenant.slug,
       published: tenant.published === true,
       path: "/coach/" + tenant.slug,
@@ -832,7 +867,11 @@ export function registerWebAddresses(
             url: eligible
               ? "https://" + subdomainHost(tenant.slug, root)
               : null,
-            live: eligible && tenant.published === true,
+            live:
+              eligible &&
+              tenant.published === true &&
+              health?.state === "healthy",
+            health,
           }
         : { enabled: false, eligible, host: null, url: null, live: false },
       slugChanges: {
@@ -855,6 +894,33 @@ export function registerWebAddresses(
       orders: orders.map(trainerOrderView),
     };
   });
+  app.post(
+    "/api/v1/web-address/health",
+    { config: { rateLimit: { max: 6, timeWindow: "10 minutes" } } },
+    async (req) => {
+      const a = owner(req);
+      const { tenant } = await slugState(db, a.tenantId);
+      const root = platformRoot();
+      if (
+        !root ||
+        !tenant.published ||
+        !subdomainEligible(tenant.slug) ||
+        RESERVED_SLUGS.has(tenant.slug)
+      )
+        throw fail(
+          409,
+          "SITE_NOT_PUBLISHED",
+          "Publish your website before checking its address.",
+        );
+      return checkAddressHealth(
+        db,
+        a,
+        subdomainHost(tenant.slug, root),
+        tenant.slug,
+        deps,
+      );
+    },
+  );
   // The owner decides how a bought domain is served: the website itself, or
   // a permanent redirect to the workspace's subdomain (path and query kept).
   // Applied at once to an active domain's mapping; www always redirects to
@@ -1357,70 +1423,273 @@ export function registerWebAddresses(
     requireRecentMfa(a);
     const id = uuid.parse((req.params as any).id);
     const b = z.object({ enabled: z.boolean() }).strict().parse(req.body);
-    const [order] = await db.tenant(a, (tx) =>
-      tx.query(
-        "SELECT * FROM domain_orders WHERE id=$1 AND mode='automatic' AND status IN ('owned','zone','delegating','dns','active')",
+    await db.tenant(a, async (tx) => {
+      const [order] = await tx.query(
+        "SELECT * FROM domain_orders WHERE id=$1 AND mode='automatic' AND status IN ('owned','zone','delegating','dns','active') FOR UPDATE",
         [id],
-      ),
-    );
-    if (!order?.stripe_subscription_id)
-      throw fail(
-        409,
-        "ORDER_STATE",
-        "Renewal can be changed once the domain is registered.",
       );
-    if (
-      b.enabled &&
-      ["canceled", "incomplete_expired"].includes(order.billing_status)
-    )
-      throw fail(
-        409,
-        "RENEWAL_ENDED",
-        "The yearly subscription has ended, so renewal cannot be turned back on here. Contact platform support to keep this domain.",
-      );
-    await stripe().subscriptions.update(
-      order.stripe_subscription_id,
-      { cancel_at_period_end: !b.enabled },
-      {
-        idempotencyKey: `web-address-renewal:${id}:${b.enabled}:${order.version}`,
-      },
-    );
-    // A registrar that renews by itself (its API cannot switch that off)
-    // would renew the domain at the platform's cost: operators turn its
-    // auto-renewal off in the registrar's panel.
-    // The registrar this domain was bought through, not the one chosen for
-    // new purchases.
-    let autoRenews = false;
-    try {
-      autoRenews = !canRenew(
-        deps.registrar && deps.registrar.id === order.registrar
-          ? deps.registrar
-          : registrarFor(String(order.registrar ?? "")),
-      );
-    } catch {
-      autoRenews = false;
-    }
-    return db.tenant(a, async (tx) => {
-      const [row] = await tx.query(
-        // The switch time lets an older Stripe event never undo this choice.
-        "UPDATE domain_orders SET renewal_enabled=$2,notices='{}'::jsonb,evidence=evidence||jsonb_build_object('renewalSwitchedAt',$3::bigint),attention=CASE WHEN $4::text IS NOT NULL THEN $4 ELSE attention END,next_attempt_at=CASE WHEN status='active' THEN now() ELSE next_attempt_at END,version=version+1,updated_at=now() WHERE id=$1 RETURNING *",
+      if (!order?.stripe_subscription_id)
+        throw fail(
+          409,
+          "ORDER_STATE",
+          "Renewal can be changed once the domain is registered.",
+        );
+      if (order.evidence?.renewalIntent || order.evidence?.endBillingRequested)
+        throw fail(
+          409,
+          "RENEWAL_PENDING",
+          "The previous renewal change is still being confirmed. Please retry shortly.",
+        );
+      if (
+        b.enabled &&
+        ["canceled", "incomplete_expired"].includes(order.billing_status)
+      )
+        throw fail(
+          409,
+          "RENEWAL_ENDED",
+          "This subscription has ended. Contact support to arrange a new renewal subscription.",
+        );
+      if (
+        b.enabled &&
+        ["offered", "expired"].includes(order.evidence?.renewalOffer?.state)
+      )
+        throw fail(
+          409,
+          "PRICE_APPROVAL_REQUIRED",
+          "Approve the current renewal offer or contact support before restarting renewal.",
+        );
+      let autoRenews = false;
+      try {
+        autoRenews = !canRenew(
+          deps.registrar && deps.registrar.id === order.registrar
+            ? deps.registrar
+            : registrarFor(order.registrar),
+        );
+      } catch {
+        /* Provider availability does not prevent stopping Stripe renewal. */
+      }
+      await tx.query(
+        "UPDATE domain_orders SET evidence=evidence||$2::jsonb,next_attempt_at=now(),attention=CASE WHEN $3::text IS NOT NULL THEN $3 ELSE attention END,version=version+1,updated_at=now() WHERE id=$1",
         [
           id,
-          b.enabled,
-          Math.floor(Date.now() / 1000),
+          JSON.stringify({
+            renewalIntent: {
+              id: randomUUID(),
+              enabled: b.enabled,
+              requestedAt: new Date().toISOString(),
+            },
+          }),
           autoRenews && !b.enabled
-            ? "The trainer turned renewal off. The registrar renews its domains by itself about 60 days before expiry: turn auto-renewal off for this domain in the registrar's panel."
+            ? "The trainer turned renewal off. Disable automatic renewal in the registrar panel too."
             : null,
         ],
       );
-      await event(
-        tx,
-        a,
-        "web_address.renewal_" + (b.enabled ? "on" : "off"),
-        id,
-      );
-      return trainerOrderView(row);
+      await event(tx, a, "web_address.renewal_requested", id, {
+        enabled: b.enabled,
+      });
     });
+    await processWebAddressOrder(db, a.tenantId, id, deps, { force: true });
+    const [row] = await db.tenant(a, (tx) =>
+      tx.query("SELECT * FROM domain_orders WHERE id=$1", [id]),
+    );
+    return trainerOrderView(row);
+  });
+
+  app.post("/api/v1/web-address/orders/:id/renewal-price", async (req) => {
+    const a = owner(req);
+    requireRecentMfa(a);
+    const b = z
+      .object({
+        offerId: z.string().uuid(),
+        amountMinor: z.number().int().positive(),
+        currency: z.literal("USD"),
+        accepted: z.literal(true),
+      })
+      .strict()
+      .parse(req.body);
+    const id = uuid.parse((req.params as any).id);
+    await db.tenant(a, async (tx) => {
+      const [order] = await tx.query(
+        "SELECT * FROM domain_orders WHERE id=$1 AND mode='automatic' AND status='active' FOR UPDATE",
+        [id],
+      );
+      const offer = order?.evidence?.renewalOffer;
+      if (
+        !offer ||
+        offer.id !== b.offerId ||
+        offer.state !== "offered" ||
+        offer.amountMinor !== b.amountMinor ||
+        offer.currency !== b.currency ||
+        !offer.purchasable ||
+        Date.parse(offer.expiresAt) <= Date.now()
+      )
+        throw fail(
+          409,
+          "PRICE_CHANGED",
+          "This renewal offer changed or expired. Refresh before approving.",
+        );
+      if (
+        order.evidence.renewalIntent ||
+        order.evidence.endBillingRequested ||
+        ["paid", "renewing", "failed"].includes(order.renewal_status) ||
+        ["canceled", "incomplete_expired"].includes(order.billing_status)
+      )
+        throw fail(
+          409,
+          "RENEWAL_PENDING",
+          "Resolve the current billing change before approving a price.",
+        );
+      await tx.query(
+        "UPDATE domain_orders SET evidence=evidence||$2::jsonb,next_attempt_at=now(),version=version+1 WHERE id=$1",
+        [
+          id,
+          JSON.stringify({
+            renewalIntent: {
+              id: offer.id,
+              amountMinor: b.amountMinor,
+              currency: b.currency,
+              enabled: true,
+              requestedAt: new Date().toISOString(),
+            },
+          }),
+        ],
+      );
+      await event(tx, a, "web_address.renewal_price_approved", id, {
+        offerId: offer.id,
+        amountMinor: b.amountMinor,
+        currency: b.currency,
+      });
+    });
+    await processWebAddressOrder(db, a.tenantId, id, deps, { force: true });
+    const [row] = await db.tenant(a, (tx) =>
+      tx.query("SELECT * FROM domain_orders WHERE id=$1", [id]),
+    );
+    return trainerOrderView(row);
+  });
+  app.post("/api/v1/web-address/orders/:id/billing", async (req) => {
+    const a = owner(req);
+    const [order] = await db.tenant(a, (tx) =>
+      tx.query("SELECT * FROM domain_orders WHERE id=$1 AND mode='automatic'", [
+        uuid.parse((req.params as any).id),
+      ]),
+    );
+    if (!order?.stripe_customer_id)
+      throw fail(
+        409,
+        "BILLING_UNAVAILABLE",
+        "No billing account is linked yet.",
+      );
+    const action = z
+      .object({ action: z.enum(["card", "invoice"]).default("card") })
+      .strict()
+      .parse(req.body ?? {}).action;
+    const client = stripe();
+    if (action === "invoice") {
+      const subscription = await client.subscriptions.retrieve(
+        order.stripe_subscription_id,
+      );
+      const invoiceId =
+        typeof subscription.latest_invoice === "string"
+          ? subscription.latest_invoice
+          : subscription.latest_invoice?.id;
+      const invoice =
+        invoiceId && client.invoices
+          ? await client.invoices.retrieve(invoiceId)
+          : null;
+      if (!invoice?.hosted_invoice_url || invoice.status !== "open")
+        throw fail(
+          409,
+          "NO_OPEN_INVOICE",
+          "There is no outstanding renewal invoice. Refresh your domain status.",
+        );
+      const link = new URL(invoice.hosted_invoice_url);
+      if (
+        link.protocol !== "https:" ||
+        link.hostname !== "invoice.stripe.com" ||
+        link.username ||
+        link.password
+      )
+        throw fail(
+          502,
+          "BILLING_UNAVAILABLE",
+          "The invoice link could not be verified.",
+        );
+      return { url: link.href };
+    }
+
+    if (!client.billingPortal)
+      throw fail(
+        503,
+        "BILLING_UNAVAILABLE",
+        "Payment settings are temporarily unavailable. Please retry.",
+      );
+    const returnUrl = new URL(
+      "/trainer/domains",
+      runtimeConfig().PUBLIC_APP_URL ?? origin(req),
+    ).href;
+    const session = await client.billingPortal.sessions.create({
+      customer: order.stripe_customer_id,
+      return_url: returnUrl,
+      flow_data: {
+        type: "payment_method_update",
+        after_completion: {
+          type: "redirect",
+          redirect: { return_url: returnUrl },
+        },
+      },
+    });
+    const url = new URL(session.url);
+    if (
+      url.protocol !== "https:" ||
+      url.hostname !== "billing.stripe.com" ||
+      url.username ||
+      url.password
+    )
+      throw fail(
+        502,
+        "BILLING_UNAVAILABLE",
+        "The billing link could not be verified.",
+      );
+    return { url: url.href };
+  });
+  // Ending billing keeps the paid registration usable, but removes the closure blocker.
+  app.post("/api/v1/web-address/orders/:id/end-billing", async (req) => {
+    const a = owner(req);
+    requireRecentMfa(a);
+    z.object({ confirmed: z.literal(true) })
+      .strict()
+      .parse(req.body);
+    const id = uuid.parse((req.params as any).id);
+    await db.tenant(a, async (tx) => {
+      const [order] = await tx.query(
+        "SELECT * FROM domain_orders WHERE id=$1 AND mode='automatic' FOR UPDATE",
+        [id],
+      );
+      if (
+        !order?.stripe_subscription_id ||
+        !["active", "owned", "zone", "delegating", "dns"].includes(order.status)
+      )
+        throw fail(409, "ORDER_STATE", "Billing cannot be ended at this step.");
+      if (
+        order.evidence?.renewalIntent ||
+        ["paid", "renewing", "failed"].includes(order.renewal_status)
+      )
+        throw fail(
+          409,
+          "RENEWAL_PENDING",
+          "Resolve the current renewal before ending billing.",
+        );
+      await tx.query(
+        "UPDATE domain_orders SET evidence=evidence||'{\"endBillingRequested\":true}',next_attempt_at=now(),version=version+1 WHERE id=$1",
+        [id],
+      );
+      await event(tx, a, "web_address.billing_end_requested", id);
+    });
+    await processWebAddressOrder(db, a.tenantId, id, deps, { force: true });
+    const [row] = await db.tenant(a, (tx) =>
+      tx.query("SELECT * FROM domain_orders WHERE id=$1", [id]),
+    );
+    return trainerOrderView(row);
   });
 
   // ---- Operator view and manual fallback ----
@@ -1571,7 +1840,9 @@ export function registerWebAddresses(
       uuid.parse((req.params as any).id),
     );
     if (!order) throw fail(404, "NOT_FOUND", "Order not found.");
-    if (!["owned", "zone", "delegating", "dns", "active"].includes(order.status))
+    if (
+      !["owned", "zone", "delegating", "dns", "active"].includes(order.status)
+    )
       throw fail(
         409,
         "ORDER_STATE",
@@ -1595,11 +1866,7 @@ export function registerWebAddresses(
     await db.tenant(scope, async (tx) => {
       const [row] = await tx.query(
         "UPDATE domain_orders SET status='owned',dns_provider=$2,attention=NULL,attempts=0,next_attempt_at=now(),evidence=evidence||'{\"delegationStartedAt\":null,\"delegationResets\":0}'::jsonb,progress=CASE WHEN jsonb_array_length(progress)>=60 THEN progress ELSE progress||jsonb_build_array(jsonb_build_object('step','dns_again','at',now(),'note',$3::text)) END,version=version+1,updated_at=now() WHERE id=$1 AND status IN ('owned','zone','delegating','dns','active') AND (lease_until IS NULL OR lease_until<now()) RETURNING id",
-        [
-          order.id,
-          b.provider === "settings" ? null : b.provider,
-          b.provider,
-        ],
+        [order.id, b.provider === "settings" ? null : b.provider, b.provider],
       );
       if (!row)
         throw fail(

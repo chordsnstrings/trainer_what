@@ -14,7 +14,11 @@ import {
 } from "@trainer/db";
 import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
 import { cueIssues } from "../../../packages/domain/src/voice-session.ts";
-import { spokenDistance, spokenDuration, workMeasure } from "../../../packages/domain/src/prescription.ts";
+import {
+  spokenDistance,
+  spokenDuration,
+  workMeasure,
+} from "../../../packages/domain/src/prescription.ts";
 import {
   speechLanguage,
   type SpeechLanguage,
@@ -33,10 +37,21 @@ import {
   type OAuthTokens,
 } from "../../../packages/providers/src/integrations.ts";
 import { tokenHash, newToken } from "./auth.ts";
+import {
+  checkAddressDns,
+  checkTenantAddresses,
+  httpsProbe,
+  type AddressHealthDeps,
+} from "./web-address-health.ts";
+import { validatePublicEndpoint } from "../../../packages/providers/src/configuration.ts";
 import { requireRecentMfa } from "./security.ts";
 import type { HostContext } from "./host-routing.ts";
 import { memberAccess } from "./entitlements.ts";
-import { costEstimated, costNotSent, reserveVoiceCost } from "./cost-accounting.ts";
+import {
+  costEstimated,
+  costNotSent,
+  reserveVoiceCost,
+} from "./cost-accounting.ts";
 import {
   readCoachWearablePolicy,
   revokeHealthKitDevices,
@@ -53,7 +68,10 @@ import {
 import { retireTrainerVoiceClones } from "./voice-clones.ts";
 
 type Identity = Actor & { platformRole?: string; mfaAt?: string | null };
-type Deps = { txt?: typeof resolveTxt; cname?: typeof resolveCname };
+type Deps = AddressHealthDeps & {
+  txt?: typeof resolveTxt;
+  cname?: typeof resolveCname;
+};
 // The local mock-provider sandbox answers domain lookups from a loopback DNS
 // double; everywhere else (sandboxResolver() is null) the system resolver runs.
 const txtLookup = (dependencies: Deps): typeof resolveTxt =>
@@ -563,14 +581,21 @@ export async function processIntegrationJobs(db: Database) {
       return tx.query(
         // Automatic orders lapse through the web address worker, which also
         // notifies the trainer and ends the yearly subscription.
-        "UPDATE domain_orders SET status='expired',version=version+1,updated_at=now() WHERE expires_at<=now() AND status='active' AND mode='manual' RETURNING hostname",
+        "UPDATE domain_orders SET status='expired',version=version+1,updated_at=now() WHERE mode='manual' AND ((expires_at<=now() AND status='active') OR (reservation_expires_at<=now() AND status IN ('requested','quoted','owned','verified'))) RETURNING hostname,evidence",
       );
     });
     if (expiredHosts.length)
       await db.system((tx) =>
         tx.query(
           "UPDATE domain_mappings SET active=false WHERE tenant_id=$1 AND hostname=ANY($2::text[])",
-          [tenant.id, expiredHosts.map((r) => r.hostname)],
+          [
+            tenant.id,
+            expiredHosts.flatMap((r) =>
+              r.evidence?.includeWww
+                ? [r.hostname, "www." + r.hostname]
+                : [r.hostname],
+            ),
+          ],
         ),
       );
   }
@@ -948,7 +973,9 @@ async function guidedMaterial(tx: Tx, a: Actor, workoutId: string) {
   // checks (red flags, medical, prescription changes, unsafe technique,
   // numbers outside tempo); a cue that fails is left out.
   const spokenCue = (cue: unknown) =>
-    typeof cue === "string" && cue.trim() && !cueIssues(cue).length ? " " + cue.trim() : "";
+    typeof cue === "string" && cue.trim() && !cueIssues(cue).length
+      ? " " + cue.trim()
+      : "";
   const segments = exercises.map((ex: any, index: number) => ({
     index,
     name: String(ex.name ?? "Exercise"),
@@ -1218,7 +1245,9 @@ function registerVoiceRoutes(app: FastifyInstance, db: Database) {
         a,
         id.parse((req.params as any).workoutId),
       );
-      const [voice] = await tx.query("SELECT id,version,provider FROM guided_voice()");
+      const [voice] = await tx.query(
+        "SELECT id,version,provider FROM guided_voice()",
+      );
       let available = false;
       try {
         // The voice must be held by the provider now configured.
@@ -1558,6 +1587,8 @@ export function trainerDomainView(row: Record<string, any>) {
     token: row.token,
     version: row.version,
     alreadyOwned: row.evidence?.alreadyOwned === true,
+    includeWww: row.evidence?.includeWww === true,
+    health: row.evidence?.websiteHealth ?? null,
     quote: q
       ? {
           amountMinor: q.amountMinor,
@@ -1569,9 +1600,92 @@ export function trainerDomainView(row: Record<string, any>) {
       : null,
     verified_at: row.verified_at ?? null,
     expires_at: row.expires_at ?? null,
+    reservationExpiresAt: row.reservation_expires_at ?? null,
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
+}
+async function activateManualDomain(
+  db: Database,
+  a: Actor,
+  row: Record<string, any>,
+  deps: Deps,
+  evidence: Record<string, unknown> = {},
+  expiresAt: string | null = null,
+) {
+  await dnsProof(row.hostname, row.token, txtLookup(deps));
+  const names = row.evidence?.includeWww
+    ? [row.hostname, "www." + row.hostname]
+    : [row.hostname];
+  for (const hostname of names) {
+    const target = runtimeConfig()
+      .DOMAIN_CNAME_TARGET?.toLowerCase()
+      .replace(/\.$/, "");
+    const cnames = await cnameLookup(deps)(hostname).catch(() => []);
+    if (
+      !target ||
+      !cnames.some((n) => n.toLowerCase().replace(/\.$/, "") === target)
+    )
+      await checkAddressDns(db, hostname, deps).catch(() => {
+        throw fail(
+          409,
+          "DOMAIN_TARGET",
+          "Add the A or CNAME records shown in Web address, remove conflicting AAAA records, then retry.",
+        );
+      });
+    await permitCertificateIssuance(db, {
+      hostname,
+      tenantId: a.tenantId,
+      orderId: row.id,
+      actorId: a.userId,
+    });
+    if (deps.httpsCheck) await deps.httpsCheck(hostname);
+    else {
+      const { addresses } = await validatePublicEndpoint(
+        "https://" + hostname + "/",
+      );
+      await httpsProbe(hostname, addresses[0]);
+    }
+  }
+  await db.system(async (tx) => {
+    for (const hostname of [...names].sort()) {
+      await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+        "domain:" + hostname,
+      ]);
+      const [other] = await tx.query(
+        "SELECT tenant_id FROM domain_mappings WHERE hostname=$1 AND active=true AND tenant_id<>$2",
+        [hostname, a.tenantId],
+      );
+      if (other)
+        throw fail(
+          409,
+          "DOMAIN_IN_USE",
+          "This domain is connected elsewhere. Contact support with ownership proof.",
+        );
+    }
+    await tx.tenant(a, async (scoped) => {
+      const [saved] = await scoped.query(
+        "UPDATE domain_orders SET status='active',expires_at=$3,reservation_expires_at=NULL,evidence=evidence||$4::jsonb,version=version+1,updated_at=now() WHERE id=$1 AND version=$2 AND status='verified' AND (reservation_expires_at IS NULL OR reservation_expires_at>now()) RETURNING id",
+        [row.id, row.version, expiresAt, JSON.stringify(evidence)],
+      );
+      if (!saved) throw conflict();
+      await scoped.query(
+        "DELETE FROM records WHERE kind='web_address_health' AND data->>'hostname'=ANY($1::text[])",
+        [names],
+      );
+      await event(scoped, a, "domain.activated", row.id);
+    });
+    for (const hostname of names)
+      await tx.query(
+        "INSERT INTO domain_mappings(hostname,tenant_id,verified_at,active,redirect) VALUES($1,$2,now(),true,$3) ON CONFLICT(hostname) DO UPDATE SET tenant_id=EXCLUDED.tenant_id,verified_at=now(),active=true,redirect=EXCLUDED.redirect",
+        [hostname, a.tenantId, hostname === row.hostname ? null : "apex"],
+      );
+  });
+  await checkTenantAddresses(db, a.tenantId, deps);
+  const [saved] = await db.tenant(a, (tx) =>
+    tx.query("SELECT * FROM domain_orders WHERE id=$1", [row.id]),
+  );
+  return saved;
 }
 function registerDomainRoutes(
   app: FastifyInstance,
@@ -1587,38 +1701,49 @@ function registerDomainRoutes(
     );
     return rows.map(trainerDomainView);
   });
-  app.post("/api/v1/domains", async (req) => {
-    const a = owner(req);
-    domainEnabled();
-    const b = z
-        .object({ hostname: z.string().max(253), alreadyOwned: z.boolean() })
-        .parse(req.body),
-      hostname = normalizeDomain(b.hostname);
-    return db.tenant(a, async (tx) => {
-      await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
-        "domain:" + hostname,
-      ]);
-      const [row] = await tx.query(
-        "INSERT INTO domain_orders(id,tenant_id,hostname,status,token,evidence) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING RETURNING *",
-        [
-          randomUUID(),
-          a.tenantId,
-          hostname,
-          b.alreadyOwned ? "owned" : "requested",
-          newToken(),
-          JSON.stringify({ alreadyOwned: b.alreadyOwned }),
-        ],
-      );
-      if (!row)
-        throw fail(
-          409,
-          "DOMAIN_IN_USE",
-          "This domain already has an active connection request.",
+  app.post(
+    "/api/v1/domains",
+    { config: { rateLimit: { max: 10, timeWindow: "1 hour" } } },
+    async (req) => {
+      const a = owner(req);
+      domainEnabled();
+      const b = z
+          .object({
+            hostname: z.string().max(253),
+            alreadyOwned: z.boolean(),
+            includeWww: z.boolean().default(false),
+          })
+          .parse(req.body),
+        hostname = normalizeDomain(b.hostname);
+      return db.tenant(a, async (tx) => {
+        await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+          "domain:" + hostname,
+        ]);
+        const [row] = await tx.query(
+          "INSERT INTO domain_orders(id,tenant_id,hostname,status,token,evidence,reservation_expires_at) VALUES($1,$2,$3,$4,$5,$6,now()+interval '7 days') ON CONFLICT DO NOTHING RETURNING *",
+          [
+            randomUUID(),
+            a.tenantId,
+            hostname,
+            b.alreadyOwned ? "owned" : "requested",
+            newToken(),
+            JSON.stringify({
+              alreadyOwned: b.alreadyOwned,
+              includeWww: b.includeWww,
+            }),
+          ],
         );
-      await event(tx, a, "domain.requested", row.id, { hostname });
-      return trainerDomainView(row);
-    });
-  });
+        if (!row)
+          throw fail(
+            409,
+            "DOMAIN_IN_USE",
+            "This domain already has an active connection request.",
+          );
+        await event(tx, a, "domain.requested", row.id, { hostname });
+        return trainerDomainView(row);
+      });
+    },
+  );
   app.post("/api/v1/domains/:id/approve", async (req) => {
     const a = owner(req);
     requireRecentMfa(a);
@@ -1669,22 +1794,61 @@ function registerDomainRoutes(
       .parse(req.body);
     const [row] = await db.tenant(a, (tx) =>
       tx.query(
-        "SELECT * FROM domain_orders WHERE id=$1 AND mode='manual' AND status IN ('owned','verified') AND version=$2",
+        "SELECT * FROM domain_orders WHERE id=$1 AND mode='manual' AND status IN ('owned','verified') AND version=$2 AND (reservation_expires_at IS NULL OR reservation_expires_at>now())",
         [id.parse((req.params as any).id), b.revision],
       ),
     );
     if (!row) throw conflict();
     await dnsProof(row.hostname, row.token, txtLookup(dependencies));
-    return db.tenant(a, async (tx) => {
-      const [r] = await tx.query(
-        "UPDATE domain_orders SET status='verified',verified_at=now(),version=version+1,updated_at=now() WHERE id=$1 AND version=$2 RETURNING *",
-        [row.id, b.revision],
-      );
-      if (!r) throw conflict();
-      await event(tx, a, "domain.ownership_verified", row.id);
-      return trainerDomainView(r);
-    });
+    return db
+      .tenant(a, async (tx) => {
+        const [r] = await tx.query(
+          "UPDATE domain_orders SET status='verified',verified_at=now(),version=version+1,updated_at=now() WHERE id=$1 AND version=$2 RETURNING *",
+          [row.id, b.revision],
+        );
+        if (!r) throw conflict();
+        await event(tx, a, "domain.ownership_verified", row.id);
+        return trainerDomainView(r);
+      })
+      .catch((error) => {
+        if (error.code === "23505")
+          throw fail(
+            409,
+            "DOMAIN_IN_USE",
+            "This domain is already verified elsewhere. Contact support with ownership proof.",
+          );
+        throw error;
+      });
   });
+  app.post(
+    "/api/v1/domains/:id/connect",
+    { config: { rateLimit: { max: 6, timeWindow: "10 minutes" } } },
+    async (req) => {
+      const a = owner(req);
+      requireRecentMfa(a);
+      domainEnabled();
+      const b = z
+        .object({ revision: z.number().int().positive() })
+        .parse(req.body);
+      const [row] = await db.tenant(a, (tx) =>
+        tx.query(
+          "SELECT * FROM domain_orders WHERE id=$1 AND mode='manual' AND status='verified' AND version=$2",
+          [id.parse((req.params as any).id), b.revision],
+        ),
+      );
+      if (!row) throw conflict();
+      return trainerDomainView(
+        await activateManualDomain(
+          db,
+          a,
+          row,
+          dependencies,
+          {},
+          row.expires_at,
+        ),
+      );
+    },
+  );
   app.post("/api/v1/domains/:id/cancel", async (req) => {
     const a = owner(req),
       b = z.object({ revision: z.number().int().positive() }).parse(req.body);
@@ -1695,8 +1859,13 @@ function registerDomainRoutes(
       );
       if (!r) throw conflict();
       await tx.query(
-        "UPDATE domain_mappings SET active=false WHERE hostname=$1 AND tenant_id=$2",
-        [r.hostname, a.tenantId],
+        "UPDATE domain_mappings SET active=false WHERE hostname=ANY($1::text[]) AND tenant_id=$2",
+        [
+          r.evidence?.includeWww
+            ? [r.hostname, "www." + r.hostname]
+            : [r.hostname],
+          a.tenantId,
+        ],
       );
       await event(tx, a, "domain.disconnected", r.id);
       return trainerDomainView(r);
@@ -1776,7 +1945,7 @@ function registerDomainRoutes(
     );
     return db.tenant(a, async (tx) => {
       const [r] = await tx.query(
-        "UPDATE domain_orders SET status='owned',evidence=evidence||$3::jsonb,expires_at=$4,version=version+1,updated_at=now() WHERE id=$1 AND version=$2 AND status='approved' RETURNING *",
+        "UPDATE domain_orders SET status='owned',reservation_expires_at=NULL,evidence=evidence||$3::jsonb,expires_at=$4,version=version+1,updated_at=now() WHERE id=$1 AND version=$2 AND status='approved' RETURNING *",
         [
           row.id,
           b.revision,
@@ -1815,76 +1984,20 @@ function registerDomainRoutes(
       Date.parse(b.expiresAt) <= Date.now()
     )
       throw conflict();
-    await dnsProof(row.hostname, row.token, txtLookup(dependencies));
-    const approvedTarget = runtimeConfig().DOMAIN_CNAME_TARGET;
-    if (
-      !approvedTarget ||
-      b.dnsTarget.toLowerCase() !== approvedTarget.toLowerCase()
-    )
-      throw fail(
-        409,
-        "DOMAIN_TARGET",
-        "The DNS target must match the platform-approved ingress address.",
-      );
-    let names: string[];
-    try {
-      names = await cnameLookup(dependencies)(row.hostname);
-    } catch {
-      throw fail(409, "DOMAIN_TARGET", "The domain CNAME is not visible yet.");
-    }
-    if (
-      !names.some(
-        (n) =>
-          n.toLowerCase().replace(/\.$/, "") ===
-          approvedTarget.toLowerCase().replace(/\.$/, ""),
-      )
-    )
-      throw fail(
-        409,
-        "DOMAIN_TARGET",
-        "The domain CNAME does not point to the approved ingress.",
-      );
-    // Let the edge obtain this domain's certificate for the HTTPS check below.
-    await permitCertificateIssuance(db, {
-      hostname: row.hostname,
-      tenantId: row.tenant_id,
-      orderId: row.id,
-      actorId: operator.userId,
-    });
-    await integrationRequest("https://" + row.hostname + "/", {
-      method: "HEAD",
-      signal: AbortSignal.timeout(10000),
-    });
-    // Mapping writes are service-only; the order update stays tenant-scoped.
-    return db.system(async (tx) => {
-      const r = await tx.tenant(a, async (tx) => {
-        const [r] = await tx.query(
-          "UPDATE domain_orders SET status='active',expires_at=$3,version=version+1,evidence=evidence||$4::jsonb,updated_at=now() WHERE id=$1 AND version=$2 AND status='verified' RETURNING *",
-          [
-            row.id,
-            b.revision,
-            b.expiresAt,
-            JSON.stringify({
-              dnsTarget: b.dnsTarget,
-              registrarReference: b.registrarReference,
-              tlsCheckedAt: new Date().toISOString(),
-              reconciledBy: operator.userId,
-            }),
-          ],
-        );
-        if (!r) throw conflict();
-        await event(tx, a, "domain.activated", row.id);
-        return r;
-      });
-      await tx.query(
-        // A manually connected domain shows the site: a forwarding choice
-        // left from an earlier automatic order never carries over.
-        "INSERT INTO domain_mappings(hostname,tenant_id,verified_at,active,redirect) VALUES($1,$2,now(),true,NULL) ON CONFLICT(hostname) DO UPDATE SET tenant_id=EXCLUDED.tenant_id,verified_at=now(),active=true,redirect=NULL",
-        [r.hostname, r.tenant_id],
-      );
-      return r;
-    });
+    return activateManualDomain(
+      db,
+      a,
+      row,
+      dependencies,
+      {
+        dnsTarget: b.dnsTarget,
+        registrarReference: b.registrarReference,
+        reconciledBy: operator.userId,
+      },
+      b.expiresAt,
+    );
   });
+
   app.post("/api/v1/admin/integrations/domains/:id/renew", async (req) => {
     const operator = admin(req),
       b = z

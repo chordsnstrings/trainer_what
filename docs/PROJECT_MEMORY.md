@@ -1,13 +1,13 @@
 # Project memory
 
-Updated: 3 October 2026. This is durable project context for future build sessions. It records decisions, not credentials or a claim about account capabilities.
+Updated: 5 October 2026. This is durable project context for future build sessions. It records decisions, not credentials or a claim about account capabilities.
 
 ## Owner decisions
 
 | Topic | Current decision |
 | --- | --- |
 | Project | `chordsnstrings/trainer_what`; Trainer Brain Platform |
-| Current request | 4 October, 00:43 Asia/Dubai: review PR #29, then deploy. Its exact saved head `2bc26b8` passed all four CI jobs. Review found and fixed blocked consent withdrawal; 30 targeted checks and root TypeScript pass. Merge the reviewed fix and wait for exact-main qualification before automatic deployment. Use the existing newest-green-main deployment. Preserve legal/provider gates and keep future domain/subdomain audits read-only. Update the Claude handoff. |
+| Current request | 5 October, 11:09 Asia/Dubai: deploy domain/subdomain PR #31. Claude is authorized to finish DigitalOcean DNS/TLS, wildcard activation, domain connection setup, verification and necessary repairs autonomously with existing account/host access. Earlier owner-console-only/no-SSH/no-deployment limits are superseded for this task. Current release and exact remaining steps are at the top of Claude handoff. |
 | Visual website builder (2 October 2026) | Owner approved implementation with multiple agents: desktop-only editing, responsive published sites, professional drag-and-drop multipage composition, and a comprehensive library of many section types/variants. AI starters use Seed 2.0 to assemble prebuilt modules and bounded copy to keep costs down. Keep `CLAUDE_HANDOFF.md` updated during work. Existing drafts/publishing, native offers/inquiries, launch gates and tenant isolation remain the foundation. |
 | Coach onboarding (30 September) | Open self-serve sign-up (email code through Resend, key added later in Super admin; Google/Apple later) behind the legal gate; one six-step wizard (~15 min) with save/resume/skip; custom subdomain chosen in the wizard, live at go-live; automatic go-live checks instead of staff approval; launch in "Waits for me"; bank details at first payout; "Report this coach" for Super admin. See `docs/features/coach-setup.md`. |
 | Astra | Available for difficult design, implementation and review; use tokens wisely; do not use it for browsing |

@@ -167,6 +167,9 @@ before(async () => {
       .send({ code: e.code, message: e.message }),
   );
   registerIntegrationCompletion(app, db, {
+    httpsCheck: async () => {},
+    targetIpv4: async () => "203.0.113.7",
+    resolve4: async () => ["203.0.113.7"],
     txt: async () => [["trainer-verification=" + txtToken]],
     cname: async () => ["ingress.example.com"],
   });

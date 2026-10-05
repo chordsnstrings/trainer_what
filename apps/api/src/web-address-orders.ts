@@ -1,3 +1,4 @@
+import { applyDomainRenewal } from "./domain-renewal.ts";
 /**
  * Autonomous trainer domains (docs/features/web-addresses.md): Stripe events,
  * the worker state machine (purchase, reconciliation, DNS zone and records,
@@ -18,7 +19,12 @@
  */
 import { randomUUID } from "node:crypto";
 import { resolve4 as systemResolve4 } from "node:dns/promises";
-import { request as httpsRequest } from "node:https";
+import {
+  httpsProbe,
+  targetAddress,
+  checkTenantAddresses,
+} from "./web-address-health.ts";
+export { httpsProbe } from "./web-address-health.ts";
 import { isIP } from "node:net";
 import { elevated, event, type Database, type Tx } from "@trainer/db";
 import { ProviderUnavailable, stripeClient } from "@trainer/providers";
@@ -93,6 +99,7 @@ export type WebAddressStripe = {
     update: (id: string, params: any, options?: any) => Promise<any>;
     cancel: (id: string, params?: any, options?: any) => Promise<any>;
   };
+  billingPortal?: { sessions: { create: (params: any) => Promise<any> } };
   refunds: {
     create: (params: any, options?: any) => Promise<any>;
     list: (params: any) => Promise<any>;
@@ -121,6 +128,12 @@ export type WebAddressDeps = {
   /** Public DNS answers (DNS over HTTPS): delegation, DNSSEC and release checks. */
   publicDns?: (name: string, type: PublicDnsType) => Promise<PublicDnsAnswer>;
   resolve4?: (hostname: string) => Promise<string[]>;
+  resolve6?: (hostname: string) => Promise<string[]>;
+  siteCheck?: (
+    hostname: string,
+    slug: string,
+    redirectHost?: string,
+  ) => Promise<void>;
   /** HTTPS request to the domain, which also makes the edge issue its certificate. */
   httpsCheck?: (hostname: string) => Promise<void>;
   targetIpv4?: () => Promise<string>;
@@ -436,7 +449,9 @@ export function orderPrices(order: Order) {
   return {
     currency: (usd ? "USD" : "AED") as "USD" | "AED",
     firstYearMinor: minor(quote.firstYearPriceMinor),
-    renewalMinor: minor(quote.renewalPriceMinor),
+    renewalMinor: minor(
+      order.evidence?.agreedRenewalPriceMinor ?? quote.renewalPriceMinor,
+    ),
   };
 }
 /** " of USD 24.99" (the order's renewal price), for trainer notices. */
@@ -492,8 +507,7 @@ export function renewalChargeAt(order: Order): number | null {
  * trainer notices; "" otherwise.
  */
 function firstRenewalNote(order: Order) {
-  if ((order.progress ?? []).some((p: any) => p?.step === "renewed"))
-    return "";
+  if ((order.progress ?? []).some((p: any) => p?.step === "renewed")) return "";
   const prices = orderPrices(order);
   const note = renewalPriceNote(
     prices.firstYearMinor,
@@ -552,7 +566,9 @@ export function costOverPrice(
     return (
       cost >
       usdCents(
-        String(order.quote?.[which === "register" ? "registerUsd" : "renewUsd"]),
+        String(
+          order.quote?.[which === "register" ? "registerUsd" : "renewUsd"],
+        ),
       )
     );
   } catch {
@@ -597,7 +613,7 @@ async function recordCostAlert(
       : which === "renew"
         ? "charged USD " + usdText(usd) + " for the renewal"
         : "now asks USD " + usdText(usd) + " for the next renewal";
-  const message = `The registrar ${what}, more than the ${prices.currency} ${(paid / 100).toFixed(2)} the trainer pays for that year covers under the price rule (quoted cost USD ${usdText(order.quote?.[which === "register" ? "registerUsd" : "renewUsd"])}). ${which === "renew_upcoming" ? "The renewal still goes through at the platform's cost unless you act: ask the owner, or change the subscription price in Stripe." : "The platform absorbed the difference."} Retry clears this note.`;
+  const message = `The registrar ${what}, more than the ${prices.currency} ${(paid / 100).toFixed(2)} the trainer pays for that year covers under the price rule (quoted cost USD ${usdText(order.quote?.[which === "register" ? "registerUsd" : "renewUsd"])}). ${which === "renew_upcoming" ? "Review the renewal offer and trainer approval in Web address. Do not change the subscription price outside the approval flow." : "The platform absorbed the difference."} Retry clears this note.`;
   await mergeEvidence(tx, order.id, {
     costAlert: {
       which,
@@ -1132,7 +1148,7 @@ export async function processWebAddressStripeEvent(
         templateKey: "web-address-renewal-failed",
         dedupe: "payment-failed:" + object.id,
         title: "Your domain renewal payment failed",
-        body: `We could not charge the yearly renewal${renewalPriceText(order)} for ${order.hostname}. Update your card in Stripe before ${expires}; Stripe retries the payment automatically. If it is not paid, ${order.hostname} stops working${fallback ? ` and your website stays available at ${fallback}` : ""}.${firstRenewalNote(order)}`,
+        body: `We could not charge the yearly renewal${renewalPriceText(order)} for ${order.hostname}. Open Web address → Update payment method before ${expires}; Stripe retries the payment automatically. If it is not paid, ${order.hostname} stops working${fallback ? ` and your website stays available at ${fallback}` : ""}.${firstRenewalNote(order)}`,
       });
     });
     return true;
@@ -1155,7 +1171,8 @@ export async function processWebAddressStripeEvent(
       const renewal = ended
         ? { renewal_enabled: false }
         : // The trainer's own switch is newer than this event: keep it.
-          (!created || created > lastSwitch) &&
+          !order.evidence?.renewalIntent &&
+            (!created || created > lastSwitch) &&
             ["owned", "zone", "delegating", "dns", "active"].includes(
               order.status,
             ) &&
@@ -1223,8 +1240,13 @@ export async function processWebAddressStripeEvent(
       ) {
         const currency =
           currencyCode(object.currency) ??
-          (await paymentJournal(tx, idOf(object.payment_intent), idOf(object.charge)))
-            ?.currency ??
+          (
+            await paymentJournal(
+              tx,
+              idOf(object.payment_intent),
+              idOf(object.charge),
+            )
+          )?.currency ??
           orderPrices(order).currency;
         await journal(
           tx,
@@ -1413,7 +1435,7 @@ async function releaseLease(
 ) {
   await db.tenant(workerActor(tenantId), (tx) =>
     tx.query(
-      "UPDATE domain_orders SET lease_until=NULL,lease_token=NULL WHERE id=$1 AND lease_token=$2",
+      "UPDATE domain_orders SET lease_until=NULL,lease_token=NULL,next_attempt_at=CASE WHEN evidence ? 'renewalIntent' OR evidence ? 'endBillingRequested' THEN least(coalesce(next_attempt_at,now()),now()+interval '1 minute') ELSE next_attempt_at END WHERE id=$1 AND lease_token=$2",
       [orderId, token],
     ),
   );
@@ -1951,22 +1973,6 @@ async function reconcilePurchase(
  * configured address, the verified host controller report, or what the
  * platform's own name resolves to.
  */
-async function targetAddress(db: Database, deps: WebAddressDeps) {
-  if (deps.targetIpv4) return deps.targetIpv4();
-  const configured = runtimeConfig().WEB_ADDRESS_TARGET_IPV4?.trim();
-  if (configured && isIP(configured) === 4) return configured;
-  const reported = await reportedServerIpv4(db).catch(() => null);
-  if (reported && isIP(reported) === 4 && isPublicAddress(reported))
-    return reported;
-  const host = new URL(runtimeConfig().PUBLIC_APP_URL ?? "http://localhost")
-    .hostname;
-  const addresses = (await lookupA(deps)(host))
-    .filter((address) => isIP(address) === 4 && isPublicAddress(address))
-    .sort();
-  if (!addresses.length)
-    throw new Error("The platform address has no public IPv4 address");
-  return addresses[0];
-}
 const lookupA = (deps: WebAddressDeps) =>
   deps.resolve4 ??
   ((host: string) =>
@@ -2043,7 +2049,10 @@ function dnsHost(
 }
 /** Which DNS host a newly registered domain uses (kept on the order). */
 function chosenDnsProvider(order: Order): DnsProviderId {
-  if (order.dns_provider === "registrar" || order.dns_provider === "digitalocean")
+  if (
+    order.dns_provider === "registrar" ||
+    order.dns_provider === "digitalocean"
+  )
     return order.dns_provider;
   return dnsHostingSettings().provider;
 }
@@ -2088,7 +2097,12 @@ async function recordedCall<T>(
   tenantId: string,
   order: Order,
   input: {
-    kind: "set_hosts" | "create_zone" | "set_records" | "set_nameservers" | "delete_zone";
+    kind:
+      | "set_hosts"
+      | "create_zone"
+      | "set_records"
+      | "set_nameservers"
+      | "delete_zone";
     provider: string;
     prefix: string;
     request: object;
@@ -2355,7 +2369,11 @@ async function provisionZone(
     await db.tenant(wa, async (tx) => {
       await update(tx, order.id, {
         ...(fallback
-          ? { dns_provider: "registrar", attempts: 0, next_attempt_at: new Date() }
+          ? {
+              dns_provider: "registrar",
+              attempts: 0,
+              next_attempt_at: new Date(),
+            }
           : { next_attempt_at: pausedUntil(order) }),
         attention: fallback
           ? HELD_ELSEWHERE_ATTENTION
@@ -2364,7 +2382,12 @@ async function provisionZone(
       await mergeEvidence(tx, order.id, {
         zoneHeldElsewhere: new Date().toISOString(),
       });
-      await progress(tx, order.id, "dns_fallback", "Zone held by another account");
+      await progress(
+        tx,
+        order.id,
+        "dns_fallback",
+        "Zone held by another account",
+      );
     });
     return;
   }
@@ -2469,7 +2492,10 @@ async function delegate(
   if (!zone) {
     // The zone disappeared before delegation: set it up again first.
     await db.tenant(wa, async (tx) => {
-      await update(tx, order.id, { status: "owned", next_attempt_at: new Date() });
+      await update(tx, order.id, {
+        status: "owned",
+        next_attempt_at: new Date(),
+      });
       await progress(tx, order.id, "zone_missing");
     });
     return;
@@ -2565,7 +2591,9 @@ async function verifyDelegation(
   const nameservers = host.nameservers()!;
   const since =
     Date.parse(
-      order.evidence?.delegationStartedAt ?? order.evidence?.nameserversSetAt ?? "",
+      order.evidence?.delegationStartedAt ??
+        order.evidence?.nameserversSetAt ??
+        "",
     ) || Date.now();
   const late = Date.now() - since > 72 * 3600000;
   // The zone must still be in the platform's account: a name delegated to
@@ -2585,7 +2613,10 @@ async function verifyDelegation(
   }
   if (!zone) {
     await db.tenant(wa, async (tx) => {
-      await update(tx, order.id, { status: "owned", next_attempt_at: new Date() });
+      await update(tx, order.id, {
+        status: "owned",
+        next_attempt_at: new Date(),
+      });
       await progress(tx, order.id, "zone_missing");
     });
     return;
@@ -2606,11 +2637,17 @@ async function verifyDelegation(
     // sending it again (its read-back may lag without saying so).
     const setAt = Date.parse(order.evidence?.nameserversSetAt ?? "");
     if (Number.isFinite(setAt) && Date.now() - setAt < NAMESERVER_SETTLE_MS)
-      return retryLater(db, tenantId, order, "Nameserver change not shown yet", {
-        attention: late
-          ? "The registrar does not show the DNS host's nameservers 72 hours after they were set; check the domain at the registrar."
-          : undefined,
-      });
+      return retryLater(
+        db,
+        tenantId,
+        order,
+        "Nameserver change not shown yet",
+        {
+          attention: late
+            ? "The registrar does not show the DNS host's nameservers 72 hours after they were set; check the domain at the registrar."
+            : undefined,
+        },
+      );
     // Reset by someone else, or never applied: sent again a bounded number
     // of times, then an operator decides.
     const resets = Number(order.evidence?.delegationResets ?? 0) + 1;
@@ -2620,7 +2657,10 @@ async function verifyDelegation(
         attention: `The registrar still shows other nameservers than the DNS host's after ${MAX_DELEGATION_RESETS} changes; check the domain at the registrar (a lock, or someone changing it), then use Re-run DNS setup.`,
       });
     await db.tenant(wa, async (tx) => {
-      await update(tx, order.id, { status: "zone", next_attempt_at: new Date() });
+      await update(tx, order.id, {
+        status: "zone",
+        next_attempt_at: new Date(),
+      });
       await mergeEvidence(tx, order.id, { delegationResets: resets });
       await progress(tx, order.id, "connecting_again");
     });
@@ -2687,13 +2727,15 @@ async function zoneReleaseCheck(
       ? (await registrar.getNameservers(order.hostname)).nameservers
       : null;
     const answer = await publicDnsOf(deps)(order.hostname, "NS");
-    publicNameservers = answer.status === "nxdomain" ? "nxdomain" : answer.answers;
+    publicNameservers =
+      answer.status === "nxdomain" ? "nxdomain" : answer.answers;
   } catch {
     return { state: "error" };
   }
   const evidence = { registrarNameservers, publicNameservers };
   return delegatesToDigitalOcean(registrarNameservers) ||
-    (publicNameservers !== "nxdomain" && delegatesToDigitalOcean(publicNameservers))
+    (publicNameservers !== "nxdomain" &&
+      delegatesToDigitalOcean(publicNameservers))
     ? { state: "delegated", evidence }
     : { state: "release", evidence };
 }
@@ -2786,10 +2828,11 @@ async function clearRetainedRecords(
       request: { records: [], removed: ["@ A", "www A", "@ AAAA", "www AAAA"] },
     },
     async () => {
-      const removed = await host.removeRecords(order.hostname, ["@", "www"], [
-        "A",
-        "AAAA",
-      ]);
+      const removed = await host.removeRecords(
+        order.hostname,
+        ["@", "www"],
+        ["A", "AAAA"],
+      );
       return { outcome: { removed, verified: true }, value: removed };
     },
   );
@@ -2826,7 +2869,8 @@ async function releaseZone(
   if (!other && !order.evidence?.zoneRecordsClearedAt)
     await clearRetainedRecords(db, tenantId, order, deps);
   const expires = Date.parse(order.expires_at);
-  const due = (Number.isFinite(expires) ? expires : Date.now()) + ZONE_RELEASE_DAYS * DAY;
+  const due =
+    (Number.isFinite(expires) ? expires : Date.now()) + ZONE_RELEASE_DAYS * DAY;
   if (Date.now() < due && other !== "adopted")
     return release(db, tenantId, order.id, { next_attempt_at: new Date(due) });
   const check: ZoneRelease = other
@@ -2914,7 +2958,9 @@ const zoneHeld = (order: Order) =>
  * to the public address that was checked.
  */
 async function httpsCheck(hostname: string) {
-  const { addresses } = await validatePublicEndpoint("https://" + hostname + "/");
+  const { addresses } = await validatePublicEndpoint(
+    "https://" + hostname + "/",
+  );
   await httpsProbe(hostname, addresses[0]);
 }
 /**
@@ -2923,35 +2969,7 @@ async function httpsCheck(hostname: string) {
  * valid for the name, a connection error or the timeout. `port` and `ca`
  * exist for the local test server only.
  */
-export async function httpsProbe(
-  hostname: string,
-  address: { address: string; family: number },
-  options: { port?: number; ca?: string; timeoutMs?: number } = {},
-) {
-  await new Promise<void>((resolve, reject) => {
-    const request = httpsRequest(
-      "https://" + hostname + "/",
-      {
-        method: "HEAD",
-        ...(options.port ? { port: options.port } : {}),
-        ...(options.ca ? { ca: options.ca } : {}),
-        signal: AbortSignal.timeout(options.timeoutMs ?? 15000),
-        lookup: (_name, lookupOptions, callback) => {
-          if (typeof lookupOptions === "object" && lookupOptions?.all)
-            callback(null, [address] as any);
-          else callback(null, address.address, address.family);
-        },
-      },
-      (response) => {
-        response.resume();
-        if ((response.statusCode ?? 0) >= 100) resolve();
-        else reject(new Error("No HTTP answer"));
-      },
-    );
-    request.on("error", reject);
-    request.end();
-  });
-}
+
 /**
  * How each mapped name of an active order is served: www always redirects to
  * the domain; the domain shows the site, or forwards to the workspace's
@@ -3040,16 +3058,12 @@ async function verifyAndActivate(
       await mergeEvidence(tx, order.id, {
         tlsCheckedAt: new Date().toISOString(),
       });
+      await tx.query(
+        "DELETE FROM records WHERE kind='web_address_health' AND data->>'hostname'=ANY($1::text[])",
+        [names],
+      );
       await progress(tx, order.id, "certificate");
-      await progress(tx, order.id, "live");
       await event(tx, wa, "web_address.activated", order.id);
-      if (!current.live_at)
-        await notifyOwner(tx, tenantId, current, {
-          templateKey: "web-address-live",
-          dedupe: "live",
-          title: "Your website is live on your own domain",
-          body: `${forwardTarget ? `https://${order.hostname} now forwards visitors to ${forwardTarget}` : `https://${order.hostname} now shows your coaching website and member app sign-in`}. Your domain renews every year${renewalPriceText(current, "at")}${Number.isFinite(expires) ? `; the next renewal is before ${new Date(expires).toISOString().slice(0, 10)}` : ""}.${firstRenewalNote(current)}`,
-        });
       return row;
     });
     if (!activated) return;
@@ -3062,6 +3076,8 @@ async function verifyAndActivate(
         [mapping.hostname, tenantId, mapping.redirect],
       );
   });
+  await checkTenantAddresses(db, tenantId, deps);
+  await notifyVerifiedSite(db, tenantId, order.id);
 }
 
 /**
@@ -3256,13 +3272,19 @@ async function renew(
     // about 60 days before expiry). Nothing is sent: the renewal is
     // recognised above once the registrar's expiry moves.
     const expires = Date.parse(order.expires_at);
-    return retryLater(db, tenantId, order, "Waiting for the automatic renewal", {
-      at: Date.now() + 6 * 3600000,
-      attention:
-        Number.isFinite(expires) && expires - Date.now() < 20 * DAY
-          ? "The renewal is paid but the registrar has not renewed the domain by itself; renew it in the registrar's panel, then use Record registrar state."
-          : undefined,
-    });
+    return retryLater(
+      db,
+      tenantId,
+      order,
+      "Waiting for the automatic renewal",
+      {
+        at: Date.now() + 6 * 3600000,
+        attention:
+          Number.isFinite(expires) && expires - Date.now() < 20 * DAY
+            ? "The renewal is paid but the registrar has not renewed the domain by itself; renew it in the registrar's panel, then use Record registrar state."
+            : undefined,
+      },
+    );
   }
   const base = order.evidence?.renewalBaseExpiry ?? iso(order.expires_at);
   // A registrar that renews asynchronously may still be processing an
@@ -3606,7 +3628,9 @@ async function lapse(
       await mergeEvidence(tx, order.id, {
         delegationStartedAt: null,
         delegationResets: 0,
-        ...(zoneHeld(current) ? { zoneRetained: new Date().toISOString() } : {}),
+        ...(zoneHeld(current)
+          ? { zoneRetained: new Date().toISOString() }
+          : {}),
       });
       await progress(tx, order.id, "lapsed");
       await event(tx, wa, "web_address.lapsed", order.id);
@@ -3654,14 +3678,91 @@ async function settleLapsed(
   if (zoneHeld(order)) return releaseZone(db, tenantId, order, deps);
   await release(db, tenantId, order.id, { next_attempt_at: null });
 }
+async function notifyVerifiedSite(db: Database, tenantId: string, id: string) {
+  const fallback = await fallbackAddress(db, tenantId);
+  const wa = workerActor(tenantId);
+  await db.tenant(wa, async (tx) => {
+    const [current] = await tx.query(
+      "SELECT * FROM domain_orders WHERE id=$1 FOR UPDATE",
+      [id],
+    );
+    if (
+      current?.evidence?.websiteHealth?.state !== "healthy" ||
+      current.evidence.siteVerifiedAt
+    )
+      return;
+    await mergeEvidence(tx, id, { siteVerifiedAt: new Date().toISOString() });
+    await progress(tx, id, "live");
+    await notifyOwner(tx, tenantId, current, {
+      templateKey: "web-address-live",
+      dedupe: "live",
+      title: "Your website is live on your own domain",
+      body: `https://${current.hostname} ${current.serve_mode === "forward" && fallback ? `now forwards visitors to ${fallback}` : "is verified and ready"}. Your domain renews every year${renewalPriceText(current, "at")}; the next renewal is before ${iso(current.expires_at)?.slice(0, 10)}.${firstRenewalNote(current)}`,
+    });
+  });
+}
+
 async function maintainActive(
   db: Database,
   tenantId: string,
   order: Order,
   deps: WebAddressDeps,
 ) {
+  await checkTenantAddresses(db, tenantId, deps);
+  await notifyVerifiedSite(db, tenantId, order.id);
   if (order.renewal_status === "paid" || order.renewal_status === "renewing")
     return renew(db, tenantId, order, deps);
+  let offer = order.evidence?.renewalOffer;
+  if (
+    offer?.state === "offered" &&
+    offer.period &&
+    offer.period !== iso(order.expires_at)?.slice(0, 10)
+  ) {
+    offer = { ...offer, state: "superseded" };
+    await db.tenant(workerActor(tenantId), (tx) =>
+      mergeEvidence(tx, order.id, { renewalOffer: offer }),
+    );
+  }
+  if (
+    offer?.state === "offered" &&
+    Date.parse(offer.expiresAt) <= Date.now() &&
+    !order.evidence?.renewalIntent
+  ) {
+    await db.tenant(workerActor(tenantId), async (tx) => {
+      // A trainer can approve while the worker checks DNS outside this
+      // transaction. Re-read under lock before replacing a billing intent.
+      const [current] = await tx.query(
+        "SELECT evidence,renewal_status FROM domain_orders WHERE id=$1 FOR UPDATE",
+        [order.id],
+      );
+      const currentOffer = current?.evidence?.renewalOffer;
+      if (
+        currentOffer?.id !== offer.id ||
+        currentOffer?.state !== "offered" ||
+        Date.parse(currentOffer.expiresAt) > Date.now() ||
+        current.evidence.renewalIntent ||
+        current.evidence.endBillingRequested ||
+        ["paid", "renewing", "failed"].includes(current.renewal_status)
+      )
+        return;
+      await mergeEvidence(tx, order.id, {
+        renewalIntent: {
+          id: "price-deadline:" + offer.id,
+          enabled: false,
+          requestedAt: new Date().toISOString(),
+        },
+        renewalOffer: { ...currentOffer, state: "expired" },
+      });
+      await update(tx, order.id, { next_attempt_at: new Date() });
+      await notifyOwner(tx, tenantId, order, {
+        templateKey: "web-address-price-expired",
+        dedupe: "price-expired:" + offer.id,
+        title: "Domain renewal approval expired",
+        body: `The new yearly price for ${order.hostname} was not approved. Automatic renewal is being switched off; your paid registration remains until ${iso(order.expires_at)?.slice(0, 10)}. Open Web address for status or contact support before expiry.`,
+      });
+    });
+    return;
+  }
   if (order.renewal_status === "failed") {
     // Renewed by hand at the registrar: record it instead of failing on.
     const found = await renewedAtRegistrar(db, tenantId, order, deps);
@@ -3702,8 +3803,10 @@ async function maintainActive(
   await sendGraceNotice(db, tenantId, order);
   const upcomingAt = await sendUpcomingRenewalNotice(db, tenantId, order);
   const costCheckAt = expires - RENEWAL_COST_CHECK_DAYS * DAY;
-  if (costCheckAt <= Date.now())
+  if (costCheckAt <= Date.now()) {
     await checkRenewalCost(db, tenantId, order, deps).catch(() => {});
+    order = (await readOrder(db, tenantId, order.id)) ?? order;
+  }
   const daysLeft = Math.ceil((expires - Date.now()) / DAY);
   // Next visit: alignment retry, the day after the renewal charge (to catch
   // a lost payment event), the next grace notice, expiry, or the weekly
@@ -3712,8 +3815,15 @@ async function maintainActive(
   const nextNotice = GRACE_NOTICE_DAYS.filter((days) => days < daysLeft)
     .map((days) => expires - days * DAY)
     .filter((at) => at > Date.now());
+  const offerDeadline = Date.parse(
+    order.evidence?.renewalOffer?.expiresAt ?? "",
+  );
   const next = Math.min(
     expires,
+    ...(order.evidence?.renewalOffer?.state === "offered" &&
+    Number.isFinite(offerDeadline)
+      ? [offerDeadline]
+      : []),
     alignRetryAt,
     ...nextNotice,
     ...(costCheckAt > Date.now() ? [costCheckAt] : []),
@@ -3755,8 +3865,45 @@ async function checkRenewalCost(
   if (!price || price.kind !== "price") return;
   await db.tenant(workerActor(tenantId), async (tx) => {
     await mergeEvidence(tx, order.id, { renewalCostCheckedFor: period });
-    if (costOverPrice(order, "renew", price.renewUsd))
+    if (costOverPrice(order, "renew", price.renewUsd)) {
       await recordCostAlert(tx, order, "renew_upcoming", price.renewUsd);
+      const prices = orderPrices(order);
+      const rule = storedPriceRule(order.quote?.priceRule);
+      const amountMinor = domainPrice(
+        usdCents(price.renewUsd),
+        rule,
+      ).priceCents;
+      const charge = renewalChargeAt(order);
+      // Legacy AED contracts and too-late changes keep their agreed price for this cycle.
+      if (
+        prices.currency !== "USD" ||
+        !charge ||
+        charge - Date.now() < 14 * DAY ||
+        order.evidence?.renewalOffer?.period === period
+      )
+        return;
+      const offer = {
+        id: randomUUID(),
+        amountMinor,
+        currency: prices.currency,
+        period,
+        state: "offered",
+        effectiveAt: new Date(charge).toISOString(),
+        expiresAt: new Date(charge - 3 * DAY).toISOString(),
+        offeredAt: new Date().toISOString(),
+        purchasable: amountMinor <= rule.capCents,
+      };
+      await mergeEvidence(tx, order.id, { renewalOffer: offer });
+      await update(tx, order.id, { next_attempt_at: new Date() });
+      await notifyOwner(tx, tenantId, order, {
+        templateKey: "web-address-renewal-price",
+        dedupe: "renewal-price:" + period,
+        title: "Review your domain renewal price",
+        body: offer.purchasable
+          ? `The next yearly price for ${order.hostname} is USD ${(amountMinor / 100).toFixed(2)}, charged on ${offer.effectiveAt.slice(0, 10)}. Approve this exact price in Web address before ${offer.expiresAt.slice(0, 10)}. Without approval, automatic renewal switches off; the current paid term remains unchanged.`
+          : `Renewal for ${order.hostname} exceeds the platform's price limit. Automatic renewal will switch off before the next charge. Your paid registration remains until expiry. Contact support to discuss options.`,
+      });
+    }
   });
 }
 /**
@@ -3832,7 +3979,7 @@ async function sendGraceNotice(db: Database, tenantId: string, order: Order) {
     const body = !order.renewal_enabled
       ? `Renewal is turned off for ${order.hostname}, so it stops working on ${period}${fallback ? `; your website stays available at ${fallback}` : ""}.${canTurnBackOn ? ` You can turn renewal back on in Web address until ${new Date(switchUntil).toISOString().slice(0, 10)}.` : " To keep this domain, contact platform support."}`
       : pastDue
-        ? `The yearly renewal payment${renewalPriceText(order)} for ${order.hostname} failed. Update your card in Stripe before ${period}${fallback ? `, or your website moves back to ${fallback}` : ""}.${firstRenewalNote(order)}`
+        ? `The yearly renewal payment${renewalPriceText(order)} for ${order.hostname} failed. Open Web address → Update payment method before ${period}${fallback ? `, or your website moves back to ${fallback}` : ""}.${firstRenewalNote(order)}`
         : `The yearly renewal${renewalPriceText(order)} for ${order.hostname} has not been charged yet. We charge your card before ${period}; make sure it is up to date.${firstRenewalNote(order)}`;
     await db.tenant(wa, async (tx) => {
       await notifyOwner(tx, tenantId, order, {
@@ -3901,7 +4048,9 @@ async function expiryBeforeDns(
  */
 function pausedUntil(order: Order) {
   const expires = Date.parse(order.expires_at);
-  return Number.isFinite(expires) ? new Date(Math.max(expires, Date.now() + 60000)) : null;
+  return Number.isFinite(expires)
+    ? new Date(Math.max(expires, Date.now() + 60000))
+    : null;
 }
 
 /**
@@ -4015,10 +4164,37 @@ export async function processWebAddressOrder(
 ) {
   const claimed = await claim(db, tenantId, orderId, options.force === true);
   if (!claimed) return false;
-  const { order, token } = claimed;
+  let { order } = claimed;
+  const { token } = claimed;
   const renewalDue =
     order.renewal_status === "paid" || order.renewal_status === "renewing";
   try {
+    if (order.evidence?.endBillingRequested) {
+      if (await cancelSubscription(db, tenantId, order, deps)) {
+        await db.tenant(workerActor(tenantId), (tx) =>
+          tx.query(
+            "UPDATE domain_orders SET evidence=evidence-'endBillingRequested'-'renewalIntent',next_attempt_at=now() WHERE id=$1",
+            [order.id],
+          ),
+        );
+      }
+      return true;
+    }
+    if (order.evidence?.renewalIntent) {
+      if (
+        !(await applyDomainRenewal(
+          db,
+          workerActor(tenantId),
+          order,
+          stripeOf(deps),
+        ))
+      )
+        return true;
+      order = (await readOrder(db, tenantId, order.id)) ?? order;
+      // Leave normal provisioning/renewal to the next visit.
+      await release(db, tenantId, order.id, { next_attempt_at: new Date() });
+      return true;
+    }
     switch (order.status) {
       case "paid":
         await purchase(db, tenantId, order, deps);
@@ -4063,16 +4239,17 @@ export async function processWebAddressOrder(
         attempts: Number(order.attempts ?? 0),
         at: Date.now() + 3600000,
       }).catch(() => {});
-    else await retryLater(db, tenantId, order, "Step failed", {
-      attention:
-        Number(order.attempts ?? 0) >= 5
-          ? "This order keeps failing: " +
-            String((error as Error)?.message ?? "unexpected error").slice(
-              0,
-              200,
-            )
-          : undefined,
-    }).catch(() => {});
+    else
+      await retryLater(db, tenantId, order, "Step failed", {
+        attention:
+          Number(order.attempts ?? 0) >= 5
+            ? "This order keeps failing: " +
+              String((error as Error)?.message ?? "unexpected error").slice(
+                0,
+                200,
+              )
+            : undefined,
+      }).catch(() => {});
   } finally {
     await releaseLease(db, tenantId, orderId, token).catch(() => {});
   }
@@ -4280,12 +4457,29 @@ export async function processWebAddressOrders(
   deps: WebAddressDeps = {},
 ) {
   const tenants = await db.system((tx) =>
-    tx.query<{ id: string }>(
-      "SELECT id FROM tenants WHERE lifecycle_state IN ('active','suspended') ORDER BY id",
+    tx.query<{ id: string; lifecycle_state: string }>(
+      "SELECT id,lifecycle_state FROM tenants WHERE lifecycle_state IN ('active','suspended','closed') ORDER BY id",
     ),
   );
   let processed = 0;
   for (const tenant of tenants) {
+    if (tenant.lifecycle_state === "closed") {
+      // Repair legacy closures without permitting any new registrar purchase.
+      const orders = await db.tenant(workerActor(tenant.id), (tx) =>
+        tx.query(
+          "UPDATE domain_orders SET evidence=evidence||'{\"endBillingRequested\":true}'::jsonb,next_attempt_at=now() WHERE id IN (SELECT id FROM domain_orders WHERE mode='automatic' AND stripe_subscription_id IS NOT NULL AND coalesce(billing_status,'unknown') NOT IN ('canceled','incomplete_expired') AND (lease_until IS NULL OR lease_until<now()) AND (evidence->>'endBillingRequested' IS DISTINCT FROM 'true' OR next_attempt_at IS NULL OR next_attempt_at<=now()) LIMIT 5) RETURNING id",
+        ),
+      );
+      for (const order of orders)
+        if (
+          await processWebAddressOrder(db, tenant.id, order.id, deps, {
+            force: true,
+          })
+        )
+          processed++;
+      continue;
+    }
+    await checkTenantAddresses(db, tenant.id, deps).catch(() => {});
     const due = await db.tenant(workerActor(tenant.id), async (tx) => {
       // A release without the DNS host steps pauses orders in those
       // statuses (next_attempt_at NULL, no attention); pick them up again.
