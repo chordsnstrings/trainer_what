@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { chromium, expect } from "@playwright/test";
+import { checkAffiliateUI } from "./affiliate-ui-check.mjs";
 const base = process.env.TEST_APP_URL;
 if (!base || !["localhost", "127.0.0.1"].includes(new URL(base).hostname) || process.env.NODE_ENV === "production") throw new Error("Use the isolated loopback fixture runner");
 const folder = process.env.BACKEND_UI_QUICK ? "test-results/backend-ui-final" : "test-results/backend-ui";
@@ -168,6 +169,11 @@ try {
     await go("/trainer/website");
     await expect(page.getByTestId("site-builder-desktop-required")).toBeVisible();
     await expect(page.getByTestId("site-builder-editor")).toHaveCount(0);
+  });
+  await check("affiliate forms stay aligned and recover without losing drafts", async () => {
+    const affiliatePage = await context.newPage();
+    try { await checkAffiliateUI(affiliatePage, base, `${folder}/affiliates`); }
+    finally { await affiliatePage.close(); }
   });
   await check("sign-out clears recoverable drafts from this tab", async () => {
     await go("/trainer");

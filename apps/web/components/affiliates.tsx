@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 const money = (value: number | string) =>
   new Intl.NumberFormat("en-AE", { style: "currency", currency: "AED" }).format(
     Number(value) / 100,
@@ -35,33 +35,60 @@ export function Affiliates({ trainer = false }: { trainer?: boolean }) {
   const [data, setData] = useState<any>(null),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
+    [loading, setLoading] = useState(false),
+    [directoryLoading, setDirectoryLoading] = useState(!trainer),
     [notice, setNotice] = useState("");
   const [contract, setContract] = useState(emptyContract);
+  const loadVersion = useRef(0);
+  const agreementForm = useRef<HTMLFormElement>(null);
   const base = trainer
     ? "/api/v1/affiliates"
     : `/api/v1/admin/tenants/${tenant}/affiliates`;
   const load = useCallback(async () => {
-    if (!trainer && !tenant) return;
+    if (!trainer && !tenant) return false;
+    const version = ++loadVersion.current;
+    setLoading(true);
     setError("");
-    setData(null);
     try {
-      setData(await request(base));
+      const next = await request(base);
+      if (version !== loadVersion.current) return false;
+      setData(next);
+      return true;
     } catch (e) {
-      setError((e as Error).message);
+      if (version === loadVersion.current) setError((e as Error).message);
+      return false;
+    } finally {
+      if (version === loadVersion.current) setLoading(false);
     }
   }, [base, trainer, tenant]);
+  const loadTenants = useCallback(async () => {
+    setDirectoryLoading(true);
+    setError("");
+    try {
+      const next = await request("/api/v1/admin/affiliates");
+      setTenants(next.tenants);
+      setTenant((current) =>
+        next.tenants.some((t: any) => t.id === current)
+          ? current
+          : (next.tenants[0]?.id ?? ""),
+      );
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setDirectoryLoading(false);
+    }
+  }, []);
   useEffect(() => {
-    if (!trainer)
-      void request("/api/v1/admin/affiliates")
-        .then((d) => {
-          setTenants(d.tenants);
-          setTenant(d.tenants[0]?.id ?? "");
-        })
-        .catch((e) => setError(e.message));
-  }, [trainer]);
+    if (!trainer) void loadTenants();
+  }, [trainer, loadTenants]);
   useEffect(() => {
     setContract(emptyContract);
+    setData(null);
+    setNotice("");
     void load();
+    return () => {
+      loadVersion.current++;
+    };
   }, [load]);
   const act = async (path: string, body: unknown) => {
     setBusy(true);
@@ -69,8 +96,12 @@ export function Affiliates({ trainer = false }: { trainer?: boolean }) {
     setNotice("");
     try {
       await request(base + path, body);
-      await load();
-      setNotice("Saved. Financial history is retained.");
+      const refreshed = await load();
+      setNotice(
+        refreshed
+          ? "Saved. Financial history is retained."
+          : "Saved. Refresh earnings to see the latest records.",
+      );
       return true;
     } catch (e) {
       setError((e as Error).message);
@@ -80,15 +111,19 @@ export function Affiliates({ trainer = false }: { trainer?: boolean }) {
     }
   };
   const submit =
-    (fn: (f: FormData) => Promise<void>) =>
+    (fn: (f: FormData) => Promise<boolean | void>) =>
     async (e: React.FormEvent<HTMLFormElement>) => {
       e.preventDefault();
-      await fn(new FormData(e.currentTarget));
+      const form = e.currentTarget;
+      if (await fn(new FormData(form))) form.reset();
     };
   const contractName = (id: string) =>
     data?.contracts.find((c: any) => c.id === id)?.provider ?? id;
   return (
-    <>
+    <div
+      className="affiliate-page"
+      aria-busy={busy || loading || directoryLoading}
+    >
       <div className="page-heading">
         <div>
           <p className="eyebrow">BUSINESS</p>
@@ -99,31 +134,68 @@ export function Affiliates({ trainer = false }: { trainer?: boolean }) {
           </p>
         </div>
       </div>
-      {!trainer && (
-        <label>
-          Workspace
-          <select value={tenant} onChange={(e) => setTenant(e.target.value)}>
-            {tenants.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
+      <div className="af-toolbar">
+        {!trainer && (
+          <label className="field af-workspace">
+            Workspace
+            <select
+              value={tenant}
+              disabled={busy || loading || directoryLoading || !tenants.length}
+              onChange={(e) => setTenant(e.target.value)}
+            >
+              {!tenants.length && (
+                <option value="">
+                  {directoryLoading
+                    ? "Loading workspaces…"
+                    : "No workspaces available"}
+                </option>
+              )}
+              {tenants.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <button
+          type="button"
+          className="button secondary"
+          disabled={
+            busy || loading || directoryLoading || (!trainer && !tenant)
+          }
+          onClick={() => void load()}
+        >
+          {loading ? "Refreshing…" : "Refresh earnings"}
+        </button>
+      </div>
       {error && (
-        <p className="notice" role="alert">
-          {error}
+        <div className="notice af-feedback" role="alert">
+          <span>{error}</span>
+          <button
+            type="button"
+            className="button secondary"
+            disabled={busy || loading || directoryLoading}
+            onClick={() => void (!trainer && !tenant ? loadTenants() : load())}
+          >
+            Try again
+          </button>
+        </div>
+      )}
+      {notice && (
+        <p className="notice" role="status">
+          {notice}
         </p>
       )}
-      {notice && <p role="status">{notice}</p>}
-      <button
-        className="button secondary"
-        disabled={busy}
-        onClick={() => void load()}
-      >
-        Refresh earnings
-      </button>
+      {(loading || directoryLoading) && !data && (
+        <p className="af-empty" role="status">
+          Loading affiliate earnings…
+        </p>
+      )}
+      {!trainer && !directoryLoading && !tenants.length && !error && (
+        <p className="af-empty">No active workspaces are available yet.</p>
+      )}
+      {busy && <p role="status">Saving changes…</p>}
       {data && (
         <>
           <section className="card">
@@ -150,7 +222,8 @@ export function Affiliates({ trainer = false }: { trainer?: boolean }) {
                 {!trainer && (
                   <button
                     className="button secondary"
-                    onClick={() =>
+                    disabled={busy || loading}
+                    onClick={() => {
                       setContract({
                         provider: c.provider,
                         revision: c.revision,
@@ -160,8 +233,16 @@ export function Affiliates({ trainer = false }: { trainer?: boolean }) {
                         trainerShareBps: c.trainer_share_bps,
                         providerPermissionConfirmed: false,
                         reason: "",
-                      })
-                    }
+                      });
+                      agreementForm.current?.scrollIntoView({
+                        block: "center",
+                      });
+                      agreementForm.current
+                        ?.querySelector<HTMLInputElement>(
+                          'input[name="termsReference"]',
+                        )
+                        ?.focus({ preventScroll: true });
+                    }}
                   >
                     Edit agreement
                   </button>
@@ -169,7 +250,10 @@ export function Affiliates({ trainer = false }: { trainer?: boolean }) {
               </div>
             ))}
             {!data.contracts.length && (
-              <p>No provider agreements are configured.</p>
+              <p className="af-empty">
+                No provider agreements are configured.
+                {!trainer && " Add an approved agreement below to get started."}
+              </p>
             )}
           </section>
           {!trainer && (
@@ -178,6 +262,7 @@ export function Affiliates({ trainer = false }: { trainer?: boolean }) {
                 {contract.revision ? "Update agreement" : "Add agreement"}
               </h2>
               <form
+                ref={agreementForm}
                 onSubmit={(e) => {
                   e.preventDefault();
                   void act("/contracts", contract).then((ok) => {
@@ -185,8 +270,8 @@ export function Affiliates({ trainer = false }: { trainer?: boolean }) {
                   });
                 }}
               >
-                <fieldset disabled={busy}>
-                  <label>
+                <fieldset className="af-form" disabled={busy || loading}>
+                  <label className="field">
                     Provider
                     <input
                       required
@@ -199,34 +284,7 @@ export function Affiliates({ trainer = false }: { trainer?: boolean }) {
                       }
                     />
                   </label>
-                  <label>
-                    Approved agreement reference
-                    <input
-                      required
-                      minLength={10}
-                      maxLength={500}
-                      value={contract.termsReference}
-                      onChange={(e) =>
-                        setContract({
-                          ...contract,
-                          termsReference: e.target.value,
-                        })
-                      }
-                    />
-                  </label>
-                  <label>
-                    Customer disclosure
-                    <textarea
-                      required
-                      minLength={10}
-                      maxLength={1000}
-                      value={contract.disclosure}
-                      onChange={(e) =>
-                        setContract({ ...contract, disclosure: e.target.value })
-                      }
-                    />
-                  </label>
-                  <label>
+                  <label className="field">
                     Trainer share (%)
                     <input
                       required
@@ -245,7 +303,36 @@ export function Affiliates({ trainer = false }: { trainer?: boolean }) {
                       }
                     />
                   </label>
-                  <label>
+                  <label className="field af-wide">
+                    Approved agreement reference
+                    <input
+                      required
+                      minLength={10}
+                      maxLength={500}
+                      name="termsReference"
+                      value={contract.termsReference}
+                      onChange={(e) =>
+                        setContract({
+                          ...contract,
+                          termsReference: e.target.value,
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="field af-wide">
+                    Customer disclosure
+                    <textarea
+                      rows={4}
+                      required
+                      minLength={10}
+                      maxLength={1000}
+                      value={contract.disclosure}
+                      onChange={(e) =>
+                        setContract({ ...contract, disclosure: e.target.value })
+                      }
+                    />
+                  </label>
+                  <label className="field af-wide">
                     Reason
                     <input
                       required
@@ -257,7 +344,7 @@ export function Affiliates({ trainer = false }: { trainer?: boolean }) {
                       }
                     />
                   </label>
-                  <label>
+                  <label className="check-field af-wide">
                     <input
                       type="checkbox"
                       checked={contract.enabled}
@@ -267,7 +354,7 @@ export function Affiliates({ trainer = false }: { trainer?: boolean }) {
                     />
                     Enable new earnings under this agreement
                   </label>
-                  <label>
+                  <label className="check-field af-wide">
                     <input
                       required
                       type="checkbox"
@@ -282,14 +369,16 @@ export function Affiliates({ trainer = false }: { trainer?: boolean }) {
                     Provider permission, disclosure and the earnings split are
                     approved
                   </label>
-                  <button className="button">Save agreement</button>
-                  <button
-                    type="button"
-                    className="button secondary"
-                    onClick={() => setContract(emptyContract)}
-                  >
-                    New agreement
-                  </button>
+                  <div className="af-actions af-wide">
+                    <button className="button">Save agreement</button>
+                    <button
+                      type="button"
+                      className="button secondary"
+                      onClick={() => setContract(emptyContract)}
+                    >
+                      {contract.revision ? "Cancel edit" : "Clear form"}
+                    </button>
+                  </div>
                 </fieldset>
               </form>
             </section>
@@ -297,6 +386,11 @@ export function Affiliates({ trainer = false }: { trainer?: boolean }) {
           {!trainer && data.contracts.length > 0 && (
             <section className="card">
               <h2>Record provider earnings</h2>
+              {!data.contracts.some((c: any) => c.enabled) && (
+                <p className="af-empty">
+                  Enable an approved agreement before recording earnings.
+                </p>
+              )}
               <form
                 onSubmit={submit(async (f) => {
                   const c = data.contracts.find(
@@ -306,7 +400,7 @@ export function Affiliates({ trainer = false }: { trainer?: boolean }) {
                     setError("Enable an approved agreement first.");
                     return;
                   }
-                  await act("/receipts", {
+                  return act("/receipts", {
                     requestId: crypto.randomUUID(),
                     contractId: c.id,
                     revision: c.revision,
@@ -317,8 +411,15 @@ export function Affiliates({ trainer = false }: { trainer?: boolean }) {
                   });
                 })}
               >
-                <fieldset disabled={busy}>
-                  <label>
+                <fieldset
+                  className="af-form"
+                  disabled={
+                    busy ||
+                    loading ||
+                    !data.contracts.some((c: any) => c.enabled)
+                  }
+                >
+                  <label className="field">
                     Agreement
                     <select required name="contractId">
                       {data.contracts
@@ -330,7 +431,7 @@ export function Affiliates({ trainer = false }: { trainer?: boolean }) {
                         ))}
                     </select>
                   </label>
-                  <label>
+                  <label className="field">
                     Provider statement reference
                     <input
                       required
@@ -339,11 +440,11 @@ export function Affiliates({ trainer = false }: { trainer?: boolean }) {
                       maxLength={200}
                     />
                   </label>
-                  <label>
+                  <label className="field">
                     Reporting month
                     <input required type="month" name="period" />
                   </label>
-                  <label>
+                  <label className="field">
                     Confirmed earnings (AED)
                     <input
                       required
@@ -354,7 +455,7 @@ export function Affiliates({ trainer = false }: { trainer?: boolean }) {
                       step="0.01"
                     />
                   </label>
-                  <label>
+                  <label className="field af-wide">
                     Evidence reference
                     <input
                       required
@@ -373,8 +474,11 @@ export function Affiliates({ trainer = false }: { trainer?: boolean }) {
             <p>
               Latest 250 receipts. Corrections are separate reversing entries.
             </p>
+            {!data.receipts.length && (
+              <p className="af-empty">No provider earnings recorded yet.</p>
+            )}
             {data.receipts.map((r: any) => (
-              <details key={r.id}>
+              <details className="af-record" key={r.id}>
                 <summary>
                   {contractName(r.contract_id)} · {r.period} ·{" "}
                   {money(r.amount_minor)} · {r.provider_reference}
@@ -393,7 +497,7 @@ export function Affiliates({ trainer = false }: { trainer?: boolean }) {
                   ) && (
                     <form
                       onSubmit={submit(async (f) => {
-                        await act(`/receipts/${r.id}/reverse`, {
+                        return act(`/receipts/${r.id}/reverse`, {
                           requestId: crypto.randomUUID(),
                           period: f.get("period"),
                           providerReference: f.get("reference"),
@@ -401,15 +505,15 @@ export function Affiliates({ trainer = false }: { trainer?: boolean }) {
                         });
                       })}
                     >
-                      <fieldset disabled={busy}>
+                      <fieldset className="af-form" disabled={busy || loading}>
                         <legend>
                           Reverse an incorrect or returned earning
                         </legend>
-                        <label>
+                        <label className="field">
                           Open reporting month
                           <input required name="period" type="month" />
                         </label>
-                        <label>
+                        <label className="field">
                           Correction reference
                           <input
                             required
@@ -418,7 +522,7 @@ export function Affiliates({ trainer = false }: { trainer?: boolean }) {
                             maxLength={200}
                           />
                         </label>
-                        <label>
+                        <label className="field">
                           Evidence
                           <input
                             required
@@ -445,14 +549,14 @@ export function Affiliates({ trainer = false }: { trainer?: boolean }) {
               </p>
               <form
                 onSubmit={submit(async (f) => {
-                  await act("/statements", {
+                  return act("/statements", {
                     contractId: f.get("contractId"),
                     period: f.get("period"),
                   });
                 })}
               >
-                <fieldset disabled={busy}>
-                  <label>
+                <fieldset className="af-form" disabled={busy || loading}>
+                  <label className="field">
                     Agreement
                     <select name="contractId">
                       {data.contracts.map((c: any) => (
@@ -462,7 +566,7 @@ export function Affiliates({ trainer = false }: { trainer?: boolean }) {
                       ))}
                     </select>
                   </label>
-                  <label>
+                  <label className="field">
                     Reporting month
                     <input required name="period" type="month" />
                   </label>
@@ -473,8 +577,14 @@ export function Affiliates({ trainer = false }: { trainer?: boolean }) {
           )}
           <section className="card">
             <h2>Statements and bank evidence</h2>
+            {!data.statements.length && (
+              <p className="af-empty">
+                No statements yet. Closed statements and their bank evidence
+                will appear here.
+              </p>
+            )}
             {data.statements.map((s: any) => (
-              <details key={s.id}>
+              <details className="af-record" key={s.id}>
                 <summary>
                   {contractName(s.contract_id)} · {s.period} ·{" "}
                   {money(s.amount_minor)} ·{" "}
@@ -492,14 +602,14 @@ export function Affiliates({ trainer = false }: { trainer?: boolean }) {
                   !trainer && (
                     <form
                       onSubmit={submit(async (f) => {
-                        await act(`/statements/${s.id}/settle`, {
+                        return act(`/statements/${s.id}/settle`, {
                           amountMinor: Number(s.amount_minor),
                           bankReference: f.get("bank"),
                           evidenceReference: f.get("evidence"),
                         });
                       })}
                     >
-                      <fieldset disabled={busy}>
+                      <fieldset className="af-form" disabled={busy || loading}>
                         <legend>
                           Confirm actual{" "}
                           {Number(s.amount_minor) < 0
@@ -513,7 +623,7 @@ export function Affiliates({ trainer = false }: { trainer?: boolean }) {
                           not move money. Exact signed amount:{" "}
                           {money(s.amount_minor)}.
                         </p>
-                        <label>
+                        <label className="field">
                           Bank / offset reference
                           <input
                             required
@@ -522,7 +632,7 @@ export function Affiliates({ trainer = false }: { trainer?: boolean }) {
                             maxLength={200}
                           />
                         </label>
-                        <label>
+                        <label className="field">
                           Verified evidence
                           <input
                             required
@@ -541,6 +651,6 @@ export function Affiliates({ trainer = false }: { trainer?: boolean }) {
           </section>
         </>
       )}
-    </>
+    </div>
   );
 }
