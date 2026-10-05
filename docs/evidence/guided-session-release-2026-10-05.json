@@ -70,18 +70,504 @@
     "sha": "0773411314bb31765f748dbeaeec58ae76bbeded",
     "runId": 37322643343,
     "url": "https://github.com/chordsnstrings/trainer_what/actions/runs/37322643343",
-    "status": "in_progress",
-    "conclusion": null
+    "status": "completed",
+    "conclusion": "success",
+    "completedAt": "2026-10-05T14:37:38Z",
+    "jobs": [
+      {
+        "id": 111805329998,
+        "name": "application",
+        "status": "completed",
+        "conclusion": "success",
+        "completedAt": "2026-10-05T14:37:37Z"
+      },
+      {
+        "id": 111805330121,
+        "name": "subscriber-ui",
+        "status": "completed",
+        "conclusion": "success",
+        "completedAt": "2026-10-05T14:13:22Z"
+      },
+      {
+        "id": 111805330158,
+        "name": "wildcard-edge",
+        "status": "completed",
+        "conclusion": "success",
+        "completedAt": "2026-10-05T14:12:15Z"
+      },
+      {
+        "id": 111805330320,
+        "name": "postgres-and-container",
+        "status": "completed",
+        "conclusion": "success",
+        "completedAt": "2026-10-05T14:22:47Z"
+      },
+      {
+        "id": 111805330598,
+        "name": "compose-topology",
+        "status": "completed",
+        "conclusion": "success",
+        "completedAt": "2026-10-05T14:12:54Z"
+      }
+    ],
+    "pglite": {
+      "tests": 1686,
+      "pass": 1681,
+      "fail": 0,
+      "skipped": 5
+    },
+    "postgres": {
+      "tests": 1686,
+      "pass": 1680,
+      "fail": 0,
+      "skipped": 6
+    }
   },
   "production": {
-    "verified": false,
-    "previous": "2e493fe0aa2c9c909475c70187b98353505d2826",
-    "observedAt": "2026-10-05T14:11:42.423452+00:00",
-    "status": 200,
-    "body": {
-      "status": "ready"
+    "probes": [
+      {
+        "at": "2026-10-05T14:11:42.423452+00:00",
+        "path": "/api/v1/ready",
+        "status": 200,
+        "release": "2e493fe0aa2c9c909475c70187b98353505d2826",
+        "contentType": "application/json; charset=utf-8",
+        "curlExit": 0,
+        "bytes": 18,
+        "sha256": "31bf75f4c0a97cc1f7b60df824fa390b3be9ba014f29b63c87c698ba63d9a9fd",
+        "body": {
+          "status": "ready"
+        }
+      },
+      {
+        "at": "2026-10-05T14:39:50.247072+00:00",
+        "path": "/api/v1/ready",
+        "status": 200,
+        "release": "2e493fe0aa2c9c909475c70187b98353505d2826",
+        "contentType": "application/json; charset=utf-8",
+        "curlExit": 0,
+        "bytes": 18,
+        "sha256": "31bf75f4c0a97cc1f7b60df824fa390b3be9ba014f29b63c87c698ba63d9a9fd",
+        "body": {
+          "status": "ready"
+        }
+      },
+      {
+        "at": "2026-10-05T14:40:51.663076+00:00",
+        "path": "/api/v1/ready",
+        "status": 200,
+        "release": "2e493fe0aa2c9c909475c70187b98353505d2826",
+        "contentType": "application/json; charset=utf-8",
+        "curlExit": 0,
+        "bytes": 18,
+        "sha256": "31bf75f4c0a97cc1f7b60df824fa390b3be9ba014f29b63c87c698ba63d9a9fd",
+        "body": {
+          "status": "ready"
+        }
+      },
+      {
+        "at": "2026-10-05T14:41:55.603216+00:00",
+        "path": "/api/v1/ready",
+        "status": 200,
+        "release": "0773411314bb31765f748dbeaeec58ae76bbeded",
+        "contentType": "application/json; charset=utf-8",
+        "curlExit": 0,
+        "bytes": 18,
+        "sha256": "31bf75f4c0a97cc1f7b60df824fa390b3be9ba014f29b63c87c698ba63d9a9fd",
+        "body": {
+          "status": "ready"
+        }
+      },
+      {
+        "at": "2026-10-05T14:47:55.304535+00:00",
+        "path": "/api/v1/ready",
+        "status": 200,
+        "release": "0773411314bb31765f748dbeaeec58ae76bbeded",
+        "contentType": "application/json; charset=utf-8",
+        "curlExit": 0,
+        "bytes": 18,
+        "sha256": "31bf75f4c0a97cc1f7b60df824fa390b3be9ba014f29b63c87c698ba63d9a9fd",
+        "body": {
+          "status": "ready"
+        }
+      }
+    ],
+    "ready": {
+      "at": "2026-10-05T14:42:40.767530+00:00",
+      "path": "/api/v1/ready",
+      "status": 200,
+      "release": "0773411314bb31765f748dbeaeec58ae76bbeded",
+      "contentType": "application/json; charset=utf-8",
+      "curlExit": 0,
+      "bytes": 18,
+      "sha256": "31bf75f4c0a97cc1f7b60df824fa390b3be9ba014f29b63c87c698ba63d9a9fd",
+      "body": {
+        "status": "ready"
+      }
     },
-    "note": "Existing healthy release remains serving while exact-main qualification runs."
+    "pages": [
+      {
+        "at": "2026-10-05T14:43:02.142423+00:00",
+        "path": "/",
+        "status": 200,
+        "release": "0773411314bb31765f748dbeaeec58ae76bbeded",
+        "contentType": "text/html; charset=utf-8",
+        "curlExit": 0,
+        "bytes": 170823,
+        "sha256": "95edf7189c0919b9186f5467d93815c93af93544b2e487665014dd33f19f9e59"
+      },
+      {
+        "at": "2026-10-05T14:43:01.374972+00:00",
+        "path": "/admin/music",
+        "status": 200,
+        "release": "0773411314bb31765f748dbeaeec58ae76bbeded",
+        "contentType": "text/html; charset=utf-8",
+        "curlExit": 0,
+        "bytes": 15652,
+        "sha256": "2a2cc8a1e2ae3e93d4bd4be86d1863c3699517c2c9d2594f828f24bdf450511f"
+      },
+      {
+        "at": "2026-10-05T14:43:01.344009+00:00",
+        "path": "/app/guided/00000000-0000-4000-8000-000000000001",
+        "status": 200,
+        "release": "0773411314bb31765f748dbeaeec58ae76bbeded",
+        "contentType": "text/html; charset=utf-8",
+        "curlExit": 0,
+        "bytes": 16759,
+        "sha256": "dd2b827f8cb52de4d9ca678a1df4f05d887cafe2d663270afb1054dea3f94c88"
+      },
+      {
+        "at": "2026-10-05T14:43:01.338776+00:00",
+        "path": "/app/voice-session/00000000-0000-4000-8000-000000000001",
+        "status": 200,
+        "release": "0773411314bb31765f748dbeaeec58ae76bbeded",
+        "contentType": "text/html; charset=utf-8",
+        "curlExit": 0,
+        "bytes": 16773,
+        "sha256": "60d70f26c7df043782c9fbae7c817a08176d2bcfd98a9d0301d82276b24b536b"
+      }
+    ],
+    "assets": [
+      {
+        "at": "2026-10-05T14:43:21.024870+00:00",
+        "path": "/_next/static/chunks/02bhcqhzf8k98.js",
+        "status": 200,
+        "release": "0773411314bb31765f748dbeaeec58ae76bbeded",
+        "contentType": "application/javascript; charset=UTF-8",
+        "curlExit": 0,
+        "bytes": 50656,
+        "sha256": "e2c41c16f7354d7c56d1ea2f1e8a4be1a9e7aede3e412fd77547c6cdb901d7c1"
+      },
+      {
+        "at": "2026-10-05T14:43:22.239076+00:00",
+        "path": "/_next/static/chunks/03b2vpawju0xw.js",
+        "status": 200,
+        "release": "0773411314bb31765f748dbeaeec58ae76bbeded",
+        "contentType": "application/javascript; charset=UTF-8",
+        "curlExit": 0,
+        "bytes": 38580,
+        "sha256": "b75c0bbf68c4b08fbea5a90bd82d9289e576f9f98f4172c37f334d68be96a39e"
+      },
+      {
+        "at": "2026-10-05T14:43:21.268651+00:00",
+        "path": "/_next/static/chunks/0bma92pht_c97.js",
+        "status": 200,
+        "release": "0773411314bb31765f748dbeaeec58ae76bbeded",
+        "contentType": "application/javascript; charset=UTF-8",
+        "curlExit": 0,
+        "bytes": 229156,
+        "sha256": "8e1ef636f0a5bad67b6562ce88d83624788ebcccf625a78c0aaa8318092e52ff"
+      },
+      {
+        "at": "2026-10-05T14:43:21.006067+00:00",
+        "path": "/_next/static/chunks/0cz1d0mv5g_q7.js",
+        "status": 200,
+        "release": "0773411314bb31765f748dbeaeec58ae76bbeded",
+        "contentType": "application/javascript; charset=UTF-8",
+        "curlExit": 0,
+        "bytes": 112594,
+        "sha256": "0973c1d64c88adc8e3c950410cb58b288f72118d5965b78049438deb8f2f9683"
+      },
+      {
+        "at": "2026-10-05T14:43:44.649163+00:00",
+        "path": "/_next/static/chunks/0fmipdvub9wrr.js",
+        "status": 200,
+        "release": "0773411314bb31765f748dbeaeec58ae76bbeded",
+        "contentType": "application/javascript; charset=UTF-8",
+        "curlExit": 0,
+        "bytes": 347565,
+        "sha256": "e743746b27349f208253fca3cdb46698be625cc233d6ada17670fb41c7ffb294"
+      },
+      {
+        "at": "2026-10-05T14:43:43.868527+00:00",
+        "path": "/_next/static/chunks/0fmmydyhq1lmt.css",
+        "status": 200,
+        "release": "0773411314bb31765f748dbeaeec58ae76bbeded",
+        "contentType": "text/css; charset=UTF-8",
+        "curlExit": 0,
+        "bytes": 86368,
+        "sha256": "55f668d290244e9b30fc51419e87cc233b4e6722de3a002198649a69e7877c0a"
+      },
+      {
+        "at": "2026-10-05T14:43:44.383901+00:00",
+        "path": "/_next/static/chunks/0kgwskn1x4zv0.js",
+        "status": 200,
+        "release": "0773411314bb31765f748dbeaeec58ae76bbeded",
+        "contentType": "application/javascript; charset=UTF-8",
+        "curlExit": 0,
+        "bytes": 156015,
+        "sha256": "02e6916dd8032f57afa00a61a5386a9693c95364a3eaf24a40fc9917a29ad3a6"
+      },
+      {
+        "at": "2026-10-05T14:43:44.837688+00:00",
+        "path": "/_next/static/chunks/0tboee8rp1pxm.js",
+        "status": 200,
+        "release": "0773411314bb31765f748dbeaeec58ae76bbeded",
+        "contentType": "application/javascript; charset=UTF-8",
+        "curlExit": 0,
+        "bytes": 107966,
+        "sha256": "b5ea24a995c625b3d3c3ba67cf59ace224c9692b5c08bf5c11531a60bbce900b"
+      },
+      {
+        "at": "2026-10-05T14:44:04.682676+00:00",
+        "path": "/_next/static/chunks/1-h_02r3mggw1.js",
+        "status": 200,
+        "release": "0773411314bb31765f748dbeaeec58ae76bbeded",
+        "contentType": "application/javascript; charset=UTF-8",
+        "curlExit": 0,
+        "bytes": 46864,
+        "sha256": "3737ce2310021a815f3a1ce765008601843adce407083a65fc244a3e0f6400bc"
+      },
+      {
+        "at": "2026-10-05T14:44:05.523921+00:00",
+        "path": "/_next/static/chunks/19kdfhm8n0dkf.js",
+        "status": 200,
+        "release": "0773411314bb31765f748dbeaeec58ae76bbeded",
+        "contentType": "application/javascript; charset=UTF-8",
+        "curlExit": 0,
+        "bytes": 391185,
+        "sha256": "3d002b7f6632fed6974a6b609cf254eb58a1e37232e805c88eeef1575556ac78"
+      },
+      {
+        "at": "2026-10-05T14:44:05.148607+00:00",
+        "path": "/_next/static/chunks/1_g6c7a578u47.css",
+        "status": 200,
+        "release": "0773411314bb31765f748dbeaeec58ae76bbeded",
+        "contentType": "text/css; charset=UTF-8",
+        "curlExit": 0,
+        "bytes": 61541,
+        "sha256": "f5c5745a04a33c37fec5ab8a0cd4b86fde383ee78f955245741e19e0732d3429"
+      },
+      {
+        "at": "2026-10-05T14:44:04.959347+00:00",
+        "path": "/_next/static/chunks/1b3m5danipzr5.js",
+        "status": 200,
+        "release": "0773411314bb31765f748dbeaeec58ae76bbeded",
+        "contentType": "application/javascript; charset=UTF-8",
+        "curlExit": 0,
+        "bytes": 46525,
+        "sha256": "445550ecf3e5ec057e7d5c4f7508f7a87c2c3bccc03e47681a8acc7782f731d5"
+      },
+      {
+        "at": "2026-10-05T14:44:19.438383+00:00",
+        "path": "/_next/static/chunks/1j7au5a1x5n14.js",
+        "status": 200,
+        "release": "0773411314bb31765f748dbeaeec58ae76bbeded",
+        "contentType": "application/javascript; charset=UTF-8",
+        "curlExit": 0,
+        "bytes": 31346,
+        "sha256": "5aa08d4c8a3a59169a69d6f1cc303f8dbc334ce6857b166e671382689fae6aaa"
+      },
+      {
+        "at": "2026-10-05T14:44:20.237236+00:00",
+        "path": "/_next/static/chunks/1japcc3gw6j_4.js",
+        "status": 200,
+        "release": "0773411314bb31765f748dbeaeec58ae76bbeded",
+        "contentType": "application/javascript; charset=UTF-8",
+        "curlExit": 0,
+        "bytes": 36002,
+        "sha256": "546e78c8b7cd04391b37183727e2ae87c1fe19f963ff5f83815501ccd4c410af"
+      },
+      {
+        "at": "2026-10-05T14:44:20.196336+00:00",
+        "path": "/_next/static/chunks/207-bxl2qwee7.css",
+        "status": 200,
+        "release": "0773411314bb31765f748dbeaeec58ae76bbeded",
+        "contentType": "text/css; charset=UTF-8",
+        "curlExit": 0,
+        "bytes": 122077,
+        "sha256": "3c96b93bed1d6604b3fa3c6f6dda8eafd1e25b6bddcde6add616a02c6d4b8343"
+      },
+      {
+        "at": "2026-10-05T14:44:20.013995+00:00",
+        "path": "/_next/static/chunks/2gee8pgrfsf83.js",
+        "status": 200,
+        "release": "0773411314bb31765f748dbeaeec58ae76bbeded",
+        "contentType": "application/javascript; charset=UTF-8",
+        "curlExit": 0,
+        "bytes": 46472,
+        "sha256": "996227c4a81eda7256bbc8fc4642e3120922b115aa6e21eda3ac086d20b3b976"
+      },
+      {
+        "at": "2026-10-05T14:47:36.048882+00:00",
+        "path": "/_next/static/chunks/2p3hyxp3sdkl_.js",
+        "status": 200,
+        "release": "0773411314bb31765f748dbeaeec58ae76bbeded",
+        "contentType": "application/javascript; charset=UTF-8",
+        "curlExit": 0,
+        "bytes": 881899,
+        "sha256": "72d7ff6a96b55623eec133c2b590bd62798e17fb707afc6933da2beeabecd195"
+      },
+      {
+        "at": "2026-10-05T14:44:44.275558+00:00",
+        "path": "/_next/static/chunks/2smvg25ifxvoo.js",
+        "status": 200,
+        "release": "0773411314bb31765f748dbeaeec58ae76bbeded",
+        "contentType": "application/javascript; charset=UTF-8",
+        "curlExit": 0,
+        "bytes": 61711,
+        "sha256": "681cb24b8a52b3a404be9691e78b081bcfab43a5ae565a0b29e006ecfe3bb914"
+      },
+      {
+        "at": "2026-10-05T14:44:45.043937+00:00",
+        "path": "/_next/static/chunks/2yxsehoncskmb.js",
+        "status": 200,
+        "release": "0773411314bb31765f748dbeaeec58ae76bbeded",
+        "contentType": "application/javascript; charset=UTF-8",
+        "curlExit": 0,
+        "bytes": 196734,
+        "sha256": "30bc581427cb2b13b72b913adb2fc882cda2d1b7d2bf67aa7d9023b943f5d438"
+      },
+      {
+        "at": "2026-10-05T14:44:44.105612+00:00",
+        "path": "/_next/static/chunks/3k-jh-7f0ww0x.js",
+        "status": 200,
+        "release": "0773411314bb31765f748dbeaeec58ae76bbeded",
+        "contentType": "application/javascript; charset=UTF-8",
+        "curlExit": 0,
+        "bytes": 1693,
+        "sha256": "346b970a3b9083774ef9e52303017e946f2b911f892122c1ac5e6ae9383c68c0"
+      },
+      {
+        "at": "2026-10-05T14:44:55.990841+00:00",
+        "path": "/_next/static/chunks/3mc6dra1m0098.js",
+        "status": 200,
+        "release": "0773411314bb31765f748dbeaeec58ae76bbeded",
+        "contentType": "application/javascript; charset=UTF-8",
+        "curlExit": 0,
+        "bytes": 12653,
+        "sha256": "d9840d6de414f19d28fbe08cc2ddd0aeb95cf379864950a506592a54f4996f31"
+      },
+      {
+        "at": "2026-10-05T14:44:57.136644+00:00",
+        "path": "/_next/static/chunks/3wgpudzl1fg9e.css",
+        "status": 200,
+        "release": "0773411314bb31765f748dbeaeec58ae76bbeded",
+        "contentType": "text/css; charset=UTF-8",
+        "curlExit": 0,
+        "bytes": 118940,
+        "sha256": "4780941110b7b797a5411a03008f792580e17c07da2c1a731653749b233933bf"
+      },
+      {
+        "at": "2026-10-05T14:44:56.571284+00:00",
+        "path": "/_next/static/chunks/turbopack-3ysl8ie-vtwg8.js",
+        "status": 200,
+        "release": "0773411314bb31765f748dbeaeec58ae76bbeded",
+        "contentType": "application/javascript; charset=UTF-8",
+        "curlExit": 0,
+        "bytes": 10946,
+        "sha256": "6d18fb2cdbd4ffd6f747510debd53364f0e48decae1cf4e5c7bde00e12ea3341"
+      },
+      {
+        "at": "2026-10-05T14:50:29.053570+00:00",
+        "path": "/_next/static/chunks/3zoz2p2ro-i_j.js",
+        "status": 200,
+        "release": "0773411314bb31765f748dbeaeec58ae76bbeded",
+        "contentType": "application/javascript; charset=UTF-8",
+        "curlExit": 0,
+        "bytes": 7447,
+        "sha256": "602be78a810a6deb3d5427225b85c583179559e0a4c5a19e2bc64628fbfd9c5b"
+      }
+    ],
+    "unauthenticatedApi": [
+      {
+        "at": "2026-10-05T14:45:17.380692+00:00",
+        "path": "/api/v1/music",
+        "status": 401,
+        "release": "0773411314bb31765f748dbeaeec58ae76bbeded",
+        "contentType": "application/json; charset=utf-8",
+        "curlExit": 0,
+        "bytes": 71,
+        "sha256": "9cad6acf8ed8b64aa73a04b9222d260e58c5cb7c859c181680a8c8de9c3c0d2d",
+        "body": {
+          "code": "AUTH_REQUIRED",
+          "message": "Please sign in",
+          "requestId": "req-s"
+        }
+      },
+      {
+        "at": "2026-10-05T14:45:17.715052+00:00",
+        "path": "/api/v1/admin/music",
+        "status": 401,
+        "release": "0773411314bb31765f748dbeaeec58ae76bbeded",
+        "contentType": "application/json; charset=utf-8",
+        "curlExit": 0,
+        "bytes": 71,
+        "sha256": "07290c64ab80d54866aa3609beb2dcc15e2601f468fa466fa71d5568999f46e9",
+        "body": {
+          "code": "AUTH_REQUIRED",
+          "message": "Please sign in",
+          "requestId": "req-t"
+        }
+      }
+    ],
+    "uiMarkers": {
+      "musicAdminJavaScript": [
+        "/_next/static/chunks/3zoz2p2ro-i_j.js"
+      ],
+      "guidedJavaScript": [
+        "/_next/static/chunks/2p3hyxp3sdkl_.js"
+      ],
+      "guidedCss": [
+        "/_next/static/chunks/207-bxl2qwee7.css"
+      ]
+    },
+    "readyRecheck": {
+      "at": "2026-10-05T14:47:55.304535+00:00",
+      "path": "/api/v1/ready",
+      "status": 200,
+      "release": "0773411314bb31765f748dbeaeec58ae76bbeded",
+      "contentType": "application/json; charset=utf-8",
+      "curlExit": 0,
+      "bytes": 18,
+      "sha256": "31bf75f4c0a97cc1f7b60df824fa390b3be9ba014f29b63c87c698ba63d9a9fd",
+      "body": {
+        "status": "ready"
+      }
+    },
+    "verified": true,
+    "scope": "Signed-out HTTPS readiness, page shells, authentication rejection and linked asset checks. Authenticated workout/admin journeys qualified in isolated CI.",
+    "assetRetries": [
+      {
+        "at": "2026-10-05T14:44:44.447639+00:00",
+        "path": "/_next/static/chunks/2p3hyxp3sdkl_.js",
+        "status": 200,
+        "release": "0773411314bb31765f748dbeaeec58ae76bbeded",
+        "contentType": "application/javascript; charset=UTF-8",
+        "curlExit": 28,
+        "bytes": 163840,
+        "sha256": "9cfc580a2141eff9b4988450b019cc2de608685337088224bad1fe29de1e4ca1"
+      }
+    ],
+    "assetRetryNote": "One uncompressed JavaScript download exceeded the initial 25-second client timeout. A focused compressed retry completed successfully; no application HTTP failure was observed.",
+    "dynamicChunkResolution": {
+      "manifest": "/_next/static/chunks/3k-jh-7f0ww0x.js",
+      "moduleId": 33256,
+      "chunk": "/_next/static/chunks/3zoz2p2ro-i_j.js",
+      "localManifestMatchedServedSha256": true
+    },
+    "finishedAt": "2026-10-05T14:50:29.053624+00:00",
+    "previous": "2e493fe0aa2c9c909475c70187b98353505d2826",
+    "release": "0773411314bb31765f748dbeaeec58ae76bbeded"
   },
   "remaining": {
     "music": "38/240 tracks saved; import, listening review and complete playlists remain. No new generation, spend or credential changes during deployment.",
