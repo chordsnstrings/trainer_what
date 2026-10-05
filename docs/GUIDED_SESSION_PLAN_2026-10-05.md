@@ -1,6 +1,6 @@
 # Guided coaching session — proposed flow
 
-5 October 2026. Planning only; no implementation, deployment or paid-provider call. Builds on the guided audit and the existing voice runner. Native companion work below is a recommendation, not an implementation authorization. Existing DigitalOcean authority remains unchanged.
+5 October 2026, revision 2. Complete proposed flow, updated for the owner's 15:35 Asia/Dubai requirements: genre playlists with at least 30 tracks each, shuffle, noisy gyms, minimal cloud calls and clear UX. Planning only; no implementation, deployment or paid-provider call. The owner supplied a Suno API credential for use when needed; it has not been configured or copied into these files. Store credentials only in protected server settings when used. Native companion work remains a recommendation. Existing DigitalOcean authority remains unchanged.
 
 ## Product contract
 
@@ -20,7 +20,7 @@ Use one Guided session entry with text/voice modes. Start with the owner's autho
 | Phase | What happens | Exit condition |
 | --- | --- | --- |
 | Check in | Confirm today's available time, equipment, readiness and relevant concerns. Show workout, estimated duration, language, voice and music choices. Test sound/microphone; captions and buttons always work. | Member starts; current membership/consents/plan/holds pass. |
-| Prepare | Freeze the current workout and trainer-style versions. Build structured events, reuse/generate missing speech, select music and preload the opening plus the next exercise. | Required opening audio is ready, or member chooses text. Show real preparation progress. |
+| Prepare | Prepare speech when a scheduled workout becomes available. At check-in, freeze the current workout/style versions and update only changed instructions. Select a playlist and preload opening/next-exercise speech and upcoming music. | Required opening audio is ready, or member chooses text. Show real preparation progress; a music failure never blocks Start. |
 | Welcome and warm-up | Brief personal greeting and today's purpose. Run the actual prescribed warm-up as timed/repetition steps; do not invent one from narration. | Warm-up steps completed or an allowed alternative confirmed. |
 | Exercise setup | Announce movement, sets, reps/time/distance, load and units, tempo, effort target, side and equipment. Show the trainer's demonstration and concise approved cue. | Member says Ready or taps Start set. |
 | Start set | Announce current set/round and exact target. Count in when enabled. Start work timing at the audible Go marker, not when TTS generation finishes. | Actual playback start/marker, or explicit text-mode start. |
@@ -50,17 +50,51 @@ Use one Guided session entry with text/voice modes. Start with the owner's autho
 - **Duration estimate:** warm-up + expected work + prescribed rests + setup/transitions + cool-down. Repetition estimates use prescribed tempo where available, otherwise a labeled estimate from relevant history. Do not double-count overlapping speech/music. Update the range from actual pace and extra rest; never silently cut required work to hit the original estimate.
 - Persist exercise/set/side, revision, phase, clocks, pending outcomes and last applied event. Use monotonic time while active and durable checkpoints for resume. Only one controlling device/tab. Reconnect reconciles events idempotently; it does not replay completed sets. Unexpected interruption returns paused with a short recap; do not auto-credit elapsed suspended work.
 
-## Music and listening
+## Music catalogue and playlists
 
-Recommended initial bank: 24 approved instrumental tracks, four moods × three energy levels × two variants. Generate once, verify actual duration/quality, normalize levels, tag and store on our infrastructure. The service supports instrumental tasks and completion callbacks; its current generation page says files remain for 14 days, so provider URLs are not durable storage [2]. Existing owner-confirmed commercial rights remain the project decision; this plan does not reopen that issue.
+Replace the earlier 24-track proposal with **eight system playlists, at least 30 distinct approved instrumental tracks each: 240 tracks minimum**. Recommended tracks are roughly three to five minutes; this is a production target, not a provider-duration guarantee. No duplicate file, renamed copy or repeated loop counts as another song. Each launch playlist has its own distinct catalogue. Member favourites are a saved collection, not a system playlist advertised as containing 30 tracks.
 
-Music plays continuously during work and rest. Keep tracks going across set boundaries; crossfade at natural transitions. Lower music under speech, restore it smoothly afterward and provide separate voice/music controls. During intentional talk-back, mute or strongly lower music and stop coach speech so the member can be heard. Stop/pain overrides both. Personal external music stays optional; third-party app volume/ducking cannot be treated as under our control.
+| Playlist | Musical direction / use | Minimum |
+| --- | --- | ---: |
+| Flow State | Atmospheric electronic, steady focus, restrained dynamics | 30 |
+| EDM Drive | House/progressive electronic, upbeat continuous energy | 30 |
+| Rock Strength | Guitar/drum instrumentals, strong rhythm | 30 |
+| R&B Groove | Soulful keys, bass and relaxed rhythmic grooves | 30 |
+| Hip-Hop / Trap | Instrumental beats, weight-training energy | 30 |
+| Afro / Latin Groove | Percussion-led rhythmic variety | 30 |
+| Synthwave | Retro electronic, sustained movement | 30 |
+| Recovery | Ambient/chill, warm-up or cool-down preference | 30 |
 
-Launch reliable push-to-talk for speaker/noisy-gym use. Offer hands-free listening only on qualified headset/device combinations, with echo suppression and visible mic status. A deliberate interruption immediately clears the speech queue. Capture session/set identity when recording starts; a late transcript cannot complete the following set. Ignore our own prompts and music; uncertain speech asks for clarification. Stop/pause buttons remain immediate even without network/STT.
+**Production:** create two candidate tracks per playlist first to qualify style and mixing; these are not published playlists. Then generate bounded batches until every playlist has 30 accepted tracks. Count approved outputs, not requests: one request may return multiple variations. Check account credits/pricing when implementation starts, enforce a job spend ceiling, reconcile unknown tasks before retry and do not auto-purchase credits. Log actual generation cost and replace only rejected/missing tracks. The user's supplied credential is for this service, never browser code, Git or documentation.
 
-Simple commands use the existing checked parser: Ready, Done, actual reps, Pause, Resume, Repeat, More rest, Too heavy, Not done, equipment unavailable and pain. Contextual questions use a small current-state/coach-context request to the frontier model. Proposed substitutions/load changes must pass trainer rules and be stated/confirmed before application. Pain stops locally and queues the existing hold/report workflow; never promise delivery until acknowledged. Do not treat transcript uncertainty as completed work.
+Use instrumental generation with no vocals or spoken samples. Vary instruments, arrangement and intensity using reusable prompt templates. Check duration, clipping, unwanted vocals, obvious artifacts and duplicate/near-duplicate audio; audition the style and cue mix. Normalize levels, record track metadata/rights provenance and copy accepted audio to durable object storage. The API supports instrumental tasks/callbacks and currently retains generated files for 14 days [2]. Validate callbacks against the known provider task and fetch status through the authenticated API before accepting assets. Existing owner-confirmed commercial rights remain the project decision.
 
-Current Cartesia streaming transcription lists English, French, Hindi, Japanese and Spanish, excluding Arabic [3]. Its batch transcription supports Arabic and requires a language setting [4]. Keep the existing qualified Arabic short-utterance path initially; test dialect/noise/code-switching and latency. Do not promise identical bilingual streaming behavior or replace the existing safety parser merely because an API is newer.
+**Playback:** genre selection, shuffle on/off, repeat off/playlist/track, next/previous track, favourites, hide track and queue preview. Shuffle uses a persisted shuffled list: no repeat until eligible tracks are exhausted; avoid immediately repeating the last track when starting another cycle. Previous uses playback history; changing shuffle never restarts the playing track. Cache/preload upcoming tracks. Resume retains playlist, track, position and queue. Hidden/unavailable tracks are skipped; a failed track must not restart a set or stop coaching. Replace or unpublish a system playlist if its eligible catalogue drops below 30. No track generation on play, skip, shuffle or favourite.
+
+Music stays continuous through work and rest. Crossfade tracks at suitable boundaries; do not swap genre every set. Lower music under coach speech and restore it smoothly. Hold to talk mutes or strongly lowers music and stops coach speech. Separate voice/music volume and mute; muting music does not pause the workout. Stop/pain stops both. Optional energy matching selects from pre-tagged tracks without a model call and never changes the exercise cadence. Personal external music remains optional; its volume cannot be assumed controllable by our app.
+
+## Noisy gyms and intentional listening
+
+**Default: Hold to talk; otherwise the microphone is off.** No continuous gym recording or cloud transcription. Large Done, Pause, More rest and Stop controls handle routine actions without any AI call. Release-to-submit and an accessible tap-to-start/stop alternative serve members who cannot hold a button; show a clear recording indicator and bounded capture window.
+
+Speech activity is not speaker identity or permission. Music, breathing, impacts and another person's conversation must not become commands merely because a detector thinks they resemble speech. Speech detectors output speech probabilities [10]; microphone echo/noise controls are capability-dependent [11]. Neither proves that the member is addressing the app.
+
+| Gate | Processing | Paid call |
+| --- | --- | --- |
+| Intent | Explicit talk interaction opens a short capture window. Future hands-free requires an on-device wake phrase and a qualified device/headset. | None |
+| Local filter | Request supported echo cancellation/noise suppression; detect speech locally, trim silence and suppress obvious noise/our playback. Keep short commands such as Stop usable. Empty/non-speech capture is discarded locally. | None |
+| Transcription | Send one bounded, intentional speech clip in the selected language. Maximum one request in flight. Never upload the ambient session or retry rejected noise automatically. | STT only |
+| Command | Strict parser applies valid current-state commands: Done, actual reps, Pause, Resume, Repeat, More rest, Not done or pain. Deduplicate events and reject obsolete turns. | No frontier-model call |
+| Unclear | Show transcript/clarification or use a cached short response. Do not interpret random text as completed exercise or automatically ask a model to explain noise. | None beyond the initial STT |
+| Ask coach | Only a deliberate meaningful question needs the frontier model, with a short state/history summary. Validate proposed changes against trainer rules before applying. | One bounded model call; TTS only for uncached reply |
+
+Capture session/set/phase identity at recording start. A late transcript cannot finish the next set. Hold to talk pauses work/tempo timing and current speech; rest may continue. If a reply extends beyond rest, wait for readiness instead of starting an exercise while still answering. Resume is explicit after interrupted work. Silence never means Done. Nearby speech cannot be reliably excluded by loudness or a headset alone; hands-free is opt-in, conservative and disabled on unqualified/noisy configurations.
+
+One request per captured turn, bounded duration, cooldown, per-session cost ceilings and no recursive clarification loops. Proposed automatic-mode fallback: after three rejected/unclear captures within one minute, close hands-free capture and offer Hold to talk; do not send the same audio repeatedly. This threshold needs device testing. In default mode, noise outside an intentional capture causes **zero paid calls**. Noise slipping into an intentional capture can still incur one STT call; never promise perfect filtering.
+
+Stop/pause buttons act locally and immediately. Pain stops locally and queues the hold/report workflow; preserve the note, retry safely and show Pending versus Sent. No voice mode can promise to hear a pain word while its microphone is off. Display mic state honestly. Discard short raw recordings after processing under the provider's actual retention policy; retain only necessary session outcomes. No speaker-biometric enrollment in the initial design.
+
+Current Cartesia streaming transcription excludes Arabic [3]; its batch service supports Arabic with a selected language [4]. Keep the existing tested short-utterance Arabic path and qualify dialect/noise/code-switching. Use manual-turn transcription for intentional speech [12]. Do not promise identical streaming behavior across languages or weaken the existing safety parser.
 
 ## Mobile architecture and recovery
 
@@ -70,25 +104,44 @@ For dependable locked-phone music, correctly timed cues and interaction, recomme
 
 Offline: preserve text, timers, current progress and pending reports. Keep personalized speech private; permit cached playback only within an explicit bounded offline permission policy. Online revocation stops playback and clears cached authorization. Instant revocation of bytes already downloaded to a disconnected phone cannot be guaranteed. Never silently restart paid requests with unknown outcomes. Track/music failure must not block the workout.
 
-## Controls, cost and delivery
+## UX and UI
 
-Runner screen: current exercise/demonstration, set and target, prominent work/rest clock, next instruction and transcript. One phase-specific primary button, plus accessible Pause, Talk and Stop. Put secondary music, repeat and detailed logging controls nearby without duplicating large cards. Summary distinguishes reported, timed and pending results.
+Mobile-first, clean white default, strong typography, restrained trainer accent and generous consistent spacing. Respect trainer identity while maintaining contrast. Avoid nested card containers, oversized desktop buttons, competing primary actions and separate logging pages. Preserve usable layouts on tablet/desktop with bounded content width.
 
-Cost rules: one bounded narration preparation call per new session revision; reuse on retry/resume. Routine control/timing makes no model call. Contextual conversation is metered and capped. Generate only cache misses, not every possible numeric phrase. Reuse music across sessions. Batch Arabic transcription only for captured speech; hands-free has an explicit listening/cost policy. Measure actual model tokens, TTS characters, STT audio seconds, music tasks, cache hits, storage/egress and retry costs; no invented per-session price.
+| Screen/state | UI contract |
+| --- | --- |
+| Before starting | Workout overview, estimated duration, remembered playlist with Preview/Shuffle, voice/language, Hold-to-talk default and compact sound check. One Start workout button. Mic permission only when enabling talk. |
+| Working | Exercise/demo, set number, exact target and elapsed/time-left display. Next target in one line. Large Finished set primary action for reps; timed work shows the clock plus Finish early. |
+| Resting | Large rest clock, completed-set confirmation and next target. More rest is obvious. Ready/Start next follows the prescription/readiness rules; zero rest does not create a fake countdown. |
+| Speaking/listening | Short coach caption and explicit Mic off / Listening / Processing status. Recording is cancellable. Unclear input presents correction options, not technical errors or surprise progression. |
+| Persistent controls | Large Pause/Resume, Hold to talk and Stop. Stop acts immediately; optional report details come afterward. Controls remain reachable without opening a menu. |
+| Music drawer | Compact now-playing row expands to playlists, queue, shuffle/repeat, favourite, hide and separate volumes. Distinguish Next track from Next exercise. Music controls never change workout progress. |
+| Recovery | Resume exactly where paused, with a brief recap. Clear Offline / Saved on device / Synced state. No lost notes or duplicate logs. |
+| Summary | Actual time, completed/partial sets, reported results and pending sync. Quick corrections and next scheduled workout. |
+
+Use at least 48 px main touch targets, text labels, captions and keyboard/screen-reader support. Reduced-motion option; do not announce each ticking second to screen readers. Account for safe areas and keyboard height; music and session bars must never cover each other. Keep a quiet noise/help indicator instead of repeated popups. Lock-screen Next means Next track only; pause/interruption behavior must coordinate workout timing and audio explicitly. Headphone disconnect pauses and offers safe resume, never unexpected loud speaker playback.
+
+Trainer setup retains voice/style preview, pronunciation, verbosity, counting preference, approved cues/demos and adjustment rules. Super admin manages secret-backed provider settings, job budgets, track QA, playlist counts, retire/replace and music cost. Trainers choose a default mood; members can override it. A playlist appears as Ready only after 30 approved playable tracks exist.
+
+## Cost and delivery
+
+One bounded narration preparation call per new session revision, reused on resume. Cached routines, clocks, buttons, playlist selection/shuffle and sound filtering make no frontier-model calls. Intentional voice commands use one short STT request unless a separately qualified on-device recognizer is available. Only meaningful Ask coach turns use the frontier model. Generate speech cache misses and share generic authorized phrases; do not eagerly generate every numeric combination. Generate the music bank once and reuse it across members; no per-session music job.
+
+Record actual model tokens, TTS characters, STT seconds, music tasks, cache hits, storage/egress and unknown/retry costs. Rate/cost limits apply to provider processing, never to local Stop/Pause. At limits, keep captions/buttons/timers and explain the voice fallback. No invented per-session price or token-saving percentage.
 
 | Stage | Deliverable and acceptance |
 | --- | --- |
 | 1 | Fix all guided audit defects, unify routes onto the existing richer runner, preserve text access. Test consent/downgrade, stale audio, pain delivery, pause/recovery, zero rest and reload. |
 | 2 | Versioned manifest, durable state, complete prescription, precise event/audio mapping, captions and same-screen logging. Cover reps/time/distance, sides, supersets/circuits, corrections and trainer changes. |
-| 3 | Kamran phrase generation/cache, bounded adaptive replies and music catalogue/player. Test queue cancellation, ducking, no overlapping instructions and no repeated generation charges. |
-| 4 | Native audio companion and selected hands-free mode. Run full sessions on actual Android/iPhone, speaker/headset/Bluetooth, lock/unlock, calls, disconnect, poor network and low-power interruptions. |
+| 3 | Kamran phrase cache, deliberate talk pipeline, 16-track style trial then 240 accepted tracks across eight 30-track playlists. Ship player/queue/shuffle UI; test duplicate avoidance, ducking, cancellation and billing reconciliation. No playlist is published below its minimum. |
+| 4 | Native audio companion and selected hands-free mode. Test real gym music, impacts, grunts, bystanders saying Done, our own voice, genuine quiet/short commands and English/Arabic. Verify no ambient paid requests in default mode; measure automatic-mode false wakes/STT calls separately. Run full Android/iPhone sessions with speaker/headset/Bluetooth, lock/unlock, calls, disconnect, poor network and low power. |
 | 5 | Controlled trainer/member pilot. Measure command accuracy, wrong-state playback, timer error, response delay, completion/correction rates, recovery, battery use and actual cost. Expand only the qualified modes. |
 
 Proposed engineering targets, not measured results: zero wrong-state clips or duplicate logs in acceptance scenarios; immediate local stop/pause (target under 250 ms); cached cues begin within 300 ms; scheduled countdown markers within 250 ms in supported uninterrupted modes. Measure p95 adaptive-response latency from end of speech to audible response, targeting under two seconds where supported; slow replies show Listening/Thinking rather than advancing the session. Qualify a continuous 60-minute session with normal interruption/recovery scenarios.
 
 ## Research sources
 
-Reviewed 5 October 2026. Provider documentation confirms capabilities, not production account readiness or measured performance. No credentials were read and no paid generation was run.
+Reviewed 5 October 2026; revision 2 rechecked the music generation, manual STT and language contracts and added local-noise research. Provider documentation confirms capabilities, not production account readiness or measured performance. The owner supplied a credential in conversation; it was not used, persisted in project files or tested. No paid generation was run.
 
 1. Cartesia TTS contexts, cancellation, timestamps and flush mapping: https://docs.cartesia.ai/api-reference/tts/websocket and https://docs.cartesia.ai/use-the-api/tts-websocket/context-flushing-and-flush-i-ds
 2. Existing music service generation contract: https://docs.sunoapi.org/suno-api/generate-music
@@ -99,5 +152,8 @@ Reviewed 5 October 2026. Provider documentation confirms capabilities, not produ
 7. Apple playback/recording sessions: https://developer.apple.com/documentation/avfaudio/avaudiosession/category-swift.struct/playandrecord
 8. Android background media: https://developer.android.com/media/media3/session/background-playback
 9. BytePlus structured response contract: https://docs.byteplus.com/en/docs/modelark/responses-api-structured-output (schema support must be checked against the configured endpoint; server validation remains mandatory).
+10. Local speech detector behavior/quality metrics: https://github.com/snakers4/silero-vad/wiki/Quality-Metrics (research reference, not a committed dependency choice).
+11. Microphone capabilities: https://developer.mozilla.org/en-US/docs/Web/API/MediaTrackConstraints/noiseSuppression and https://developer.mozilla.org/en-US/docs/Web/API/MediaTrackConstraints/echoCancellation
+12. Cartesia manual transcription: https://docs.cartesia.ai/examples/stt-manual-finalize-websocket
 
 Repository foundations: `packages/domain/src/voice-session.ts`, `voice-runner.ts`, `voice-narration.ts`; `apps/api/src/voice-session.ts`; `apps/web/components/voice-session.tsx`; `apps/web/lib/audio-session.ts`. Legacy defects: `docs/GUIDED_SESSION_AUDIT_2026-10-05.md`. Historical feature-document statuses are not evidence of current provider readiness.
