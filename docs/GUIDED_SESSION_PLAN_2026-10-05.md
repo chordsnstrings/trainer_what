@@ -1,6 +1,6 @@
 # Guided coaching session — proposed flow
 
-5 October 2026, revision 2. Complete proposed flow, updated for the owner's 15:35 Asia/Dubai requirements: genre playlists with at least 30 tracks each, shuffle, noisy gyms, minimal cloud calls and clear UX. Planning only; no implementation, deployment or paid-provider call. The owner supplied a Suno API credential for use when needed; it has not been configured or copied into these files. Store credentials only in protected server settings when used. Native companion work remains a recommendation. Existing DigitalOcean authority remains unchanged.
+5 October 2026, revision 3. Complete proposed flow, updated for the owner's 15:43 Asia/Dubai request to work out without repeatedly handling the phone. Adds optional Coach remote controls and automatic rest-to-set transitions; retains eight 30-track playlists, noisy-gym filtering and low AI usage. Planning only; no implementation, deployment or paid-provider call. The owner supplied a Suno API credential for use when needed; it has not been configured or copied into these files. Store credentials only in protected server settings when used. Native companion work remains a recommendation. Existing DigitalOcean authority remains unchanged.
 
 ## Product contract
 
@@ -75,7 +75,7 @@ Music stays continuous through work and rest. Crossfade tracks at suitable bound
 
 ## Noisy gyms and intentional listening
 
-**Default: Hold to talk; otherwise the microphone is off.** No continuous gym recording or cloud transcription. Large Done, Pause, More rest and Stop controls handle routine actions without any AI call. Release-to-submit and an accessible tap-to-start/stop alternative serve members who cannot hold a button; show a clear recording indicator and bounded capture window.
+**Default speech mode: Hold to talk; otherwise the microphone is off.** Routine progression uses the qualified remote/button controls below, so speech is optional. No continuous gym recording or cloud transcription. Large Done, Pause, More rest and Stop controls also remain in the app. Release-to-submit and an accessible tap-to-start/stop alternative serve members who cannot hold a button; show a clear recording indicator and bounded capture window.
 
 Speech activity is not speaker identity or permission. Music, breathing, impacts and another person's conversation must not become commands merely because a detector thinks they resemble speech. Speech detectors output speech probabilities [10]; microphone echo/noise controls are capability-dependent [11]. Neither proves that the member is addressing the app.
 
@@ -95,6 +95,37 @@ One request per captured turn, bounded duration, cooldown, per-session cost ceil
 Stop/pause buttons act locally and immediately. Pain stops locally and queues the hold/report workflow; preserve the note, retry safely and show Pending versus Sent. No voice mode can promise to hear a pain word while its microphone is off. Display mic state honestly. Discard short raw recordings after processing under the provider's actual retention policy; retain only necessary session outcomes. No speaker-biometric enrollment in the initial design.
 
 Current Cartesia streaming transcription excludes Arabic [3]; its batch service supports Arabic with a selected language [4]. Keep the existing tested short-utterance Arabic path and qualify dialect/noise/code-switching. Use manual-turn transcription for intentional speech [12]. Do not promise identical streaming behavior across languages or weaken the existing safety parser.
+
+## Coach remote: phone stays in the pocket
+
+Recommended primary journey: start the session once, put the phone away, hear the coach, perform the prescribed set, signal completion with a supported headset control, then let rest/countdown/next-set guidance run. Lock-screen controls provide an alternative; they are not the only way to continue. One signal is needed per completed rep set, not per rep. No automatic rep inference is introduced.
+
+**Two explicit control modes.** Music mode keeps media Next/Previous as music navigation. Optional Coach remote maps supported remote Next to the session's Advance action and Previous to Repeat instruction; Play/Pause pauses/resumes the session and its audio. Show and speak the selected mode once. Do not silently change meanings mid-session. In Coach remote, song changes use clearly labeled in-app/custom music controls or an intentional qualified voice action; music ending never emits workout Advance. This explicitly replaces revision 2's unconditional rule that lock-screen Next always means Next track.
+
+| Current state | Advance action | Coach response |
+| --- | --- | --- |
+| Exercise setup / waiting ready | Confirm readiness and start the planned count-in. | Exact set/target, then Go. |
+| Active repetition set | Record the member's confirmation that the displayed target was completed; enter rest. | Brief result and rest duration. Actual-count correction remains available. |
+| Timed/distance work | End early / open the appropriate completion confirmation; do not claim the full planned duration/distance automatically. | State what was measured/reported; ask for missing actual distance where needed. |
+| Rest | Mark readiness for the next set; do not erase prescribed rest. | Next target or remaining rest, with repeated feedback suppressed. |
+| Countdown | No duplicate transition or logging. | Continue the current count-in. |
+| Paused / stopped / finished | No completion or restart. | Resume through Play; stopped/finished sessions require an explicit valid restart/new session. |
+
+**Automatic pacing is opt-in.** After confirmed completion, start the full rest, announce the next target near its end, then count in and start the next set of the same exercise. A pause, interruption, stale plan, hold or unresolved conversation cancels that scheduled start. At a new exercise/equipment transition, wait for Ready/Advance. Members who prefer manual pacing press Advance after rest expires. Extra rest extends the deadline and invalidates old countdown audio. Timed interval ending records elapsed time separately from physical completion.
+
+Do a short remote-control check at setup. Detect the actual supported media events and explain that device's gesture; do not promise universal double-tap/triple-tap or override volume/assistant gestures. Headset controls depend on which app owns the active media session. Coach remote is initially supported with our own coaching/music player; third-party music needs separately qualified controls or lock-screen/watch/app fallback. Do not assume another music app forwards its buttons to us.
+
+Each event is bound to the active session/phase generation. Debounce hardware repeats, deduplicate retries and require a valid state transition. A duplicated event must never log the following set or skip rest. Give an immediate local earcon/short cached acknowledgment; no model/STT call. Provide Undo/correction on the session surface; Previous repeats guidance rather than silently undoing records. Headphone removal, calls and lost audio focus pause with explicit resume.
+
+### Lock screen and optional shortcuts
+
+Display workout phase, exercise, set/target, rest deadline and the next action. Avoid exposing private concerns or detailed health notes on the lock screen. Prefer explicit controls: **Finished set**, **Pause/Resume**, **+15 seconds rest** and **Ready** where the OS surface permits them. Use the system timer presentation rather than assuming a widget can execute JavaScript every second. The native session service owns timing; lock-screen UI only reflects it.
+
+- **Android:** Media3 supports custom media command buttons and background media sessions [13]. Place the important workout actions in the available compact slots; actual layout/visibility depends on OS/controller/device settings. Use uniquely identified session actions and never infer workout completion from the music player's own Next event.
+- **iPhone:** use the active native audio session and MPRemoteCommandCenter for supported remote/headset actions [14]. A Live Activity can expose labeled actions without opening the full app [15], but Apple's interaction guidance describes locked-device authentication while AppIntent policy also supports actions allowed while locked [16]. Qualify each intended surface on real iOS versions; do not promise that setting an intent policy alone guarantees a no-unlock button. Keep the tested media/headset route as the fallback.
+- **Later conveniences:** App Shortcuts can expose session actions through Siri, Shortcuts or supported Action buttons [17]. A watch companion could provide one-tap completion, extra rest and haptics where that watch platform permits it. These need separate platform/device qualification, not assumptions about every watch or earbud. No proprietary speaker identification or continuous cloud listening is required.
+
+Proof-of-concept acceptance before wider build: a full rep-set → rest → next-set → next-exercise journey with the phone genuinely locked, music playing, zero foreground-app reopening during ordinary sets and zero frontier/STT calls for remote actions. Verify authentication behavior, button routing, duplicate presses, session switching, early completion, pause at countdown zero, headset disconnect and third-party music interference. Target platform confidence before generating the full music bank.
 
 ## Mobile architecture and recovery
 
@@ -119,7 +150,7 @@ Mobile-first, clean white default, strong typography, restrained trainer accent 
 | Recovery | Resume exactly where paused, with a brief recap. Clear Offline / Saved on device / Synced state. No lost notes or duplicate logs. |
 | Summary | Actual time, completed/partial sets, reported results and pending sync. Quick corrections and next scheduled workout. |
 
-Use at least 48 px main touch targets, text labels, captions and keyboard/screen-reader support. Reduced-motion option; do not announce each ticking second to screen readers. Account for safe areas and keyboard height; music and session bars must never cover each other. Keep a quiet noise/help indicator instead of repeated popups. Lock-screen Next means Next track only; pause/interruption behavior must coordinate workout timing and audio explicitly. Headphone disconnect pauses and offers safe resume, never unexpected loud speaker playback.
+Use at least 48 px main touch targets, text labels, captions and keyboard/screen-reader support. Reduced-motion option; do not announce each ticking second to screen readers. Account for safe areas and keyboard height; music and session bars must never cover each other. Keep a quiet noise/help indicator instead of repeated popups. Lock-screen/headset Next follows the explicitly selected Music or Coach remote mode above; pause/interruption behavior coordinates workout timing and audio. Headphone disconnect pauses and offers safe resume, never unexpected loud speaker playback.
 
 Trainer setup retains voice/style preview, pronunciation, verbosity, counting preference, approved cues/demos and adjustment rules. Super admin manages secret-backed provider settings, job budgets, track QA, playlist counts, retire/replace and music cost. Trainers choose a default mood; members can override it. A playlist appears as Ready only after 30 approved playable tracks exist.
 
@@ -133,6 +164,7 @@ Record actual model tokens, TTS characters, STT seconds, music tasks, cache hits
 | --- | --- |
 | 1 | Fix all guided audit defects, unify routes onto the existing richer runner, preserve text access. Test consent/downgrade, stale audio, pain delivery, pause/recovery, zero rest and reload. |
 | 2 | Versioned manifest, durable state, complete prescription, precise event/audio mapping, captions and same-screen logging. Cover reps/time/distance, sides, supersets/circuits, corrections and trainer changes. |
+| 2a | Native locked-phone/headset prototype before large music generation. Qualify explicit control modes, labeled actions where available, same-exercise automatic pacing, hardware-event deduplication and OS authentication/routing limits. |
 | 3 | Kamran phrase cache, deliberate talk pipeline, 16-track style trial then 240 accepted tracks across eight 30-track playlists. Ship player/queue/shuffle UI; test duplicate avoidance, ducking, cancellation and billing reconciliation. No playlist is published below its minimum. |
 | 4 | Native audio companion and selected hands-free mode. Test real gym music, impacts, grunts, bystanders saying Done, our own voice, genuine quiet/short commands and English/Arabic. Verify no ambient paid requests in default mode; measure automatic-mode false wakes/STT calls separately. Run full Android/iPhone sessions with speaker/headset/Bluetooth, lock/unlock, calls, disconnect, poor network and low power. |
 | 5 | Controlled trainer/member pilot. Measure command accuracy, wrong-state playback, timer error, response delay, completion/correction rates, recovery, battery use and actual cost. Expand only the qualified modes. |
@@ -141,7 +173,7 @@ Proposed engineering targets, not measured results: zero wrong-state clips or du
 
 ## Research sources
 
-Reviewed 5 October 2026; revision 2 rechecked the music generation, manual STT and language contracts and added local-noise research. Provider documentation confirms capabilities, not production account readiness or measured performance. The owner supplied a credential in conversation; it was not used, persisted in project files or tested. No paid generation was run.
+Reviewed 5 October 2026; revision 2 added music/noise research, and revision 3 checked native media, headset, lock-screen and shortcut capabilities. Provider documentation confirms capabilities, not production account readiness or measured performance. The owner supplied a credential in conversation; it was not used, persisted in project files or tested. No paid generation was run.
 
 1. Cartesia TTS contexts, cancellation, timestamps and flush mapping: https://docs.cartesia.ai/api-reference/tts/websocket and https://docs.cartesia.ai/use-the-api/tts-websocket/context-flushing-and-flush-i-ds
 2. Existing music service generation contract: https://docs.sunoapi.org/suno-api/generate-music
@@ -155,5 +187,10 @@ Reviewed 5 October 2026; revision 2 rechecked the music generation, manual STT a
 10. Local speech detector behavior/quality metrics: https://github.com/snakers4/silero-vad/wiki/Quality-Metrics (research reference, not a committed dependency choice).
 11. Microphone capabilities: https://developer.mozilla.org/en-US/docs/Web/API/MediaTrackConstraints/noiseSuppression and https://developer.mozilla.org/en-US/docs/Web/API/MediaTrackConstraints/echoCancellation
 12. Cartesia manual transcription: https://docs.cartesia.ai/examples/stt-manual-finalize-websocket
+13. Android media controls: https://developer.android.com/media/implement/surfaces/mobile and https://developer.android.com/media/media3/session/control-playback
+14. Apple remote commands: https://developer.apple.com/documentation/mediaplayer/mpremotecommandcenter
+15. Apple interactive surfaces: https://developer.apple.com/documentation/widgetkit/adding-interactivity-to-widgets-and-live-activities
+16. AppIntent authentication policy: https://developer.apple.com/documentation/appintents/appintent/authenticationpolicy (surface restrictions still require testing).
+17. App Shortcuts: https://developer.apple.com/design/human-interface-guidelines/app-shortcuts
 
 Repository foundations: `packages/domain/src/voice-session.ts`, `voice-runner.ts`, `voice-narration.ts`; `apps/api/src/voice-session.ts`; `apps/web/components/voice-session.tsx`; `apps/web/lib/audio-session.ts`. Legacy defects: `docs/GUIDED_SESSION_AUDIT_2026-10-05.md`. Historical feature-document statuses are not evidence of current provider readiness.
