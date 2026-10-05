@@ -1,0 +1,90 @@
+{
+  "authorization": {
+    "date": "2026-10-05",
+    "scope": "Owner requested deployment of guided-session PR #34."
+  },
+  "pr": {
+    "number": 34,
+    "url": "https://github.com/chordsnstrings/trainer_what/pull/34",
+    "head": "de87953e1198e77fb8171ebf73a759aabe35326c",
+    "merge": "0773411314bb31765f748dbeaeec58ae76bbeded",
+    "tree": "8753861bf929b4036d134bc9a16c0be58af53e84",
+    "runId": 37318453155,
+    "conclusion": "success",
+    "completedAt": "2026-10-05T14:09:36Z",
+    "jobs": [
+      {
+        "id": 111791077487,
+        "name": "wildcard-edge",
+        "conclusion": "success"
+      },
+      {
+        "id": 111791077838,
+        "name": "subscriber-ui",
+        "conclusion": "success"
+      },
+      {
+        "id": 111791077900,
+        "name": "postgres-and-container",
+        "conclusion": "success"
+      },
+      {
+        "id": 111791078002,
+        "name": "application",
+        "conclusion": "success"
+      },
+      {
+        "id": 111791078206,
+        "name": "compose-topology",
+        "conclusion": "success"
+      }
+    ],
+    "pglite": {
+      "tests": 1686,
+      "pass": 1681,
+      "fail": 0,
+      "skipped": 5
+    },
+    "postgres": {
+      "tests": 1686,
+      "pass": 1680,
+      "fail": 0,
+      "skipped": 6
+    }
+  },
+  "ciCorrection": {
+    "earlierRun": 37315634020,
+    "issue": "Three new music tables were not registered in the runtime privilege gate.",
+    "fix": "Explicit fresh-host service grants plus exact service privileges, forced RLS and denial of every tenant privilege. Migration files remain unchanged.",
+    "localRuntimeGate": {
+      "migrations": 75,
+      "systemTables": 75,
+      "scopedTables": 44,
+      "helpers": 46,
+      "serviceLookups": 2,
+      "workspaceBoundServiceTables": 18,
+      "tenantScopeFixed": true
+    }
+  },
+  "main": {
+    "sha": "0773411314bb31765f748dbeaeec58ae76bbeded",
+    "runId": 37322643343,
+    "url": "https://github.com/chordsnstrings/trainer_what/actions/runs/37322643343",
+    "status": "in_progress",
+    "conclusion": null
+  },
+  "production": {
+    "verified": false,
+    "previous": "2e493fe0aa2c9c909475c70187b98353505d2826",
+    "observedAt": "2026-10-05T14:11:42.423452+00:00",
+    "status": 200,
+    "body": {
+      "status": "ready"
+    },
+    "note": "Existing healthy release remains serving while exact-main qualification runs."
+  },
+  "remaining": {
+    "music": "38/240 tracks saved; import, listening review and complete playlists remain. No new generation, spend or credential changes during deployment.",
+    "devices": "Physical iOS/Android lock-screen, headset and real-gym acoustic qualification remain unverified."
+  }
+}
