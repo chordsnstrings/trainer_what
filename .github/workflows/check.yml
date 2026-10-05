@@ -42,6 +42,15 @@ jobs:
           RTL_API_PORT: "4137"
           RTL_DATA_DIR: .data/backend-ui-check
           AUTHENTICATOR_REQUIRED: "false"
+      - name: Domain settings recovery and confirmations
+        run: node scripts/run-rtl-check.mjs
+        env:
+          RTL_CHECK_MODULE: ./domain-ui-check.mjs
+          RTL_WEB_MODE: start
+          RTL_WEB_PORT: "3168"
+          RTL_API_PORT: "4168"
+          RTL_DATA_DIR: .data/domain-audit-ui
+          AUTHENTICATOR_REQUIRED: "false"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -135,3 +144,14 @@ jobs:
           persist-credentials: false
       - name: Compose topology smoke
         run: bash scripts/compose-smoke.sh
+  wildcard-edge:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Qualify wildcard certificate provider
+        run: |
+          docker build -f infra/digitalocean/Dockerfile.edge -t gymmembership-caddy-dns:ci infra/digitalocean
+          docker run --rm gymmembership-caddy-dns:ci caddy list-modules | grep -Fx dns.providers.digitalocean

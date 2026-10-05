@@ -273,7 +273,7 @@ test("a slug change keeps a redirect, holds the old name, and is limited", async
   const state = await request("/web-address", { cookie: omar.cookie });
   assert.equal(state.statusCode, 200, state.body);
   assert.equal(state.json().subdomain.url, "https://omar." + ROOT);
-  assert.equal(state.json().subdomain.live, true);
+  assert.equal(state.json().subdomain.live, false, "Published does not prove DNS or HTTPS health");
   const change = (slug: string, currentSlug: string, cookie = omar.cookie) =>
     request("/web-address/slug", {
       method: "POST",
@@ -340,7 +340,7 @@ test("a slug change keeps a redirect, holds the old name, and is limited", async
   assert.equal(follower.statusCode, 401);
 });
 
-test("the TLS ask allows subdomains of published active workspaces only", async () => {
+test("the TLS ask allows published active and suspended sites, never closed sites", async () => {
   assert.equal(await ask("layla." + ROOT), true);
   assert.equal(await ask("draft-coach." + ROOT), false, "unpublished");
   assert.equal(
@@ -362,8 +362,8 @@ test("the TLS ask allows subdomains of published active workspaces only", async 
   );
   assert.equal(
     await ask("layla." + ROOT),
-    false,
-    "suspended workspaces get no new certificate",
+    true,
+    "suspended workspaces still serve their suspension notice over HTTPS",
   );
   await db.system((tx) =>
     tx.query("UPDATE tenants SET lifecycle_state='active' WHERE id=$1", [

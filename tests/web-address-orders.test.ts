@@ -205,7 +205,9 @@ class FakeStripe {
         this.billingMode(id) === "classic"
       )
         this.renewalInvoices.push({ subscription: id, at: Date.now() });
-      return { id, ...params };
+      const current = { ...(this.subs.get(id) ?? { id, status: "active", livemode: false }), ...params };
+      this.subs.set(id, current);
+      return current;
     },
     cancel: async (id: string, params?: any, options?: any) => {
       this.calls.push({

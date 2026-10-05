@@ -185,6 +185,10 @@ export async function settlementBlockers(tx: Tx, userId?: string) {
   );
   if (!userId) {
     await add(
+      "domain_billing",
+      "SELECT count(*)::int n FROM domain_orders WHERE mode='automatic' AND ((stripe_subscription_id IS NOT NULL AND coalesce(billing_status,'unknown') NOT IN ('canceled','incomplete_expired')) OR evidence->'renewalIntent' IS NOT NULL OR evidence->>'cancelPending'='true' OR evidence->>'endBillingRequested'='true' OR status IN ('checkout','paid','purchasing') OR renewal_status IN ('paid','renewing','failed'))",
+    );
+    await add(
       "affiliate",
       "SELECT count(*)::int n FROM affiliate_receipts r LEFT JOIN affiliate_statement_receipts sr ON sr.tenant_id=r.tenant_id AND sr.receipt_id=r.id LEFT JOIN affiliate_settlements s ON s.tenant_id=sr.tenant_id AND s.statement_id=sr.statement_id WHERE s.id IS NULL",
     );
@@ -1076,6 +1080,11 @@ export function registerPrivacyLifecycle(
           await tx.query(
             "UPDATE domain_mappings SET active=false,verified_at=NULL,redirect=NULL WHERE tenant_id=$1",
             [a.tenantId],
+          );
+          await tx.tenant(a, (scoped) =>
+            scoped.query(
+              "UPDATE domain_orders SET status='cancelled',reservation_expires_at=NULL,version=version+1 WHERE mode='manual' AND evidence->>'alreadyOwned'='true' AND status NOT IN ('cancelled','expired')",
+            ),
           );
           await tx.query("DELETE FROM sessions WHERE tenant_id=$1", [
             a.tenantId,

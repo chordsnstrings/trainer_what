@@ -359,6 +359,7 @@ export async function buildApp(
       stripe?: () => ReturnType<typeof stripeClient>;
       /** Registrar, Stripe, DNS and HTTPS doubles for the web address flow. */
       webAddresses?: WebAddressDeps;
+      domainConnections?: Parameters<typeof registerIntegrationCompletion>[2];
       /** DNS host doubles for Check and repair platform DNS. */
       platformDns?: PlatformDnsDeps;
       /** Nonproduction fixtures only: replaces Instagram HTTP calls. */
@@ -676,7 +677,7 @@ export async function buildApp(
   registerChatAttachments(app, db);
   registerTrainingPrograms(app, db);
   registerBrainPlans(app, db);
-  registerIntegrationCompletion(app, db);
+  registerIntegrationCompletion(app, db, options.providers?.domainConnections);
   registerVoiceSessions(app, db);
   registerVoiceNarration(app, db);
   registerVoiceClones(app, db);

@@ -144,6 +144,7 @@ export async function proxy(request: NextRequest) {
         301,
       );
       redirect.headers.set("Cache-Control", FORWARD_CACHE_CONTROL);
+      redirect.headers.set("X-Trainer-Site", mapping.tenantSlug);
       return redirect;
     }
     const path = customHostPath(request.nextUrl.pathname, mapping.tenantSlug);
@@ -158,9 +159,11 @@ export async function proxy(request: NextRequest) {
     forwarded.set(PAGE_PATH_HEADER, path);
     const url = request.nextUrl.clone();
     url.pathname = path;
-    return remember(
-      NextResponse.rewrite(url, { request: { headers: forwarded } }),
-    );
+    const siteResponse = NextResponse.rewrite(url, {
+      request: { headers: forwarded },
+    });
+    siteResponse.headers.set("X-Trainer-Site", mapping.tenantSlug);
+    return remember(siteResponse);
   } catch {
     return NextResponse.json(
       {

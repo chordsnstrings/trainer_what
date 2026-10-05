@@ -502,7 +502,7 @@ test("the trainer's domain page uses the web address panel; its stylesheet is lo
     new URL("../apps/web/components/integration-center.tsx", import.meta.url),
     "utf8",
   );
-  assert.match(center, /<WebAddressCenter manual=\{<DomainCenter \/>\} \/>/);
+  assert.match(center, /<DomainCenter connection=\{connection\}/);
   assert.match(center, /<WebAddressOperations \/>/);
   const layout = readFileSync(
     new URL("../apps/web/app/layout.tsx", import.meta.url),

@@ -969,7 +969,7 @@ async function reloadAskHosts(
       try {
         const rows = await db.system((tx) =>
           tx.query<{ hostname: string; expires_at: unknown }>(
-            "SELECT m.hostname,NULL::timestamptz AS expires_at FROM domain_mappings m JOIN tenants t ON t.id=m.tenant_id WHERE m.active AND m.verified_at IS NOT NULL AND t.lifecycle_state='active' UNION ALL SELECT a.hostname,a.expires_at FROM tls_issuance_allowances a JOIN tenants t ON t.id=a.tenant_id WHERE a.expires_at>now() AND t.lifecycle_state='active' LIMIT " +
+            "SELECT m.hostname,NULL::timestamptz AS expires_at FROM domain_mappings m JOIN tenants t ON t.id=m.tenant_id WHERE m.active AND m.verified_at IS NOT NULL AND t.lifecycle_state IN ('active','suspended') UNION ALL SELECT a.hostname,a.expires_at FROM tls_issuance_allowances a JOIN tenants t ON t.id=a.tenant_id WHERE a.expires_at>now() AND t.lifecycle_state IN ('active','suspended') LIMIT " +
               ASK_HOST_LIMIT,
           ),
         );
@@ -987,7 +987,7 @@ async function reloadAskHosts(
         if (root) {
           const slugs = await db.system((tx) =>
             tx.query<{ slug: string; until: unknown }>(
-              "SELECT slug,NULL::timestamptz AS until FROM tenants WHERE published=true AND lifecycle_state='active' UNION ALL SELECT r.slug,r.redirect_until FROM tenant_slug_redirects r JOIN tenants t ON t.id=r.tenant_id WHERE r.redirect_until>now() AND t.slug<>r.slug AND t.published=true AND t.lifecycle_state='active' LIMIT " +
+              "SELECT slug,NULL::timestamptz AS until FROM tenants WHERE published=true AND lifecycle_state IN ('active','suspended') UNION ALL SELECT r.slug,r.redirect_until FROM tenant_slug_redirects r JOIN tenants t ON t.id=r.tenant_id WHERE r.redirect_until>now() AND t.slug<>r.slug AND t.published=true AND t.lifecycle_state IN ('active','suspended') LIMIT " +
                 ASK_HOST_LIMIT,
             ),
           );
