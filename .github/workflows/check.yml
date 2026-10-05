@@ -78,6 +78,15 @@ jobs:
           RTL_API_PORT: "4143"
           RTL_DATA_DIR: .data/subscriber-ui-check
           AUTHENTICATOR_REQUIRED: "false"
+      - name: Guided workout progression, recovery, music and remote controls
+        run: node scripts/run-rtl-check.mjs
+        env:
+          RTL_CHECK_MODULE: ./guided-session-check.mjs
+          RTL_WEB_MODE: start
+          RTL_WEB_PORT: "3183"
+          RTL_API_PORT: "4183"
+          RTL_DATA_DIR: .data/guided-complete
+          AUTHENTICATOR_REQUIRED: "false"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

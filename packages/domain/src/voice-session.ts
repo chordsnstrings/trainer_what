@@ -81,6 +81,7 @@ export type PlanExercise = {
   restSeconds: number;
   rir: number;
   cue: string;
+  demonstrationUrl?: string;
 };
 export type ScriptExercise = PlanExercise & {
   index: number;
@@ -270,6 +271,7 @@ export function planExercises(program: any): PlanExercise[] {
       restSeconds,
       rir,
       cue: typeof ex?.cue === "string" ? ex.cue.trim() : "",
+      ...(typeof ex?.demonstrationUrl === "string" && /^https:\/\/[^\s]+$/i.test(ex.demonstrationUrl) ? { demonstrationUrl: ex.demonstrationUrl } : {}),
     };
   });
 }
@@ -703,7 +705,7 @@ export const SHARED_PHRASES: Record<string, string> = {
   say_done: "Say done when you finish the set, or tell me how many reps you did.",
   help: "Say done, a number of reps, too heavy, pause, skip or pain.",
   stopping:
-    "Stopping the session now. Your trainer has been told. If your symptoms are severe, get urgent medical help.",
+    "Stopping the session now. Your report will be sent to your trainer. If your symptoms are severe, get urgent medical help.",
 };
 export const MAX_NUMBER_CLIP = 100;
 /** Every shared clip key and its text: numbers 1 to 100 and the phrases above. */

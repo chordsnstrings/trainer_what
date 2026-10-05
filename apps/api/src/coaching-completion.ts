@@ -446,7 +446,7 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
     return db.tenant(a, async (tx) => {
       await lockTraining(tx, a);
       const [prior] = await tx.query(
-        "SELECT id,workout_id,data=$3::jsonb AS matches FROM workout_events WHERE user_id=$1 AND event_key=$2",
+        "SELECT id,workout_id,(data=$3::jsonb OR (NOT ($3::jsonb ? 'exerciseIndex') AND data-'exerciseIndex'=$3::jsonb)) AS matches FROM workout_events WHERE user_id=$1 AND event_key=$2",
         [a.userId, b.eventKey, JSON.stringify(b)],
       );
       if (prior) {
@@ -491,18 +491,21 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
           "WORKOUT_STATE",
           "This workout is not open for logging",
         );
-      const exercise = w.data.program.exercises.find(
-        (ex: any) => ex.name === b.exercise,
-      );
-      if (!exercise || b.set > exercise.sets)
+      const matches = w.data.program.exercises
+        .map((ex: any, index: number) => ({ ex, index }))
+        .filter((v: any) => v.ex.name === b.exercise);
+      const exerciseIndex =
+        b.exerciseIndex ?? (matches.length === 1 ? matches[0].index : -1);
+      const exercise = w.data.program.exercises[exerciseIndex];
+      if (!exercise || exercise.name !== b.exercise || b.set > exercise.sets)
         throw fail(
           400,
           "SET_NOT_IN_PROGRAM",
           "This set is outside the assigned workout",
         );
       const [logged] = await tx.query(
-        "SELECT id FROM workout_events WHERE workout_id=$1 AND user_id=$2 AND data->>'exercise'=$3 AND (data->>'set')::int=$4",
-        [w.id, a.userId, b.exercise, b.set],
+        "SELECT id FROM workout_events WHERE workout_id=$1 AND user_id=$2 AND data->>'exercise'=$3 AND (data->>'set')::int=$4 AND (data->>'exerciseIndex' IS NULL OR (data->>'exerciseIndex')::int=$5)",
+        [w.id, a.userId, b.exercise, b.set, exerciseIndex],
       );
       if (logged)
         throw fail(
@@ -518,7 +521,7 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
           a.userId,
           w.id,
           b.eventKey,
-          JSON.stringify(b),
+          JSON.stringify({ ...b, exerciseIndex }),
         ],
       );
       await event(tx, a, "workout.set_logged", r.id, { workoutId: w.id });

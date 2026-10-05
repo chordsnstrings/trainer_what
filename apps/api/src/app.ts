@@ -73,11 +73,15 @@ import { registerEarlyAccess } from "./early-access.ts";
 import { freeStartingSlug, registerCoachSignup } from "./coach-signup.ts";
 import { registerCoachSetup } from "./coach-setup.ts";
 import { registerMarketing, type InstagramTransport } from "./marketing.ts";
-import { assistantAvailable, registerMarketingAssistant } from "./marketing-assistant.ts";
+import {
+  assistantAvailable,
+  registerMarketingAssistant,
+} from "./marketing-assistant.ts";
 import {
   registerIntegrationCompletion,
   disableUserIntegrations,
 } from "./integrations-completion.ts";
+import { registerWorkoutMusic } from "./workout-music.ts";
 import { registerVoiceSessions } from "./voice-session.ts";
 import { registerVoiceNarration } from "./voice-narration.ts";
 import { registerVoiceClones } from "./voice-clones.ts";
@@ -97,7 +101,11 @@ import {
   workspaceLock,
 } from "./privacy-lifecycle.ts";
 import { privacyHooks } from "./privacy-hooks.ts";
-import { CONSENT_WITHDRAWAL_VERSION, legalAcceptanceVersion, registerLegalStatus } from "./legal.ts";
+import {
+  CONSENT_WITHDRAWAL_VERSION,
+  legalAcceptanceVersion,
+  registerLegalStatus,
+} from "./legal.ts";
 import { registerAdminOperations } from "./admin-operations.ts";
 import { screenForSafety } from "./safety-policy.ts";
 import { registerMessaging } from "./messaging-admin.ts";
@@ -181,7 +189,10 @@ import { registerGovernance } from "./governance.ts";
 import { registerBusinessMetrics } from "./business-metrics.ts";
 import { registerPlatformFinance } from "./platform-finance.ts";
 import { registerPlatformPnl } from "./platform-pnl.ts";
-import { captureFeesAfterWebhook, type StripeFeeClient } from "./stripe-fees.ts";
+import {
+  captureFeesAfterWebhook,
+  type StripeFeeClient,
+} from "./stripe-fees.ts";
 import { VOICE_TASK_SQL } from "./cost-accounting.ts";
 import { ledgerItem } from "./finance-statements.ts";
 import { registerPlatformAlerts } from "./platform-alerts.ts";
@@ -593,7 +604,11 @@ export async function buildApp(
       const locked = accountLockedError();
       return reply
         .code(423)
-        .send({ code: locked.code, message: locked.message, requestId: req.id });
+        .send({
+          code: locked.code,
+          message: locked.message,
+          requestId: req.id,
+        });
     }
     const e = error as any;
     const status = e.code === "23505" ? 409 : (e.statusCode ?? 500);
@@ -679,6 +694,7 @@ export async function buildApp(
   registerBrainPlans(app, db);
   registerIntegrationCompletion(app, db, options.providers?.domainConnections);
   registerVoiceSessions(app, db);
+  registerWorkoutMusic(app, db, identity);
   registerVoiceNarration(app, db);
   registerVoiceClones(app, db);
   registerWebAddresses(app, db, options.providers?.webAddresses);
@@ -2348,10 +2364,25 @@ export async function buildApp(
                     );
                     const costSummary: Record<
                       "ai" | "voice",
-                      { requests: number; costUsd: number; estimatedUsd: number; unpriced: number }
+                      {
+                        requests: number;
+                        costUsd: number;
+                        estimatedUsd: number;
+                        unpriced: number;
+                      }
                     > = {
-                      ai: { requests: 0, costUsd: 0, estimatedUsd: 0, unpriced: 0 },
-                      voice: { requests: 0, costUsd: 0, estimatedUsd: 0, unpriced: 0 },
+                      ai: {
+                        requests: 0,
+                        costUsd: 0,
+                        estimatedUsd: 0,
+                        unpriced: 0,
+                      },
+                      voice: {
+                        requests: 0,
+                        costUsd: 0,
+                        estimatedUsd: 0,
+                        unpriced: 0,
+                      },
                     };
                     for (const r of rows) {
                       const c = costSummary[r.voice ? "voice" : "ai"];

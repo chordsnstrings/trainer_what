@@ -78,7 +78,10 @@ const VOICE_PROVIDER_ADDRESSES = [
 ];
 const VOICE_PROVIDER_OPTIONS = [
   { value: "elevenlabs", label: "ElevenLabs (link an existing voice ID)" },
-  { value: "cartesia", label: "Cartesia (Quick and Pro clones made in the app)" },
+  {
+    value: "cartesia",
+    label: "Cartesia (Quick and Pro clones made in the app)",
+  },
 ];
 
 /** Account approval never follows from saving a key or a successful probe. */
@@ -135,6 +138,11 @@ export function integrationCapability(
         config.ZEPP_ADAPTER_CONTRACT === "canonical-observations-v1",
     };
   }
+  if (id === "workout_music")
+    return {
+      configured: has("MUSIC_API_KEY"),
+      approved: has("MUSIC_API_KEY") && config.MUSIC_ENABLED === "true",
+    };
   if (id === "voice") {
     // The API address may be blank: each provider has a standard one.
     const configured = has(
@@ -330,19 +338,52 @@ const FOLLOWER_STORY_DEFAULTS: Record<string, string[]> = {
   STRONG: ["20.5", "20.5", "8", "6.5", "5"],
 };
 const FOLLOWER_STORY_HELP: Record<string, string> = {
-  CAUTIOUS: "Share of followers who see at least one Story a month. Default: Socialinsider Stories reach, image (brand accounts).",
-  TYPICAL: "Default: Socialinsider Stories reach, video, at least 5% (IQFluence: Story views above 5-8% of followers are healthy).",
-  STRONG: "Default: 20.5% up to 10,000 followers (our assumption: the reach Socialinsider measured for a six-frame Story sequence, used as a monthly audience; the measured 5-10K tier reach is 3.5-4.2%), then 8%, 6.5% and 5% (IQFluence 5-8% band).",
+  CAUTIOUS:
+    "Share of followers who see at least one Story a month. Default: Socialinsider Stories reach, image (brand accounts).",
+  TYPICAL:
+    "Default: Socialinsider Stories reach, video, at least 5% (IQFluence: Story views above 5-8% of followers are healthy).",
+  STRONG:
+    "Default: 20.5% up to 10,000 followers (our assumption: the reach Socialinsider measured for a six-frame Story sequence, used as a monthly audience; the measured 5-10K tier reach is 3.5-4.2%), then 8%, 6.5% and 5% (IQFluence 5-8% band).",
 };
 const FOLLOWER_RATE_FIELDS: Array<
   [key: string, label: string, defaults: [string, string, string], help: string]
 > = [
-  ["CLICK", "Link-sticker click per viewer per link Story", ["1", "3", "5"], "Creator reports 1-5% (no industry benchmark exists); IQFluence median 4.1%, strong creators 6-7%."],
-  ["DM_OPEN", "Keyword commenters who open the DM link", ["18", "30", "45"], "Vendor claims (CommuniPass, ChatAutoDM); no dataset."],
-  ["BROADCAST_CLICK", "Broadcast members who open one link message", ["1.27", "1.45", "2.09"], "MailerLite email click medians (sports, health and fitness, all industries), used as a proxy."],
-  ["BIO_CLICK", "Profile visitors who open the bio link in a month", ["1", "2", "3"], "Rule of thumb (Hopp by Wix: 1-3%)."],
-  ["PAID", "Visit to paid subscriber", ["0.72", "2.9", "6.2"], "Dynamic Yield luxury retail; RevenueCat Health & Fitness download-to-paid within 35 days, median and upper quartile (an app install shows more intent than a Story tap, so these may overstate). No published benchmark exists for coaching subscriptions."],
-  ["RENEWAL", "Share of each audience new to your link each month", ["0", "1.5", "8"], "0 to 50. Cautious keeps the same people all year; typical is about the follower growth Socialinsider measured (11-22% a year by tier); strong is our assumption for a growing audience. Keep strong at or above the monthly cancellations (2.9% at 30% a year) so more sharing never lowers month-12 subscribers."],
+  [
+    "CLICK",
+    "Link-sticker click per viewer per link Story",
+    ["1", "3", "5"],
+    "Creator reports 1-5% (no industry benchmark exists); IQFluence median 4.1%, strong creators 6-7%.",
+  ],
+  [
+    "DM_OPEN",
+    "Keyword commenters who open the DM link",
+    ["18", "30", "45"],
+    "Vendor claims (CommuniPass, ChatAutoDM); no dataset.",
+  ],
+  [
+    "BROADCAST_CLICK",
+    "Broadcast members who open one link message",
+    ["1.27", "1.45", "2.09"],
+    "MailerLite email click medians (sports, health and fitness, all industries), used as a proxy.",
+  ],
+  [
+    "BIO_CLICK",
+    "Profile visitors who open the bio link in a month",
+    ["1", "2", "3"],
+    "Rule of thumb (Hopp by Wix: 1-3%).",
+  ],
+  [
+    "PAID",
+    "Visit to paid subscriber",
+    ["0.72", "2.9", "6.2"],
+    "Dynamic Yield luxury retail; RevenueCat Health & Fitness download-to-paid within 35 days, median and upper quartile (an app install shows more intent than a Story tap, so these may overstate). No published benchmark exists for coaching subscriptions.",
+  ],
+  [
+    "RENEWAL",
+    "Share of each audience new to your link each month",
+    ["0", "1.5", "8"],
+    "0 to 50. Cautious keeps the same people all year; typical is about the follower growth Socialinsider measured (11-22% a year by tier); strong is our assumption for a growing audience. Keep strong at or above the monthly cancellations (2.9% at 30% a year) so more sharing never lowers month-12 subscribers.",
+  ],
 ];
 function followerAssumptionFields(): IntegrationField[] {
   const fields: IntegrationField[] = [];
@@ -363,10 +404,15 @@ function followerAssumptionFields(): IntegrationField[] {
   for (const [key, label, defaults, help] of FOLLOWER_RATE_FIELDS)
     FOLLOWER_SCENARIO_FIELDS.forEach(([scenario, name], i) =>
       fields.push(
-        field(`FOLLOWER_${key}_${scenario}`, `${label}, ${name} (%)`, "number", {
-          defaultValue: defaults[i],
-          ...(i === 0 ? { help } : {}),
-        }),
+        field(
+          `FOLLOWER_${key}_${scenario}`,
+          `${label}, ${name} (%)`,
+          "number",
+          {
+            defaultValue: defaults[i],
+            ...(i === 0 ? { help } : {}),
+          },
+        ),
       ),
     );
   return fields;
@@ -493,18 +539,33 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
         // Earlier published versions read as the current default.
         supersededValues: ["2026-09-28", "2026-09-28.2", "2026-09-28.3"],
       }),
-      field("FOLLOWER_MODEL_CHANGE_NOTE", "Reason and source for changed values", "text", {
-        help: "Required whenever a value differs from its cited default. Shown on /methodology next to the adjusted values and in the change log.",
-      }),
+      field(
+        "FOLLOWER_MODEL_CHANGE_NOTE",
+        "Reason and source for changed values",
+        "text",
+        {
+          help: "Required whenever a value differs from its cited default. Shown on /methodology next to the adjusted values and in the change log.",
+        },
+      ),
       ...followerAssumptionFields(),
-      field("FOLLOWER_ENGAGEMENT_BENCHMARK", "Average engagement rate (%)", "number", {
-        defaultValue: "0.48",
-        help: "A trainer's own engagement rate is compared with this to scale Story reach and Reel comments. Default: Socialinsider 2025.",
-      }),
-      field("FOLLOWER_ENGAGEMENT_FACTOR_MAX", "Largest engagement scaling (times)", "number", {
-        defaultValue: "2",
-        help: "Reach is scaled by at most this factor up, and its inverse down. 1 to 10.",
-      }),
+      field(
+        "FOLLOWER_ENGAGEMENT_BENCHMARK",
+        "Average engagement rate (%)",
+        "number",
+        {
+          defaultValue: "0.48",
+          help: "A trainer's own engagement rate is compared with this to scale Story reach and Reel comments. Default: Socialinsider 2025.",
+        },
+      ),
+      field(
+        "FOLLOWER_ENGAGEMENT_FACTOR_MAX",
+        "Largest engagement scaling (times)",
+        "number",
+        {
+          defaultValue: "2",
+          help: "Reach is scaled by at most this factor up, and its inverse down. 1 to 10.",
+        },
+      ),
       field("COMPANY_DETAILS", "Public company details", "text", {
         help: "Registered name, licence and address shown on /about. Leave blank until confirmed; nothing is shown then.",
       }),
@@ -521,16 +582,31 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
     setupNotes:
       "Shown only on the home page, and only while it is switched on here, the AI model, trainer voice (Cartesia) and speech-to-text are connected, and today's spend is under the cap. Spend counts model tokens at the active profile's price, speech-to-text seconds and text-to-speech characters, in AED; at the cap the button is hidden until midnight UAE time. No audio or words are stored. Pick the voice in Super admin, Home page assistant.",
     fields: [
-      field("MARKETING_ASSISTANT_ENABLED", "Show the voice assistant on the home page", "boolean", {
-        defaultValue: "false",
-      }),
-      field("MARKETING_ASSISTANT_DAILY_AED", "Daily spend cap (AED)", "number", {
-        defaultValue: "10",
-        help: "Model, speech-to-text and voice costs together, per UAE day. 0.5 to 1000.",
-      }),
-      field("MARKETING_ASSISTANT_VOICE_ID", "Marketing assistant voice", "text", {
-        help: "A voice ID from the Cartesia account (choose it on Home page assistant). Blank uses the account's voice named Kamran.",
-      }),
+      field(
+        "MARKETING_ASSISTANT_ENABLED",
+        "Show the voice assistant on the home page",
+        "boolean",
+        {
+          defaultValue: "false",
+        },
+      ),
+      field(
+        "MARKETING_ASSISTANT_DAILY_AED",
+        "Daily spend cap (AED)",
+        "number",
+        {
+          defaultValue: "10",
+          help: "Model, speech-to-text and voice costs together, per UAE day. 0.5 to 1000.",
+        },
+      ),
+      field(
+        "MARKETING_ASSISTANT_VOICE_ID",
+        "Marketing assistant voice",
+        "text",
+        {
+          help: "A voice ID from the Cartesia account (choose it on Home page assistant). Blank uses the account's voice named Kamran.",
+        },
+      ),
     ],
   },
   {
@@ -638,7 +714,7 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
         "number",
         {
           defaultValue: "100",
-          help: "Owner decision (28 September 2026): 100, so trainers pay twice the provider cost. Trainers see the charge only as one line, \"AI Coach Service Fee\", with the amount (markup included). 0 to 1000. Applies to usage statements posted after the change; statements already posted keep their charge.",
+          help: 'Owner decision (28 September 2026): 100, so trainers pay twice the provider cost. Trainers see the charge only as one line, "AI Coach Service Fee", with the amount (markup included). 0 to 1000. Applies to usage statements posted after the change; statements already posted keep their charge.',
         },
       ),
       field(
@@ -648,8 +724,14 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
         {
           defaultValue: "trainer",
           options: [
-            { value: "trainer", label: "The trainer (in the monthly usage charge)" },
-            { value: "platform", label: "The platform (left out of the usage charge)" },
+            {
+              value: "trainer",
+              label: "The trainer (in the monthly usage charge)",
+            },
+            {
+              value: "platform",
+              label: "The platform (left out of the usage charge)",
+            },
           ],
           help: "Owner decision (28 September 2026): the trainer. Applies to usage statements posted after the change.",
         },
@@ -743,7 +825,8 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
         options: [
           {
             value: "auto",
-            label: "Automatic (from the model ID; one retry if a parameter is refused)",
+            label:
+              "Automatic (from the model ID; one retry if a parameter is refused)",
           },
           { value: "classic", label: "Classic (max_tokens and temperature)" },
           {
@@ -1027,6 +1110,46 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
     ],
   },
   {
+    id: "workout_music",
+    name: "Workout music",
+    category: "intelligence",
+    implemented: true,
+    description: "Reusable instrumental workout playlists.",
+    setupNotes:
+      "Save the SunoAPI key here. The connection test only reads credits. Generate bounded batches from Music library, review tracks and approve them for members. Unknown submissions require reconciliation, never an automatic retry. Tracks are copied into durable platform storage; provider links expire. No automatic top-ups. Each playlist needs 30 approved, distinct songs.",
+    fields: [
+      field("MUSIC_API_KEY", "SunoAPI key", "secret", { required: true }),
+      field("MUSIC_ENABLED", "Enable approved generation jobs", "boolean", {
+        defaultValue: "false",
+      }),
+      field("MUSIC_MODEL", "Music model", "select", {
+        defaultValue: "V6",
+        options: ["V6", "V6_MINI", "V6_WILD"].map((value) => ({
+          value,
+          label: value,
+        })),
+      }),
+      field(
+        "MUSIC_CREDITS_PER_JOB",
+        "Maximum credits per generation request",
+        "number",
+        {
+          defaultValue: "0",
+          help: "Set the provider's current quoted credit cost before generation. Zero prevents generation. A request may return several songs.",
+        },
+      ),
+      field(
+        "MUSIC_DAILY_CREDIT_LIMIT",
+        "Daily generation credit budget",
+        "number",
+        {
+          defaultValue: "0",
+          help: "Zero prevents generation. Unknown submissions retain their reservation.",
+        },
+      ),
+    ],
+  },
+  {
     id: "voice",
     name: "Trainer voice",
     category: "intelligence",
@@ -1087,10 +1210,15 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
           help: "Needs a Cartesia plan with Pro clone slots (Startup: 2, Scale: 4 on 28 September 2026). Training is free at Cartesia; speech from a Pro clone costs the same per character.",
         },
       ),
-      field("VOICE_PRO_CLONE_SLOTS", "Pro clone slots on the account", "number", {
-        defaultValue: "2",
-        help: "Whole number. A trainer cannot start a Pro clone while this many Pro clones exist across the platform.",
-      }),
+      field(
+        "VOICE_PRO_CLONE_SLOTS",
+        "Pro clone slots on the account",
+        "number",
+        {
+          defaultValue: "2",
+          help: "Whole number. A trainer cannot start a Pro clone while this many Pro clones exist across the platform.",
+        },
+      ),
       field(
         "VOICE_PRO_CLONE_PRICE_AED",
         "Pro clone price shown to trainers (AED)",
@@ -1336,10 +1464,15 @@ INTEGRATION_CATALOG.push({
       defaultValue: "4.99",
       help: "Added after rounding: with a step of 5.00 and 4.99, a cost of 11.00 to 14.59 is 19.99 (from 14.60 the minimum margin below moves it to 24.99).",
     }),
-    field("WEB_ADDRESS_PRICE_CAP_USD", "Highest price offered (USD)", "number", {
-      defaultValue: "100.00",
-      help: "Names whose first-year or yearly renewal price is over this amount are never shown.",
-    }),
+    field(
+      "WEB_ADDRESS_PRICE_CAP_USD",
+      "Highest price offered (USD)",
+      "number",
+      {
+        defaultValue: "100.00",
+        help: "Names whose first-year or yearly renewal price is over this amount are never shown.",
+      },
+    ),
     field(
       "WEB_ADDRESS_MIN_MARGIN_USD",
       "Minimum margin per year after Stripe's fees (USD)",
@@ -1349,15 +1482,10 @@ INTEGRATION_CATALOG.push({
         help: "What each first-year and renewal price must leave after the registrar's cost and Stripe's estimated fees below. When the rounded price leaves less, it moves up one price step at a time (19.99 to 24.99) until it does. Owner decision: at least USD 4.",
       },
     ),
-    field(
-      "WEB_ADDRESS_STRIPE_PERCENT",
-      "Stripe card fee (%)",
-      "number",
-      {
-        defaultValue: "2.9",
-        help: "Stripe's percentage per card charge (UAE standard pricing: 2.9% + AED 1.00). 0 to 15, at most two decimals. Used only to keep the minimum margin; Stripe charges its own fee.",
-      },
-    ),
+    field("WEB_ADDRESS_STRIPE_PERCENT", "Stripe card fee (%)", "number", {
+      defaultValue: "2.9",
+      help: "Stripe's percentage per card charge (UAE standard pricing: 2.9% + AED 1.00). 0 to 15, at most two decimals. Used only to keep the minimum margin; Stripe charges its own fee.",
+    }),
     field(
       "WEB_ADDRESS_STRIPE_INTERNATIONAL_PERCENT",
       "Stripe extra for international cards (%)",
@@ -1421,14 +1549,9 @@ INTEGRATION_CATALOG.push({
         help: "Optional, comma-separated, at most 20 (for example io,co). Never suggested; a trainer who types one of them can buy it within the price cap. Any ending not listed here or above is answered as not offered without asking the registrar.",
       },
     ),
-    field(
-      "WEB_ADDRESS_PROTECTED_LABELS",
-      "Protected brand names",
-      "text",
-      {
-        help: "Comma-separated names never sold on any ending, for example trainsyou,gymmembership. trainsyou and the platform domain's own name are always protected; a name of five or more letters is also refused inside a longer name (trainsyou-login).",
-      },
-    ),
+    field("WEB_ADDRESS_PROTECTED_LABELS", "Protected brand names", "text", {
+      help: "Comma-separated names never sold on any ending, for example trainsyou,gymmembership. trainsyou and the platform domain's own name are always protected; a name of five or more letters is also refused inside a longer name (trainsyou-login).",
+    }),
     field(
       "WEB_ADDRESS_TARGET_IPV4",
       "Server IPv4 address for domain DNS",
@@ -1502,15 +1625,10 @@ INTEGRATION_CATALOG.push({
       defaultValue: "GymMembership",
       help: "Only invoice items and resources of this DigitalOcean project count as platform costs.",
     }),
-    field(
-      "DO_BILLING_IMPORT_ENABLED",
-      "Import daily",
-      "boolean",
-      {
-        defaultValue: "true",
-        help: "The worker imports once a day; Platform finance → Platform costs → Import now runs it at once.",
-      },
-    ),
+    field("DO_BILLING_IMPORT_ENABLED", "Import daily", "boolean", {
+      defaultValue: "true",
+      help: "The worker imports once a day; Platform finance → Platform costs → Import now runs it at once.",
+    }),
   ],
 });
 
@@ -1791,7 +1909,9 @@ export function validateIntegrationValues(
         key === "MARKETING_ASSISTANT_VOICE_ID" &&
         !/^[A-Za-z0-9_-]{1,100}$/.test(text)
       )
-        throw new ConfigurationError(`${entry.label} must be a voice ID from the voice list`);
+        throw new ConfigurationError(
+          `${entry.label} must be a voice ID from the voice list`,
+        );
       if (
         key === "FINANCE_USAGE_MARKUP_PERCENT" &&
         !(Number(text) >= 0 && Number(text) <= 1000)
@@ -1805,18 +1925,27 @@ export function validateIntegrationValues(
         throw new ConfigurationError(
           `${entry.label} must be from 0 to 20 with at most three decimals`,
         );
-      if (key === "DO_BILLING_PROJECT" && !(text.length >= 1 && text.length <= 175))
-        throw new ConfigurationError(`${entry.label} must be a DigitalOcean project name (1 to 175 characters)`);
+      if (
+        key === "DO_BILLING_PROJECT" &&
+        !(text.length >= 1 && text.length <= 175)
+      )
+        throw new ConfigurationError(
+          `${entry.label} must be a DigitalOcean project name (1 to 175 characters)`,
+        );
       if (
         key === "FINANCE_REGISTRAR_LOW_BALANCE_USD" &&
         !(/^\d{1,6}(\.\d{1,2})?$/.test(text) && Number(text) <= 100000)
       )
-        throw new ConfigurationError(`${entry.label} must be from 0 to 100000 US dollars`);
+        throw new ConfigurationError(
+          `${entry.label} must be from 0 to 100000 US dollars`,
+        );
       if (
         key === "FINANCE_UNPRICED_ALERT_DAYS" &&
         !(/^\d{1,2}$/.test(text) && Number(text) >= 1 && Number(text) <= 90)
       )
-        throw new ConfigurationError(`${entry.label} must be a whole number of days from 1 to 90`);
+        throw new ConfigurationError(
+          `${entry.label} must be a whole number of days from 1 to 90`,
+        );
       if (
         key === "FINANCE_EMAIL_USD_PER_MESSAGE" &&
         !(/^\d(\.\d{1,6})?$/.test(text) && Number(text) <= 1)
@@ -1870,7 +1999,9 @@ export function validateIntegrationValues(
           key === "REGISTRAR_101DOMAIN_KEY_EXPIRES") &&
         !calendarDate(text)
       )
-        throw new ConfigurationError(`${entry.label} must be a date such as 2027-09-28`);
+        throw new ConfigurationError(
+          `${entry.label} must be a date such as 2027-09-28`,
+        );
       if (
         key === "DNS_PLATFORM_ZONE" &&
         !/^(?=.{4,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\.[a-z]{2,63}$/i.test(
@@ -1886,9 +2017,13 @@ export function validateIntegrationValues(
         ) &&
         Number(text) > 100
       )
-        throw new ConfigurationError(`${entry.label} must be a percentage from 0 to 100`);
+        throw new ConfigurationError(
+          `${entry.label} must be a percentage from 0 to 100`,
+        );
       if (/^FOLLOWER_RENEWAL_/.test(key) && Number(text) > 50)
-        throw new ConfigurationError(`${entry.label} must be a percentage from 0 to 50`);
+        throw new ConfigurationError(
+          `${entry.label} must be a percentage from 0 to 50`,
+        );
       if (
         key === "FOLLOWER_ENGAGEMENT_FACTOR_MAX" &&
         (Number(text) < 1 || Number(text) > 10)
@@ -1981,7 +2116,14 @@ export async function providerRequest(
   value: string,
   init: RequestInit = {},
   beforeSend?: () => Promise<void>,
+  maxResponseBytes = 2 * 1024 * 1024,
 ): Promise<Response> {
+  if (
+    !Number.isSafeInteger(maxResponseBytes) ||
+    maxResponseBytes < 1024 ||
+    maxResponseBytes > 20 * 1024 * 1024
+  )
+    throw new ConfigurationError("Invalid provider response limit");
   const parsed = endpointUrl(value);
   if (fixtureTransport(parsed)) {
     await beforeSend?.();
@@ -2023,7 +2165,7 @@ export async function providerRequest(
         let bytes = 0;
         response.on("data", (chunk: Buffer) => {
           bytes += chunk.length;
-          if (bytes > 2 * 1024 * 1024) {
+          if (bytes > maxResponseBytes) {
             response.destroy();
             reject(
               new ConfigurationError(
@@ -2053,10 +2195,7 @@ export async function providerRequest(
       reject(new ConfigurationError("Provider could not be reached")),
     );
     if (init.body !== undefined && init.body !== null) {
-      if (
-        typeof init.body !== "string" &&
-        !(init.body instanceof Uint8Array)
-      ) {
+      if (typeof init.body !== "string" && !(init.body instanceof Uint8Array)) {
         req.destroy();
         reject(new ConfigurationError("Unsupported provider request body"));
         return;
@@ -2166,7 +2305,10 @@ export async function testIntegration(
       (entry) =>
         entry.required &&
         !fields[entry.key] &&
-        !(readOnlyBeforeApproval && entry.key.startsWith("WEB_ADDRESS_REGISTRANT_")),
+        !(
+          readOnlyBeforeApproval &&
+          entry.key.startsWith("WEB_ADDRESS_REGISTRANT_")
+        ),
     );
     const registrantMissing = readOnlyBeforeApproval
       ? definition.fields.some(
@@ -2185,6 +2327,16 @@ export async function testIntegration(
         message: `Required settings are missing: ${missing.map((entry) => entry.label).join(", ")}.`,
         checkedAt,
       };
+    if (id === "workout_music") {
+      const { musicCredits } = await import("./suno-music.ts");
+      const credits = await musicCredits(fields);
+      return {
+        status: "verified",
+        message: `Connected. ${credits} credits available. No music generated.`,
+        checkedAt,
+        details: { credits },
+      };
+    }
     if (id === "web_addresses") {
       // Read-only: the account balance. Works before purchases are enabled so
       // the API access and the IP whitelist can be proven first.
@@ -2210,9 +2362,8 @@ export async function testIntegration(
         ? ` Purchases are refused: Stripe uses ${stripeMode} keys and the registrar uses its ${stripeMode === "live" ? "test" : "live"} environment. ${modeProblem}`
         : "";
       if (registrar === "101domain") {
-        const { OneOhOneRegistrar, registrarPurchaseProblem } = await import(
-          "./registrar.ts"
-        );
+        const { OneOhOneRegistrar, registrarPurchaseProblem } =
+          await import("./registrar.ts");
         if (!fields.REGISTRAR_101DOMAIN_API_KEY?.trim())
           return {
             status: "failed",
@@ -2312,8 +2463,12 @@ export async function testIntegration(
         // Read-only: lists the team's projects and finds the configured one.
         const client = new DigitalOceanBilling(fields.DO_BILLING_TOKEN);
         const projects = await client.projects();
-        const name = (fields.DO_BILLING_PROJECT || "GymMembership").trim().toLowerCase();
-        const found = projects.some((p) => p.name.trim().toLowerCase() === name);
+        const name = (fields.DO_BILLING_PROJECT || "GymMembership")
+          .trim()
+          .toLowerCase();
+        const found = projects.some(
+          (p) => p.name.trim().toLowerCase() === name,
+        );
         return {
           status: found ? "verified" : "failed",
           message: found
@@ -2325,7 +2480,11 @@ export async function testIntegration(
       } catch (error) {
         return {
           status: "failed",
-          message: `DigitalOcean billing could not be read: ${(error as Error).message}`.slice(0, 300),
+          message:
+            `DigitalOcean billing could not be read: ${(error as Error).message}`.slice(
+              0,
+              300,
+            ),
           checkedAt,
         };
       }

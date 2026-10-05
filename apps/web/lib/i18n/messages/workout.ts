@@ -11,8 +11,10 @@ export default defineMessages(
     sessionEnded:
       "Your session ended. Sign in again; set logs saved on this device sync after you sign in.",
     savedOnDevice: "Saved on this device. {reason}",
-    rejectedOne: "A set log could not be saved. Review it below; later sets kept syncing.",
-    savedForDevice: "Workout saved for this device. Set logs can sync after a connection loss.",
+    rejectedOne:
+      "A set log could not be saved. Review it below; later sets kept syncing.",
+    savedForDevice:
+      "Workout saved for this device. Set logs can sync after a connection loss.",
     allSynced: "All sets synced.",
     keepOpen:
       "Keep this workout open. Offline reload is not ready; reconnect to save it for this device.",
@@ -25,7 +27,7 @@ export default defineMessages(
     guided: "Guided session",
     voiceLed: "Voice-led session",
     modesHelp:
-      "Guided shows each exercise with cues and rest timers. Voice-led talks you through every set, hands-free.",
+      "One guided session for every exercise, set and rest. Choose text or your coach’s approved voice, music and supported remote controls.",
     syncNow: "Sync now",
     needAttention: {
       one: "# set log needs your attention.",
@@ -37,16 +39,19 @@ export default defineMessages(
         "The workspace did not accept these entries. Try again, or discard one to log that set again with corrected values.",
     },
     rejectedLine: "{exercise} · set {set} · {reps} reps · {load} kg — {reason}",
-    rejectedWorkLine: "{exercise} · round {set} · {work} · {load} kg — {reason}",
+    rejectedWorkLine:
+      "{exercise} · round {set} · {work} · {load} kg — {reason}",
     tryAgain: "Try again",
-    discardConfirm: "Discard this set log from this device? It has not been saved.",
+    discardConfirm:
+      "Discard this set log from this device? It has not been saved.",
     discard: "Discard",
     prescription: "{setsReps} reps · {rest} s rest",
     rirHelp:
       "<b>Reps left (RIR)</b> means reps in reserve: how many more good reps you could still have done. Aim for {rir}.",
     checkSet:
       "Check this set before logging it: the weight, reps and reps left must be numbers in range.",
-    setQueued: "Set {set} of {exercise}: saved on this phone — will sync when you are back online.",
+    setQueued:
+      "Set {set} of {exercise}: saved on this phone — will sync when you are back online.",
     setLogged: "Set {set} of {exercise} logged.",
     setN: "Set {n}",
     roundN: "Round {n}",
@@ -75,7 +80,8 @@ export default defineMessages(
     note: "Note",
     noteLabel: "{exercise} set {set} note",
     finishNow: "Finish workout now",
-    finishWaits: "Finishing waits until every set log on this device has synced.",
+    finishWaits:
+      "Finishing waits until every set log on this device has synced.",
     notLoggedYet: {
       one: "# set is not logged yet. Finish now if you are done for today.",
       other: "# sets are not logged yet. Finish now if you are done for today.",
@@ -95,7 +101,8 @@ export default defineMessages(
     stopNotify: "Stop workout and notify coach",
     paused: "Workout paused. Your coach has been told.",
     whatHappened: "What happened? (optional)",
-    painExample: "For example: sharp pain in my left knee during the second set",
+    painExample:
+      "For example: sharp pain in my left knee during the second set",
     gPausedNotified: "Workout paused and your coach notified",
     gTitle: "Guided workout",
     gLoading: "Loading your guided session…",
@@ -115,9 +122,11 @@ export default defineMessages(
     gVoiceReady: "Your coach's voice is ready",
     gPrepareVoice: "Play in my coach's voice",
     gTickVoice: "Tick the box above to hear your coach’s voice.",
-    gWritten: "This session uses written guidance. Your coach’s recorded voice is not available for it.",
+    gWritten:
+      "This session uses written guidance. Your coach’s recorded voice is not available for it.",
     gStopTitle: "Stop or report a problem",
-    gStopText: "Stop straight away if you feel pain or dizziness. Your coach is told when you report it.",
+    gStopText:
+      "Stop straight away if you feel pain or dizziness. Your coach is told when you report it.",
     gPauseGuide: "Pause this guide",
     gOpenLog: "Open workout logging",
     gActions: "Guided session actions",
@@ -141,8 +150,10 @@ export default defineMessages(
     sessionEnded:
       "انتهت جلستك. يُرجى تسجيل الدخول مرة أخرى؛ ستُزامَن المجموعات المحفوظة على هذا الجهاز بعد تسجيل الدخول.",
     savedOnDevice: "محفوظ على هذا الجهاز. {reason}",
-    rejectedOne: "تعذّر حفظ إحدى المجموعات. يُرجى مراجعتها أدناه؛ واستمرت مزامنة المجموعات التالية.",
-    savedForDevice: "حُفظ التمرين على هذا الجهاز، ويمكن مزامنة المجموعات بعد انقطاع الاتصال.",
+    rejectedOne:
+      "تعذّر حفظ إحدى المجموعات. يُرجى مراجعتها أدناه؛ واستمرت مزامنة المجموعات التالية.",
+    savedForDevice:
+      "حُفظ التمرين على هذا الجهاز، ويمكن مزامنة المجموعات بعد انقطاع الاتصال.",
     allSynced: "تمت مزامنة كل المجموعات.",
     keepOpen:
       "يُرجى إبقاء هذا التمرين مفتوحًا. إعادة التحميل دون اتصال غير جاهزة بعد؛ إعادة الاتصال تحفظه على هذا الجهاز.",
@@ -151,11 +162,12 @@ export default defineMessages(
     completed: "اكتمل التمرين",
     rest: "راحة {time}",
     eyebrow: "مجموعة تلو الأخرى",
-    detail: "تسجيل ما تؤديه فعلًا، مع إمكانية تغيير الوزن والتكرارات لأي مجموعة.",
+    detail:
+      "تسجيل ما تؤديه فعلًا، مع إمكانية تغيير الوزن والتكرارات لأي مجموعة.",
     guided: "جلسة موجّهة",
     voiceLed: "جلسة بتوجيه صوتي",
     modesHelp:
-      "الجلسة الموجّهة تعرض كل تمرين مع الإرشادات ومؤقت الراحة. والجلسة الصوتية ترشدك في كل مجموعة دون استخدام اليدين.",
+      "جلسة واحدة ترشدك في كل مجموعة، بالنص أو بصوت المدرب، مع فترات راحة وموسيقى اختيارية.",
     syncNow: "المزامنة الآن",
     needAttention: {
       zero: "لا توجد مجموعات تحتاج إلى انتباهك.",
@@ -174,8 +186,10 @@ export default defineMessages(
       other:
         "لم تقبل المساحة هذه الإدخالات. يُرجى إعادة المحاولة أو تجاهل أحدها لتسجيل المجموعة من جديد بقيم مصحّحة.",
     },
-    rejectedLine: "{exercise} · المجموعة {set} · {reps} تكرار · {load} كغ — {reason}",
-    rejectedWorkLine: "{exercise} · الجولة {set} · {work} · {load} كغ — {reason}",
+    rejectedLine:
+      "{exercise} · المجموعة {set} · {reps} تكرار · {load} كغ — {reason}",
+    rejectedWorkLine:
+      "{exercise} · الجولة {set} · {work} · {load} كغ — {reason}",
     tryAgain: "إعادة المحاولة",
     discardConfirm: "تجاهل هذه المجموعة وحذفها من هذا الجهاز؟ لم تُحفظ بعد.",
     discard: "تجاهل",
@@ -184,7 +198,8 @@ export default defineMessages(
       "<b>التكرارات المتبقية (RIR)</b> تعني التكرارات الاحتياطية: كم تكرارًا جيدًا إضافيًا كان بإمكانك أداؤه. الهدف {rir}.",
     checkSet:
       "يُرجى مراجعة هذه المجموعة قبل تسجيلها: يجب أن يكون الوزن والتكرارات والتكرارات المتبقية أرقامًا ضمن النطاق.",
-    setQueued: "المجموعة {set} من {exercise}: محفوظة على هذا الهاتف، وستتم مزامنتها عند عودة الاتصال.",
+    setQueued:
+      "المجموعة {set} من {exercise}: محفوظة على هذا الهاتف، وستتم مزامنتها عند عودة الاتصال.",
     setLogged: "سُجّلت المجموعة {set} من {exercise}.",
     setN: "المجموعة {n}",
     roundN: "الجولة {n}",
@@ -218,14 +233,16 @@ export default defineMessages(
     note: "ملاحظة",
     noteLabel: "ملاحظة المجموعة {set} من {exercise}",
     finishNow: "إنهاء التمرين الآن",
-    finishWaits: "يُنتظر الإنهاء حتى تُزامَن كل المجموعات المحفوظة على هذا الجهاز.",
+    finishWaits:
+      "يُنتظر الإنهاء حتى تُزامَن كل المجموعات المحفوظة على هذا الجهاز.",
     notLoggedYet: {
       zero: "سُجّلت كل المجموعات.",
       one: "مجموعة واحدة لم تُسجَّل بعد. يمكنك الإنهاء الآن إذا انتهيت لهذا اليوم.",
       two: "مجموعتان لم تُسجَّلا بعد. يمكنك الإنهاء الآن إذا انتهيت لهذا اليوم.",
       few: "# مجموعات لم تُسجَّل بعد. يمكنك الإنهاء الآن إذا انتهيت لهذا اليوم.",
       many: "# مجموعة لم تُسجَّل بعد. يمكنك الإنهاء الآن إذا انتهيت لهذا اليوم.",
-      other: "# مجموعة لم تُسجَّل بعد. يمكنك الإنهاء الآن إذا انتهيت لهذا اليوم.",
+      other:
+        "# مجموعة لم تُسجَّل بعد. يمكنك الإنهاء الآن إذا انتهيت لهذا اليوم.",
     },
     sessionUpdated: "تم تحديث الجلسة",
     actions: "إجراءات التمرين",
@@ -262,7 +279,8 @@ export default defineMessages(
     gVoiceReady: "صوت مدربك جاهز",
     gPrepareVoice: "التشغيل بصوت مدربي",
     gTickVoice: "يُرجى تحديد المربع أعلاه لسماع صوت مدربك.",
-    gWritten: "تستخدم هذه الجلسة إرشادات مكتوبة، وصوت مدربك المسجّل غير متاح لها.",
+    gWritten:
+      "تستخدم هذه الجلسة إرشادات مكتوبة، وصوت مدربك المسجّل غير متاح لها.",
     gStopTitle: "التوقف أو الإبلاغ عن مشكلة",
     gStopText: "توقف فورًا إذا شعرت بألم أو دوخة. يُبلَّغ مدربك عند إبلاغك.",
     gPauseGuide: "إيقاف هذا الدليل مؤقتًا",

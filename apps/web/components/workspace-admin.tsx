@@ -97,7 +97,6 @@ export function Analytics({ state, records, more }: ViewProps) {
           label="Load older workouts"
         />
       </Card>
-
     </>
   );
 }
@@ -114,7 +113,10 @@ export function AdminNotFound() {
     </Card>
   );
 }
-export function Admin({ state, finance = false }: ViewProps & { finance?: boolean }) {
+export function Admin({
+  state,
+  finance = false,
+}: ViewProps & { finance?: boolean }) {
   const [data, setData] = useState<any>(null),
     [error, setError] = useState(""),
     [loadingMore, setLoadingMore] = useState(false);
@@ -197,6 +199,7 @@ export function Admin({ state, finance = false }: ViewProps & { finance?: boolea
       />
       {state.user.platformRole === "admin" && (
         <nav className="ps-admin-links" aria-label="Superadmin tools">
+          <Link href="/admin/music">Workout music library</Link>
           <Link href="/admin/settings">
             <Settings size={15} />
             Settings & API connections
@@ -308,7 +311,10 @@ export function Admin({ state, finance = false }: ViewProps & { finance?: boolea
                           <td>
                             {t.finance
                               ? money(
-                                  -(t.finance.accounts?.platform_cost_recovery ?? 0),
+                                  -(
+                                    t.finance.accounts
+                                      ?.platform_cost_recovery ?? 0
+                                  ),
                                 )
                               : "—"}
                           </td>
@@ -318,7 +324,10 @@ export function Admin({ state, finance = false }: ViewProps & { finance?: boolea
                               <td key={kind}>
                                 {(c?.costUsd ?? 0).toFixed(4)}
                                 {c?.estimatedUsd > 0 && (
-                                  <small> {c.estimatedUsd.toFixed(4)} estimated</small>
+                                  <small>
+                                    {" "}
+                                    {c.estimatedUsd.toFixed(4)} estimated
+                                  </small>
                                 )}
                                 {c?.unpriced > 0 && (
                                   <small> {c.unpriced} unpriced</small>

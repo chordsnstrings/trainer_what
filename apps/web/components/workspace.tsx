@@ -15,7 +15,6 @@ const InfrastructureActions = dynamic(() => import("./infrastructure-actions").t
 import { NotificationInbox } from "./notifications";
 import {
   IntegrationCenter,
-  GuidedSession,
   IntegrationOperations,
 } from "./integration-center";
 import { VoiceSessionRunner } from "./voice-session";
@@ -62,6 +61,7 @@ import { MemberAppearance, useColorScheme } from "./appearance";
 import { type ColorSchemeChoice } from "../color-scheme";
 import { DirectoryListingSettings } from "./directory-listing";
 const PlatformSettings = dynamic(() => import("./platform-settings").then(m => m.PlatformSettings), { loading: () => <p role="status">Loading…</p> });
+const WorkoutMusicAdmin = dynamic(() => import("./workout-music-admin").then(m => m.WorkoutMusicAdmin), { loading: () => <p role="status">Loading…</p> });
 const ModelProfiles = dynamic(() => import("./model-profiles").then(m => m.ModelProfiles), { loading: () => <p role="status">Loading…</p> });
 const MarketingAssistantAdmin = dynamic(() => import("./marketing-assistant-admin").then(m => m.MarketingAssistantAdmin), { loading: () => <p role="status">Loading…</p> });
 import { ProviderSandboxBanner } from "./provider-sandbox-banner";
@@ -842,6 +842,8 @@ export default function Workspace({
                 platformRole={state.user.platformRole}
               />
             )
+          ) : path === "/admin/music" ? (
+            <WorkoutMusicAdmin />
           ) : path === "/admin/model-profiles" ? (
             state.user.platformRole === "admin" ? (
               <ModelProfiles />
@@ -1047,7 +1049,7 @@ export default function Workspace({
           ) : path === "/app/twin" ? (
             <MemberCoachingContext userId={state.user.userId} />
           ) : path.startsWith("/app/guided/") ? (
-            <GuidedSession workoutId={path.split("/")[3]} />
+            <VoiceSessionRunner workoutId={path.split("/")[3]} tenantId={state.user.tenantId} userId={state.user.userId} />
           ) : path.startsWith("/app/voice-session/") ? (
             <VoiceSessionRunner
               {...(path.split("/")[3] === "planned"

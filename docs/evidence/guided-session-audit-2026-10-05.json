@@ -1,0 +1,217 @@
+{
+  "date": "2026-10-05",
+  "scope": "Guided session option; isolated API/browser audit",
+  "applicationCommit": "e7ffa0c4cbc11769f413a27a31dc73a45d4cb090",
+  "documentationBaseline": "b83252833fcc0dcd6efc412768a6e9b990109240",
+  "applicationChanges": false,
+  "deployed": false,
+  "productionWrites": false,
+  "liveProviderCalls": 0,
+  "api": {
+    "testsPassed": 2,
+    "reproduction": {
+      "revokedConsentStatus": 200,
+      "downgradedStatus": 200,
+      "zeroRestReturned": 60,
+      "zeroRestText": "Squat. 2 sets of 8 repetitions.",
+      "syntheticProviderCalls": 1
+    },
+    "database": "isolated in-memory PGlite"
+  },
+  "browser": {
+    "engine": "Chromium 153.0.8010.0",
+    "environment": "isolated seeded local app; synthetic guided/pain responses",
+    "results": {
+      "checks": [
+        "Pause guide has no resume action",
+        "Reload resets exercise and rest progress",
+        "Successful pain report is displayed as a failed guidance refresh",
+        "Failed pain report loses the entered note",
+        "Delayed audio for a prior exercise is attached to the next exercise",
+        "Play action prepares a second manual player; unticking consent leaves it usable",
+        "Read recovery leaves the guide paused with no retry or resume"
+      ],
+      "screens": [
+        {
+          "name": "text-phone",
+          "width": 390,
+          "overflow": false,
+          "controls": [
+            {
+              "text": "Start rest timer",
+              "width": 320,
+              "height": 45.5
+            },
+            {
+              "text": "Stop workout and notify coach",
+              "width": 320,
+              "height": 45.5
+            },
+            {
+              "text": "Pause this guide",
+              "width": 156,
+              "height": 84.5
+            },
+            {
+              "text": "Open workout logging",
+              "width": 156,
+              "height": 84.5
+            },
+            {
+              "text": "Report pain",
+              "width": 157.046875,
+              "height": 48
+            },
+            {
+              "text": "Next exercise",
+              "width": 192.953125,
+              "height": 48
+            }
+          ]
+        },
+        {
+          "name": "text-desktop",
+          "width": 1440,
+          "overflow": false,
+          "controls": [
+            {
+              "text": "Start rest timer",
+              "width": 850,
+              "height": 45.5
+            },
+            {
+              "text": "Stop workout and notify coach",
+              "width": 850,
+              "height": 45.5
+            },
+            {
+              "text": "Pause this guide",
+              "width": 421,
+              "height": 45.5
+            },
+            {
+              "text": "Open workout logging",
+              "width": 421,
+              "height": 45.5
+            },
+            {
+              "text": "Report pain",
+              "width": 277.71875,
+              "height": 48
+            },
+            {
+              "text": "Next exercise",
+              "width": 434.28125,
+              "height": 48
+            }
+          ]
+        },
+        {
+          "name": "voice-phone",
+          "width": 390,
+          "overflow": false,
+          "controls": [
+            {
+              "text": "Start rest timer",
+              "width": 320,
+              "height": 45.5
+            },
+            {
+              "text": "Previous exercise",
+              "width": 156,
+              "height": 65
+            },
+            {
+              "text": "Play in my coach's voice",
+              "width": 242.390625,
+              "height": 45.5
+            },
+            {
+              "text": "Stop workout and notify coach",
+              "width": 320,
+              "height": 45.5
+            },
+            {
+              "text": "Pause this guide",
+              "width": 156,
+              "height": 84.5
+            },
+            {
+              "text": "Open workout logging",
+              "width": 156,
+              "height": 84.5
+            },
+            {
+              "text": "Report pain",
+              "width": 157.046875,
+              "height": 48
+            },
+            {
+              "text": "Next exercise",
+              "width": 192.953125,
+              "height": 48
+            }
+          ],
+          "audioWidth": 300
+        },
+        {
+          "name": "voice-desktop",
+          "width": 1440,
+          "overflow": false,
+          "controls": [
+            {
+              "text": "Start rest timer",
+              "width": 850,
+              "height": 45.5
+            },
+            {
+              "text": "Previous exercise",
+              "width": 421,
+              "height": 45.5
+            },
+            {
+              "text": "Play in my coach's voice",
+              "width": 242.390625,
+              "height": 45.5
+            },
+            {
+              "text": "Stop workout and notify coach",
+              "width": 850,
+              "height": 45.5
+            },
+            {
+              "text": "Pause this guide",
+              "width": 421,
+              "height": 45.5
+            },
+            {
+              "text": "Open workout logging",
+              "width": 421,
+              "height": 45.5
+            },
+            {
+              "text": "Report pain",
+              "width": 277.71875,
+              "height": 48
+            },
+            {
+              "text": "Next exercise",
+              "width": 434.28125,
+              "height": 48
+            }
+          ],
+          "audioWidth": 300
+        }
+      ],
+      "errors": [],
+      "painSuccessNotice": "Guided sessions are paused. Resolve the workout hold or coach takeover first.",
+      "readRecoveryNotice": "Synthetic read failure"
+    }
+  },
+  "limits": [
+    "No physical phone or background-audio qualification",
+    "No full audit of separate Voice-led session microphone/provider behavior",
+    "Arabic instructions source-inspected only",
+    "Temporary reproduction scripts and screenshots are not tracked"
+  ]
+}

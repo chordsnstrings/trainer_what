@@ -678,11 +678,8 @@ test("the pain report stops the workout even without a note", () => {
   assert.ok(PAIN_NO_DETAILS.length >= 3);
 });
 
-test("workout and guided session: Report pain opens a sheet whose stop button never waits for typing", async () => {
-  for (const file of [
-    "apps/web/components/workspace-training.tsx",
-    "apps/web/components/integration-center.tsx",
-  ]) {
+test("workout: Report pain opens a sheet whose stop button never waits for typing", async () => {
+  for (const file of ["apps/web/components/workspace-training.tsx"]) {
     const src = await source(file);
     // The wording is the catalog's (lib/i18n/messages/workout.ts).
     assert.match(src, /t\("reportPain"\)/);
@@ -797,7 +794,10 @@ test("nutrition wording: one preparation line, test data only in development", a
   // The wording is the catalog's (lib/i18n/messages/capture.ts).
   assert.match(capture, /t\("estimateThenEdit"\)/);
   assert.match(capture, /label=\{t\("mealActions"\)\}/);
-  assert.equal(CATALOG.capture.en.estimateThenEdit, "An estimate, then your edit.");
+  assert.equal(
+    CATALOG.capture.en.estimateThenEdit,
+    "An estimate, then your edit.",
+  );
   assert.equal(CATALOG.capture.en.mealActions, "Meal actions");
   const nutritionEn = JSON.stringify(CATALOG.nutrition.en);
   assert.doesNotMatch(
@@ -839,7 +839,10 @@ test("member screens use the shared format, plain labels and 'coach' wording", a
   }
   // The training hold's wording is the profile catalog's.
   assert.equal(CATALOG.profile.en.messageTrainer, "Message your coach");
-  assert.doesNotMatch(JSON.stringify(CATALOG.profile.en), /Message your trainer/);
+  assert.doesNotMatch(
+    JSON.stringify(CATALOG.profile.en),
+    /Message your trainer/,
+  );
   // The development notice stays development-only.
   const workspace = await source("apps/web/components/workspace.tsx");
   assert.match(

@@ -4,6 +4,14 @@
 // plays the trainer-voice clips (or shows the words), runs the clock, listens
 // for spoken replies and performs the effects: set logs go through the same
 // device queue as the workout page, pain opens the existing safety hold.
+import { GuidedMusic } from "./guided-music";
+import {
+  progressKey,
+  restoreProgress,
+  saveProgress,
+  phaseToken,
+  mergeCompletedSets,
+} from "../lib/guided-runtime";
 import { queuedSummary } from "./pwa";
 import { ProgressRing, Skeleton, StickyActionBar } from "./phone-ui";
 import { AlertCircle, Mic } from "lucide-react";
@@ -24,7 +32,10 @@ import {
   type VoiceCommand,
 } from "../../../packages/domain/src/voice-runner.ts";
 import type { SessionScript } from "../../../packages/domain/src/voice-session.ts";
-import { workMeasure, workText } from "../../../packages/domain/src/prescription.ts";
+import {
+  workMeasure,
+  workText,
+} from "../../../packages/domain/src/prescription.ts";
 import {
   audioSessionSupported,
   joinMp3,
@@ -42,6 +53,7 @@ import {
   drainWorkoutQueue,
   offlineQueueKeys,
   readList,
+  queueOwnerHeaders,
   type RejectedEntry,
   type WorkoutQueueItem,
 } from "./offline-queue";
@@ -55,6 +67,7 @@ async function api<T = any>(
 ): Promise<T> {
   const response = await fetch("/api/v1" + path, {
     method,
+    signal: AbortSignal.timeout(20000),
     credentials: "same-origin",
     headers:
       body === undefined
@@ -73,11 +86,7 @@ async function api<T = any>(
 type VoiceT = Translator<(typeof voiceMessages)["en"]>;
 
 /** The runner's status line (runnerStatus in the domain), in the page language. */
-function statusLine(
-  ctx: { script: SessionScript },
-  s: RunnerState,
-  t: VoiceT,
-) {
+function statusLine(ctx: { script: SessionScript }, s: RunnerState, t: VoiceT) {
   const ex = ctx.script.exercises[s.exercise];
   const target = s.targets[s.exercise]?.[s.set - 1];
   switch (s.phase) {
@@ -142,6 +151,14 @@ type SessionView = {
   runnable?: boolean;
   stale?: boolean;
   scriptFingerprint?: string;
+  progress?: {
+    version: number;
+    fingerprint: string;
+    state: RunnerState;
+    savedAt: number;
+  } | null;
+  progressVersion?: number;
+  completedSets?: string[];
   audioStatus: string;
   unavailableReason: { code: string; message: string } | null;
   script: SessionScript;
@@ -155,11 +172,9 @@ type SessionView = {
   };
   gate?: Gate;
 };
-type Listening = "off" | "device" | "server";
 
 /** Seconds a text prompt stays before the runner moves on by itself. */
-const readingSeconds = (text: string) =>
-  Math.min(9, 1.5 + text.length * 0.045);
+const readingSeconds = (text: string) => Math.min(9, 1.5 + text.length * 0.045);
 
 /** On-device speech recognition only (never a browser's cloud service). */
 function recognitionConstructor(): any {
@@ -195,11 +210,20 @@ function savedReplyLanguage(): ReplyLanguage {
   }
 }
 function appLanguage() {
-  return (typeof document !== "undefined" && document.documentElement.lang) || "en-US";
+  return (
+    (typeof document !== "undefined" && document.documentElement.lang) ||
+    "en-US"
+  );
 }
 function speechType(mime: string) {
   const base = mime.split(";")[0];
-  return ["audio/webm", "audio/ogg", "audio/mp4", "audio/mpeg", "audio/wav"].includes(base)
+  return [
+    "audio/webm",
+    "audio/ogg",
+    "audio/mp4",
+    "audio/mpeg",
+    "audio/wav",
+  ].includes(base)
     ? base
     : null;
 }
@@ -335,7 +359,9 @@ export function VoiceSessionRunner({
       </div>
     );
   const startedWorkout =
-    ahead && planned?.status === "started" && planned.workoutId ? planned.workoutId : null;
+    ahead && planned?.status === "started" && planned.workoutId
+      ? planned.workoutId
+      : null;
   const plannedOpen = !ahead || planned?.status === "planned";
   return (
     <div className="stack voice-session">
@@ -346,9 +372,7 @@ export function VoiceSessionRunner({
             ? t("eyebrowGuided")
             : t("eyebrow")}
         </p>
-        <h1>
-          {session?.script.title ?? planned?.title ?? t("fallbackTitle")}
-        </h1>
+        <h1>{session?.script.title ?? planned?.title ?? t("fallbackTitle")}</h1>
         <p className="muted">
           {ahead
             ? planned?.date
@@ -376,7 +400,10 @@ export function VoiceSessionRunner({
       {startedWorkout && (
         <p className="notice">
           {t("started")}{" "}
-          <a className="text-link" href={`/app/voice-session/${startedWorkout}`}>
+          <a
+            className="text-link"
+            href={`/app/voice-session/${startedWorkout}`}
+          >
             {t("openRunner")}
           </a>
         </p>
@@ -446,13 +473,18 @@ export function VoiceSessionRunner({
         </section>
       )}
       {session && gate && ahead && plannedOpen && (
-        <section className="card voice-status-card" aria-labelledby="voice-ahead">
+        <section
+          className="card voice-status-card"
+          aria-labelledby="voice-ahead"
+        >
           <div className="card-heading">
             <h2 id="voice-ahead">
               {session.mode === "voice" ? t("trainerVoice") : t("textSession")}
             </h2>
             {audioBadge(session, t) && (
-              <span className={"badge" + (session.mode === "voice" ? "" : " amber")}>
+              <span
+                className={"badge" + (session.mode === "voice" ? "" : " amber")}
+              >
                 {audioBadge(session, t)}
               </span>
             )}
@@ -468,18 +500,26 @@ export function VoiceSessionRunner({
               : t("readyAhead")}
           </p>
           {session.mode === "text" && gate.mode === "voice" && (
-            <button className="button secondary" disabled={busy} onClick={() => void prepare(false)}>
+            <button
+              className="button secondary"
+              disabled={busy}
+              onClick={() => void prepare(false)}
+            >
               {t("switchVoice")}
             </button>
           )}
-          <button className="button" disabled={busy || gate.held} onClick={() => void startWorkout()}>
+          <button
+            className="button"
+            disabled={busy || gate.held}
+            onClick={() => void startWorkout()}
+          >
             {t("startWithVoice")}
           </button>
         </section>
       )}
       {session && gate && !ahead && (
         <Runner
-          key={session.id}
+          key={session.id + ":" + (session.scriptFingerprint ?? "")}
           session={session}
           gate={gate}
           workoutId={workoutId!}
@@ -528,7 +568,9 @@ export function voiceReason(
   if (codes.has("PLAYBACK_CONSENT")) return t("vrConsent");
   return t("vrText");
 }
-function voiceBlockedOnlyByConsentFor(gate: { reasons: Array<{ code: string }> }) {
+function voiceBlockedOnlyByConsentFor(gate: {
+  reasons: Array<{ code: string }>;
+}) {
   return (
     gate.reasons.length > 0 &&
     gate.reasons.every((r) => r.code === "PLAYBACK_CONSENT")
@@ -579,7 +621,13 @@ function Runner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [session.id, session.scriptFingerprint],
   );
-  const ctx = useMemo(() => ({ script, rules: script.rules }), [script]);
+  const [autoPace, setAutoPace] = useState(false);
+  const ctx = useMemo(
+    () => ({ script, rules: script.rules, deliberate: true, autoPace }),
+    [script, autoPace],
+  );
+  const storageKey = progressKey(tenantId, userId, workoutId);
+  const checkpointVersion = useRef(session.progressVersion ?? 0);
   const t = useT("voice"),
     toError = useErrorText();
   // Callbacks and listening effects read the current wording through a ref,
@@ -587,25 +635,58 @@ function Runner({
   const words = useRef({ t, toError });
   words.current = { t, toError };
   const message = (e: unknown) => words.current.toError(e);
-  const [state, setState] = useState<RunnerState>(() => initialRunnerState(script));
+  const [state, setState] = useState<RunnerState>(() => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      let local: any = null;
+      try {
+        local = JSON.parse(raw ?? "null");
+      } catch {}
+      const chosen =
+        session.progress &&
+        (!local ||
+          local.baseVersion !== session.progressVersion ||
+          session.progress.savedAt > (local.savedAt ?? 0))
+          ? JSON.stringify(session.progress)
+          : raw;
+      return mergeCompletedSets(
+        restoreProgress(
+          chosen,
+          session.scriptFingerprint ?? session.id,
+          script,
+        ),
+        session.completedSets ?? [],
+        script,
+      );
+    } catch {
+      return mergeCompletedSets(
+        initialRunnerState(script),
+        session.completedSets ?? [],
+        script,
+      );
+    }
+  });
+  const checkpointConflict = useRef(false);
   const stateRef = useRef(state);
   stateRef.current = state;
   const [prompt, setPrompt] = useState(""),
     [notice, setNotice] = useState(""),
     [alert, setAlert] = useState(""),
     [muted, setMuted] = useState(false),
-    [listening, setListening] = useState<Listening>("off"),
     [deviceSpeech, setDeviceSpeech] = useState(false),
     [heard, setHeard] = useState(""),
     [queued, setQueued] = useState(0),
     [rejected, setRejected] = useState(0),
-    [finishState, setFinishState] = useState<"none" | "waiting" | "done">("none"),
+    [finishState, setFinishState] = useState<"none" | "waiting" | "done">(
+      "none",
+    ),
     [repsDraft, setRepsDraft] = useState(""),
     [transcriptionConsent, setTranscriptionConsent] = useState(false),
     [clipCount, setClipCount] = useState(0),
     [changed, setChanged] = useState(false),
     // The language the member replies in: "" follows the app's language.
-    [replyLanguage, setReplyLanguage] = useState<ReplyLanguage>(savedReplyLanguage),
+    [replyLanguage, setReplyLanguage] =
+      useState<ReplyLanguage>(savedReplyLanguage),
     // "My own music": cues mix over the member's music, tap to talk.
     [music, setMusic] = useState<MusicMode>(savedMusicMode);
   const ownMusic = music === "own";
@@ -614,38 +695,85 @@ function Runner({
   const replyLanguageRef = useRef(replyLanguage);
   replyLanguageRef.current = replyLanguage;
   const recognitionLang =
-    replyLanguage === "ar" ? "ar-AE" : replyLanguage === "en" ? "en-US" : appLanguage();
+    replyLanguage === "ar"
+      ? "ar-AE"
+      : replyLanguage === "en"
+        ? "en-US"
+        : appLanguage();
   const clips = useRef(new Map<string, string>());
   /** The clips' bytes, joined into one clip per cue in "My own music" mode. */
   const clipBytes = useRef(new Map<string, Uint8Array>());
   /** While the member is talking, cues wait. */
   const talkBusy = useRef(false);
-  const wakeLock = useRef<{ release(): Promise<void>; released?: boolean } | null>(null);
+  const wakeLock = useRef<{
+    release(): Promise<void>;
+    released?: boolean;
+  } | null>(null);
   const player = useRef<HTMLAudioElement | null>(null);
+  const [cuePlaying, setCuePlaying] = useState(false);
+  const [question, setQuestion] = useState("");
+  const [answer, setAnswer] = useState("");
+  const [asking, setAsking] = useState(false);
+  const [voiceVolume, setVoiceVolume] = useState(1);
   const speaking = useRef(false);
-  const playback = useRef<Playback>({ playing: false, endedAt: 0, prompts: [], listeners: new Set() });
+  const audioEpoch = useRef(0);
+  const [voiceRevoked, setVoiceRevoked] = useState(false);
+  const voiceRevokedRef = useRef(false);
+  const playback = useRef<Playback>({
+    playing: false,
+    endedAt: 0,
+    prompts: [],
+    listeners: new Set(),
+  });
   const sayQueue = useRef<Array<Extract<RunnerEffect, { type: "say" }>>>([]);
   const promptTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Finishes the prompt on screen now (used when the voice is muted mid-prompt). */
   const currentDone = useRef<(() => void) | null>(null);
-  const outcomes = useRef<RunnerOutcome[]>([]);
+  const promptAwaited = useRef(false);
+  const outcomeKey = `${storageKey}:outcomes:${session.id}`;
+  const [initialOutcomes] = useState(() =>
+    readList<RunnerOutcome & { eventKey?: string }>(localStorage, outcomeKey),
+  );
+  const outcomes = useRef(initialOutcomes);
+  const flushing = useRef<Promise<void> | null>(null);
+  const outcomeStatus = useRef<"running" | "completed" | "stopped" | undefined>(
+    undefined,
+  );
+  const persistOutcomes = useCallback(() => {
+    try {
+      localStorage.setItem(outcomeKey, JSON.stringify(outcomes.current));
+    } catch {}
+  }, [outcomeKey]);
   const keys = offlineQueueKeys("workout", tenantId, userId);
-  const voiceMode = session.mode === "voice";
+  const voiceMode =
+    session.mode === "voice" && gate.mode === "voice" && !voiceRevoked;
+  useEffect(() => {
+    if (gate.mode === "voice" && session.mode === "voice") {
+      voiceRevokedRef.current = false;
+      setVoiceRevoked(false);
+    }
+  }, [gate.mode, session.mode]);
   const voiceAvailable = voiceMode && clipCount > 0;
-  const runnable = session.runnable !== false && ["ready", "running"].includes(session.status);
+  const runnable =
+    session.runnable !== false && ["ready", "running"].includes(session.status);
 
   const setPlaying = useCallback((playing: boolean) => {
     const p = playback.current;
     if (p.playing === playing) return;
     p.playing = playing;
+    setCuePlaying(playing);
     if (!playing) p.endedAt = Date.now();
     for (const listener of p.listeners) listener(playing);
   }, []);
 
+  useEffect(() => {
+    if (player.current) player.current.volume = voiceVolume;
+  }, [voiceVolume]);
+
   // ---------------------------------------------------------------- audio
   // Clips are fetched by key as they become ready, so early lines play in the
   // trainer's voice while the rest of the session is still being prepared.
-  const readyKeys = voiceMode ? session.audio.readyKeys ?? [] : [];
+  const readyKeys = voiceMode ? (session.audio.readyKeys ?? []) : [];
   const readySignature = readyKeys.join(",");
   useEffect(() => {
     const loaded = clips.current;
@@ -658,7 +786,9 @@ function Runner({
       setClipCount(0);
       return;
     }
-    const missing = readySignature ? readySignature.split(",").filter((k) => !loaded.has(k)) : [];
+    const missing = readySignature
+      ? readySignature.split(",").filter((k) => !loaded.has(k))
+      : [];
     if (!missing.length) return;
     let cancelled = false;
     void (async () => {
@@ -668,10 +798,17 @@ function Runner({
           const page: {
             clips: Array<{ key: string; shared: boolean; audio: string }>;
             type: string;
-          } = await api(`/voice-sessions/${session.id}/audio?keys=${encodeURIComponent(chunk.join(","))}`);
+          } = await api(
+            `/voice-sessions/${session.id}/audio?keys=${encodeURIComponent(chunk.join(","))}`,
+          );
+          if (cancelled) return;
           for (const clip of page.clips) {
-            const bytes = Uint8Array.from(atob(clip.audio), (c) => c.charCodeAt(0));
-            const url = URL.createObjectURL(new Blob([bytes], { type: page.type }));
+            const bytes = Uint8Array.from(atob(clip.audio), (c) =>
+              c.charCodeAt(0),
+            );
+            const url = URL.createObjectURL(
+              new Blob([bytes], { type: page.type }),
+            );
             const key = (clip.shared ? "s:" : "l:") + clip.key;
             const prior = loaded.get(key);
             if (prior) URL.revokeObjectURL(prior);
@@ -696,6 +833,8 @@ function Runner({
   }, [session.id, voiceMode, readySignature]);
   useEffect(
     () => () => {
+      audioEpoch.current++;
+      if (promptTimer.current) clearTimeout(promptTimer.current);
       for (const url of clips.current.values()) URL.revokeObjectURL(url);
       clips.current.clear();
       clipBytes.current.clear();
@@ -705,34 +844,70 @@ function Runner({
 
   // ------------------------------------------------------------ outcomes
   const flush = useCallback(
-    async (status?: "running" | "completed" | "stopped") => {
-      const batch = outcomes.current.splice(0, 50);
-      if (!batch.length && !status) return;
-      try {
-        await api(`/voice-sessions/${session.id}/events`, "POST", {
-          ...(status ? { status } : {}),
-          outcomes: batch,
-        });
-      } catch {
-        // Outcomes are coaching feedback, not the workout record; keep them for the next try.
-        outcomes.current.unshift(...batch);
+    async (status?: "running" | "completed" | "stopped"): Promise<void> => {
+      if (status) outcomeStatus.current = status;
+      if (flushing.current) {
+        await flushing.current;
+        if (status) return flushRef.current();
+        return;
       }
+      const batch = outcomes.current.slice(0, 50),
+        sentStatus = outcomeStatus.current;
+      if (!batch.length && !sentStatus) return;
+      const operation = (async () => {
+        try {
+          await api(
+            `/voice-sessions/${session.id}/events`,
+            "POST",
+            { ...(sentStatus ? { status: sentStatus } : {}), outcomes: batch },
+            queueOwnerHeaders(tenantId, userId),
+          );
+          const sent = new Set(batch);
+          outcomes.current = outcomes.current.filter((o) => !sent.has(o));
+          if (outcomeStatus.current === sentStatus)
+            outcomeStatus.current = undefined;
+          persistOutcomes();
+        } catch {
+          /* Keep stable event keys for retry after reload. */
+        }
+      })();
+      flushing.current = operation;
+      await operation;
+      flushing.current = null;
     },
-    [session.id],
+    [session.id, tenantId, userId, persistOutcomes],
   );
   const flushRef = useRef(flush);
   flushRef.current = flush;
   // Buffered outcomes are sent when the page closes or the session is replaced.
-  useEffect(() => () => void flushRef.current(), []);
+  useEffect(() => {
+    void flushRef.current();
+    const retry = () => void flushRef.current();
+    const timer = setInterval(retry, 10000);
+    window.addEventListener("online", retry);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("online", retry);
+      void flushRef.current();
+    };
+  }, []);
 
   // ----------------------------------------------------------- set queue
   const refreshQueue = useCallback(() => {
     setQueued(readList(localStorage, keys.pending).length);
-    setRejected(readList<RejectedEntry<WorkoutQueueItem>>(localStorage, keys.rejected).length);
+    setRejected(
+      readList<RejectedEntry<WorkoutQueueItem>>(localStorage, keys.rejected)
+        .length,
+    );
   }, [keys.pending, keys.rejected]);
   const sync = useCallback(async () => {
     if (!navigator.onLine) return;
-    const result = await drainWorkoutQueue(localStorage, tenantId, userId, (p, b, h) => api(p, "POST", b, h));
+    const result = await drainWorkoutQueue(
+      localStorage,
+      tenantId,
+      userId,
+      (p, b, h) => api(p, "POST", b, h),
+    );
     refreshQueue();
     if (result.stopped?.reason === "session")
       setNotice(words.current.t("signedOut"));
@@ -766,95 +941,144 @@ function Runner({
       return;
     }
     speaking.current = true;
+    promptAwaited.current ||= next.wait;
+    const epoch = audioEpoch.current;
     setPrompt(next.text);
     const urls = next.items
-      .map((item) => clips.current.get("line" in item ? "l:" + item.line : "s:" + item.clip))
+      .map((item) =>
+        clips.current.get("line" in item ? "l:" + item.line : "s:" + item.clip),
+      )
       .filter((u): u is string => !!u);
     let finished = false;
     const done = () => {
-      if (finished) return;
+      if (finished || epoch !== audioEpoch.current) return;
       finished = true;
       currentDone.current = null;
       setPlaying(false);
-      if (next.wait && !sayQueue.current.length) {
+      if (promptAwaited.current && !sayQueue.current.length) {
+        promptAwaited.current = false;
         speaking.current = false;
         dispatchRef.current({ type: "prompt_done" });
       } else playNext();
     };
     currentDone.current = done;
-    const keys = next.items.map((item) => ("line" in item ? "l:" + item.line : "s:" + item.clip));
-    if (audible && ownMusicRef.current && urls.length === next.items.length && player.current) {
+    const keys = next.items.map((item) =>
+      "line" in item ? "l:" + item.line : "s:" + item.clip,
+    );
+    if (
+      audible &&
+      ownMusicRef.current &&
+      urls.length === next.items.length &&
+      player.current
+    ) {
       // "My own music": one joined clip of at most about 4.5 s per play
       // (Android lowers the music briefly; iPhone mixes it as "ambient"); a
       // longer line stays on screen. Clips that are not MP3 play as before.
       const audio = player.current;
       setAudioSessionType("ambient");
       const parts = keys.map((k) => clipBytes.current.get(k));
-      const plan = planCue(parts.map((b) => (b ? mp3Info(b)?.durationMs ?? null : null)));
+      const plan = planCue(
+        parts.map((b) => (b ? (mp3Info(b)?.durationMs ?? null) : null)),
+      );
       const joined = plan.groups
         .map((g) => joinMp3(g.map((i) => parts[i]!)))
         .filter((j): j is NonNullable<typeof j> => !!j)
-        .map((j) => URL.createObjectURL(new Blob([j.bytes as BlobPart], { type: "audio/mpeg" })));
+        .map((j) =>
+          URL.createObjectURL(
+            new Blob([j.bytes as BlobPart], { type: "audio/mpeg" }),
+          ),
+        );
       if (!joined.length) {
-        if (next.wait) promptTimer.current = setTimeout(done, readingSeconds(next.text) * 1000);
+        if (next.wait)
+          promptTimer.current = setTimeout(
+            done,
+            readingSeconds(next.text) * 1000,
+          );
         else done();
         return;
       }
-      playback.current.prompts = [next.text, ...playback.current.prompts].slice(0, 3);
+      playback.current.prompts = [next.text, ...playback.current.prompts].slice(
+        0,
+        3,
+      );
       setPlaying(true);
       let index = 0;
       const playOne = () => {
+        if (epoch !== audioEpoch.current || voiceRevokedRef.current) return;
         if (index > 0) URL.revokeObjectURL(joined[index - 1]);
         if (index >= joined.length) return done();
         audio.src = joined[index++];
         audio.onended = playOne;
         audio.onerror = playOne;
         void audio.play().catch(() => {
+          if (epoch !== audioEpoch.current) return;
           setPlaying(false);
           for (const url of joined.slice(index - 1)) URL.revokeObjectURL(url);
-          promptTimer.current = setTimeout(done, readingSeconds(next.text) * 1000);
+          promptTimer.current = setTimeout(
+            done,
+            readingSeconds(next.text) * 1000,
+          );
         });
       };
       playOne();
     } else if (audible && urls.length === next.items.length && player.current) {
       const audio = player.current;
       // The echo guard ignores replies while this plays and briefly after.
-      playback.current.prompts = [next.text, ...playback.current.prompts].slice(0, 3);
+      playback.current.prompts = [next.text, ...playback.current.prompts].slice(
+        0,
+        3,
+      );
       setPlaying(true);
       let index = 0;
       const playOne = () => {
+        if (epoch !== audioEpoch.current || voiceRevokedRef.current) return;
         if (index >= urls.length) return done();
         audio.src = urls[index++];
         audio.onended = playOne;
         audio.onerror = playOne;
         void audio.play().catch(() => {
+          if (epoch !== audioEpoch.current) return;
           // Autoplay refused or the file failed: show the words instead.
           setPlaying(false);
-          promptTimer.current = setTimeout(done, readingSeconds(next.text) * 1000);
+          promptTimer.current = setTimeout(
+            done,
+            readingSeconds(next.text) * 1000,
+          );
         });
       };
       playOne();
-    } else if (next.wait) promptTimer.current = setTimeout(done, readingSeconds(next.text) * 1000);
+    } else if (next.wait)
+      promptTimer.current = setTimeout(done, readingSeconds(next.text) * 1000);
     else done();
   }, [audible, setPlaying]);
   const logSet = useCallback(
     async (effect: Extract<RunnerEffect, { type: "log_set" }>) => {
-      const logicalKey = workoutId + ":" + effect.exercise + ":" + effect.set;
+      const logicalKey =
+        workoutId + ":" + effect.exerciseIndex + ":" + effect.set;
       const pending = readList<WorkoutQueueItem>(localStorage, keys.pending);
       const receipts = readList<string>(localStorage, keys.receipts);
-      if (pending.some((p) => p.logicalKey === logicalKey) || receipts.includes(logicalKey)) return;
+      if (
+        pending.some((p) => p.logicalKey === logicalKey) ||
+        receipts.includes(logicalKey)
+      )
+        return;
       pending.push({
         path: `/workouts/${workoutId}/sets`,
         logicalKey,
         body: {
           eventKey: crypto.randomUUID(),
           exercise: effect.exercise,
+          exerciseIndex: effect.exerciseIndex,
           set: effect.set,
           reps: effect.reps,
           loadKg: effect.loadKg,
           // A round of timed or distance work logs what was done.
-          ...(effect.durationSeconds !== undefined ? { durationSeconds: effect.durationSeconds } : {}),
-          ...(effect.distanceMeters !== undefined ? { distanceMeters: effect.distanceMeters } : {}),
+          ...(effect.durationSeconds !== undefined
+            ? { durationSeconds: effect.durationSeconds }
+            : {}),
+          ...(effect.distanceMeters !== undefined
+            ? { distanceMeters: effect.distanceMeters }
+            : {}),
         },
       });
       localStorage.setItem(keys.pending, JSON.stringify(pending));
@@ -863,30 +1087,57 @@ function Runner({
     },
     [workoutId, keys.pending, keys.receipts, refreshQueue, sync],
   );
+  const painKey = storageKey + ":pain";
+  const painSending = useRef(false);
+  const sendPain = useCallback(
+    async (fresh?: string) => {
+      if (painSending.current) return;
+      let description = fresh;
+      try {
+        description = description ?? localStorage.getItem(painKey) ?? undefined;
+      } catch {}
+      if (!description) return;
+      painSending.current = true;
+      try {
+        await api(
+          `/workouts/${workoutId}/pain`,
+          "POST",
+          { description },
+          queueOwnerHeaders(tenantId, userId),
+        );
+        localStorage.removeItem(painKey);
+        setAlert(words.current.t("stopped"));
+      } catch (e) {
+        setAlert(
+          words.current.t("painOffline") + " " + words.current.toError(e),
+        );
+      } finally {
+        painSending.current = false;
+      }
+    },
+    [painKey, workoutId, tenantId, userId],
+  );
   const reportPain = useCallback(
     async (description: string) => {
       player.current?.pause();
       setPlaying(false);
       sayQueue.current = [];
-      const { t: say, toError: explain } = words.current;
-      setAlert(say("stopNow"));
-      for (let attempt = 0; attempt < 3; attempt++)
-        try {
-          await api(`/workouts/${workoutId}/pain`, "POST", { description });
-          setAlert(say("stopped"));
-          return;
-        } catch (e) {
-          const error = e as ApiError;
-          if (error.status && error.status < 500) {
-            setAlert(say("painRefused", { reason: explain(error) }));
-            return;
-          }
-          await new Promise((r) => setTimeout(r, 2000));
-        }
-      setAlert(say("painOffline"));
+      setAlert(words.current.t("stopNow"));
+      try {
+        localStorage.setItem(painKey, description);
+      } catch {
+        setAlert(words.current.t("painOffline"));
+      }
+      await sendPain(description);
     },
-    [workoutId, setPlaying],
+    [painKey, sendPain, setPlaying],
   );
+  useEffect(() => {
+    void sendPain();
+    const retry = () => void sendPain();
+    window.addEventListener("online", retry);
+    return () => window.removeEventListener("online", retry);
+  }, [sendPain]);
   const finish = useCallback(async () => {
     await flush("completed");
     await sync();
@@ -902,6 +1153,9 @@ function Runner({
       setFinishState("waiting");
     }
   }, [flush, sync, keys.pending, workoutId]);
+  useEffect(() => {
+    if (state.phase === "finished" && finishState === "none") void finish();
+  }, [state.phase, finishState, finish]);
   const perform = useCallback(
     (effects: RunnerEffect[]) => {
       for (const effect of effects)
@@ -916,34 +1170,50 @@ function Runner({
             void reportPain(effect.description);
             break;
           case "outcome":
-            outcomes.current.push(effect.outcome);
+            outcomes.current.push({
+              ...effect.outcome,
+              eventKey: crypto.randomUUID(),
+            });
+            persistOutcomes();
             // "I didn't do the last one": the trainer is told; a set already
             // logged stays logged until the member corrects it.
             if (effect.outcome.type === "not_done")
               setNotice(
-                effect.outcome.logged
-                  ? t("notDoneLogged")
-                  : t("notDoneNoted"),
+                effect.outcome.logged ? t("notDoneLogged") : t("notDoneNoted"),
               );
             if (outcomes.current.length >= 10) void flush();
             break;
           case "finished":
-            void finish();
+            // The finished-state effect also retries after a reload.
             break;
         }
       if (!speaking.current && sayQueue.current.length) playNext();
     },
-    [logSet, reportPain, flush, finish, playNext],
+    [logSet, reportPain, flush, finish, playNext, persistOutcomes],
   );
   const dispatch = useCallback(
     (event: RunnerEvent) => {
+      if (
+        checkpointConflict.current &&
+        !(
+          event.type === "command" &&
+          ["pause", "pain"].includes(event.command.type)
+        )
+      )
+        return;
       const before = stateRef.current;
       const [next, effects] = stepRunner(ctx, before, event);
       if (
-        (event.type === "command" && !["unknown", "ack"].includes(event.command.type)) ||
+        (event.type === "command" &&
+          !["unknown", "ack"].includes(event.command.type)) ||
         event.type === "held" ||
-        event.type === "end"
+        event.type === "end" ||
+        event.type === "extend_rest" ||
+        (event.type === "tick" && phaseToken(before) !== phaseToken(next))
       ) {
+        if (next === before && !effects.length) return;
+        audioEpoch.current++;
+        promptAwaited.current = false;
         // A reply interrupts the current prompt.
         if (promptTimer.current) clearTimeout(promptTimer.current);
         player.current?.pause();
@@ -955,14 +1225,88 @@ function Runner({
       stateRef.current = next;
       setState(next);
       perform(effects);
+      try {
+        localStorage.setItem(
+          storageKey,
+          saveProgress(
+            session.scriptFingerprint ?? session.id,
+            next,
+            checkpointVersion.current,
+          ),
+        );
+      } catch {
+        setNotice(words.current.t("progressUnsaved"));
+      }
       if (next.phase === "stopped" && before.phase !== "stopped") {
-        setListening("off");
         void flush("stopped");
       }
     },
-    [ctx, perform, flush, setPlaying],
+    [ctx, perform, flush, setPlaying, storageKey, session.scriptFingerprint],
   );
   dispatchRef.current = dispatch;
+  const checkpointSending = useRef(false);
+  const checkpointSaved = useRef("");
+  const saveCheckpoint = useCallback(async () => {
+    if (
+      checkpointSending.current ||
+      checkpointConflict.current ||
+      !session.scriptFingerprint ||
+      !navigator.onLine
+    )
+      return;
+    const next = stateRef.current;
+    const signature = JSON.stringify(next);
+    if (next.phase === "ready" || signature === checkpointSaved.current) return;
+    checkpointSending.current = true;
+    try {
+      const result = await api<{ version: number }>(
+        `/voice-sessions/${session.id}/progress`,
+        "POST",
+        {
+          fingerprint: session.scriptFingerprint,
+          version: checkpointVersion.current,
+          state: next,
+        },
+        queueOwnerHeaders(tenantId, userId),
+      );
+      checkpointVersion.current = result.version;
+      checkpointSaved.current = signature;
+      try {
+        localStorage.setItem(
+          storageKey,
+          saveProgress(
+            session.scriptFingerprint,
+            stateRef.current,
+            result.version,
+          ),
+        );
+      } catch {}
+    } catch (error) {
+      if ((error as ApiError).status === 409) {
+        checkpointConflict.current = true;
+        dispatchRef.current({ type: "command", command: { type: "pause" } });
+        try {
+          localStorage.removeItem(storageKey);
+        } catch {}
+        setNotice(words.current.toError(error));
+      }
+    } finally {
+      checkpointSending.current = false;
+    }
+  }, [session.id, session.scriptFingerprint, tenantId, userId, storageKey]);
+  useEffect(() => {
+    const timer = setTimeout(() => void saveCheckpoint(), 250);
+    return () => clearTimeout(timer);
+  }, [state.phase, state.exercise, state.set, saveCheckpoint]);
+  useEffect(() => {
+    const timer = setInterval(() => void saveCheckpoint(), 10000);
+    const online = () => void saveCheckpoint();
+    window.addEventListener("online", online);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("online", online);
+    };
+  }, [saveCheckpoint]);
   const command = useCallback(
     (c: VoiceCommand) => dispatch({ type: "command", command: c }),
     [dispatch],
@@ -973,7 +1317,8 @@ function Runner({
     player.current?.pause();
     setPlaying(false);
     const done = currentDone.current;
-    if (done) promptTimer.current = setTimeout(done, readingSeconds(prompt) * 1000);
+    if (done)
+      promptTimer.current = setTimeout(done, readingSeconds(prompt) * 1000);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [audible]);
 
@@ -984,9 +1329,16 @@ function Runner({
     const timer = setInterval(() => {
       const now = Date.now(),
         seconds = Math.floor((now - last) / 1000);
+      if (talkBusy.current) {
+        last = now;
+        return;
+      }
       if (seconds >= 1) {
         last += seconds * 1000;
-        dispatchRef.current({ type: "tick", seconds });
+        if (seconds > 5) {
+          dispatchRef.current({ type: "command", command: { type: "pause" } });
+          setNotice(words.current.t("interrupted"));
+        } else dispatchRef.current({ type: "tick", seconds });
       }
     }, 250);
     return () => clearInterval(timer);
@@ -999,6 +1351,12 @@ function Runner({
     const timer = setInterval(() => {
       void api<SessionView & { gate?: Gate }>(`/voice-sessions/${session.id}`)
         .then((view) => {
+          if (view.gate?.mode !== "voice") {
+            voiceRevokedRef.current = true;
+            setVoiceRevoked(true);
+            player.current?.pause();
+            setPlaying(false);
+          }
           if (view.gate?.held) dispatchRef.current({ type: "held" });
           else if (view.stale) {
             dispatchRef.current({ type: "end" });
@@ -1014,8 +1372,13 @@ function Runner({
   const handleTranscript = useCallback(
     async (
       transcript: string,
-      screened?: { command: VoiceCommand; trainingHeld: boolean; sincePlaybackMs: number },
+      screened?: {
+        command: VoiceCommand;
+        trainingHeld: boolean;
+        sincePlaybackMs: number;
+      },
     ) => {
+      const captured = phaseToken(stateRef.current);
       const text = transcript.trim();
       if (!text) return;
       // A hold opened by the server's screening is final, whatever was heard.
@@ -1028,15 +1391,25 @@ function Runner({
       const local = heardReply({
         transcript: text,
         playing: screened ? false : p.playing,
-        sincePlaybackMs: screened ? screened.sincePlaybackMs : Date.now() - p.endedAt,
+        sincePlaybackMs: screened
+          ? screened.sincePlaybackMs
+          : Date.now() - p.endedAt,
         prompts: p.prompts,
       });
       // The trainer's own voice from the speaker is not a reply.
       if (!local) return;
       setHeard(text);
+      if (local.type === "unknown") {
+        setQuestion(text);
+        setNotice(words.current.t("questionConfirm"));
+        return;
+      }
       if (local.type === "pain") {
         command(local);
-        if (!screened) void api(`/voice-sessions/${session.id}/utterance`, "POST", { transcript: text }).catch(() => {});
+        if (!screened)
+          void api(`/voice-sessions/${session.id}/utterance`, "POST", {
+            transcript: text,
+          }).catch(() => {});
         return;
       }
       // The server re-screens every reply with the trainer's safety policy.
@@ -1051,7 +1424,7 @@ function Runner({
         command({ type: "pain", transcript: text });
         return;
       }
-      command(local);
+      if (result && captured === phaseToken(stateRef.current)) command(local);
     },
     [command, session.id],
   );
@@ -1092,13 +1465,13 @@ function Runner({
     } catch {}
     // Own music: no open microphone (tap to talk instead), cues mix in.
     if (mode === "own") {
-      setListening("off");
       setAudioSessionType("ambient");
     } else {
       talk.cancel();
       setAudioSessionType("auto");
     }
   };
+  const capturePhase = useRef("");
   // Tap to talk: on-device recognition when offered, else the speech service.
   const talkCapture: TalkCapture | null = deviceSpeech
     ? "device"
@@ -1110,24 +1483,41 @@ function Runner({
     lang: recognitionLang,
     graceLeftMs: () => ECHO_GRACE_MS - (Date.now() - playback.current.endedAt),
     sincePlaybackMs: () => Date.now() - playback.current.endedAt,
-    onWords: (text) => void transcriptRef.current(text),
+    onWords: (text) => {
+      if (capturePhase.current === phaseToken(stateRef.current))
+        void transcriptRef.current(text);
+    },
     onMicError: () => setNotice(words.current.t("micPermission")),
-    onAudio: async (blob, duration, sincePlaybackMs) => {
+    onAudio: async (blob, duration, sincePlaybackMs, currentCapture) => {
       const type = speechType(blob.type);
       if (duration < 300 || !type || blob.size > 480000) return;
+      const captured = capturePhase.current;
       try {
         const audio = await blobBase64(blob);
-        const r = await api<{ transcript: string; command: VoiceCommand; trainingHeld: boolean }>(
-          `/voice-sessions/${session.id}/transcribe`,
-          "POST",
-          {
-            audio,
-            type,
-            durationMs: Math.min(15000, Math.max(200, Math.round(duration))),
-            ...(replyLanguageRef.current ? { language: replyLanguageRef.current } : {}),
-          },
-        );
-        await transcriptRef.current(r.transcript, { command: r.command, trainingHeld: r.trainingHeld, sincePlaybackMs });
+        const r = await api<{
+          transcript: string;
+          command: VoiceCommand;
+          trainingHeld: boolean;
+        }>(`/voice-sessions/${session.id}/transcribe`, "POST", {
+          audio,
+          type,
+          durationMs: Math.min(15000, Math.max(200, Math.round(duration))),
+          ...(replyLanguageRef.current
+            ? { language: replyLanguageRef.current }
+            : {}),
+        });
+        if (r.trainingHeld) {
+          dispatchRef.current({ type: "held" });
+          void onRefresh();
+          return;
+        }
+        if (!currentCapture() || captured !== phaseToken(stateRef.current))
+          return;
+        await transcriptRef.current(r.transcript, {
+          command: r.command,
+          trainingHeld: r.trainingHeld,
+          sincePlaybackMs,
+        });
       } catch (e) {
         setNotice(message(e));
       }
@@ -1136,15 +1526,22 @@ function Runner({
   talkBusy.current = talk.state.phase !== "idle";
   // A cue that waited for the member's reply plays once the talk is over.
   useEffect(() => {
-    if (talk.state.phase === "idle" && !speaking.current && sayQueue.current.length) playNext();
+    if (
+      talk.state.phase === "idle" &&
+      !speaking.current &&
+      sayQueue.current.length
+    )
+      playNext();
   }, [talk.state.phase, playNext]);
   // Pain, a hold, the end of the session: the microphone closes.
   useEffect(() => {
-    if (!inProgress) talk.cancel();
+    if (!inProgress || state.phase === "paused") talk.cancel();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inProgress]);
-  const tapToTalk = async () => {
+  }, [inProgress, state.phase]);
+  const holdActive = useRef(false);
+  const tapToTalk = async (held = false) => {
     if (talk.state.phase === "idle") {
+      capturePhase.current = phaseToken(stateRef.current);
       if (talkCapture === "server" && !gate.transcriptionConsent) {
         if (!transcriptionConsent) {
           setNotice(t("agreeFirst"));
@@ -1169,196 +1566,17 @@ function Runner({
         done?.();
       }
     }
-    talk.tap();
+    if (!held || holdActive.current) talk.tap();
   };
   useEffect(() => {
     void onDeviceRecognition(recognitionLang).then(setDeviceSpeech);
   }, [recognitionLang]);
-  useEffect(() => {
-    if (listening !== "device") return;
-    const Ctor = recognitionConstructor();
-    if (!Ctor) return;
-    const recognition = new Ctor();
-    recognition.processLocally = true;
-    recognition.continuous = true;
-    recognition.interimResults = false;
-    recognition.lang = recognitionLang;
-    let active = true,
-      running = false,
-      restart: ReturnType<typeof setTimeout> | null = null;
-    const start = () => {
-      if (!active || running || playback.current.playing) return;
-      try {
-        recognition.start();
-        running = true;
-      } catch {}
-    };
-    recognition.onresult = (e: any) => {
-      const result = e.results[e.results.length - 1];
-      if (result?.isFinal) void transcriptRef.current(String(result[0]?.transcript ?? ""));
-    };
-    recognition.onend = () => {
-      running = false;
-      if (active && !playback.current.playing) restart = setTimeout(start, 250);
-    };
-    recognition.onerror = (e: any) => {
-      if (["not-allowed", "service-not-allowed", "language-not-supported"].includes(e?.error)) {
-        active = false;
-        setListening("off");
-        setNotice(words.current.t("micUnavailable"));
-      }
-    };
-    // Recognition is off while the trainer's voice plays (its echo would be
-    // heard as a reply) and resumes shortly after.
-    const onPlayback = (playing: boolean) => {
-      if (restart) clearTimeout(restart);
-      if (playing) {
-        try {
-          recognition.abort();
-        } catch {}
-      } else restart = setTimeout(start, ECHO_GRACE_MS);
-    };
-    playback.current.listeners.add(onPlayback);
-    start();
-    return () => {
-      active = false;
-      playback.current.listeners.delete(onPlayback);
-      if (restart) clearTimeout(restart);
-      try {
-        recognition.abort();
-      } catch {}
-    };
-  }, [listening, recognitionLang]);
-  useEffect(() => {
-    if (listening !== "server") return;
-    let stream: MediaStream | null = null,
-      audioContext: AudioContext | null = null,
-      stopped = false,
-      frame = 0;
-    let recorder: MediaRecorder | null = null,
-      discard = false;
-    // A recording that overlaps the trainer's voice is thrown away unsent.
-    const onPlayback = (playing: boolean) => {
-      if (playing && recorder) {
-        discard = true;
-        const r = recorder;
-        recorder = null;
-        try {
-          r.stop();
-        } catch {}
-      }
-    };
-    playback.current.listeners.add(onPlayback);
-    void (async () => {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
-      } catch {
-        setListening("off");
-        setNotice(words.current.t("micPermission"));
-        return;
-      }
-      if (stopped) {
-        stream.getTracks().forEach((t) => t.stop());
-        return;
-      }
-      audioContext = new AudioContext();
-      const analyser = audioContext.createAnalyser();
-      analyser.fftSize = 1024;
-      audioContext.createMediaStreamSource(stream).connect(analyser);
-      const samples = new Float32Array(analyser.fftSize);
-      let started = 0,
-        quietSince = 0,
-        chunks: Blob[] = [];
-      const loop = () => {
-        if (stopped) return;
-        analyser.getFloatTimeDomainData(samples);
-        let sum = 0;
-        for (const v of samples) sum += v * v;
-        const loud = Math.sqrt(sum / samples.length) > 0.03,
-          now = performance.now();
-        const p = playback.current;
-        // Never record while the trainer's voice plays or just after it.
-        const quietSpeaker = !p.playing && Date.now() - p.endedAt >= ECHO_GRACE_MS;
-        if (!recorder && loud && quietSpeaker) {
-          chunks = [];
-          discard = false;
-          const sincePlaybackMs = Date.now() - p.endedAt;
-          let rec: MediaRecorder;
-          try {
-            rec = new MediaRecorder(stream!, { audioBitsPerSecond: 16000 });
-          } catch {
-            rec = new MediaRecorder(stream!);
-          }
-          recorder = rec;
-          rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
-          rec.onstop = () => {
-            if (discard || stopped) return;
-            const duration = performance.now() - started;
-            const blob = new Blob(chunks, { type: rec.mimeType || "audio/webm" });
-            const type = speechType(blob.type);
-            if (duration < 300 || !type || blob.size > 480000) return;
-            void blobBase64(blob).then((audio) =>
-              api<{ transcript: string; command: VoiceCommand; trainingHeld: boolean }>(
-                `/voice-sessions/${session.id}/transcribe`,
-                "POST",
-                {
-                  audio,
-                  type,
-                  durationMs: Math.min(15000, Math.max(200, Math.round(duration))),
-                  ...(replyLanguageRef.current ? { language: replyLanguageRef.current } : {}),
-                },
-              )
-                .then((r) =>
-                  transcriptRef.current(r.transcript, { command: r.command, trainingHeld: r.trainingHeld, sincePlaybackMs }),
-                )
-                .catch((e) => setNotice(message(e))),
-            );
-          };
-          rec.start();
-          started = now;
-          quietSince = 0;
-        } else if (recorder) {
-          if (loud) quietSince = 0;
-          else if (!quietSince) quietSince = now;
-          if ((quietSince && now - quietSince > 800) || now - started > 6000) {
-            const r = recorder;
-            recorder = null;
-            r.stop();
-          }
-        }
-        frame = requestAnimationFrame(loop);
-      };
-      loop();
-    })();
-    return () => {
-      stopped = true;
-      playback.current.listeners.delete(onPlayback);
-      cancelAnimationFrame(frame);
-      stream?.getTracks().forEach((t) => t.stop());
-      void audioContext?.close().catch(() => {});
-    };
-  }, [listening, session.id]);
-
-  const startListening = async (mode: Listening) => {
-    if (mode === "server" && !gate.transcriptionConsent) {
-      if (!transcriptionConsent) {
-        setNotice(t("agreeFirst"));
-        return;
-      }
-      try {
-        await api("/voice-sessions/consent", "POST", { transcription: true });
-        await onRefresh();
-      } catch (e) {
-        setNotice(message(e));
-        return;
-      }
-    }
-    setListening(mode);
-  };
   const withdrawVoice = async () => {
     try {
       await api("/voice-sessions/consent", "POST", { playback: false });
-      if (listening === "server") setListening("off");
+      voiceRevokedRef.current = true;
+      setVoiceRevoked(true);
+      player.current?.pause();
       await onRefresh();
       setNotice(t("voiceOff"));
     } catch (e) {
@@ -1380,13 +1598,24 @@ function Runner({
         : null;
   return (
     <>
-      <section className="card voice-status-card" aria-labelledby="voice-mode">
+      <label className="voice-check guided-auto">
+        <input
+          type="checkbox"
+          checked={autoPace}
+          onChange={(e) => setAutoPace(e.target.checked)}
+        />
+        {t("autoPace")}
+      </label>
+      <details className="card voice-status-card">
+        <summary>{t("sessionOptions")}</summary>
         <div className="card-heading">
           <h2 id="voice-mode">
             {voiceMode ? t("trainerVoice") : t("textSession")}
           </h2>
           {audioBadge(session, t) && (
-            <span className={"badge" + (voiceMode ? "" : " amber")}>{audioBadge(session, t)}</span>
+            <span className={"badge" + (voiceMode ? "" : " amber")}>
+              {audioBadge(session, t)}
+            </span>
           )}
         </div>
         {session.unavailableReason && (
@@ -1401,17 +1630,37 @@ function Runner({
           <p className="muted">{t("capped")}</p>
         )}
         {session.mode === "text" && gate.mode === "voice" && runnable && (
-          <button className="button secondary" onClick={() => void onPrepare(false)}>
+          <button
+            className="button secondary"
+            onClick={() => void onPrepare(false)}
+          >
             {t("switchVoice")}
           </button>
         )}
-        {session.mode === "text" && runnable && gate.reasons.length === 1 && gate.reasons[0].code === "PLAYBACK_CONSENT" && (
-          <button className="button secondary" onClick={() => void onPrepare(true)}>
-            {t("useApproved")}
-          </button>
-        )}
+        {session.mode === "text" &&
+          runnable &&
+          gate.reasons.length === 1 &&
+          gate.reasons[0].code === "PLAYBACK_CONSENT" && (
+            <button
+              className="button secondary"
+              onClick={() => void onPrepare(true)}
+            >
+              {t("useApproved")}
+            </button>
+          )}
         {voiceMode && (
           <div className="button-row">
+            <label>
+              {t("voiceVolume")}
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value={voiceVolume}
+                onChange={(e) => setVoiceVolume(Number(e.target.value))}
+              />
+            </label>
             <button
               className="button secondary"
               aria-pressed={muted}
@@ -1419,16 +1668,23 @@ function Runner({
             >
               {muted ? t("unmute") : t("mute")}
             </button>
-            <button className="text-button" onClick={() => void withdrawVoice()}>
+            <button
+              className="text-button"
+              onClick={() => void withdrawVoice()}
+            >
               {t("stopVoice")}
             </button>
           </div>
         )}
-        {voiceMode && (
+        {
           <div className="voice-music stack">
-            <div className="button-row" role="group" aria-label={t("musicTitle")}>
+            <div
+              className="button-row"
+              role="group"
+              aria-label={t("musicTitle")}
+            >
               <span className="voice-music-label">{t("musicTitle")}</span>
-              {(["off", "own"] as const).map((mode) => (
+              {(["off", "library", "own"] as const).map((mode) => (
                 <button
                   key={mode}
                   type="button"
@@ -1436,24 +1692,39 @@ function Runner({
                   aria-pressed={music === mode}
                   onClick={() => chooseMusic(mode)}
                 >
-                  {mode === "off" ? t("musicOff") : t("musicOwn")}
+                  {mode === "off"
+                    ? t("musicOff")
+                    : mode === "library"
+                      ? t("musicLibrary")
+                      : t("musicOwn")}
                 </button>
               ))}
             </div>
             {ownMusic && (
               <p className="muted">
-                {t("musicHelp")} {audioSessionSupported() ? "" : t("musicAndroid") + " "}
+                {t("musicHelp")}{" "}
+                {audioSessionSupported() ? "" : t("musicAndroid") + " "}
                 {t("musicLong")}
               </p>
             )}
           </div>
-        )}
-      </section>
+        }
+      </details>
 
       {alert && (
         <p className="notice error voice-alert" role="alert">
           {alert}
         </p>
+      )}
+      {state.stopReason === "pain" && (
+        <button className="button secondary" onClick={() => void sendPain()}>
+          {t("retryPain")}
+        </button>
+      )}
+      {checkpointConflict.current && (
+        <button className="button secondary" onClick={() => location.reload()}>
+          {t("loadProgress")}
+        </button>
       )}
       {notice && (
         <p className="notice" role="status">
@@ -1474,7 +1745,11 @@ function Runner({
                 <span className="muted">
                   {(e as any).reps
                     ? t("setsByReps", {
-                        setsReps: formatSetsReps(e.sets, (e as any).reps, t.locale),
+                        setsReps: formatSetsReps(
+                          e.sets,
+                          (e as any).reps,
+                          t.locale,
+                        ),
                         count: lastCount((e as any).reps),
                       })
                     : t("setCount", { count: Number(e.sets) })}
@@ -1495,19 +1770,47 @@ function Runner({
             ) : (
               <bdi>{workText({ ...ex, sets: 1 })}</bdi>
             )}
-            {target.loadKg > 0 ? ` · ${t("load", { load: target.loadKg })}` : ""}
+            {target.loadKg > 0
+              ? ` · ${t("load", { load: target.loadKg })}`
+              : ""}
             {target.loadKg < ex.loadKg ? ` ${t("lighter")}` : ""}
           </p>
+        )}
+        {state.phase === "rest" && (
+          <p className="muted">
+            {t("nextTarget", {
+              name:
+                state.set < ex.sets
+                  ? ex.name
+                  : (script.exercises[state.exercise + 1]?.name ?? ""),
+              set: state.set < ex.sets ? state.set + 1 : 1,
+            })}
+          </p>
+        )}
+        {ex && (state.phase === "set" || state.phase === "setup") && (
+          <p className="muted">
+            {ex.cue}{" "}
+            {workMeasure(ex) === "reps"
+              ? t("effortTarget", { n: ex.rir })
+              : (ex.effort ?? "")}
+          </p>
+        )}
+        {ex?.demonstrationUrl && (
+          <a
+            className="button secondary"
+            href={ex.demonstrationUrl}
+            target="_blank"
+            rel="noreferrer"
+            onClick={() => command({ type: "pause" })}
+          >
+            {t("watchDemo")}
+          </a>
         )}
         {clock !== null && (
           <p className="voice-clock" aria-hidden="true" dir="ltr">
             {/* Rest counts down on a ring (docs/features/motion.md "k"). */}
             {state.phase === "rest" && ex?.restSeconds > 0 && (
-              <ProgressRing
-                value={clock / ex.restSeconds}
-                size={32}
-                ticking
-              />
+              <ProgressRing value={clock / ex.restSeconds} size={32} ticking />
             )}
             {Math.floor(clock / 60)}:{String(clock % 60).padStart(2, "0")}
           </p>
@@ -1562,47 +1865,92 @@ function Runner({
               <button
                 type="button"
                 className="button secondary voice-pain workout-pain"
-                onClick={() => command({ type: "pain", transcript: t("painNote") })}
+                onClick={() =>
+                  command({ type: "pain", transcript: t("painNote") })
+                }
               >
                 <AlertCircle size={18} aria-hidden="true" />
                 {t("painShort")}
               </button>
               {state.phase === "paused" ? (
-                <button type="button" className="button" onClick={() => command({ type: "resume" })}>
+                <button
+                  type="button"
+                  className="button"
+                  disabled={checkpointConflict.current}
+                  onClick={() => command({ type: "resume" })}
+                >
                   {t("resume")}
                 </button>
               ) : (
-                <button type="button" className="button voice-done" onClick={() => command({ type: "done" })}>
-                  {t("done")}
+                <button
+                  type="button"
+                  className="button voice-done"
+                  disabled={state.phase === "set" && !state.promptReady}
+                  onClick={() => command({ type: "done" })}
+                >
+                  {state.phase === "setup" || state.phase === "rest"
+                    ? t("readyNext")
+                    : t("done")}
                 </button>
               )}
             </StickyActionBar>
-            <div className="voice-commands" role="group" aria-label={t("replies")}>
-              <button className="button secondary" onClick={() => command({ type: "too_heavy" })}>
+            {state.phase === "rest" && (
+              <button
+                className="button secondary"
+                onClick={() => dispatch({ type: "extend_rest" })}
+              >
+                {t("moreRest")}
+              </button>
+            )}
+            <div
+              className="voice-commands"
+              role="group"
+              aria-label={t("replies")}
+            >
+              <button
+                className="button secondary"
+                onClick={() => command({ type: "too_heavy" })}
+              >
                 {t("tooHeavy")}
               </button>
-              <button className="button secondary" onClick={() => command({ type: "too_easy" })}>
+              <button
+                className="button secondary"
+                onClick={() => command({ type: "too_easy" })}
+              >
                 {t("tooEasy")}
               </button>
               {script.rules.allowSkip && (
-                <button className="button secondary" onClick={() => command({ type: "skip" })}>
+                <button
+                  className="button secondary"
+                  onClick={() => command({ type: "skip" })}
+                >
                   {t("skip")}
                 </button>
               )}
-              <button className="button secondary" onClick={() => command({ type: "repeat" })}>
+              <button
+                className="button secondary"
+                onClick={() => command({ type: "repeat" })}
+              >
                 {t("repeat")}
               </button>
               {state.phase === "paused" ? (
-                <button className="button secondary" onClick={() => command({ type: "resume" })}>
+                <button
+                  className="button secondary"
+                  disabled={checkpointConflict.current}
+                  onClick={() => command({ type: "resume" })}
+                >
                   {t("resume")}
                 </button>
               ) : (
-                <button className="button secondary" onClick={() => command({ type: "pause" })}>
+                <button
+                  className="button secondary"
+                  onClick={() => command({ type: "pause" })}
+                >
                   {t("pause")}
                 </button>
               )}
             </div>
-            {state.phase === "set" && (
+            {state.phase === "set" && workMeasure(ex) === "reps" && (
               <form
                 className="voice-reps"
                 onSubmit={(e) => {
@@ -1659,6 +2007,66 @@ function Runner({
       </section>
 
       {running && (
+        <details className="guided-question">
+          <summary>{t("askCoach")}</summary>
+          <form
+            className="stack"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (asking || !question.trim()) return;
+              setAsking(true);
+              setAnswer("");
+              command({ type: "pause" });
+              try {
+                const result = await api<any>("/coaching/ask", "POST", {
+                  message: `${question.trim()}\nSession context: ${ex.name}; set ${state.set} of ${ex.sets}; ${statusLine(ctx, state, t)}. Keep the prescribed workout unchanged.`,
+                });
+                setQuestion("");
+                setAnswer(
+                  result.data?.text ??
+                    result.response?.data?.text ??
+                    result.message ??
+                    t("questionSaved"),
+                );
+                await onRefresh();
+              } catch (error) {
+                setAnswer(message(error));
+              } finally {
+                setAsking(false);
+              }
+            }}
+          >
+            <p className="muted">{t("askHelp")}</p>
+            <label>
+              {t("yourQuestion")}
+              <textarea
+                maxLength={2000}
+                required
+                value={question}
+                onChange={(e) => setQuestion(e.target.value)}
+              />
+            </label>
+            <button
+              className="button secondary"
+              disabled={asking || !question.trim()}
+            >
+              {asking ? t("talkSending") : t("askCoach")}
+            </button>
+            {answer && <p role="status">{answer}</p>}
+          </form>
+        </details>
+      )}
+      <GuidedMusic
+        enabled={music === "library"}
+        ownerKey={`${tenantId}:${userId}`}
+        state={state}
+        title={ex?.name ?? script.title}
+        target={statusLine(ctx, state, t)}
+        duck={cuePlaying}
+        recording={talk.state.phase !== "idle"}
+        dispatch={dispatch}
+      />
+      {running && state.phase !== "paused" && (
         <section className="card" aria-labelledby="voice-replies">
           <h2 id="voice-replies">{t("spokenReplies")}</h2>
           <label className="voice-reply-language">
@@ -1674,13 +2082,17 @@ function Runner({
               }}
             >
               <option value="">{t("replyAppLanguage")}</option>
-              <option value="en" lang="en">{t("replyEnglish")}</option>
-              <option value="ar" lang="ar">{t("replyArabic")}</option>
+              <option value="en" lang="en">
+                {t("replyEnglish")}
+              </option>
+              <option value="ar" lang="ar">
+                {t("replyArabic")}
+              </option>
             </select>
           </label>
-          <p className="muted">{ownMusic ? t("talkHelp") : t("spokenHelp")}</p>
-          {ownMusic ? (
-            // Own music: no open microphone; one reply per tap.
+          <p className="muted">{t("talkHelp")}</p>
+          {
+            // One reply per deliberate tap in every audio mode.
             <div className="stack">
               {talkCapture === "server" && !gate.transcriptionConsent && (
                 <label className="voice-check">
@@ -1699,14 +2111,49 @@ function Runner({
                       })}
                 </label>
               )}
+              {talkCapture && (
+                <button
+                  className="button secondary voice-talk"
+                  type="button"
+                  disabled={
+                    talk.state.phase === "sending" ||
+                    (talkCapture === "server" &&
+                      !gate.transcriptionConsent &&
+                      !transcriptionConsent)
+                  }
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                    holdActive.current = true;
+                    void tapToTalk(true);
+                  }}
+                  onPointerUp={(e) => {
+                    e.preventDefault();
+                    holdActive.current = false;
+                    if (talk.state.phase === "recording") talk.tap();
+                    else talk.cancel();
+                  }}
+                  onPointerCancel={() => {
+                    holdActive.current = false;
+                    talk.cancel();
+                  }}
+                >
+                  {t("holdTalk")}
+                </button>
+              )}
               {talkCapture ? (
                 <button
                   type="button"
-                  className={"button voice-talk" + (talk.state.phase === "idle" ? " secondary" : "")}
+                  className={
+                    "button voice-talk" +
+                    (talk.state.phase === "idle" ? " secondary" : "")
+                  }
                   aria-pressed={talk.state.phase === "recording"}
                   disabled={
                     talk.state.phase === "sending" ||
-                    (talkCapture === "server" && !gate.transcriptionConsent && !transcriptionConsent)
+                    (talkCapture === "server" &&
+                      !gate.transcriptionConsent &&
+                      !transcriptionConsent)
                   }
                   onClick={() => void tapToTalk()}
                 >
@@ -1722,81 +2169,11 @@ function Runner({
               ) : (
                 <p className="muted">{t("noSpeech")}</p>
               )}
-              {heard && <p role="status">{t("heard", { text: `“${heard}”` })}</p>}
-            </div>
-          ) : listening === "off" ? (
-            <div className="stack">
-              {deviceSpeech && (
-                <button className="button secondary" onClick={() => void startListening("device")}>
-                  {t("listenDevice")}
-                </button>
-              )}
-              {gate.speechToText && voiceMode && (
-                <>
-                  {!gate.transcriptionConsent && (
-                    <label className="voice-check">
-                      <input
-                        type="checkbox"
-                        checked={transcriptionConsent}
-                        onChange={(e) => setTranscriptionConsent(e.target.checked)}
-                      />{" "}
-                      {t("sendClips", {
-                        provider: gate.speechProvider?.name ?? t("theService"),
-                      })}
-                      {gate.speechProvider?.zeroRetention
-                        ? t("zeroRetention")
-                        : t("ownTerms", {
-                            provider:
-                              gate.speechProvider?.name ?? t("theProvider"),
-                          })}
-                    </label>
-                  )}
-                  <button
-                    className="button secondary"
-                    disabled={!gate.transcriptionConsent && !transcriptionConsent}
-                    onClick={() => void startListening("server")}
-                  >
-                    {t("listenService")}
-                  </button>
-                </>
-              )}
-              {!deviceSpeech && !(gate.speechToText && voiceMode) && (
-                <p className="muted">{t("noSpeech")}</p>
+              {heard && (
+                <p role="status">{t("heard", { text: `“${heard}”` })}</p>
               )}
             </div>
-          ) : (
-            <div className="stack">
-              {/* A calm breathing ring while listening (a live state). */}
-              <div className="listening">
-                <span className="listening-ring" aria-hidden="true">
-                  <span className="listening-ring-pulse" />
-                  <Mic size={20} />
-                </span>
-                <p role="status">
-                  {listening === "device"
-                    ? t("listeningDevice")
-                    : t("listeningService")}
-                  {heard && ` ${t("heard", { text: `“${heard}”` })}`}
-                </p>
-              </div>
-              <button className="button secondary" onClick={() => setListening("off")}>
-                {t("stopListening")}
-              </button>
-              {listening === "server" && (
-                <button
-                  className="text-button"
-                  onClick={() => {
-                    setListening("off");
-                    void api("/voice-sessions/consent", "POST", { transcription: false })
-                      .then(() => onRefresh())
-                      .catch((e) => setNotice(message(e)));
-                  }}
-                >
-                  {t("withdraw")}
-                </button>
-              )}
-            </div>
-          )}
+          }
         </section>
       )}
     </>

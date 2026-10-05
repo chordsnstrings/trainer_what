@@ -1,0 +1,109 @@
+{
+  "date": "2026-10-05",
+  "branch": "feat/guided-session-complete-2026-10-05",
+  "baseline": "2e493fe0aa2c9c909475c70187b98353505d2826",
+  "deployed": false,
+  "checks": {
+    "typecheck": "passed",
+    "productionBuild": "passed",
+    "targetedTests": {
+      "passed": 188,
+      "failed": 0
+    },
+    "browser": {
+      "journeys": [
+        "one guided runner with text, music and recoverable loading",
+        "setup waits for readiness",
+        "confirmation logs once and early readiness preserves rest",
+        "reload restores paused progress and remaining rest",
+        "music changes never advance sets",
+        "remote test consumes signal without changing workout",
+        "failed pain report stays durable and retries without resuming",
+        "timed work requires confirmation and completes the workout once"
+      ],
+      "pageErrors": [],
+      "widths": [
+        390,
+        1440
+      ],
+      "rtlLayout": true,
+      "physicalDevices": false,
+      "screenshots": [
+        "test-results/guided-complete/phone.png",
+        "test-results/guided-complete/desktop.png",
+        "test-results/guided-complete/rtl.png"
+      ]
+    }
+  },
+  "music": {
+    "targetTracks": 240,
+    "savedDistinctTracks": 38,
+    "knownProviderTasks": 21,
+    "downloadedTasks": 19,
+    "pendingTasks": [
+      {
+        "playlist": "rnb",
+        "slot": 2
+      },
+      {
+        "playlist": "hiphop",
+        "slot": 2
+      }
+    ],
+    "unknownSubmission": {
+      "playlist": "afrolatin",
+      "slot": 2
+    },
+    "unattemptedRequests": 98,
+    "listeningReview": "pending",
+    "initialCredits": 2788.1,
+    "verifiedFirstRequestCredits": 12,
+    "lastRecordedPreSubmissionCredits": 2536.1,
+    "finalBalanceVerified": false,
+    "requestLimit": 120,
+    "reservedCreditLimit": 1440,
+    "blocker": "Network policy blocked apibox.erweima.ai in this session",
+    "archive": {
+      "name": "workout-music-checkpoint-2026-10-05.zip",
+      "bytes": 218038476,
+      "sha256": "af3514fb7adde094bbaabcae987455e09b339f6e47a8c8f60015b277e453f4c8",
+      "libraryFileId": "libfile_d5505a105648819180145bd1b9ba97cb",
+      "fileId": "file_00000000f954823086f608fc214c4ab0"
+    }
+  },
+  "sourceSha256": {
+    "apps/api/src/app.ts": "8aeaa7dc47f791929bb7a98380528e32e75b8eaa5689a17878801468202d1a2e",
+    "apps/api/src/coaching-completion.ts": "1b573d55006fd2098c7261430588f2f46bf50451a2d6aead865d04c8a11ee00b",
+    "apps/api/src/integrations-completion.ts": "0b1e93f40b11a18d16bc9b1abb79848e39d35467f0d354bba5e83a80fffe91ce",
+    "apps/api/src/voice-session.ts": "769eaab8060322b1ca388fcf776dcc79f5b4d2df81817bbcd57cdc5ca989338a",
+    "apps/api/src/workout-music.ts": "5f7bedaa377ecf81e26a674cb62a47bd937211f5ba6ddfda59be4fdbd223bc7b",
+    "apps/web/app/voice-session.css": "676b8893f8d040d56c7646537189da8a81080890f6b5843a0560140eb19c0e42",
+    "apps/web/components/guided-music.tsx": "a81b5cf8c931f5a82c32574ec645f85f575f3f2a522559f0832062bdd4e5f30b",
+    "apps/web/components/integration-center.tsx": "d60121b984a3892ab9d59e56330eb75bb0ab07e893eba236f7727889f526f556",
+    "apps/web/components/offline-queue.ts": "e5af30f465521e78cdb7ca30c0685b30dc3885a9a82ac22e6b80a8ea63ad3b5e",
+    "apps/web/components/voice-session.tsx": "4c5b40f15f8579c894ac559524bce01f08f819d46cd9fcebe9671b32a3a64a97",
+    "apps/web/components/voice-tap-to-talk.ts": "b10e18ec597d1a61da8c87ee50c89225cb291573d447f7f6e3f6631b68a04740",
+    "apps/web/components/workout-music-admin.tsx": "d53fc7c31f5eed235f7dd382e920f6a5d61011a1b7d3b41cf06245f338dd2907",
+    "apps/web/components/workspace-admin.tsx": "f2fb6e3f562f5165797da5a2425c223e6e7e66fa010aff8b2c9ff29d9a1995ca",
+    "apps/web/components/workspace-training.tsx": "fd93ad8fc4dce9195054e75b9c41e0330dda8e80b5364e767dbd55687c91e1ac",
+    "apps/web/components/workspace.tsx": "758b93722e31628d882f57761d6aaa7df83c5a7791b8761d162a333e3ace662d",
+    "apps/web/lib/audio-session.ts": "5e73aceea2ec3ea81fa107205a09a047eec7ce12e04935b7ee79b1624448f16d",
+    "apps/web/lib/guided-runtime.ts": "dd359ad13b8ece0a3e30ac36583d3c00830c1c483e981c038ddbece99f33beee",
+    "apps/web/lib/i18n/messages/voice.ts": "7f8716e481dc19526f32e8e2721feba293b0ac5735d26c8512979189395b9081",
+    "apps/web/lib/i18n/messages/workout.ts": "c3658ea42675a225588a1c820703e52cb66ba35d294ca5a8845938a779d3d5ff",
+    "apps/web/lib/speech-gate.ts": "eea6106fac64451946284b6a0153459b9b6d4508ea2c3db67783807cf6156ee4",
+    "apps/worker/src/index.ts": "b906e6d836dd19124c027c28738197ffaf5f55cdd18b563577de1e1672645c85",
+    "packages/contracts/src/index.ts": "4ef43c2ba4c1329440a667bebf1fef40af8d467f16cac623a241a0e3d4cbf53b",
+    "packages/db/migrations/085_workout_music.sql": "707fcadf0482aa524f1458537372f17a25a26506d35ce6a31430a7736b432c68",
+    "packages/db/migrations/086_guided_progress.sql": "850ae371c4dc396d364c67cc2ed6c3dcebc3e773d821199834c38b565b6b9e95",
+    "packages/domain/src/guided-progress.ts": "4517972a241611620d2b17fd98c59f519b364abc9e7fff0bac3874c092106d02",
+    "packages/domain/src/voice-runner.ts": "1a7efd86f97fb4cc29f53268fdb04e511ece72c85d88a8de4536866670d22cbc",
+    "packages/domain/src/voice-session.ts": "bafc6d3830c617f341ff9df3d1b8f1c5912f0f7922d8887a97eeb41e1449e034",
+    "packages/domain/src/workout-music.ts": "5a8698d887dfcf98c850d78f13c56ddf99bacfd642a98204f280a6f73f77e6fc",
+    "packages/providers/src/configuration.ts": "34a26f4959bf87cca445680569496c6dd1906c1dbccbb14b7d2955db5be39d10",
+    "packages/providers/src/integrations.ts": "9cfd8d08ead07d077bf78981089933ea581d0d063ad16e30c7e5bfff9850b4ae",
+    "packages/providers/src/suno-music.ts": "60ac7d6cfdd339ac9adcb17041e052416281ab18188f30cecd1e573ed97a192d",
+    "scripts/build-workout-music.py": "c3ea41df495369b68424f73303b5f38eb7c17d18e3a9f69077714431c22509d6",
+    "scripts/guided-session-check.mjs": "1333db8952801650ca25f33408252faae312351ce37bac4e8f1dac0c6a49e03f"
+  }
+}

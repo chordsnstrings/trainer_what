@@ -208,6 +208,47 @@ test("without premium voice the same session is text-guided; guided text uses th
   alexSession = session;
 });
 
+test("guided checkpoints are owner-only, revision-bound and reject concurrent stale writes", async () => {
+  const state = {
+    ...initialRunnerState(alexSession.script),
+    phase: "rest",
+    restRemaining: 17,
+  };
+  const body = {
+    state,
+    fingerprint: alexSession.scriptFingerprint,
+    version: 0,
+  };
+  const path = `/voice-sessions/${alexSession.id}/progress`;
+  assert.equal((await request(path, "POST", body, bea)).statusCode, 404);
+  assert.equal(
+    (await request(path, "POST", { ...body, fingerprint: "old" }, alex))
+      .statusCode,
+    409,
+  );
+  assert.equal(
+    (
+      await request(
+        path,
+        "POST",
+        { ...body, state: { ...state, exercise: 99 } },
+        alex,
+      )
+    ).statusCode,
+    409,
+  );
+  assert.equal((await ok(path, "POST", body, alex)).version, 1);
+  assert.equal((await request(path, "POST", body, alex)).statusCode, 409);
+  const saved = await ok(
+    `/voice-sessions/${alexSession.id}`,
+    "GET",
+    undefined,
+    alex,
+  );
+  assert.equal(saved.progress.state.restRemaining, 17);
+  assert.equal(saved.progressVersion, 1);
+});
+
 test("premium voice needs playback consent; the worker makes the audio ahead of time within the budget", async () => {
   await subscribe(alex, ["training", "voice"]);
   const gate = (await ok(`/voice-sessions/workout/${alexWorkout}`, "GET", undefined, alex)).gate;
@@ -284,8 +325,9 @@ test("set logs from the runner use the workout endpoint; adjustments are checked
   );
   assert.equal(logged.data.loadKg, 54);
   assert.equal(logged.data.reps, 7);
-  const outcomes = effects.filter((e) => e.type === "outcome").map((e) => e.outcome);
+  const outcomes = effects.filter((e) => e.type === "outcome").map((e) => ({ ...e.outcome, eventKey: randomUUID() }));
   const recorded = await ok(`/voice-sessions/${alexSession.id}/events`, "POST", { status: "running", outcomes }, alex);
+  await ok(`/voice-sessions/${alexSession.id}/events`, "POST", { status: "running", outcomes }, alex);
   assert.equal(recorded.status, "running");
   const bad = await request(
     `/voice-sessions/${alexSession.id}/events`,

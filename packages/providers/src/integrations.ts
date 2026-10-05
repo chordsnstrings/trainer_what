@@ -32,9 +32,11 @@ export async function integrationRequest(
   value: string,
   init: RequestInit = {},
   beforeSend?: () => Promise<void>,
+  maxResponseBytes?: number,
 ) {
   const fixture = fixtureTransport.getStore();
-  if (!fixture) return providerRequest(value, init, beforeSend);
+  if (!fixture)
+    return providerRequest(value, init, beforeSend, maxResponseBytes);
   if (!process.env.NODE_TEST_CONTEXT || process.env.NODE_ENV === "production")
     throw new ConfigurationError(
       "Fixture transport cannot be used in production.",
@@ -126,7 +128,8 @@ export function wearableContract(provider: WearableProvider) {
     );
   // Only the local mock-provider sandbox (sandbox.ts) can replace the WHOOP host.
   const whoop = (
-    sandboxOverride("WHOOP_API_BASE_URL")?.origin ?? "https://api.prod.whoop.com"
+    sandboxOverride("WHOOP_API_BASE_URL")?.origin ??
+    "https://api.prod.whoop.com"
   ).replace(/\/$/, "");
   const base = provider === "whoop" ? whoop : c.ZEPP_API_BASE_URL;
   const authorize =
@@ -341,7 +344,10 @@ export function isVoiceProvider(value: unknown): value is VoiceProvider {
  * address when none is saved or the saved one is another provider's standard
  * address (an operator switching provider keeps a working default).
  */
-export function voiceBaseUrl(provider: VoiceProvider, saved: string | undefined) {
+export function voiceBaseUrl(
+  provider: VoiceProvider,
+  saved: string | undefined,
+) {
   const value = (saved ?? "").trim().replace(/\/$/, "");
   return !value || Object.values(PROVIDER_BASE).includes(value)
     ? PROVIDER_BASE[provider]
@@ -427,8 +433,11 @@ export function cartesiaVoiceClient(contract: VoiceContract = voiceContract()) {
  * the saved provider is not Cartesia or no key is saved. Never used to make
  * anything.
  */
-export function cartesiaDeletionClient(values: Record<string, string | undefined>) {
-  if (values.VOICE_PROVIDER !== "cartesia" || !values.VOICE_API_KEY) return null;
+export function cartesiaDeletionClient(
+  values: Record<string, string | undefined>,
+) {
+  if (values.VOICE_PROVIDER !== "cartesia" || !values.VOICE_API_KEY)
+    return null;
   let version: string;
   try {
     version = cartesiaVersion(values.VOICE_API_VERSION);
@@ -476,7 +485,12 @@ export async function generateTrainerVoice(
   if (c.provider === "cartesia") {
     try {
       ({ audio, contentType, requestId } = await cartesiaVoiceClient(c).speech(
-        { voiceId, text, model, language: voice.textLanguage ?? speechLanguage(text) },
+        {
+          voiceId,
+          text,
+          model,
+          language: voice.textLanguage ?? speechLanguage(text),
+        },
         beforeSend,
       ));
     } catch (error) {
@@ -509,7 +523,8 @@ export async function generateTrainerVoice(
     audio = Buffer.from(await response.arrayBuffer());
     contentType = response.headers.get("content-type") ?? "";
     requestId =
-      response.headers.get("request-id") ?? response.headers.get("x-request-id");
+      response.headers.get("request-id") ??
+      response.headers.get("x-request-id");
   }
   if (
     !audio.length ||
@@ -549,7 +564,9 @@ export function speechToTextContract() {
     );
   const pricePerHour = Number(c.STT_USD_PER_HOUR);
   if (!Number.isFinite(pricePerHour) || pricePerHour < 0)
-    throw new ConfigurationError("A reviewed speech-to-text price is required.");
+    throw new ConfigurationError(
+      "A reviewed speech-to-text price is required.",
+    );
   if (provider === "cartesia" && c.STT_ZERO_RETENTION === "true")
     throw new ConfigurationError(CARTESIA_ZERO_RETENTION);
   return {
@@ -565,7 +582,10 @@ export function speechToTextContract() {
   };
 }
 /** The saved transcription model, or the provider's batch model. */
-export function speechModel(provider: VoiceProvider, saved: string | undefined) {
+export function speechModel(
+  provider: VoiceProvider,
+  saved: string | undefined,
+) {
   const value = (saved ?? "").trim();
   const defaults: Record<VoiceProvider, string> = {
     elevenlabs: "scribe_v1",

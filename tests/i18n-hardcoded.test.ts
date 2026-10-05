@@ -87,8 +87,12 @@ const MEMBER_SCOPE: Record<string, true | string[]> = {
   "chat-attachments.tsx": ["ChatAttachmentList", "ChatAttachmentPicker"],
   "account-completion.tsx": ["MagicAccess"],
   "acquisition.tsx": ["ConsentBar", "ConsentSheet", "AnalyticsSetting"],
-  "coach-directory.tsx": ["CoachCard", "CoachDirectory", "DirectoryEmpty", "CoachDirectoryClosed"],
-  "integration-center.tsx": ["GuidedSession"],
+  "coach-directory.tsx": [
+    "CoachCard",
+    "CoachDirectory",
+    "DirectoryEmpty",
+    "CoachDirectoryClosed",
+  ],
   "healthkit-sync.tsx": ["HealthKitActivityCard", "HealthKitActivityList"],
 };
 /** English that is data, not wording: stored values sent to the server. */
@@ -125,14 +129,21 @@ const QUIET =
 function calleeName(node: Node | undefined): string {
   if (!node) return "";
   if (node.type === "Identifier") return node.name;
-  if (node.type === "MemberExpression" || node.type === "OptionalMemberExpression")
+  if (
+    node.type === "MemberExpression" ||
+    node.type === "OptionalMemberExpression"
+  )
     return `${calleeName(node.object)}.${node.property.name ?? node.property.value ?? ""}`;
   return "";
 }
-const prose = (s: string) => /[A-Za-z]{2,}\s+[A-Za-z]{2,}/.test(s) && /[a-z]/.test(s);
+const prose = (s: string) =>
+  /[A-Za-z]{2,}\s+[A-Za-z]{2,}/.test(s) && /[a-z]/.test(s);
 
 function findings(source: string, scope: true | string[], data: string[]) {
-  const ast = parse(source, { sourceType: "module", plugins: ["typescript", "jsx"] });
+  const ast = parse(source, {
+    sourceType: "module",
+    plugins: ["typescript", "jsx"],
+  });
   const out: string[] = [];
   const seen = new Set<string>();
   const report = (node: Node, text: string) => {
@@ -153,14 +164,19 @@ function findings(source: string, scope: true | string[], data: string[]) {
     if (node.type.startsWith("TS") || node.type === "ImportDeclaration") return;
     // Call arguments, object values and array items are data, not the text
     // shown; only literals reached through branches and joins are rendered.
-    if (ctx.rendered && !SHOWN.has(node.type)) ctx = { ...ctx, rendered: false };
+    if (ctx.rendered && !SHOWN.has(node.type))
+      ctx = { ...ctx, rendered: false };
     if (ctx.rendered && node.type === "ConditionalExpression") {
       visit(node.test, { ...ctx, rendered: false });
       visit(node.consequent, ctx);
       visit(node.alternate, ctx);
       return;
     }
-    if (ctx.rendered && node.type === "LogicalExpression" && node.operator === "&&") {
+    if (
+      ctx.rendered &&
+      node.type === "LogicalExpression" &&
+      node.operator === "&&"
+    ) {
       visit(node.left, { ...ctx, rendered: false });
       visit(node.right, ctx);
       return;
@@ -173,20 +189,26 @@ function findings(source: string, scope: true | string[], data: string[]) {
       }
       case "JSXExpressionContainer":
         // A child expression's strings are shown as they are.
-        visit(node.expression, { ...ctx, rendered: !ctx.quiet && !ctx.labelled });
+        visit(node.expression, {
+          ...ctx,
+          rendered: !ctx.quiet && !ctx.labelled,
+        });
         return;
       case "JSXElement":
       case "JSXFragment":
         // Attributes and children of a nested element start afresh.
         for (const key of ["openingElement", "children"]) {
           const value = node[key];
-          if (Array.isArray(value)) value.forEach((v) => visit(v, { ...ctx, rendered: false }));
+          if (Array.isArray(value))
+            value.forEach((v) => visit(v, { ...ctx, rendered: false }));
           else visit(value, { ...ctx, rendered: false });
         }
         return;
       case "JSXAttribute": {
         const name =
-          typeof node.name.name === "string" ? node.name.name : node.name.name.name;
+          typeof node.name.name === "string"
+            ? node.name.name
+            : node.name.name.name;
         const value = node.value;
         if (!value) return;
         if (LABELLED.has(name) && value.type === "StringLiteral") {
@@ -230,14 +252,27 @@ function findings(source: string, scope: true | string[], data: string[]) {
         return;
       case "TemplateLiteral": {
         const text = node.quasis.map((q: Node) => q.value.cooked).join("{}");
-        if (!ctx.quiet && (ctx.rendered ? /[A-Za-z]{2,}/.test(text) : prose(text)))
+        if (
+          !ctx.quiet &&
+          (ctx.rendered ? /[A-Za-z]{2,}/.test(text) : prose(text))
+        )
           report(node, text);
         for (const expression of node.expressions) visit(expression, ctx);
         return;
       }
     }
     for (const key of Object.keys(node)) {
-      if (["loc", "start", "end", "extra", "leadingComments", "trailingComments", "innerComments"].includes(key))
+      if (
+        [
+          "loc",
+          "start",
+          "end",
+          "extra",
+          "leadingComments",
+          "trailingComments",
+          "innerComments",
+        ].includes(key)
+      )
         continue;
       const value = node[key];
       if (Array.isArray(value)) value.forEach((v) => visit(v, ctx));
@@ -296,6 +331,13 @@ test("the check itself notices English", () => {
   assert.deepEqual(missing, []);
   assert.deepEqual(
     out.map((line) => line.replace(/^\d+: /, "")),
-    ["Something broke here", "Plain title", "Hello there", "set", "sets", "{} reps"],
+    [
+      "Something broke here",
+      "Plain title",
+      "Hello there",
+      "set",
+      "sets",
+      "{} reps",
+    ],
   );
 });
