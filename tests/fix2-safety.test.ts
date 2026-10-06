@@ -1,4 +1,4 @@
-import { test, before, after } from "node:test";
+import { test, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { createDatabase, type Database, type Tx } from "@trainer/db";
@@ -195,8 +195,13 @@ let recording: Statement[][] | null = null,
     ((sql: string, log: Statement[]) => Promise<void> | undefined) | null =
     null,
   modelCalls = 0;
-const today = localDate("Asia/Dubai"),
-  origin = "http://localhost:3000",
+// Read at the start of every test: the suite can run across midnight in
+// Dubai, and a date read when the file loaded is then yesterday (PLAN_DATE).
+let today = localDate("Asia/Dubai");
+beforeEach(() => {
+  today = localDate("Asia/Dubai");
+});
+const origin = "http://localhost:3000",
   originalFetch = globalThis.fetch;
 const envKeys = [
   "MODEL_BASE_URL",
