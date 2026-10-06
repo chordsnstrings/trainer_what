@@ -19,6 +19,13 @@
 // rewinding their current time, with no forced reflow. The CSS animations
 // are never played or paused through the API: that would detach them from
 // the style sheet, and a removed animation would keep running.
+//
+// Scroll scenes (home only, docs/features/scroll-scenes.md): while the band
+// is pinned, components/marketing/journey-scene.ts sends "mk-scene" events
+// ({active, q}: progress 0 to 1 through the pin) to the root. Then scroll is
+// the clock: no auto-play and no clock advance; the chapter is floor(q * 8)
+// and every stage animation and the clock are set to that point in time.
+// The controls ask the scene to scroll there ("mk-scene:seek").
 import {
   Activity,
   useEffect,
@@ -50,10 +57,17 @@ export type JourneyTiming = {
 type Mode = "idle" | "playing" | "paused" | "ended";
 
 const REDUCE = "(prefers-reduced-motion: reduce)";
+/** The device setting, or the member's own "Reduce motion" choice
+ * (<html data-reduce-motion="on">, app/layout.tsx). */
 const reducedNow = () =>
   typeof window !== "undefined" &&
-  typeof window.matchMedia === "function" &&
-  window.matchMedia(REDUCE).matches;
+  ((typeof window.matchMedia === "function" &&
+    window.matchMedia(REDUCE).matches) ||
+    document.documentElement.dataset.reduceMotion === "on");
+/** Each chapter holds its complete picture for its last 2.5 s (JOURNEY_TIMING). */
+const HOLD_MS = 2500;
+/** Scrubbing: the first 70% of a chapter's slice plays its beats; the rest holds. */
+const SCRUB_BEATS = 0.7;
 
 function Icon({
   name,
@@ -165,20 +179,26 @@ export function JourneyPlayer({
   const [pageVisible, setPageVisible] = useState(true);
   const [hover, setHover] = useState(false);
   const [said, setSaid] = useState("");
+  // Scroll drives the chapters (see above).
+  const [scrub, setScrub] = useState(false);
 
   // Soft pauses resume by themselves; the visitor's pauses do not. Off
   // screen or in a hidden tab everything holds; a mouse over the player only
   // stops the chapter clock, so the chapter's beats finish and its complete
   // picture stays while the visitor looks at it.
   const away = !inView || !pageVisible;
-  const clockOn = mode === "playing" && !away && !hover;
-  const frozen = hold || (mode === "playing" && away);
+  const clockOn = !scrub && mode === "playing" && !away && !hover;
+  const frozen = scrub || hold || (mode === "playing" && away);
 
   const chapterRef = useRef(chapter);
   chapterRef.current = chapter;
   const clockOnRef = useRef(clockOn);
   clockOnRef.current = clockOn;
   const clock = useRef<Animation | null>(null);
+  const scrubRef = useRef(scrub);
+  scrubRef.current = scrub;
+  // The scene's latest progress through the pin.
+  const scrubQ = useRef(0);
   // Whether a mouse entering the player counts as hovering: not after an
   // explicit Play or Replay until the pointer has left once (swapping the
   // button's icon under a resting pointer also reads as an entry).
@@ -197,6 +217,15 @@ export function JourneyPlayer({
    */
   const show = (i: number, manual: boolean, announce = false) => {
     const next = Math.max(0, Math.min(last, i));
+    if (scrubRef.current && manual) {
+      // Scroll is the clock: go to where this chapter's picture is complete.
+      seek((next + 0.75) / timing.length);
+      if (announce)
+        setSaid((prior) =>
+          prior === titles[next] ? titles[next] + "\u00a0" : titles[next],
+        );
+      return;
+    }
     setChapter(next);
     setRun(!reducedNow());
     setRunKey((k) => k + 1);
@@ -214,6 +243,30 @@ export function JourneyPlayer({
   };
   const advanceRef = useRef(advance);
   advanceRef.current = advance;
+  /** Asks the scroll scene to scroll the page to progress `q`. */
+  const seek = (q: number) =>
+    rootRef.current?.dispatchEvent(
+      new CustomEvent("mk-scene:seek", {
+        bubbles: true,
+        detail: { q: Math.max(0, Math.min(1, q)) },
+      }),
+    );
+  /** Sets the stage's animations and the clock to the scroll's point in time. */
+  const scrubTo = () => {
+    const n = timing.length;
+    const q = scrubQ.current;
+    const c = Math.min(last, Math.floor(q * n));
+    if (c !== chapterRef.current) return; // the chapter's layout effect comes back here
+    const p = Math.min(1, q * n - c);
+    const ms = timing[c].ms;
+    const t = p < SCRUB_BEATS ? (p / SCRUB_BEATS) * (ms - HOLD_MS) : ms;
+    const view = viewRef.current;
+    if (view && typeof view.getAnimations === "function")
+      for (const a of view.getAnimations({ subtree: true }))
+        if (typeof CSSAnimation === "function" && a instanceof CSSAnimation)
+          a.currentTime = t;
+    if (clock.current) clock.current.currentTime = p * ms;
+  };
 
   useLayoutEffect(() => setReady(true), []);
   // The clock never outlives the player.
@@ -249,12 +302,57 @@ export function JourneyPlayer({
               easing: "linear",
               fill: "forwards",
             });
-      next.onfinish = () => advanceRef.current();
+      next.onfinish = () => {
+        if (!scrubRef.current) advanceRef.current();
+      };
       if (clockOnRef.current) next.play();
       else next.pause();
     }
     clock.current = next;
   }, [chapter, runKey, reduced]);
+  // While scrolling drives the chapters, after the rewind above: the stage
+  // and the clock show the scroll's point in time.
+  useLayoutEffect(() => {
+    if (scrub) scrubTo();
+  }, [chapter, runKey, reduced, scrub, run]);
+
+  // The scroll scene's progress (journey-scene.ts). Asks for the current
+  // state once listening, in case the scene started first.
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const onScene = (e: Event) => {
+      const { active, q } = (e as CustomEvent<{ active: boolean; q: number }>)
+        .detail;
+      scrubQ.current = q;
+      if (!active) {
+        if (scrubRef.current) {
+          // Scenes switched off: hold the current picture until Play.
+          scrubRef.current = false;
+          setScrub(false);
+          setMode((m) => (m === "ended" ? m : "paused"));
+          setHold(true);
+        }
+        return;
+      }
+      if (!scrubRef.current) {
+        scrubRef.current = true;
+        setScrub(true);
+        setRun(true);
+        setHold(false);
+      }
+      setMode(q >= 0.999 ? "ended" : "paused");
+      const c = Math.min(last, Math.floor(q * timing.length));
+      if (c !== chapterRef.current) {
+        chapterRef.current = c;
+        setChapter(c);
+        setRunKey((k) => k + 1);
+      } else scrubTo();
+    };
+    root.addEventListener("mk-scene", onScene);
+    root.dispatchEvent(new CustomEvent("mk-scene:hello", { bubbles: true }));
+    return () => root.removeEventListener("mk-scene", onScene);
+  }, []);
 
   useEffect(() => {
     const c = clock.current;
@@ -267,18 +365,31 @@ export function JourneyPlayer({
   // Reduced motion, read now and whenever the setting changes: no auto-play,
   // static complete chapters, instant changes.
   useEffect(() => {
-    if (typeof window.matchMedia !== "function") return;
-    const query = window.matchMedia(REDUCE);
+    const query =
+      typeof window.matchMedia === "function"
+        ? window.matchMedia(REDUCE)
+        : null;
     const apply = () => {
-      setReduced(query.matches);
-      if (query.matches) {
+      const on = reducedNow();
+      setReduced(on);
+      if (on) {
         setRun(false);
         setMode((m) => (m === "playing" ? "paused" : m));
       }
     };
     apply();
-    query.addEventListener("change", apply);
-    return () => query.removeEventListener("change", apply);
+    query?.addEventListener("change", apply);
+    // The member's own choice can change too (data-reduce-motion on <html>).
+    const observer =
+      typeof MutationObserver === "function" ? new MutationObserver(apply) : null;
+    observer?.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-reduce-motion"],
+    });
+    return () => {
+      query?.removeEventListener("change", apply);
+      observer?.disconnect();
+    };
   }, []);
 
   // Auto-play only while at least half of the stage is on screen.
@@ -308,9 +419,16 @@ export function JourneyPlayer({
     return () => document.removeEventListener("visibilitychange", read);
   }, []);
   useEffect(() => {
-    if (mode === "idle" && ready && inView && pageVisible && !reducedNow())
+    if (
+      mode === "idle" &&
+      !scrub &&
+      ready &&
+      inView &&
+      pageVisible &&
+      !reducedNow()
+    )
       setMode("playing");
-  }, [mode, ready, inView, pageVisible]);
+  }, [mode, scrub, ready, inView, pageVisible]);
 
   // The step cards are a scroll-snap carousel (on phones always; wider, once
   // this island is ready: four or two cards in view). A chapter change
@@ -404,12 +522,19 @@ export function JourneyPlayer({
   }, [ready]);
 
   const stop = () => {
+    if (scrubRef.current) return;
     if (mode === "playing" || mode === "idle") {
       setMode("paused");
       setHold(true);
     }
   };
   const toggle = () => {
+    // While scrolling drives the chapters, Play goes to the start of the
+    // next chapter and Replay to the start of the walkthrough.
+    if (scrubRef.current) {
+      seek(mode === "ended" ? 0 : (chapter + 1.01) / timing.length);
+      return;
+    }
     if (mode === "playing") {
       setMode("paused");
       setHold(true);
@@ -499,6 +624,7 @@ export function JourneyPlayer({
       data-go={flag(t.go !== null)}
       data-back={flag(t.back !== null)}
       data-sw2={flag(t.swaps.length > 1)}
+      data-scrub={flag(scrub)}
       style={style}
       onFocus={onFocus}
       onClick={onClick}

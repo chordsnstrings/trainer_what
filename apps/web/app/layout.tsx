@@ -8,6 +8,7 @@ import {
 } from "../components/public-website";
 import { LocaleProvider } from "../lib/i18n/react";
 import { publicPlatform } from "../components/marketing/platform";
+import { SCENES_HEAD_SCRIPT } from "../components/marketing/scenes-head";
 import {
   BRAND_COLORS,
   BRAND_COPY,
@@ -44,6 +45,8 @@ import "./appearance.css";
 import "./member-screens.css";
 import "./marketing.css";
 import "./marketing-journey.css";
+// Scroll scenes (home page only; docs/features/scroll-scenes.md).
+import "./scroll-scenes.css";
 import "./analytics-consent.css";
 // Motion for subscriber surfaces: tokens, every animation and transition,
 // and the reduced-motion rules (docs/features/motion.md).
@@ -161,6 +164,8 @@ export default async function Layout({
     >
       <head>
         <script dangerouslySetInnerHTML={{ __html: LAUNCH_COLOUR_SCRIPT }} />
+        {/* Scroll scenes: on before the first paint, or never. */}
+        <script dangerouslySetInnerHTML={{ __html: SCENES_HEAD_SCRIPT }} />
       </head>
       <body>
         {/* Subscriber text follows <html lang> (lib/i18n/react.tsx). */}

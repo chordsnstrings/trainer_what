@@ -4,6 +4,8 @@
 
 Production music automation. See [music agent](MUSIC_AGENT_2026-10-06.md) and [Claude handoff](../CLAUDE_HANDOFF.md). The owner approved public source/sanitized-handoff publication and deployment. The prepared implementation was restored after a workspace reset; restored-source TypeScript, production build, fifteen music tests and deployment checks passed. Public CI and deployment are underway. New migration starts automation paused until earlier paid work is reconciled.
 
+Home page scroll scenes are on branch `feat/scroll-scenes-2026-10-06` (draft PR #37), built and checked and awaiting owner review. They are off for reduced motion, the site toggle, crawlers and webdriver. See [scroll scenes](features/scroll-scenes.md).
+
 Previous verified release: PR #35, main `136e7b247e03c5f3d786ef2be1aff63c9424163f`. All five PR checks, all five exact-main checks, readiness and public assets passed. Coach-workflow F01–F10 changes are live there. Fresh prompt-v6 qualification, live-provider checks and physical-device guided-session checks are still separate deliverables.
 
 ## Standing owner decisions

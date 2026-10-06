@@ -59,6 +59,7 @@ import { AssistantButton } from "./assistant-button";
 import { HeroFlow } from "./hero-flow";
 import { Journey, JourneyBand, journeyAvailable } from "./journey";
 import { MarketingMotion } from "./motion";
+import { ScrollScenes } from "./scene-mount";
 import type { PublicPlatform } from "./platform";
 import {
   FeatureMatrix,
@@ -273,14 +274,21 @@ function Closing({
   cta,
   platform,
   secondary,
+  scene = false,
 }: {
   cta: Cta;
   platform: PublicPlatform;
   secondary: Cta;
+  /** Home only: the panel rises into place as it enters (scroll scenes). */
+  scene?: boolean;
 }) {
   return (
     <div className="mk-container mk-closing-wrap">
-      <section className="mk-closing" aria-labelledby="mk-closing-h">
+      <section
+        className="mk-closing"
+        aria-labelledby="mk-closing-h"
+        {...(scene ? { "data-scene": "reveal", "data-span": ".45" } : {})}
+      >
         <h2 id="mk-closing-h">
           {usesBrandIdentity(platform.name) ? BRAND_COPY.line : "Ready to teach your AI?"}
         </h2>
@@ -1214,6 +1222,7 @@ function HomeSection({
   visual,
   links = [],
   className = "",
+  scene,
 }: {
   page: MarketingPage;
   id: string;
@@ -1223,6 +1232,8 @@ function HomeSection({
   visual?: ReactNode;
   links?: Cta[];
   className?: string;
+  /** A scroll scene for the band (home only; docs/features/scroll-scenes.md). */
+  scene?: "assemble" | "beats" | "rise";
 }) {
   const section = page.sections.find((s) => s.id === id)!;
   const more = links.length > 0 && (
@@ -1239,6 +1250,7 @@ function HomeSection({
       className={`mk-home-band mk-home-${tone} ${className}`.trim()}
       id={id}
       aria-labelledby={id + "-h"}
+      data-scene={scene}
     >
       <div className={"mk-container mk-home-inner" + (split ? " mk-home-split" : "")}>
         <div className="mk-home-text">
@@ -1322,7 +1334,7 @@ function SubscriberTiles({ platform }: { platform: PublicPlatform }) {
   return (
     <ul className="mk-icon-tiles">
       {tiles.map(({ icon: Icon, label, line, href }) => (
-        <li key={label}>
+        <li key={label} data-beat>
           <Link className="mk-icon-tile" href={href}>
             <span className="mk-icon-square" aria-hidden="true">
               <Icon size={22} />
@@ -1350,28 +1362,30 @@ function ControlFlow() {
         Illustration with sample data
       </p>
       <div className="mk-flow" aria-hidden="true">
-        <div className="mk-flow-msg">
+        {/* Scroll scene beats: the same "before" poses as the reveal in
+            app/marketing.css. */}
+        <div className="mk-flow-msg" data-beat="1" data-from="y:12 o:0">
           <span className="small-label">SUBSCRIBER</span>
           <p>“Week three done. Squats felt easy.”</p>
         </div>
-        <div className="mk-flow-brain">
+        <div className="mk-flow-brain" data-beat="2" data-from="y:12 o:0">
           <span className="small-label">YOUR AI</span>
           <p>
             <strong>Your rule:</strong> two easy sessions → add 2.5 kg.
           </p>
           <div className="mk-meter">
-            <span style={{ inlineSize: "86%" }} />
+            <span style={{ inlineSize: "86%" }} data-beat="3" data-from="sx:0" />
           </div>
           <small>Confidence above your threshold</small>
         </div>
         <div className="mk-flow-lanes">
-          <span className="mk-lane mk-lane-auto">
+          <span className="mk-lane mk-lane-auto" data-beat="4" data-from="s:.6 o:0">
             <CheckCircle size={14} /> Applied automatically
           </span>
-          <span className="mk-lane">
+          <span className="mk-lane" data-beat="4" data-from="y:8 o:0">
             <UserRound size={14} /> Unsure → to you
           </span>
-          <span className="mk-lane mk-lane-safety">
+          <span className="mk-lane mk-lane-safety" data-beat="4" data-from="s:1.15 o:0">
             <CircleAlert size={14} /> Pain → paused, to you
           </span>
         </div>
@@ -1410,7 +1424,7 @@ function EconomicsVisual({ platform }: { platform: PublicPlatform }) {
           {bandPills().map((pill) => {
             const [rate, range] = pill.split(" · ");
             return (
-              <li key={pill}>
+              <li key={pill} data-beat>
                 <strong>{rate}</strong> · {range}
               </li>
             );
@@ -1434,8 +1448,15 @@ function Home({ page, platform }: Ctx) {
   );
   return (
     <>
-      <section className="mk-hero" aria-labelledby="mk-hero-h">
-        <div className="mk-container mk-hero-inner">
+      {/* Scroll scenes (home only): the hero's content sinks back as it
+          scrolls away; its load animation stays. */}
+      <section
+        className="mk-hero"
+        aria-labelledby="mk-hero-h"
+        data-scene="depart"
+        data-mode="leave"
+      >
+        <div className="mk-container mk-hero-inner" data-world>
           <div className="mk-hero-copy">
             <div className="mk-hero-head">
               <p className="eyebrow">{t(page.eyebrow)}</p>
@@ -1468,6 +1489,7 @@ function Home({ page, platform }: Ctx) {
         id="subscribers"
         t={t}
         tone="white"
+        scene="assemble"
         visual={<SubscriberTiles platform={platform} />}
         links={[{ label: "All features", href: "/features" }]}
       />
@@ -1477,6 +1499,7 @@ function Home({ page, platform }: Ctx) {
         t={t}
         tone="paper"
         split
+        scene="beats"
         visual={<ControlFlow />}
         links={[
           { label: "How your AI decides", href: "/trainer-brain" },
@@ -1489,6 +1512,7 @@ function Home({ page, platform }: Ctx) {
         t={t}
         tone="white"
         split
+        scene="rise"
         visual={<EconomicsVisual platform={platform} />}
         links={[{ label: "Pricing in detail", href: "/pricing" }]}
       />
@@ -1510,7 +1534,10 @@ function Home({ page, platform }: Ctx) {
           <Faqs page={page} t={t} heading="Questions trainers ask" />
         </div>
       </div>
-      <Closing cta={cta} platform={platform} secondary={closingLink(page.path)} />
+      <Closing cta={cta} platform={platform} secondary={closingLink(page.path)} scene />
+      {/* Drives the scenes above (renders nothing; off unless the head
+          script turned scenes on: docs/features/scroll-scenes.md). */}
+      <ScrollScenes />
     </>
   );
 }

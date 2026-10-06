@@ -6,6 +6,29 @@ Application implementation and the job audit are complete for the current phase.
 
 The local environment restored an older snapshot. Yesterday's uncommitted completion work is absent. The recovery note on `work-in-progress/completion-2026-09-25` documents intended behavior, not preserved source. Work here starts from published `620eef1` and reconstructs missing features. Previously passing release evidence does not verify these new changes.
 
+## Stage 2026-10-06s — home page scroll scenes (branch `feat/scroll-scenes-2026-10-06`, draft PR #37, not merged or deployed)
+
+- **Owner scope:** scroll scenes on `/` only, per the approved plan and review fixes, with frugal token use.
+- **Delivered:** the scroll-scenes engine, recipes and CSS, unchanged, plus trainsyou wiring:
+  - a head script, on `/` only, that skips reduced motion, the site toggle, crawlers and webdriver;
+  - hero `depart`;
+  - a journey scrub pin of 480/500svh, with the player in scrub mode;
+  - `assemble` on the subscriber tiles;
+  - `beats` on ControlFlow;
+  - `rise` on the band pills;
+  - closing `reveal`.
+  The section reveal stands down for scene sections. See `docs/features/scroll-scenes.md`.
+- **Checks:**
+  - root and web `tsc` pass;
+  - 178/178 targeted unit tests pass;
+  - the production build passes;
+  - marketing motion: the journey check is 180/181 (the known pre-existing hover-clock failure) and the sitewide check passes;
+  - `verify_scenes.py`, desktop and phone: CLS 0.0173 / 0.0047, no overflow;
+  - down/up: one 1px rasterisation mismatch on the journey at p=0 on desktop;
+  - end state: the journey rests on chapter 8 (expected);
+  - a reduced-motion screenshot equals the baseline.
+- **Remaining:** owner review, then mark PR #37 ready and merge. Phase 2 (/how-it-works) is not started.
+
 ## Stage 2026-10-02b — expanded website modules, before/after galleries and editor spacing (PR #25 merged as `ac5d55a`, live verified 2 October 2026 at 14:34–14:35 UTC)
 
 - **Owner scope:** expand every module family using one agent, compact presets and targeted reads/tests; subsequent requests explicitly require before/after galleries for coached-client transformations, AI recognition, and corrected editor padding.
