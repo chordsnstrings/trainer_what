@@ -23,8 +23,11 @@ export const MOTION = {
 } as const;
 
 const REDUCED = "(prefers-reduced-motion: reduce)";
+/** The device setting, or the member's own "Reduce motion" choice
+ * (<html data-reduce-motion="on">, app/layout.tsx). */
 const reduced = () =>
-  typeof matchMedia === "function" && matchMedia(REDUCED).matches;
+  (typeof matchMedia === "function" && matchMedia(REDUCED).matches) ||
+  document.documentElement.dataset.reduceMotion === "on";
 
 /**
  * The reveal units: each home band's content, each block of an inner page
@@ -43,6 +46,8 @@ const UNITS = [
 ].join(", ");
 /** What never waits for a reveal: the first screen's showpieces and the journey. */
 const NEVER = ".mk-hero, .mk-page-head, .mk-relay, .mk-walk-section, .mk-walk-band";
+/** While scroll scenes are on (scene-mount.tsx), scroll moves their sections instead. */
+const SCENES = "[data-scene]";
 /** The longest item stagger in app/marketing.css (--mk-stagger), in ms. */
 export const MAX_STAGGER = 240;
 /** Grids whose items follow their unit in a short stagger (app/marketing.css). */
@@ -67,8 +72,9 @@ export function MarketingMotion({ path }: { path: string }) {
     if (!root || typeof IntersectionObserver !== "function" || reduced())
       return;
     root.classList.add("mk-motion");
+    const scenes = document.documentElement.classList.contains("scenes-on");
     const units = [...root.querySelectorAll<HTMLElement>(UNITS)].filter(
-      (unit) => !unit.closest(NEVER),
+      (unit) => !unit.closest(NEVER) && !(scenes && unit.closest(SCENES)),
     );
     let target: Element | null = null;
     try {

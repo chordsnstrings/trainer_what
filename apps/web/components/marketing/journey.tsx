@@ -964,29 +964,37 @@ export function JourneyBand({
     <section
       className="mk-home-band mk-home-paper mk-walk-band"
       aria-labelledby="mk-walk-label"
+      // Scroll scenes: while they are on (and the viewport is tall enough,
+      // app/scroll-scenes.css) the band pins and scrolling plays the
+      // chapters (components/marketing/journey-scene.ts).
+      data-scene="journey"
+      data-pin=""
+      style={{ "--len": 480, "--len-phone": 500 } as CSSProperties}
     >
-      <div className="mk-container">
-        <JourneyPlayer
-          variant="compact"
-          groupLabel="mk-walk-label"
-          titles={(section.steps ?? []).map((s) => t(s.title))}
-          timing={JOURNEY_TIMING}
-          head={
-            <p className="small-label mk-walk-label" id="mk-walk-label">
-              {t(section.heading)}
-            </p>
-          }
-          stage={<Stage c={context(platform, false)} platform={platform} />}
-          subs={SUBSCRIBER_LINES.map((ref) => t(registryLine(ref)))}
-          subLabel={<SubscriberLabel />}
-          foot={
-            <p className="mk-home-more mk-walk-more">
-              <Link className="text-link mk-link" href="/how-it-works#steps">
-                See how it works <ArrowRight size={15} aria-hidden="true" />
-              </Link>
-            </p>
-          }
-        />
+      <div data-stage="">
+        <div className="mk-container">
+          <JourneyPlayer
+            variant="compact"
+            groupLabel="mk-walk-label"
+            titles={(section.steps ?? []).map((s) => t(s.title))}
+            timing={JOURNEY_TIMING}
+            head={
+              <p className="small-label mk-walk-label" id="mk-walk-label">
+                {t(section.heading)}
+              </p>
+            }
+            stage={<Stage c={context(platform, false)} platform={platform} />}
+            subs={SUBSCRIBER_LINES.map((ref) => t(registryLine(ref)))}
+            subLabel={<SubscriberLabel />}
+            foot={
+              <p className="mk-home-more mk-walk-more">
+                <Link className="text-link mk-link" href="/how-it-works#steps">
+                  See how it works <ArrowRight size={15} aria-hidden="true" />
+                </Link>
+              </p>
+            }
+          />
+        </div>
       </div>
     </section>
   );
