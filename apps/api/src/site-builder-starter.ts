@@ -126,7 +126,7 @@ async function ownerTransaction<T>(
 
 /**
  * Resolve Seed separately from the active coaching model. A model-profile
- * switch never turns this inexpensive drafting task into a frontier call.
+ * switch never sends this Seed-only drafting task to a different model.
  * The global integration's off/unchecked state is already represented by
  * empty effective model keys in the request's runtime scope.
  */

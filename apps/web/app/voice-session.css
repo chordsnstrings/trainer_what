@@ -250,3 +250,27 @@
   justify-content: center;
   gap: 0.5rem;
 }
+
+.music-agent-metrics,
+.music-agent-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr));
+  gap: 16px;
+}
+.music-agent-metrics > div,
+.music-agent-fields label {
+  display: grid;
+  gap: 6px;
+}
+.music-agent-metrics > div {
+  padding: 16px;
+  background: var(--surface-subtle, #f8f9fa);
+  border-radius: 10px;
+}
+.music-agent-fields {
+  margin-block: 16px;
+}
+.music-agent input[type="number"] {
+  inline-size: 100%;
+  min-inline-size: 0;
+}

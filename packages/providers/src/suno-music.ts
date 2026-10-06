@@ -1,6 +1,7 @@
 import { integrationRequest } from "./integrations.ts";
 import { runtimeConfig, type RuntimeConfig } from "./configuration.ts";
 import { musicBrief } from "../../domain/src/workout-music.ts";
+import type { MusicBrief } from "./music-planner.ts";
 const ROOT = "https://apibox.erweima.ai/api/v1";
 export class MusicProviderError extends Error {
   constructor(
@@ -58,7 +59,11 @@ export async function musicCredits(config?: RuntimeConfig): Promise<number> {
     );
   return credits;
 }
-export async function generateMusic(playlist: string, index: number) {
+export async function generateMusic(
+  playlist: string,
+  index: number,
+  planned?: MusicBrief,
+) {
   const config = runtimeConfig();
   if (config.MUSIC_ENABLED !== "true")
     throw new MusicProviderError("definitive", "Music generation is disabled.");
@@ -68,7 +73,17 @@ export async function generateMusic(playlist: string, index: number) {
       "definitive",
       "Select a supported music model in settings.",
     );
-  const brief = musicBrief(playlist, index);
+  const brief = planned ?? musicBrief(playlist, index);
+  if (
+    brief.title !== musicBrief(playlist, index).title ||
+    typeof brief.style !== "string" ||
+    brief.style.length > 1000 ||
+    brief.duration !== 240
+  )
+    throw new MusicProviderError(
+      "definitive",
+      "Invalid saved music arrangement.",
+    );
   const data = await request("/generate", {
     ...brief,
     customMode: true,
@@ -97,9 +112,7 @@ export type GeneratedMusic = {
   title: string;
   duration: number;
 };
-export async function musicResult(
-  taskId: string,
-): Promise<{
+export async function musicResult(taskId: string): Promise<{
   status: "pending" | "complete" | "failed";
   tracks: GeneratedMusic[];
   instrumental: boolean;

@@ -1116,7 +1116,7 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
     implemented: true,
     description: "Reusable instrumental workout playlists.",
     setupNotes:
-      "Save the SunoAPI key here. The connection test only reads credits. Generate bounded batches from Music library, review tracks and approve them for members. Unknown submissions require reconciliation, never an automatic retry. Tracks are copied into durable platform storage; provider links expire. No automatic top-ups. Each playlist needs 30 approved, distinct songs.",
+      "Save the SunoAPI key here. The connection test only reads credits. Music library has a server agent that plans varied instrumentals with the frontier model, generates within daily and total limits, saves permanent MP3s and optionally publishes after local audio checks. Import and reconcile earlier purchases before starting. Unknown submissions are never retried automatically. No automatic top-ups. Each playlist needs 30 distinct, available songs.",
     fields: [
       field("MUSIC_API_KEY", "SunoAPI key", "secret", { required: true }),
       field("MUSIC_ENABLED", "Enable approved generation jobs", "boolean", {

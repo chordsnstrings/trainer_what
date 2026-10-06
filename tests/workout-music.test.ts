@@ -363,3 +363,46 @@ test("the worker rechecks the daily spending limit before a queued submission", 
     "queued",
   );
 });
+
+test("overdue paid jobs retain their task and stop polling without a replacement purchase", async () => {
+  await db.system((tx) =>
+    tx.query(
+      "UPDATE workout_music_jobs SET status='pending',task_id='slow-existing-task',submitted_at=now()-interval '3 hours' WHERE playlist='recovery'",
+    ),
+  );
+  const before = submits;
+  await fixture(() => processWorkoutMusic(db));
+  const job = (await req("/admin/music"))
+    .json()
+    .jobs.find((j: any) => j.playlist === "recovery");
+  assert.equal(job.status, "unknown");
+  assert.equal(job.task_id, "slow-existing-task");
+  assert.equal(submits, before);
+  requests.set("slow-existing-task", {
+    ...musicBrief("recovery", 0),
+    instrumental: true,
+  });
+  const reconciled = await req(
+    `/admin/music/jobs/${job.id}/reconcile`,
+    "POST",
+    { taskId: "slow-existing-task" },
+  );
+  assert.equal(reconciled.statusCode, 200, reconciled.body);
+  await fixture(() => processWorkoutMusic(db));
+  const recovered = (await req("/admin/music"))
+    .json()
+    .jobs.find((j: any) => j.id === job.id);
+  assert.equal(recovered.status, "complete");
+  assert.equal(submits, before);
+  const [saved] = await db.system((tx) =>
+    tx.query(
+      "SELECT submitted_at,reconciled_at FROM workout_music_jobs WHERE id=$1",
+      [job.id],
+    ),
+  );
+  assert.ok(
+    new Date(saved.reconciled_at).getTime() -
+      new Date(saved.submitted_at).getTime() >
+      2 * 60 * 60 * 1000,
+  );
+});

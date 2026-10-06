@@ -147,6 +147,8 @@ export async function verifyRuntimeAccess(client) {
     workout_music_jobs: ["SELECT", "INSERT", "UPDATE"],
     workout_music_tracks: ["SELECT", "INSERT", "UPDATE"],
     workout_music_audit: ["SELECT", "INSERT"],
+    workout_music_agent: ["SELECT", "INSERT", "UPDATE"],
+    workout_music_plans: ["SELECT", "INSERT", "UPDATE"],
   };
   for (const [table, grants] of Object.entries(systemTables)) {
     for (const privilege of ["SELECT", "INSERT", "UPDATE", "DELETE"]) {
@@ -167,6 +169,8 @@ export async function verifyRuntimeAccess(client) {
     "workout_music_jobs",
     "workout_music_tracks",
     "workout_music_audit",
+    "workout_music_agent",
+    "workout_music_plans",
   ]) {
     const [security] = await query(
       "SELECT relrowsecurity,relforcerowsecurity,EXISTS(SELECT 1 FROM pg_policies p WHERE p.schemaname='public' AND p.tablename=$1 AND p.cmd='ALL' AND p.qual LIKE '%trainer_app%' AND p.with_check LIKE '%trainer_app%') AS service_only FROM pg_class WHERE oid=$1::regclass",

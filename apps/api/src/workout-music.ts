@@ -16,6 +16,16 @@ import {
 } from "../../../packages/providers/src/suno-music.ts";
 import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
 import { requireRecentMfa } from "./security.ts";
+import {
+  enforceMusicAgentBudget,
+  musicAgentSummary,
+  saveMusicAgent,
+  useStandardMusicPlan,
+} from "./music-agent.ts";
+import {
+  prepareMusicAudio,
+  MusicAudioRejected,
+} from "../../../packages/providers/src/music-audio.ts";
 
 type Identity = Actor & { platformRole?: string; mfaAt?: string | null };
 const fail = (statusCode: number, code: string, message: string) =>
@@ -34,7 +44,8 @@ async function audit(
     [randomUUID(), actor, subject, action, JSON.stringify(detail)],
   );
 }
-const metadata = "id,playlist,title,duration,status,review_note,created_at";
+const metadata =
+  "id,playlist,title,duration,status,review_note,publication_source,audio_check,created_at";
 function limits() {
   const c = runtimeConfig(),
     perJob = Number(c.MUSIC_CREDITS_PER_JOB),
@@ -189,7 +200,20 @@ export function registerWorkoutMusic(
         "SELECT id,playlist,slot,status,task_id,credit_limit,credits_before,credits_after,error,created_at FROM workout_music_jobs ORDER BY created_at DESC LIMIT 500",
       ),
       enabled: runtimeConfig().MUSIC_ENABLED === "true",
+      agent: await musicAgentSummary(tx),
+      plans: await tx.query(
+        "SELECT id,playlist,status,slots,error,usage,reserved_usd,created_at FROM workout_music_plans ORDER BY created_at DESC LIMIT 40",
+      ),
     }));
+  });
+  app.post("/api/v1/admin/music/agent", async (req) => {
+    const a = admin(req, true);
+    return db.system((tx) => saveMusicAgent(tx, a.userId, req.body));
+  });
+  app.post("/api/v1/admin/music/plans/:id/standard", async (req) => {
+    const a = admin(req, true),
+      id = uuid.parse((req.params as any).id);
+    return db.system((tx) => useStandardMusicPlan(tx, id, a.userId));
   });
   app.get(
     "/api/v1/admin/music/credits",
@@ -238,6 +262,7 @@ export function registerWorkoutMusic(
           "SELECT coalesce(sum(CASE WHEN status='queued' OR submitted_at >= date_trunc('day',now()) THEN credit_limit ELSE 0 END),0) AS total,coalesce(sum(CASE WHEN status IN ('queued','submitting','pending','unknown') THEN credit_limit ELSE 0 END),0) AS outstanding FROM workout_music_jobs WHERE NOT imported AND status<>'cancelled'",
         );
         const cost = perJob * b.requests;
+        await enforceMusicAgentBudget(tx, b.requests, cost);
         if (
           Number(reserved.total) + cost > daily ||
           Number(reserved.outstanding) + cost > credits
@@ -381,7 +406,7 @@ export function registerWorkoutMusic(
           "Attach the provider task ID to reconcile an unknown or failed result. Its credit reservation remains recorded.",
         );
       await tx.query(
-        "UPDATE workout_music_jobs SET status=$2,task_id=$3,error=NULL,leased_until=NULL,poll_after=NULL,updated_at=now() WHERE id=$1",
+        "UPDATE workout_music_jobs SET status=$2,task_id=$3,error=NULL,leased_until=NULL,poll_after=NULL,reconciled_at=now(),updated_at=now() WHERE id=$1",
         [id, b.cancel ? "cancelled" : "pending", b.taskId ?? null],
       );
       await audit(tx, "job_reconciled", a.userId, id, {
@@ -410,7 +435,7 @@ export function registerWorkoutMusic(
       );
     return db.system(async (tx) => {
       const rows = await tx.query(
-        "UPDATE workout_music_tracks SET status=$2,review_note=$3,reviewed_by=$4,reviewed_at=now() WHERE id=$1 RETURNING id",
+        "UPDATE workout_music_tracks SET status=$2,review_note=$3,reviewed_by=$4,reviewed_at=now(),publication_source='manual',check_token=NULL,check_leased_until=NULL WHERE id=$1 RETURNING id",
         [id, b.status, b.note, a.userId],
       );
       if (!rows.length) throw fail(404, "MUSIC_NOT_FOUND", "Track not found.");
@@ -434,16 +459,37 @@ export async function processWorkoutMusic(db: Database) {
     await tx.query(
       "UPDATE workout_music_jobs SET status='unknown',error='Worker interrupted during submission; reconcile provider task.',leased_until=NULL,updated_at=now() WHERE status='submitting' AND leased_until<now()",
     );
+    await tx.query(
+      "UPDATE workout_music_jobs SET status='unknown',error='Provider task is taking longer than two hours. Reconcile the existing task; do not regenerate.',leased_until=NULL,updated_at=now() WHERE status='pending' AND greatest(reconciled_at,coalesce(submitted_at,created_at))<now()-interval '2 hours' AND (leased_until IS NULL OR leased_until<now())",
+    );
     const [active] = await tx.query(
       "SELECT id FROM workout_music_jobs WHERE leased_until>now() LIMIT 1",
     );
     if (active) return null;
     const [row] = await tx.query(
-      "SELECT * FROM workout_music_jobs WHERE status IN ('pending','queued') AND ($1 OR status='pending') AND (leased_until IS NULL OR leased_until<now()) AND (poll_after IS NULL OR poll_after<=now()) ORDER BY CASE status WHEN 'pending' THEN 0 ELSE 1 END,created_at,id LIMIT 1 FOR UPDATE",
+      "SELECT * FROM workout_music_jobs WHERE status IN ('pending','queued') AND ($1 OR status='pending') AND (status='pending' OR plan_id IS NULL OR EXISTS(SELECT 1 FROM workout_music_agent WHERE id=true AND enabled AND recovery_confirmed)) AND (leased_until IS NULL OR leased_until<now()) AND (poll_after IS NULL OR poll_after<=now()) ORDER BY CASE status WHEN 'pending' THEN 0 ELSE 1 END,created_at,id LIMIT 1 FOR UPDATE",
       [generationEnabled],
     );
     if (!row) return null;
     if (row.status === "queued") {
+      if (row.plan_id) {
+        const [count] = await tx.query(
+          "SELECT count(*)::int AS n FROM workout_music_tracks WHERE playlist=$1 AND status='approved'",
+          [row.playlist],
+        );
+        if (Number(count.n) >= MUSIC_TARGET) {
+          await tx.query(
+            "UPDATE workout_music_jobs SET status='cancelled',error='Playlist already full; unsent generation cancelled.',updated_at=now() WHERE id=$1",
+            [row.id],
+          );
+          return null;
+        }
+        const [hold] = await tx.query(
+          "SELECT id FROM workout_music_jobs WHERE status='unknown' LIMIT 1",
+        );
+        if (hold) return null;
+      }
+      await enforceMusicAgentBudget(tx, 0, 0);
       const { perJob, daily } = limits();
       const [spent] = await tx.query(
         "SELECT coalesce(sum(credit_limit),0) AS total FROM workout_music_jobs WHERE submitted_at>=date_trunc('day',now()) AND NOT imported",
@@ -480,7 +526,11 @@ export async function processWorkoutMusic(db: Database) {
           [job.id, credits],
         ),
       );
-      const taskId = await generateMusic(job.playlist, Number(job.slot));
+      const taskId = await generateMusic(
+        job.playlist,
+        Number(job.slot),
+        job.brief ?? undefined,
+      );
       await db.system((tx) =>
         tx.query(
           "UPDATE workout_music_jobs SET status='pending',task_id=$2,leased_until=NULL,updated_at=now() WHERE id=$1",
@@ -493,7 +543,7 @@ export async function processWorkoutMusic(db: Database) {
     if (result.status === "pending") {
       await db.system((tx) =>
         tx.query(
-          "UPDATE workout_music_jobs SET leased_until=NULL,poll_after=now()+interval '30 seconds',updated_at=now() WHERE id=$1",
+          "UPDATE workout_music_jobs SET leased_until=NULL,poll_after=now()+interval '60 seconds',updated_at=now() WHERE id=$1",
           [job.id],
         ),
       );
@@ -566,5 +616,83 @@ export async function processWorkoutMusic(db: Database) {
         ],
       ),
     );
+  }
+}
+
+/** Local file checks only. Never buys replacement audio or impersonates a listening review. */
+export async function processMusicReview(db: Database) {
+  const token = randomUUID();
+  const track = await db.system(async (tx) => {
+    await tx.query(
+      "SELECT pg_advisory_xact_lock(hashtext('workout-music-review'))",
+    );
+    const [agent] = await tx.query(
+      "SELECT enabled,auto_publish FROM workout_music_agent WHERE id=true",
+    );
+    if (!agent?.enabled || !agent.auto_publish) return null;
+    const [row] = await tx.query(
+      "SELECT id,audio,duration FROM workout_music_tracks WHERE status='review' AND audio_check IS NULL AND (check_leased_until IS NULL OR check_leased_until<now()) ORDER BY created_at,id LIMIT 1 FOR UPDATE",
+    );
+    if (!row) return null;
+    await tx.query(
+      "UPDATE workout_music_tracks SET check_token=$2,check_leased_until=now()+interval '5 minutes' WHERE id=$1",
+      [row.id, token],
+    );
+    return row;
+  });
+  if (!track) return;
+  try {
+    const prepared = await prepareMusicAudio(
+      Buffer.from(track.audio),
+      Number(track.duration),
+    );
+    const sha = createHash("sha256").update(prepared.audio).digest("hex");
+    await db.system(async (tx) => {
+      const [agent] = await tx.query(
+        "SELECT enabled,auto_publish FROM workout_music_agent WHERE id=true FOR UPDATE",
+      );
+      if (!agent?.enabled || !agent.auto_publish) {
+        await tx.query(
+          "UPDATE workout_music_tracks SET check_token=NULL,check_leased_until=NULL WHERE id=$1 AND check_token=$2",
+          [track.id, token],
+        );
+        return;
+      }
+      const rows = await tx.query(
+        "UPDATE workout_music_tracks SET status='approved',publication_source='automatic',audio=$3,sha256=$4,audio_check=$5,review_note='Automatically decoded, normalized and checked. Instrumental setting verified with provider; no listening review.',check_token=NULL,check_leased_until=NULL WHERE id=$1 AND status='review' AND check_token=$2 RETURNING id",
+        [track.id, token, prepared.audio, sha, JSON.stringify(prepared.check)],
+      );
+      if (rows.length)
+        await audit(tx, "track_auto_published", null, track.id, prepared.check);
+    });
+  } catch (error) {
+    if (
+      !(error instanceof MusicAudioRejected) &&
+      (error as any)?.code !== "23505"
+    ) {
+      await db.system((tx) =>
+        tx.query(
+          "UPDATE workout_music_tracks SET check_leased_until=now()+interval '5 minutes',review_note='Automatic audio checks are delayed. The file is retained; no replacement is requested.' WHERE id=$1 AND status='review' AND check_token=$2",
+          [track.id, token],
+        ),
+      );
+      return;
+    }
+    await db.system(async (tx) => {
+      const rows = await tx.query(
+        "UPDATE workout_music_tracks SET status='rejected',audio_check=$3,review_note='Automatic audio checks failed. Preview before any manual approval.',check_token=NULL,check_leased_until=NULL WHERE id=$1 AND status='review' AND check_token=$2 RETURNING id",
+        [
+          track.id,
+          token,
+          JSON.stringify({
+            version: "mp3-v1",
+            passed: false,
+            listeningReviewed: false,
+          }),
+        ],
+      );
+      if (rows.length)
+        await audit(tx, "track_audio_check_failed", null, track.id);
+    });
   }
 }

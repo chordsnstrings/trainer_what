@@ -6,7 +6,11 @@ import { withRuntimeConfig } from "../../../packages/providers/src/configuration
 import { loadRuntimeSettings } from "../../api/src/platform-settings.ts";
 import { purgeExpiredMealCaptures } from "../../api/src/meal-capture.ts";
 import { processIntegrationJobs } from "../../api/src/integrations-completion.ts";
-import { processWorkoutMusic } from "../../api/src/workout-music.ts";
+import {
+  processWorkoutMusic,
+  processMusicReview,
+} from "../../api/src/workout-music.ts";
+import { processMusicAgent } from "../../api/src/music-agent.ts";
 import { processVoiceSessions } from "../../api/src/voice-session.ts";
 import { processVoiceClones } from "../../api/src/voice-clones.ts";
 import { purgeExpiredAcquisition } from "../../api/src/acquisition.ts";
@@ -49,9 +53,11 @@ if (!process.env.DATABASE_URL) {
   let modelSwitchTask: Promise<void> | undefined;
   let lastModelSwitchTick = 0;
   async function tick() {
-    if (!musicTask && Date.now() - lastMusicTick >= 30000) {
+    if (!musicTask && Date.now() - lastMusicTick >= 15000) {
       lastMusicTick = Date.now();
       musicTask = processWorkoutMusic(db)
+        .then(() => processMusicReview(db))
+        .then(() => processMusicAgent(db))
         .catch(() => console.error("Workout music needs review"))
         .finally(() => {
           musicTask = undefined;
