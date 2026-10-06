@@ -134,20 +134,15 @@ const icon = (page) =>
 /**
  * The mocks' text size against their frames: the CSS computes it from the
  * viewport (no container queries), so it must match the share of each
- * frame's real width it stands for (laptop 2.4%, or 3.6% on full phones;
+ * frame's real width it stands for (laptop 2.4%, or 3.6% on phones;
  * phone 5.4%), with the 11px (12.5px) floor, within 4%.
  */
 const frameText = (page) =>
   page.evaluate(() => {
     const walk = document.querySelector(".mk-walk");
     const phoneWidth = innerWidth <= 760;
-    const full = walk.classList.contains("mk-walk-full");
     return [
-      [
-        ".w-coach",
-        phoneWidth && full ? 0.036 : 0.024,
-        phoneWidth && full ? 12.5 : 11,
-      ],
+      [".w-coach", phoneWidth ? 0.036 : 0.024, phoneWidth ? 12.5 : 11],
       [".w-phone", 0.054, 11],
     ].map(([sel, k, floor]) => {
       const frame = walk.querySelector(sel);
@@ -808,9 +803,10 @@ for (const vp of VIEWPORTS) {
     const text = await page.evaluate(() =>
       document.querySelector(".mk-walk-stage").textContent.trim(),
     );
+    // Real words in the sample screens (owner, 6 October 2026).
     check(
-      `${tag} home: the stage has no words`,
-      text === "",
+      `${tag} home: the stage shows the sample screens' words`,
+      text.includes("Your page") && text.includes("Layla Strength"),
       JSON.stringify(text.slice(0, 60)),
     );
     const caption = await page.locator(".mk-walk-caption").textContent();
