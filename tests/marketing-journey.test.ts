@@ -248,7 +248,7 @@ test("the walkthrough shows whatever the platform flags say", () => {
   }
 });
 
-test("the home band adds no heading, no new sentence and no words in its stage", () => {
+test("the home band adds no heading and no new sentence; its stage shows the same sample screens as /how-it-works", () => {
   const html = render("/");
   const band = element(
     html,
@@ -263,12 +263,20 @@ test("the home band adds no heading, no new sentence and no words in its stage",
     /<p class="small-label mk-walk-label" id="mk-walk-label">From setup to daily coaching<\/p>/,
   );
   assert.doesNotMatch(band, /<h[1-6][\s>]/);
-  assert.equal(decode(element(band, /<div class="mk-walk-stage"/)), "");
+  // Real words in the mock screens (owner, 6 October 2026: placeholder bars
+  // did not explain anything): exactly the full player's sample screens.
+  const stage = element(band, /<div class="mk-walk-stage"/);
+  const fullStage = element(
+    render("/how-it-works"),
+    /<div class="mk-walk-stage"/,
+  );
+  assert.notEqual(decode(stage), "");
+  assert.equal(decode(stage), decode(fullStage));
   // The label, the active step's title, what it means for the subscriber
   // (the registry line /how-it-works shows, after the "Who does what"
   // column header) and the link.
   assert.equal(
-    decode(band),
+    decode(band.replace(stage, "")),
     "From setup to daily coaching Claim your address Your subscriber : " +
       registryLine(SUBSCRIBER_LINES[0]) +
       " See how it works",

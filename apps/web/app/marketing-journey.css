@@ -62,9 +62,9 @@
 .mk-walk-compact {
   --walk-stage: var(--ty-white);
 }
+/* The same areas as the full stage (its "tag" row included: without it the
+   tag's grid-area adds implicit tracks that squeeze the frames). */
 .mk-walk-compact .mk-walk-stage {
-  grid-template-rows: minmax(0, 1fr);
-  grid-template-areas: "coach wire phone";
   aspect-ratio: 16 / 10;
 }
 /* The honesty label: the journey's own (the hero relay hides its label on
@@ -1293,7 +1293,7 @@
    link beside the stage (a white panel on the paper band). */
 .mk-walk-compact {
   display: grid;
-  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  grid-template-columns: minmax(0, 4fr) minmax(0, 8fr);
   grid-template-rows: minmax(0, 1fr) repeat(4, auto) minmax(0, 1fr);
   grid-template-areas: ". view" "label view" "cap view" "bar view" "more view" ". view";
   column-gap: 56px;
@@ -1303,8 +1303,19 @@
   grid-area: view;
 }
 @media (min-width: 1024px) {
+  /* The home band shows real words, so its frames use the full player's
+     proportions (larger phone, coach window 56%) in an 8/12 column. */
   .mk-walk-compact {
-    --walk-s: calc((var(--walk-wc) - 56px) * 7 / 12 * 0.96 - 2px);
+    --walk-s: calc((var(--walk-wc) - 56px) * 8 / 12 * 0.96 - 2px);
+    --walk-cw: 0.56;
+    --walk-pw: 0.26;
+  }
+  .mk-walk-compact .mk-walk-stage {
+    grid-template-columns: minmax(0, 56fr) minmax(0, 18fr) minmax(0, 26fr);
+  }
+  .mk-walk-compact .w-phone {
+    align-self: start;
+    aspect-ratio: 9 / 16;
   }
 }
 .mk-walk-label {
@@ -1394,10 +1405,6 @@
     aspect-ratio: 1;
     padding: 8px;
   }
-  .mk-walk-compact .mk-walk-stage {
-    grid-template-rows: 32px minmax(0, 1fr);
-    grid-template-areas: "cc wire pc" "frame frame frame";
-  }
   .mk-walk-stage::after {
     content: "";
     position: absolute;
@@ -1457,11 +1464,11 @@
     inline-size: 76%;
   }
   /* The full player's coach window: taller, with text of at least 12.5px. */
-  .mk-walk-full .w-coach {
+  .mk-walk .w-coach {
     align-self: start;
     aspect-ratio: 4 / 3;
   }
-  .mk-walk-full .w-coach .w-dev {
+  .mk-walk .w-coach .w-dev {
     font-size: max(12.5px, calc(var(--walk-s) * 0.036));
   }
   /* Chapter 6, the densest phone: its pain report stays above the fade. */
@@ -1473,9 +1480,6 @@
   }
   .w-phone .w-card {
     padding: 0.6em;
-  }
-  .mk-walk-compact .mk-walk-stage {
-    aspect-ratio: 4 / 3;
   }
   .mk-walk-then {
     min-block-size: calc(22px + 3lh);

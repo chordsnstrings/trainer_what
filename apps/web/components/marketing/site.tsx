@@ -1448,15 +1448,8 @@ function Home({ page, platform }: Ctx) {
   );
   return (
     <>
-      {/* Scroll scenes (home only): the hero's content sinks back as it
-          scrolls away; its load animation stays. */}
-      <section
-        className="mk-hero"
-        aria-labelledby="mk-hero-h"
-        data-scene="depart"
-        data-mode="leave"
-      >
-        <div className="mk-container mk-hero-inner" data-world>
+      <section className="mk-hero" aria-labelledby="mk-hero-h">
+        <div className="mk-container mk-hero-inner">
           <div className="mk-hero-copy">
             <div className="mk-hero-head">
               <p className="eyebrow">{t(page.eyebrow)}</p>
@@ -1489,7 +1482,6 @@ function Home({ page, platform }: Ctx) {
         id="subscribers"
         t={t}
         tone="white"
-        scene="assemble"
         visual={<SubscriberTiles platform={platform} />}
         links={[{ label: "All features", href: "/features" }]}
       />
@@ -1512,7 +1504,6 @@ function Home({ page, platform }: Ctx) {
         t={t}
         tone="white"
         split
-        scene="rise"
         visual={<EconomicsVisual platform={platform} />}
         links={[{ label: "Pricing in detail", href: "/pricing" }]}
       />
@@ -1534,7 +1525,7 @@ function Home({ page, platform }: Ctx) {
           <Faqs page={page} t={t} heading="Questions trainers ask" />
         </div>
       </div>
-      <Closing cta={cta} platform={platform} secondary={closingLink(page.path)} scene />
+      <Closing cta={cta} platform={platform} secondary={closingLink(page.path)} />
       {/* Drives the scenes above (renders nothing; off unless the head
           script turned scenes on: docs/features/scroll-scenes.md). */}
       <ScrollScenes />
