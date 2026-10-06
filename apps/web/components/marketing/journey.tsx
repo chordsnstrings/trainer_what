@@ -983,7 +983,7 @@ export function JourneyBand({
                 {t(section.heading)}
               </p>
             }
-            stage={<Stage c={context(platform, false)} platform={platform} />}
+            stage={<Stage c={context(platform, true)} platform={platform} />}
             subs={SUBSCRIBER_LINES.map((ref) => t(registryLine(ref)))}
             subLabel={<SubscriberLabel />}
             foot={
