@@ -122,7 +122,7 @@ export default defineMessages(
     inSaving: "Saving…",
   },
   {
-    inEnoughDays: "اختر أياماً كافية لعدد حصصك الأسبوعية.",
+    inEnoughDays: "يُرجى اختيار عدد كافٍ من الأيام لحصصك الأسبوعية.",
     inHealthHeld: "تم إيقاف التدريب مؤقتاً حتى يراجع مدربك المعلومات الصحية الجديدة.",
     inAvailableDays: "أيام التدريب المتاحة",
     inMaxMinutes: "الوقت الأقصى للحصة بالدقائق",

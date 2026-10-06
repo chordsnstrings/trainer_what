@@ -220,7 +220,7 @@ export default defineMessages(
       "Tap, then say done, a number of reps, too heavy, pause, skip or pain.",
   },
   {
-    actualMetres: "المسافة الفعلية بالمتر؛ انتهيت يؤكد المسافة المستهدفة",
+    actualMetres: "المسافة الفعلية بالمتر؛ «انتهيت» يؤكد المسافة المستهدفة عند ترك الحقل فارغاً",
     holdTalk: "الضغط المستمر للتحدث",
     loadProgress: "تحميل أحدث تقدم",
     questionConfirm: "تم التقاط السؤال. راجعه في «اسأل المدرب» قبل إرساله.",

@@ -36,3 +36,5 @@ Nine browser journeys pass against the production build with no page errors or h
 ## Release check corrections
 
 Run `37425623889` passed subscriber/guided, wildcard and Compose checks. Both database suites exposed the same five failures. Catalog withdrawal now records an additional reason for already-held current/future meal plans; snapshots remain immutable. Member copy uses the English/Arabic catalogs. Guided progression fixtures record prior completed sets, and Arabic speech fixtures assert localized code-owned templates and language-specific cache keys. TypeScript passes; all targeted corrections pass (nutrition withdrawal rechecked after adding the second invalidation event). No release gate was weakened.
+
+The second run (`37427588930`) found one additional Arabic catalog rule. New member copy now uses neutral phrasing; the actual-distance hint explicitly describes blank-field behavior. Both complete translation suites pass locally.

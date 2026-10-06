@@ -201,7 +201,7 @@ export default defineMessages(
   },
   {
     audioPreparing: "مدربك يجهز التوجيه الصوتي. تبقى التمارين النصية متاحة.",
-    audioMessageCoach: "راسل مدربك",
+    audioMessageCoach: "مراسلة مدربك",
     eyebrow: "أرقام واضحة، بلا تخمين.",
     title: "اشتراكك.",
     detail: "وصولك وتجديدك وخيارات الاسترداد في مكان واحد.",

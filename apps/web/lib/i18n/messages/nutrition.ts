@@ -317,8 +317,8 @@ export default defineMessages(
   {
     currentMethodWeight: "الوزن الحالي بالكيلوغرام (لطريقة مدربك)",
     individualTargetSource: "هدف فردي حدده مدربك",
-    policyTargetSource: "هدف مدربك القياسي لهذا الهدف. اطلب من مدربك هدفاً فردياً عند الحاجة.",
-    discussTarget: "ناقش هدفك",
+    policyTargetSource: "هدف مدربك القياسي لهذا الهدف. يمكنك طلب هدف فردي من مدربك عند الحاجة.",
+    discussTarget: "مناقشة هدفك",
     saved: "تم الحفظ",
     loading: "جارٍ تحميل التغذية…",
     eyebrow: "تغذية جيدة، مع مدربك",
