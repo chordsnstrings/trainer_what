@@ -75,7 +75,7 @@ test("guided readiness, completion and full rest are explicit", () => {
   );
 });
 test("timed expiry never claims physical completion; next exercise waits", () => {
-  let s = { ...setup(), exercise: 1 };
+  let s = { ...setup(), exercise: 1, logged: ["0:1", "0:2"] };
   s = stepRunner(ctx, s, done)[0];
   s = stepRunner(ctx, s, { type: "prompt_done" })[0];
   const [expired, effects] = stepRunner(ctx, s, { type: "tick", seconds: 20 });

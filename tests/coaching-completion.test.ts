@@ -937,3 +937,26 @@ test("a safety report in ordinary chat creates the same training hold", async ()
     409,
   );
 });
+
+ test("structured timed and distance plans log and correct the right repeated instance",async () => {
+  const {follower} = await import("./programme-fixtures.ts");
+  const m = await follower(db,coach,"Structured Client"), member = {...m,cookie:"session="+m.token};
+  await db.tenant(coach,tx => tx.query("INSERT INTO subscriptions(id,tenant_id,user_id,status,period_end,price_minor) VALUES($1,$2,$3,'active',now()+interval '30 days',10000)",[randomUUID(),coach.tenantId,m.userId]));
+  const shared = {name:"Walk",sets:1,restSeconds:0,loadKg:0,rir:2,cue:""};
+  const program = {title:"Walk session",goal:"Conditioning",daysPerWeek:1,weeks:1,exercises:[{...shared,instanceId:randomUUID(),block:"warmup",durationSeconds:60},{...shared,instanceId:randomUUID(),block:"cooldown",distanceMeters:100}]};
+  const p = await request("/programs","POST",{program,subscriberId:m.userId},coach); assert.equal(p.statusCode,200,p.body);
+  const w = await request("/workouts/start","POST",{programId:p.json().id},member); assert.equal(w.statusCode,200,w.body);
+  const path = `/workouts/${w.json().id}/sets`, values = {eventKey:randomUUID(),exercise:"Walk",exerciseIndex:1,set:1,reps:0,loadKg:0,distanceMeters:75};
+  const bad = await request(path,"POST",{...values,exerciseIndex:0},member); assert.equal(bad.statusCode,400,bad.body);
+  const logged = await request(path,"POST",values,member); assert.equal(logged.statusCode,200,logged.body);
+  const correction = {revision:0,reps:0,loadKg:0,distanceMeters:80,note:"Corrected tracker distance"};
+  const c = await request(path+`/${logged.json().id}/correct`,"POST",correction,member); assert.equal(c.statusCode,200,c.body);
+  assert.equal(c.json().data.values.distanceMeters,80);
+  const original = await db.tenant(member,async tx => (await tx.query("SELECT data FROM workout_events WHERE id=$1",[logged.json().id]))[0]);
+  assert.equal(original.data.distanceMeters,75,"original result remains immutable");
+  assert.equal((await request(path+`/${logged.json().id}/correct`,"POST",correction,member)).statusCode,409);
+  const revise = await request(`/programs/${p.json().id}/progression`,"POST",{version:p.json().version,exercise:"Walk",instanceId:program.exercises[1].instanceId,reps:1,distanceMeters:150,loadKg:0,rir:2,note:"Longer cool down walk"},coach);
+  assert.equal(revise.statusCode,200,revise.body);
+  assert.equal(revise.json().data.exercises[0].durationSeconds,60);
+  assert.equal(revise.json().data.exercises[1].distanceMeters,150);
+ });

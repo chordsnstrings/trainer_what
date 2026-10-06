@@ -1,3 +1,4 @@
+import { sessionOrder } from "./session-structure.ts";
 // The hands-free session runner as a pure state machine, and the spoken-reply
 // parser. The web component only plays what `step` asks for, runs the clock and
 // performs the effects (log a set through the device queue, report pain, finish).
@@ -5,6 +6,7 @@
 import { safetySignal, screeningText } from "./index.ts";
 import {
   formatLoad,
+  sharedClips, scriptLines,
   numberClipKeys,
   reducedLoad,
   spokenWork,
@@ -19,7 +21,7 @@ import { formatDistance, formatDuration, workMeasure } from "./prescription.ts";
 // Spoken replies (English, Modern Standard Arabic and Gulf Arabic).
 // ---------------------------------------------------------------------------
 export type VoiceCommand =
-  | { type: "done" }
+  | { type: "done"; distanceMeters?: number }
   /**
    * A rep count; `heavy` when the same reply also said it was too heavy.
    * `typed` when the member entered it on the screen: a heard count that is
@@ -609,6 +611,8 @@ export function parseVoiceCommand(transcript: string): VoiceCommand {
   if (!screened) return { type: "unknown" };
   if (safetySignal(raw) || PAIN.test(screened) || UNWELL.test(screened))
     return { type: "pain", transcript: raw.trim() };
+  const distance = screened.match(/^(?:done|completed|finished|انتهيت|خلصت)\s+(\d{1,6})\s*(?:m|metres?|meters?|متر|امتار)\s*[.!]?$/i);
+  if (distance && Number(distance[1]) <= 200000) return { type: "done", distanceMeters: Number(distance[1]) };
   const folded = screened.replace(INSTRUCTION, " ");
   const effort = folded.replace(NEGATED_EFFORT, " ");
   const heavy = TOO_HEAVY.test(effort);
@@ -1017,6 +1021,9 @@ function beginExercise(
   exercise: number,
 ): [RunnerState, RunnerEffect[]] {
   let set = 1;
+  const pending = sessionOrder(ctx.script.exercises).find(p => !s.logged.includes(key(p.exercise,p.set)) && !s.skipped.includes(key(p.exercise,p.set)));
+  if (!pending) return beginCooldown(ctx, s);
+  exercise = pending.exercise; set = pending.set;
   while (exercise < ctx.script.exercises.length) {
     while (
       set <= ctx.script.exercises[exercise].sets &&
@@ -1076,9 +1083,9 @@ function beginCooldown(ctx: RunnerContext, s: RunnerState, lead: RunnerEffect[] 
 /** After a set is logged or skipped: rest, then the next set, exercise or cool-down. */
 function afterSet(ctx: RunnerContext, s: RunnerState, lead: RunnerEffect[], rest: boolean): [RunnerState, RunnerEffect[]] {
   const ex = ctx.script.exercises[s.exercise];
-  const lastSet = s.set >= ex.sets,
-    lastExercise = s.exercise >= ctx.script.exercises.length - 1;
-  if (lastSet && lastExercise) return beginCooldown(ctx, s, lead);
+  const pending = sessionOrder(ctx.script.exercises).find(p => !s.logged.includes(key(p.exercise,p.set)) && !s.skipped.includes(key(p.exercise,p.set)));
+  if (!pending) return beginCooldown(ctx, s, lead);
+  if (ex.group && pending.set === s.set && ctx.script.exercises[pending.exercise].group?.id === ex.group.id) return advance(ctx, s, lead);
   if (!rest || (ex.restSeconds <= 0 && (!ctx.deliberate || ctx.autoPace))) return advance(ctx, s, lead);
   // The Brain's rest talk is spoken in an exercise's first rest only.
   return [
@@ -1088,13 +1095,11 @@ function afterSet(ctx: RunnerContext, s: RunnerState, lead: RunnerEffect[], rest
 }
 /** Moves past the current set without rest. */
 function advance(ctx: RunnerContext, s: RunnerState, lead: RunnerEffect[] = []): [RunnerState, RunnerEffect[]] {
-  const ex = ctx.script.exercises[s.exercise];
-  if (s.set < ex.sets) return beginSet(ctx, s, s.exercise, s.set + 1, lead);
-  if (s.exercise < ctx.script.exercises.length - 1) {
-    const [next, effects] = beginExercise(ctx, s, s.exercise + 1);
-    return [next, [...lead, ...effects]];
-  }
-  return beginCooldown(ctx, s, lead);
+  const pending = sessionOrder(ctx.script.exercises).find(p => !s.logged.includes(key(p.exercise,p.set)) && !s.skipped.includes(key(p.exercise,p.set)));
+  if (!pending) return beginCooldown(ctx, s, lead);
+  if (pending.exercise === s.exercise) return beginSet(ctx, s, pending.exercise, pending.set, lead);
+  const [next, effects] = beginExercise(ctx, s, pending.exercise);
+  return [next, [...lead, ...effects]];
 }
 function stopForPain(s: RunnerState, transcript: string): [RunnerState, RunnerEffect[]] {
   const description = ("Voice session: " + (transcript.trim() || "pain reported")).slice(0, 2000);
@@ -1137,14 +1142,14 @@ function logSet(
  * lasted (all of them when the clock ran out or never started), a distance
  * round its prescribed distance. Reps are 0.
  */
-function finishRound(ctx: RunnerContext, s: RunnerState, lead: RunnerEffect[] = []): [RunnerState, RunnerEffect[]] {
+function finishRound(ctx: RunnerContext, s: RunnerState, lead: RunnerEffect[] = [], distanceMeters?: number): [RunnerState, RunnerEffect[]] {
   const ex = ctx.script.exercises[s.exercise];
   if (timedExercise(ex)) {
     const full = ex.durationSeconds!;
     const lasted = typeof s.workLeft === "number" ? Math.max(0, full - s.workLeft) : ctx.deliberate ? 0 : full;
     return logSet(ctx, s, 0, { durationSeconds: lasted }, lead);
   }
-  return logSet(ctx, s, 0, { distanceMeters: ex.distanceMeters! }, lead);
+  return logSet(ctx, s, 0, { distanceMeters: distanceMeters ?? ex.distanceMeters! }, lead);
 }
 /** "Too heavy": one reduction of the next set's load within the trainer's rule. */
 function tooHeavy(ctx: RunnerContext, s: RunnerState, exercise: number, set: number): [RunnerState, RunnerEffect[]] {
@@ -1191,12 +1196,11 @@ function tooHeavy(ctx: RunnerContext, s: RunnerState, exercise: number, set: num
  */
 function referencedSet(ctx: RunnerContext, s: RunnerState, previous: boolean) {
   const exercises = ctx.script.exercises;
-  const before = (exercise: number, set: number) =>
-    set > 1
-      ? { exercise, set: set - 1 }
-      : exercise > 0
-        ? { exercise: exercise - 1, set: exercises[exercise - 1].sets }
-        : null;
+  const order = sessionOrder(exercises);
+  const before = (exercise: number, set: number) => {
+    const index = order.findIndex(p => p.exercise === exercise && p.set === set);
+    return index > 0 ? order[index - 1] : null;
+  };
   const current = { exercise: s.exercise, set: s.set };
   switch (s.phase === "paused" ? s.resume : s.phase) {
     case "rest":
@@ -1204,7 +1208,7 @@ function referencedSet(ctx: RunnerContext, s: RunnerState, previous: boolean) {
     case "set":
       return previous ? (before(s.exercise, s.set) ?? current) : current;
     case "setup":
-      return previous ? before(s.exercise, 1) : null;
+      return previous ? before(s.exercise, s.set) : null;
     case "cooldown": {
       const last = exercises.length - 1;
       return last >= 0 ? { exercise: last, set: exercises[last].sets } : null;
@@ -1242,6 +1246,16 @@ function notDone(
  * Unknown or out-of-phase events leave the state unchanged.
  */
 export function stepRunner(ctx: RunnerContext, s: RunnerState, event: RunnerEvent): [RunnerState, RunnerEffect[]] {
+  const [state, effects] = stepRunnerCore(ctx,s,event);
+  if (ctx.script.language !== "ar") return [state,effects];
+  const clips = new Map(sharedClips("ar").map(c => [c.key,c.text]));
+  const lines = new Map(scriptLines(ctx.script).map(l => [l.id,l.text]));
+  return [state,effects.map(e => e.type !== "say" ? e : { ...e,
+    items: e.items.map(i => "clip" in i ? {clip: i.clip.startsWith("ar:") ? i.clip : `ar:${i.clip}`} : i),
+    text: e.items.map(i => "clip" in i ? clips.get(i.clip.startsWith("ar:") ? i.clip : `ar:${i.clip}`) : lines.get(i.line)).filter(Boolean).join(" "),
+  })];
+}
+function stepRunnerCore(ctx: RunnerContext, s: RunnerState, event: RunnerEvent): [RunnerState, RunnerEffect[]] {
   if (s.phase === "stopped") return [s, []];
   if (event.type === "held")
     return [
@@ -1357,7 +1371,8 @@ export function stepRunner(ctx: RunnerContext, s: RunnerState, event: RunnerEven
       switch (event.command.type) {
         // Only an explicit completion or a rep count logs the set.
         case "done":
-          if (measure !== "reps") return finishRound(ctx, s);
+          if (event.command.distanceMeters !== undefined && measure !== "distance") return [s, [sayDone()]];
+          if (measure !== "reps") return finishRound(ctx, s, [], event.command.distanceMeters);
           return logSet(ctx, s, s.targets[s.exercise][s.set - 1].reps);
         case "resume":
           return [s, measure === "reps" ? [sayDone()] : []];

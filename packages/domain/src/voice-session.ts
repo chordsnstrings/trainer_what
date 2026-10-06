@@ -1,3 +1,4 @@
+import { structureShape, structureIssues, type StructuredExercise } from "./session-structure.ts";
 // Voice-led workout sessions: the structured session script, the trainer's
 // voice-session style and the code-owned rules that keep every spoken line
 // within the plan. Pure and browser-safe (no Node APIs): the API builds and
@@ -49,23 +50,18 @@ export type LineKind =
  * count or the safety line; each is re-checked before it is voiced.
  */
 export type LineOwner = "code" | "trainer" | "brain";
-/**
- * The language a script line is synthesised in. Code-owned lines (setup, set,
- * rest, the safety line, and the shared clips) are English templates, even
- * when an exercise name in them is Arabic: their numbers and words are read
- * as English until Arabic templates exist. The trainer's own phrases and plan
- * cues are spoken in their own language (`speechLanguage`).
- */
-export function lineLanguage(line: { owner: LineOwner; text: string }): SpeechLanguage {
-  return line.owner === "code" ? "en" : speechLanguage(line.text);
+/** Language is explicit for code templates; trainer wording retains its own language. */
+export function lineLanguage(line: { owner: LineOwner; text: string; language?: SpeechLanguage }): SpeechLanguage {
+  return line.language ?? (line.owner === "code" ? "en" : speechLanguage(line.text));
 }
 export type ScriptLine = {
+  language?: SpeechLanguage;
   id: string;
   kind: LineKind;
   owner: LineOwner;
   text: string;
 };
-export type PlanExercise = {
+export type PlanExercise = StructuredExercise & {
   name: string;
   /** Sets of rep work; rounds of timed or distance work. */
   sets: number;
@@ -96,6 +92,7 @@ export type ScriptExercise = PlanExercise & {
   brain?: { lead?: ScriptLine; rest?: ScriptLine; lastSet?: ScriptLine };
 };
 export type SessionScript = {
+  language?: SpeechLanguage;
   version: typeof VOICE_SCRIPT_VERSION;
   title: string;
   tone: VoiceTone;
@@ -226,7 +223,9 @@ export function planExercises(program: any): PlanExercise[] {
   const list = Array.isArray(program?.exercises) ? program.exercises : [];
   if (!list.length || list.length > 20)
     throw new PlanError("This workout has no plan a voice session can follow.");
-  return list.map((ex: any) => {
+  const result = list.map((ex: any) => {
+    const structure = z.object(structureShape).safeParse(ex);
+    if (!structure.success) throw new PlanError("Invalid session structure");
     const name = String(ex?.name ?? "").trim();
     // Timed work (a hold, an interval, a continuous run) and distance work
     // have no reps: the runner times a round or waits for "done".
@@ -261,6 +260,10 @@ export function planExercises(program: any): PlanExercise[] {
       name,
       sets,
       reps,
+      ...(ex.instanceId ? { instanceId: ex.instanceId } : {}),
+      ...(ex.block ? { block: ex.block } : {}),
+      ...(ex.side ? { side: ex.side } : {}),
+      ...(ex.group ? { group: ex.group } : {}),
       ...(measure === "time" ? { durationSeconds: durationSeconds! } : {}),
       ...(measure === "distance" ? { distanceMeters: distanceMeters! } : {}),
       ...(measure !== "reps" && pace !== null && Number.isInteger(pace) ? { paceSecondsPerKm: pace } : {}),
@@ -274,6 +277,8 @@ export function planExercises(program: any): PlanExercise[] {
       ...(typeof ex?.demonstrationUrl === "string" && /^https:\/\/[^\s]+$/i.test(ex.demonstrationUrl) ? { demonstrationUrl: ex.demonstrationUrl } : {}),
     };
   });
+  if (structureIssues(result).length) throw new PlanError(structureIssues(result).join(". "));
+  return result;
 }
 export function formatLoad(kg: number) {
   return Number.isInteger(kg) ? String(kg) : String(Math.round(kg * 100) / 100);
@@ -302,9 +307,9 @@ const effortAndPace = (ex: PlanExercise) =>
 /** Whether the runner keeps the clock for this exercise's rounds. */
 export const timedExercise = (ex: PlanExercise) => workMeasure(ex) === "time";
 /** The exact code-owned wording; validation compares against it. */
-export const codeLines = {
+const englishCodeLines = {
   setup: (ex: PlanExercise, index: number, total: number) =>
-    `${index === total - 1 && total > 1 ? "Last exercise" : `Exercise ${index + 1} of ${total}`}: ${ex.name}. ${
+    `${index === total - 1 && total > 1 ? "Last exercise" : `Exercise ${index + 1} of ${total}`}: ${ex.name}${ex.side && ex.side !== "both" ? `, ${ex.side} side` : ""}${ex.block && ex.block !== "main" ? `, ${ex.block}` : ""}${ex.group ? `, ${ex.group.kind} ${ex.group.id}` : ""}. ${
       workMeasure(ex) === "reps"
         ? `${ex.sets} ${ex.sets === 1 ? "set" : "sets"} of ${target(ex.reps, ex.loadKg)}`
         : `${ex.sets === 1 ? "" : `${ex.sets} rounds of `}${spokenWork(ex)}${effortAndPace(ex)}`
@@ -315,13 +320,34 @@ export const codeLines = {
       : `${ex.sets === 1 ? "" : `Round ${set} of ${ex.sets}. `}${spokenWork(ex)}. ${
           timedExercise(ex)
             ? "The clock starts now. Say done if you stop early."
-            : "Say done when you finish."
+            : "Say done to confirm the full distance, or enter the actual distance on screen."
         }`,
   rest: (ex: PlanExercise) =>
     ex.restSeconds > 0
       ? `Rest ${restPhrase(ex.restSeconds)}.`
       : "No rest here. Move straight on when you are ready.",
   restEnd: () => "Rest is over. Get ready.",
+};
+
+export const AR_SAFETY_LINE = "إذا شعرت بألم أو دوخة أو توعك، قل ألم أو اضغط إيقاف. سأوقف الجلسة وأبلغ مدربك.";
+const AR_DEFAULTS = {
+  intro: "أهلاً بك. سأرشدك خلال تمرين اليوم.",
+  warmup: ["ابدأ بحركة خفيفة للإحماء. قل انتهيت عندما تكون مستعداً."],
+  encouragement: ["أحسنت.", "أداء جيد."],
+  form: ["حافظ على حركة هادئة ومتحكم بها."],
+  cooldown: ["انتهى التمرين. امش بهدوء ودع تنفسك يستقر."],
+  finish: "اكتملت الجلسة. أحسنت اليوم.",
+};
+const arabicTarget = (ex: PlanExercise) => `${ex.durationSeconds ? `${ex.durationSeconds} ثانية` : ex.distanceMeters ? `${ex.distanceMeters} متر` : `${ex.reps} تكرار`}${ex.loadKg > 0 ? ` بوزن ${ex.loadKg} كيلوغرام` : ""}`;
+export const codeLines = {
+  setup: (ex: PlanExercise, index: number, total: number, language: SpeechLanguage = "en") => language === "ar"
+    ? `التمرين ${index + 1} من ${total}: ${ex.name}${ex.side && ex.side !== "both" ? ex.side === "left" ? "، الجانب الأيسر" : "، الجانب الأيمن" : ""}${ex.block === "warmup" ? "، إحماء" : ex.block === "cooldown" ? "، تهدئة" : ""}${ex.group ? ex.group.kind === "superset" ? "، مجموعة مزدوجة" : "، دائرة" : ""}. ${ex.sets} جولات، ${arabicTarget(ex)}${ex.effort ? `، شدة ${ex.effort === "easy" ? "خفيفة" : ex.effort === "moderate" ? "متوسطة" : "عالية"}` : ""}${ex.paceSecondsPerKm ? `، وتيرة ${ex.paceSecondsPerKm} ثانية لكل كيلومتر` : ""}.`
+    : englishCodeLines.setup(ex,index,total),
+  set: (ex: PlanExercise, set: number, language: SpeechLanguage = "en") => language === "ar"
+    ? `الجولة ${set} من ${ex.sets}. ${arabicTarget(ex)}. ${ex.durationSeconds ? "يبدأ المؤقت الآن. قل انتهيت إذا توقفت مبكراً." : ex.distanceMeters ? "قل انتهيت عند إكمال المسافة أو أدخل المسافة الفعلية على الشاشة." : "قل انتهيت عند الإكمال أو أخبرني بعدد التكرارات."}`
+    : englishCodeLines.set(ex,set),
+  rest: (ex: PlanExercise, language: SpeechLanguage = "en") => language === "ar" ? ex.restSeconds ? `استرح ${ex.restSeconds} ثانية.` : "لا توجد راحة هنا. تابع عندما تكون مستعداً." : englishCodeLines.rest(ex),
+  restEnd: (language: SpeechLanguage = "en") => language === "ar" ? "انتهت الراحة. استعد." : englishCodeLines.restEnd(),
 };
 
 /**
@@ -459,7 +485,8 @@ export function buildSessionScript(input: {
   brain?: { added: number; dropped: DroppedBrainLine[] };
 } {
   const style = input.style ?? defaultVoiceStyle();
-  const defaults = DEFAULTS[style.tone];
+  const language = input.language ?? "en";
+  const defaults = language === "ar" ? AR_DEFAULTS : DEFAULTS[style.tone];
   const rejected: RejectedLine[] = [];
   const prefer = (texts: string[]) => {
     if (!input.language) return texts;
@@ -512,7 +539,7 @@ export function buildSessionScript(input: {
         id: `ex:${index}:setup`,
         kind: "setup",
         owner: "code",
-        text: codeLines.setup(ex, index, input.exercises.length),
+        text: codeLines.setup(ex, index, input.exercises.length, language),
       },
       cueLine,
       form: lines(`ex:${index}:form`, "form", form),
@@ -520,28 +547,30 @@ export function buildSessionScript(input: {
         id: `ex:${index}:set:${s + 1}`,
         kind: "set" as const,
         owner: "code" as const,
-        text: codeLines.set(ex, s + 1),
+        text: codeLines.set(ex, s + 1, language),
       })),
-      rest: { id: `ex:${index}:rest`, kind: "rest", owner: "code", text: codeLines.rest(ex) },
-      restEnd: { id: `ex:${index}:rest_end`, kind: "rest_end", owner: "code", text: codeLines.restEnd() },
+      rest: { id: `ex:${index}:rest`, kind: "rest", owner: "code", text: codeLines.rest(ex, language) },
+      restEnd: { id: `ex:${index}:rest_end`, kind: "rest_end", owner: "code", text: codeLines.restEnd(language) },
       encouragement: lines(`ex:${index}:encourage`, "encourage", enc),
     };
   });
   const finish = pick(style.finish, [defaults.finish])[0];
   const script: SessionScript = {
     version: VOICE_SCRIPT_VERSION,
+    ...(language === "ar" ? { language } : {}),
     title: String(input.title || "Workout").trim().slice(0, 120) || "Workout",
     tone: style.tone,
     intro: [
       ...lines("intro", "intro", intro),
-      { id: "safety", kind: "safety", owner: "code", text: VOICE_SAFETY_LINE },
+      { id: "safety", kind: "safety", owner: "code", text: language === "ar" ? AR_SAFETY_LINE : VOICE_SAFETY_LINE },
     ],
-    warmup: lines("warmup", "warmup", pick(style.warmup, defaults.warmup).slice(0, 4)),
+    warmup: lines("warmup", "warmup", pick(style.warmup, input.exercises.some(e => e.block === "warmup") ? [] : defaults.warmup).slice(0, 4)),
     exercises,
-    cooldown: lines("cooldown", "cooldown", pick(style.cooldown, defaults.cooldown).slice(0, 4)),
+    cooldown: lines("cooldown", "cooldown", pick(style.cooldown, input.exercises.some(e => e.block === "cooldown") ? [] : defaults.cooldown).slice(0, 4)),
     finish: { id: "finish", kind: "finish", owner: finish.owner, text: finish.text },
     rules: { ...style.adjustments },
   };
+  if (language === "ar") for (const line of scriptLines(script)) if (line.owner === "code") line.language = language;
   if (!input.narration) return { script, rejected };
   const narrated = applyNarration(script, input.exercises, input.narration);
   return {
@@ -592,6 +621,8 @@ export function spokenLines(script: SessionScript): ScriptLine[] {
  */
 export function scriptIssues(script: SessionScript, plan: PlanExercise[]): string[] {
   const issues: string[] = [];
+  const language = script?.language ?? "en";
+  if (!["en","ar"].includes(language)) return ["language"];
   if (!script || script.version !== VOICE_SCRIPT_VERSION) return ["version"];
   if (!voiceAdjustmentRulesSchema.safeParse(script.rules).success) return ["rules"];
   if (!Array.isArray(script.exercises) || script.exercises.length !== plan.length)
@@ -606,6 +637,7 @@ export function scriptIssues(script: SessionScript, plan: PlanExercise[]): strin
       issues.push("line_shape");
     else if (ids.has(line.id)) issues.push("duplicate_line:" + line.id);
     else ids.add(line.id);
+    if (line?.owner === "code" && lineLanguage(line) !== language) issues.push("line_language:" + line.id);
   }
   const expectCode = (line: ScriptLine | undefined, text: string, id: string) => {
     if (!line || line.owner !== "code" || line.text !== text) issues.push("changed:" + id);
@@ -615,6 +647,8 @@ export function scriptIssues(script: SessionScript, plan: PlanExercise[]): strin
     if (
       !s ||
       s.name !== ex.name ||
+      s.instanceId !== ex.instanceId || s.block !== ex.block || s.side !== ex.side ||
+      JSON.stringify(s.group) !== JSON.stringify(ex.group) ||
       s.sets !== ex.sets ||
       s.reps !== ex.reps ||
       s.durationSeconds !== ex.durationSeconds ||
@@ -627,17 +661,18 @@ export function scriptIssues(script: SessionScript, plan: PlanExercise[]): strin
       issues.push("prescription:" + index);
       return;
     }
-    expectCode(s.setup, codeLines.setup(ex, index, plan.length), `ex:${index}:setup`);
+    expectCode(s.setup, codeLines.setup(ex, index, plan.length, language), `ex:${index}:setup`);
     if (!Array.isArray(s.setLines) || s.setLines.length !== ex.sets)
       issues.push("set_count:" + index);
-    else s.setLines.forEach((l, k) => expectCode(l, codeLines.set(ex, k + 1), `ex:${index}:set:${k + 1}`));
-    expectCode(s.rest, codeLines.rest(ex), `ex:${index}:rest`);
-    expectCode(s.restEnd, codeLines.restEnd(), `ex:${index}:rest_end`);
+    else s.setLines.forEach((l, k) => expectCode(l, codeLines.set(ex, k + 1, language), `ex:${index}:set:${k + 1}`));
+    expectCode(s.rest, codeLines.rest(ex, language), `ex:${index}:rest`);
+    expectCode(s.restEnd, codeLines.restEnd(language), `ex:${index}:rest_end`);
     if (s.cueLine && (s.cueLine.text !== ex.cue || cueIssues(s.cueLine.text).length))
       issues.push("cue:" + index);
   });
+  issues.push(...structureIssues(plan));
   const safety = script.intro?.find((l) => l.kind === "safety");
-  if (!safety || safety.text !== VOICE_SAFETY_LINE || safety.owner !== "code")
+  if (!safety || safety.text !== (language === "ar" ? AR_SAFETY_LINE : VOICE_SAFETY_LINE) || safety.owner !== "code")
     issues.push("safety_line");
   // Brain lines: only in their own slots, each re-checked against the plan
   // and the facts stored with the script (numbers, length, wording).
@@ -707,16 +742,26 @@ export const SHARED_PHRASES: Record<string, string> = {
   stopping:
     "Stopping the session now. Your report will be sent to your trainer. If your symptoms are severe, get urgent medical help.",
 };
+export const AR_SHARED_PHRASES: Record<string,string> = {
+  point_five: "فاصلة خمسة", kilograms: "كيلوغرام", reps: "تكرار", rest: "استرح.",
+  next_set: "المجموعة التالية.", last_set: "المجموعة الأخيرة.", go: "ابدأ.", time_up: "انتهى الوقت.",
+  ten_seconds: "عشر ثوانٍ.", countdown: "ثلاثة. اثنان. واحد.", logged: "تم التسجيل.", skipped: "تم التخطي.",
+  paused: "تم الإيقاف مؤقتاً. قل تابع عندما تكون مستعداً.", resuming: "نتابع الآن.", lighter: "وزن أخف للمجموعة التالية.",
+  check_screen: "تحقق من الوزن الجديد على الشاشة.", keep_weight: "خطة مدربك تبقي هذا الوزن. قل ألم إذا تألمت.",
+  no_skip: "خطة مدربك تبقي هذا الجزء. قل ألم إذا تألمت.", noted: "تم التدوين. سيراجع مدربك ذلك.",
+  say_done: "قل انتهيت عند إكمال المجموعة أو أخبرني بعدد التكرارات.", help: "قل انتهيت أو عدد التكرارات أو ثقيل أو توقف مؤقتاً أو تخط أو ألم.",
+  stopping: "سأوقف الجلسة الآن وأرسل بلاغك إلى مدربك. إذا كانت الأعراض شديدة، اطلب مساعدة طبية عاجلة.",
+};
 export const MAX_NUMBER_CLIP = 100;
 /** Every shared clip key and its text: numbers 1 to 100 and the phrases above. */
-export function sharedClips(): Array<{ key: string; text: string }> {
+export function sharedClips(language: SpeechLanguage = "en"): Array<{ key: string; text: string }> {
   return [
     ...Array.from({ length: MAX_NUMBER_CLIP }, (_, i) => ({
       key: `num:${i + 1}`,
       text: String(i + 1),
     })),
-    ...Object.entries(SHARED_PHRASES).map(([key, text]) => ({ key, text })),
-  ];
+    ...Object.entries(language === "ar" ? AR_SHARED_PHRASES : SHARED_PHRASES).map(([key, text]) => ({ key, text })),
+  ].map(clip => ({ ...clip, key: language === "ar" ? `ar:${clip.key}` : clip.key }));
 }
 /** Shared clip keys that speak a number, or null when no clip covers it. */
 export function numberClipKeys(value: number): string[] | null {

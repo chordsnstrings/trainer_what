@@ -1,3 +1,4 @@
+import { trainingReadiness, audioReadiness } from "./service-readiness.ts";
 import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
 import { createHash } from "node:crypto";
 import { z } from "zod";
@@ -620,7 +621,12 @@ export async function onboardingState(
   const planLive = products.some(
     (p) => p.status === "published" && p.data.stripePriceId,
   );
+  const trainingDelivery = await trainingReadiness(tx);
+  const sellsVoice = products.some(p => p.status !== "archived" && (p.data.premiumVoice || p.data.voiceAddOnMinor > 0));
+  const audioDelivery = sellsVoice ? await audioReadiness(tx) : null;
   const checks: Array<GoLiveGate & { ok: boolean }> = [
+    { key: "training_delivery", label: "Workout delivery", owner: "coach", ok: trainingDelivery.ready, reason: trainingDelivery.issues.join(" ") },
+    ...(audioDelivery ? [{ key: "audio_delivery", label: "Guided audio", owner: "coach" as const, ok: audioDelivery.ready, reason: audioDelivery.issues.join(" ") }] : []),
     {
       key: "real_name",
       label: "Your real name",

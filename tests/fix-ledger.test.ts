@@ -1,3 +1,4 @@
+import { readyServices } from "./service-readiness-fixtures.ts";
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -782,6 +783,7 @@ test("quality-delivery:G4 product activation uses the injected Stripe provider b
     ownerToken = randomUUID(),
     clientToken = randomUUID(),
     baseToken = randomUUID();
+  const restoreServices = await readyServices(db,owner);
   await db.system(async (tx) => {
     for (const [a, token] of [
       [owner, ownerToken],
@@ -985,6 +987,7 @@ test("quality-delivery:G4 product activation uses the injected Stripe provider b
     );
     assert.equal(opened.n, 0);
   } finally {
+    restoreServices();
     await app.close();
   }
 });

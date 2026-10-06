@@ -463,7 +463,7 @@ test("confidence is deterministic, explained and raised by similar reviewed plan
 test("the e2e rule responder answers both prompt kinds with schema-valid output, and long programmes get a larger budget", () => {
   const body = (system: string, input: any) => ({ messages: [{ role: "system", content: system }, { role: "user", content: JSON.stringify(input) }] });
   const retrieval = retrievePlanMaterial({ tenantId: "t", segment: planSegment({ goal: "Build strength", experience: "beginner", daysPerWeek: 3, equipment: "Dumbbells, bench" }), goal: "Build strength", rules: [], cases: [], learning: [], templates: [], library });
-  const plan = ruleBasedAnswer(body("Trainer Brain plan generator brain-plan-v5.", { profile: { daysPerWeek: 3, experience: "beginner", equipment: "Dumbbells, bench" }, programme: { weeks: 4 }, bounds: ctx.bounds, material: retrieval.material }));
+  const plan = ruleBasedAnswer(body("Trainer Brain plan generator brain-plan-v6.", { profile: { daysPerWeek: 3, experience: "beginner", equipment: "Dumbbells, bench" }, programme: { weeks: 4 }, bounds: ctx.bounds, material: retrieval.material }));
   assert.equal(plan.kind, "plan_generation");
   assert.deepEqual(validatePlan(plan.content as PlanDraft, ctx).errors, []);
   const adaptation = ruleBasedAnswer(body("Trainer Brain plan adaptation brain-plan-adapt-v4.", { outcomes: { adherence: 1, exercises: [] }, nextWeek: [], material: { rules: [] } }));
@@ -496,7 +496,7 @@ test("supervised generation goes to review with its audit record, and approval d
   const gen = await generation(r.generationId, coach.tenantId);
   assert.equal(gen.status, "pending_review");
   assert.equal(gen.owner_user_id, client.userId);
-  assert.equal(gen.data.promptVersion, "brain-plan-v5");
+  assert.equal(gen.data.promptVersion, "brain-plan-v6");
   assert.match(gen.data.inputsDigest, /^[0-9a-f]{64}$/);
   assert.ok(gen.data.brainReleaseId);
   assert.equal(gen.data.inputs.programmeDays, 14);
@@ -665,12 +665,10 @@ test("the safety floor sends limitations, red flags and recent pain to the train
   assert.equal(c.status, "delivered", JSON.stringify(c));
   assert.equal((await generation(c.generationId, coach.tenantId)).data.route, "automatic");
   const limited = await member(coach, "Limited Client", { limitations: "Recovering from a knee injury" });
-  const r = await generate(coach, limited);
-  assert.equal(r.status, "pending_review");
-  const g = await generation(r.generationId, coach.tenantId);
-  assert.ok(g.data.safety.some((s: string) => /medical limitation/.test(s)));
-  assert.ok(g.data.routeReasons.some((s: string) => s.startsWith("Safety:")));
-  assert.equal(g.data.confidence.confident, true, "only the safety floor held it back");
+  const r = await req("/brain/plans/generate", "POST", { subscriberId: limited.userId }, coach);
+  assert.equal(r.statusCode, 409);
+  assert.equal(r.json().code, "PLAN_NOT_READY");
+  assert.equal((await asWorker(coach, tx => tx.query("SELECT id FROM records WHERE kind='training_hold' AND status='active' AND owner_user_id=$1", [limited.userId]))).length, 1);
   const pained = await member(coach, "Pain Report Client");
   await asWorker(coach, (tx) =>
     putRecord(tx, worker(coach.tenantId), "training_hold", { reason: "Reported pain", resolvedBy: coach.userId }, { ownerId: pained.userId, status: "resolved" }),
@@ -679,7 +677,7 @@ test("the safety floor sends limitations, red flags and recent pain to the train
   assert.equal(p.status, "pending_review");
   assert.ok((await generation(p.generationId, coach.tenantId)).data.safety.some((s: string) => /pain or safety report/.test(s)));
   const flagged = await member(coach, "Red Flag Client", { goal: "Get fit again after fainting during exercise" });
-  assert.equal((await generate(coach, flagged)).status, "pending_review");
+  assert.equal((await req("/brain/plans/generate", "POST", {subscriberId:flagged.userId}, coach)).statusCode,409);
   const held = await member(coach, "Held Client");
   await asWorker(coach, (tx) =>
     putRecord(tx, worker(coach.tenantId), "training_hold", { reason: "Chest pain" }, { ownerId: held.userId, status: "active" }),
@@ -1499,4 +1497,53 @@ test("trial regression (Opus and Sonnet): a summary withheld for health language
   const [program] = await assigned(coach, client.userId);
   assert.equal(program.data.summary, gen.data.draft.summary);
   assert.doesNotMatch(JSON.stringify(program.data), /doctor/);
+});
+
+test("first-plan prerequisites stay visible and recover using the same unsent intent", async () => {
+  const coach = await newCoach("audit-empty-library");
+  const client = await member(coach, "Audit subscriber");
+  await asWorker(coach, tx => tx.query("UPDATE records SET status='archived' WHERE kind='exercise'"));
+  assert.equal(await scheduleBrainPlans(db, coach.tenantId, { force: true }), 1);
+  await asWorker(coach, tx => tx.query("UPDATE jobs SET available_at=now()+interval '1 day' WHERE kind<>'brain_plan'"));
+  const job = await claimJob(db, coach.tenantId);
+  assert.ok(job);
+  assert.equal(job.kind, "brain_plan");
+  const callsBefore = calls.length;
+  await runClaimedJob(db, coach.tenantId, job);
+  const before = await asWorker(coach, async tx => ({
+    jobs: await tx.query("SELECT status FROM jobs WHERE id=$1", [job.id]),
+    generations: await tx.query("SELECT id FROM records WHERE kind='plan_generation' AND owner_user_id=$1", [client.userId]),
+  }));
+  assert.equal(before.jobs[0].status, "pending");
+  assert.equal(before.generations.length, 1);
+  await asWorker(coach, tx => tx.query("UPDATE records SET status='active' WHERE kind='exercise'"));
+  const newJobs = await scheduleBrainPlans(db, coach.tenantId, { force: true });
+  assert.equal(newJobs, 0);
+  assert.equal((await assigned(coach, client.userId)).length, 0);
+  assert.equal(calls.length, callsBefore);
+  const queue = await workspace(coach);
+  assert.ok(queue.queue.some((g: any) => g.status === "prerequisite" && /exercise/i.test(g.error)));
+  await asWorker(coach, tx => tx.query("UPDATE jobs SET available_at=CASE WHEN id=$1 THEN now() ELSE now()+interval '1 day' END", [job.id]));
+  const retry = await claimJob(db, coach.tenantId);
+  assert.ok(retry);
+  assert.equal(retry.id, job.id);
+  await runClaimedJob(db, coach.tenantId, retry);
+  const [finished] = await asWorker(coach, tx => tx.query("SELECT status FROM jobs WHERE id=$1", [job.id]));
+  assert.equal(finished.status, "completed");
+  assert.equal(calls.length, callsBefore + 1);
+  assert.equal((await asWorker(coach, tx => tx.query("SELECT id FROM records WHERE kind='plan_generation' AND data->>'jobId'=$1", [job.id]))).length, 1);
+});
+
+test("intake safety updates hold existing programmes before another workout can start", async () => {
+  const coach = await newCoach("audit-intake-hold");
+  const client = await member(coach, "Audit existing plan");
+  const program = await req("/programs", "POST", {subscriberId:client.userId, timezone:"UTC",program:{title:"Strength plan",goal:"Strength",daysPerWeek:2,exercises:[{name:"Goblet squat",sets:3,reps:8,restSeconds:90,loadKg:16}]}},coach);
+  assert.equal(program.statusCode,200,program.body);
+  const intake = await req("/intake", "POST", {age:32,goal:"Build strength",experience:"beginner",daysPerWeek:3,equipment:"Dumbbells",limitations:"I feel chest pain during exercise.",consent:true},client);
+  assert.equal(intake.statusCode,200,intake.body);
+  const holds = await asWorker(coach, tx => tx.query("SELECT id FROM records WHERE kind='training_hold' AND status='active' AND owner_user_id=$1",[client.userId]));
+  assert.equal(holds.length,1);
+  const start = await req("/workouts/start","POST",{programId:program.json().id},client);
+  assert.equal(start.statusCode,409,start.body);
+  assert.equal(start.json().code,"TRAINING_HELD");
 });

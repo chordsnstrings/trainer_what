@@ -45,9 +45,12 @@ export function revisedExercise(e: any, replacement: any) {
   }
   return { ...e, ...replacement };
 }
-export async function reviseExercise(tx: Tx, a: Actor, program: any, exercise: string, replacement: any, note: string, decisionId?: string) {
+export async function reviseExercise(tx: Tx, a: Actor, program: any, exercise: string, replacement: any, note: string, decisionId?: string, instanceId?: string) {
   if (!program.data.exercises.some((e: any) => e.name === exercise) && !(program.data.sessions ?? []).some((s: any) => s.exercises.some((e: any) => e.name === exercise))) throw fail(400, "This exercise is not in the assigned program");
-  const replace = (items: any[]) => items.map((e) => e.name === exercise ? revisedExercise(e, replacement) : e);
+  const groups = [program.data.exercises, ...(program.data.sessions ?? []).map((s: any) => s.exercises)];
+  if (!instanceId && groups.some(items => items.filter((e: any) => e.name === exercise).length > 1)) throw fail(409, "Choose the specific exercise instance before revising repeated movements");
+  if (instanceId && !groups.some(items => items.some((e: any) => e.name === exercise && e.instanceId === instanceId))) throw fail(400, "Exercise instance unavailable");
+  const replace = (items: any[]) => items.map((e) => e.name === exercise && (!instanceId || e.instanceId === instanceId) ? revisedExercise(e, replacement) : e);
   const next = await putRecord(tx, a, "program", { ...program.data, exercises: replace(program.data.exercises), ...(program.data.sessions ? { sessions: program.data.sessions.map((s: any) => ({ ...s, exercises: replace(s.exercises) })) } : {}), previousProgramId: program.id, revisionNote: note, sourceDecisionId: decisionId ?? null }, { ownerId: program.owner_user_id, status: "assigned" });
   await tx.query("UPDATE records SET status='archived',version=version+1,updated_at=now() WHERE id=$1", [program.id]);
   const future = await tx.query("SELECT * FROM records WHERE kind='planned_session' AND owner_user_id=$1 AND status='planned' AND data->>'programId'=$2", [program.owner_user_id, program.id]);
@@ -76,12 +79,14 @@ export function registerTrainingPrograms(app: FastifyInstance, db: Database) {
     });
   });
   app.post("/api/v1/programs/:id/progression", async (req) => {
-    const a = actor(req, true), b = z.object({ version: z.number().int().positive(), exercise: z.string().min(2).max(100), loadKg: z.number().min(0).max(500), reps: z.number().int().min(1).max(100), rir: z.number().min(0).max(10), note: z.string().trim().min(10).max(2000) }).strict().parse(req.body);
+    const a = actor(req, true), b = z.object({ version: z.number().int().positive(), instanceId: id.optional(), exercise: z.string().min(2).max(100), durationSeconds: z.number().int().min(5).max(7200).optional(), distanceMeters: z.number().int().min(10).max(50000).optional(), loadKg: z.number().min(0).max(500), reps: z.number().int().min(1).max(100), rir: z.number().min(0).max(10), note: z.string().trim().min(10).max(2000) }).strict().parse(req.body);
     return db.tenant(a, async (tx) => {
       const initial = await record(tx, (req.params as any).id, "program"); await lockTraining(tx, a, initial.owner_user_id);
       const p = await record(tx, initial.id, "program");
       if (p.version !== b.version || p.status !== "assigned") throw fail(409, "The program changed; refresh before revising it");
-      return reviseExercise(tx, a, p, b.exercise, { loadKg: b.loadKg, reps: b.reps, rir: b.rir }, b.note);
+      const ex = p.data.exercises.find((e: any) => e.name === b.exercise && (!b.instanceId || e.instanceId === b.instanceId)) ?? p.data.sessions?.flatMap((s: any) => s.exercises).find((e: any) => e.name === b.exercise && (!b.instanceId || e.instanceId === b.instanceId));
+      if (!ex || (b.durationSeconds !== undefined && workMeasure(ex) !== "time") || (b.distanceMeters !== undefined && workMeasure(ex) !== "distance")) throw fail(400, "Keep the exercise work measure");
+      return reviseExercise(tx, a, p, b.exercise, { loadKg: b.loadKg, reps: b.reps, rir: b.rir, ...(b.durationSeconds !== undefined ? {durationSeconds: b.durationSeconds} : {}), ...(b.distanceMeters !== undefined ? {distanceMeters: b.distanceMeters} : {}) }, b.note, undefined, b.instanceId);
     });
   });
   // The client pickers list the first followers by name; `membersHasMore`
@@ -135,25 +140,27 @@ export function registerTrainingPrograms(app: FastifyInstance, db: Database) {
     return db.tenant(a, async (tx) => { const r = await putRecord(tx, a, "exercise", { ...b, allowedUses: ["render", "model_prompt"] }, { status: "active" }); await event(tx, a, "exercise.created", r.id); return r; });
   });
   app.post("/api/v1/workouts/:id/substitute", async (req) => {
-    const a = actor(req), b = z.object({ version: z.number().int().positive(), exercise: z.string().min(2).max(100), replacement: z.string().min(2).max(100), reason: z.enum(["equipment_unavailable", "coach_preference"]) }).strict().parse(req.body);
+    const a = actor(req), b = z.object({ version: z.number().int().positive(), exercise: z.string().min(2).max(100), exerciseIndex: z.number().int().min(0).max(100).optional(), replacement: z.string().min(2).max(100), reason: z.enum(["equipment_unavailable", "coach_preference"]) }).strict().parse(req.body);
     return db.tenant(a, async (tx) => {
       await lockTraining(tx, a); await assertTrainingOpen(tx, a.userId);
       if (a.role === "subscriber" && !(await hasMemberAccess(tx, a.userId))) throw fail(402, "An active membership is required");
       const w = await record(tx, (req.params as any).id, "workout");
       if (w.owner_user_id !== a.userId || w.status !== "active" || w.version !== b.version) throw fail(409, "This session changed; refresh before substituting");
-      const ex = w.data.program.exercises.find((e: any) => e.name === b.exercise), replacement = ex?.alternatives?.find((e: any) => e.name === b.replacement);
+      const matches = w.data.program.exercises.map((e: any,index: number) => ({e,index})).filter((v: any) => v.e.name === b.exercise);
+      const index = b.exerciseIndex ?? (matches.length === 1 ? matches[0].index : -1);
+      const ex = w.data.program.exercises[index], replacement = ex?.name === b.exercise ? ex.alternatives?.find((e: any) => e.name === b.replacement) : null;
       if (!replacement) throw fail(400, "Choose an alternative approved in your workout");
       if (w.data.program.exercises.some((e: any) => e.name === b.replacement)) throw fail(409, "That exercise is already in this session");
-      const [logged] = await tx.query("SELECT id FROM workout_events WHERE workout_id=$1 AND data->>'exercise'=$2 LIMIT 1", [w.id, b.exercise]);
+      const [logged] = await tx.query("SELECT id FROM workout_events WHERE workout_id=$1 AND data->>'exercise'=$2 AND (data->>'exerciseIndex' IS NULL OR (data->>'exerciseIndex')::int=$3) LIMIT 1", [w.id, b.exercise,index]);
       if (logged) throw fail(409, "This exercise already has logged sets; ask your trainer before changing it");
-      const program = { ...w.data.program, exercises: w.data.program.exercises.map((e: any) => e.name === b.exercise ? { ...ex, ...replacement, alternatives: [] } : e) };
+      const program = { ...w.data.program, exercises: w.data.program.exercises.map((e: any) => e === ex ? { ...ex, ...replacement, alternatives: [] } : e) };
       await tx.query("UPDATE records SET version=version+1,data=data||$2::jsonb,updated_at=now() WHERE id=$1", [w.id, JSON.stringify({ program })]);
       const r = await putRecord(tx, a, "workout_substitution", { workoutId: w.id, from: b.exercise, to: b.replacement, reason: b.reason, prescribedAlternative: replacement }, { status: "recorded" });
       await event(tx, a, "workout.exercise_substituted", r.id); return { ok: true };
     });
   });
   app.post("/api/v1/workouts/:id/sets/:eventId/correct", async (req) => {
-    const a = actor(req), b = z.object({ revision: z.number().int().min(0), reps: z.number().int().min(0).max(200), loadKg: z.number().min(0).max(500), rir: z.number().min(0).max(10).optional(), note: z.string().trim().min(3).max(1000) }).strict().parse(req.body);
+    const a = actor(req), b = z.object({ revision: z.number().int().min(0), durationSeconds: z.number().int().min(0).max(36000).optional(), distanceMeters: z.number().int().min(0).max(200000).optional(), reps: z.number().int().min(0).max(200), loadKg: z.number().min(0).max(500), rir: z.number().min(0).max(10).optional(), note: z.string().trim().min(3).max(1000) }).strict().parse(req.body);
     return db.tenant(a, async (tx) => {
       const w = await record(tx, (req.params as any).id, "workout"); await lockTraining(tx, a, w.owner_user_id);
       if (a.role === "subscriber" && w.owner_user_id !== a.userId) throw fail(403, "Workout ownership required");
@@ -162,7 +169,9 @@ export function registerTrainingPrograms(app: FastifyInstance, db: Database) {
       const [prior] = await tx.query("SELECT * FROM records WHERE kind='workout_correction' AND data->>'eventId'=$1 ORDER BY (data->>'revision')::int DESC LIMIT 1", [set.id]);
       const revision = prior?.data.revision ?? 0;
       if (revision !== b.revision) throw fail(409, "This log has changed; refresh before correcting it");
-      const values = { reps: b.reps, loadKg: b.loadKg, ...(b.rir === undefined ? {} : { rir: b.rir }) };
+      const originalMeasure = set.data.durationSeconds !== undefined ? "time" : set.data.distanceMeters !== undefined ? "distance" : "reps";
+      if ((b.durationSeconds !== undefined && originalMeasure !== "time") || (b.distanceMeters !== undefined && originalMeasure !== "distance") || (originalMeasure !== "reps" && b.reps !== 0)) throw fail(400, "Correct the logged work measure; do not change its kind");
+      const values = { ...(b.durationSeconds !== undefined ? { durationSeconds: b.durationSeconds } : {}), ...(b.distanceMeters !== undefined ? { distanceMeters: b.distanceMeters } : {}), reps: b.reps, loadKg: b.loadKg, ...(b.rir === undefined ? {} : { rir: b.rir }) };
       const correction = await putRecord(tx, a, "workout_correction", { workoutId: w.id, eventId: set.id, revision: revision + 1, previousCorrectionId: prior?.id ?? null, original: set.data, values, note: b.note, correctedBy: a.userId }, { ownerId: w.owner_user_id, status: "recorded" });
       await event(tx, a, "workout.log_corrected", correction.id); return correction;
     });

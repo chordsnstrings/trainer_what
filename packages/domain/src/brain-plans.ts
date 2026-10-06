@@ -1,3 +1,4 @@
+import { structureShape, structureIssues, type StructuredExercise } from "./session-structure.ts";
 import { z } from "zod";
 import { addTrainingDays, canonicalCoaching } from "./coaching-completion.ts";
 import { safetySignal, screeningText } from "./red-flags.ts";
@@ -44,7 +45,8 @@ import {
 // v5 (round 5, 1 October 2026): an optional memberMemory block (code-built
 // from the member's own logs, member-memory.ts) is data, never instructions,
 // and never overrides the trainer's rules, bounds, starting loads or safety.
-export const planPromptVersion = "brain-plan-v5";
+// v6: member weekdays/time limits and instance-aware blocks, sides and groups.
+export const planPromptVersion = "brain-plan-v6";
 // v2: timed and distance changes, no increases after missed sessions or a
 // harder-than-planned week (the code-computed progressionHold is sent), and
 // short evidence references.
@@ -62,7 +64,7 @@ export const planAdaptationPromptVersion = "brain-plan-adapt-v4";
 // limit by at most one rounding unit for the whole week (one set, 5 s or
 // 10 m), and each exercise by at most one unit too; a draft over that goes to
 // the trainer for review.
-export const planValidatorVersion = "brain-plan-validator-v5";
+export const planValidatorVersion = "brain-plan-validator-v6";
 export const planConfidenceVersion = "brain-plan-confidence-v1";
 export const planRouteVersion = "brain-plan-route-v2";
 
@@ -97,6 +99,7 @@ export function prescriptionIssues(e: PrescribedWork & { restSeconds: number }) 
   return issues;
 }
 const exerciseShape = {
+  ...structureShape,
   name,
   /** Sets of rep work; rounds of timed or distance work. */
   sets: z.number().int().min(1).max(10),
@@ -222,6 +225,7 @@ export const adaptationChangeSchema = z
   .object({
     sessionKey: z.string().regex(/^[A-G]$/),
     exercise: name,
+    instanceId: structureShape.instanceId,
     sets: exerciseShape.sets.optional(),
     reps: exerciseShape.reps,
     durationSeconds: exerciseShape.durationSeconds,
@@ -310,6 +314,10 @@ export const planProfileSchema = z
     goal: z.string().min(3).max(1000),
     experience: z.enum(["beginner", "intermediate", "advanced"]),
     daysPerWeek: z.number().int().min(1).max(7),
+    availableWeekdays: z.array(z.number().int().min(0).max(6)).min(1).max(7).refine(v => new Set(v).size === v.length, "Choose each weekday once").optional(),
+    maxSessionMinutes: z.number().int().min(15).max(180).optional(),
+    timezone: z.string().max(100).refine(v => { try { new Intl.DateTimeFormat("en", { timeZone: v }); return true; } catch { return false; } }, "Choose a valid timezone").optional(),
+
     equipment: z.string().max(1000),
     limitations: z.string().max(2000),
   })
@@ -478,7 +486,7 @@ function equipmentGaps(
 // ---------------------------------------------------------------------------
 // Expansion, dates and validation
 
-export type ExpandedExercise = {
+export type ExpandedExercise = StructuredExercise & {
   name: string;
   /** Sets of rep work; rounds of timed or distance work. */
   sets: number;
@@ -625,7 +633,7 @@ export const MIN_WORK_STEP = Object.freeze({ seconds: 30, meters: 100, paceSecon
 export type PlanCheckContext = {
   /** Limitations and goal, when given, add position cautions (pregnancy) as warnings. */
   profile: Pick<PlanProfile, "experience" | "daysPerWeek" | "equipment"> &
-    Partial<Pick<PlanProfile, "limitations" | "goal">>;
+    Partial<Pick<PlanProfile, "limitations" | "goal" | "availableWeekdays" | "maxSessionMinutes">>;
   library: PlanLibrary;
   bounds: PlanBounds;
   evidenceIds?: Set<string>;
@@ -671,9 +679,9 @@ function checkSessions(
   const available = memberEquipment(ctx.profile.equipment);
   for (const s of sessions) {
     const label = `${where} session ${s.key}`;
-    const names = s.exercises.map((e) => normalizeTerm(e.name));
-    if (new Set(names).size !== names.length)
-      result.errors.push(`${label} repeats an exercise`);
+    if (ctx.profile.availableWeekdays && "weekday" in s && !ctx.profile.availableWeekdays.includes(Number(s.weekday)))
+      result.errors.push(`${label} is outside the member's available weekdays`);
+    for (const issue of structureIssues(s.exercises)) result.errors.push(`${label}: ${issue}`);
     for (const e of s.exercises) {
       const entry = ctx.library.get(normalizeTerm(e.name));
       if (!entry) {
@@ -723,9 +731,10 @@ function checkSessions(
       result.metrics.longestSessionMinutes,
       minutes,
     );
-    if (minutes > ctx.bounds.maxSessionMinutes)
+    const minuteLimit = Math.min(ctx.bounds.maxSessionMinutes, ctx.profile.maxSessionMinutes ?? Infinity);
+    if (minutes > minuteLimit)
       result.errors.push(
-        `${label} takes about ${minutes} minutes (limit ${ctx.bounds.maxSessionMinutes})`,
+        `${label} takes about ${minutes} minutes (limit ${minuteLimit})`,
       );
   }
 }
@@ -1309,7 +1318,7 @@ export const pregnancyWeek = (text: string) => pregnancyStage(text)?.from ?? nul
  * to look. A warning, not an error: the trainer decides.
  */
 export function positionCautions(
-  profile: Partial<Pick<PlanProfile, "limitations" | "goal">>,
+  profile: Partial<Pick<PlanProfile, "limitations" | "goal" | "availableWeekdays" | "maxSessionMinutes">>,
   sessions: Array<{ exercises: Array<{ name: string }> }>,
 ) {
   // One line each: a number in the goal is not next to a pregnancy term in the limitations.
@@ -1430,7 +1439,7 @@ export function heldWeek<S extends { sessionKey: string; exercises: ExpandedExer
     any = new Map<string, ExpandedExercise>();
   for (const s of current)
     for (const e of s.exercises) {
-      const key = normalizeTerm(e.name);
+      const key = (e.instanceId ?? normalizeTerm(e.name));
       same.set(`${s.sessionKey}:${key}`, e);
       const prior = any.get(key);
       any.set(key, !prior ? e : hardest(prior, e));
@@ -1439,7 +1448,7 @@ export function heldWeek<S extends { sessionKey: string; exercises: ExpandedExer
   const sessions = planned.map((s) => ({
     ...s,
     exercises: s.exercises.map((planned) => {
-      const key = normalizeTerm(planned.name);
+      const key = planned.instanceId ?? normalizeTerm(planned.name);
       const ref = same.get(`${s.sessionKey}:${key}`) ?? any.get(key);
       if (!ref) return planned;
       const e: ExpandedExercise = { ...planned };
@@ -1516,9 +1525,8 @@ export function applyAdaptation(
   }));
   for (const change of changes) {
     const session = next.find((s) => s.sessionKey === change.sessionKey);
-    const exercise = session?.exercises.find(
-      (e) => normalizeTerm(e.name) === normalizeTerm(change.exercise),
-    );
+    const matches = session?.exercises.filter(e => normalizeTerm(e.name) === normalizeTerm(change.exercise) && (!change.instanceId || e.instanceId === change.instanceId)) ?? [];
+    const exercise = matches.length === 1 ? matches[0] : undefined;
     if (!session || !exercise) {
       errors.push(`${change.exercise} is not in next week's session ${change.sessionKey}`);
       continue;
@@ -1815,8 +1823,8 @@ export function spotCheckSample(id: string, rate: number) {
 
 export type PlanChange = { path: string; from: unknown; to: unknown };
 function diffExercises(path: string, before: any[], after: any[], out: PlanChange[]) {
-  const b = new Map(before.map((e) => [normalizeTerm(e.name), e])),
-    a = new Map(after.map((e) => [normalizeTerm(e.name), e]));
+  const b = new Map(before.map((e) => [e.instanceId ?? normalizeTerm(e.name), e])),
+    a = new Map(after.map((e) => [e.instanceId ?? normalizeTerm(e.name), e]));
   for (const [key, e] of b)
     if (!a.has(key)) out.push({ path: `${path}.${e.name}`, from: "present", to: "removed" });
   for (const [key, e] of a) {

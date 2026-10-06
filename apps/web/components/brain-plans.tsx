@@ -414,7 +414,7 @@ function ReviewItem({
         <span className="badge">
           {spot
             ? "Spot check"
-            : item.status === "failed"
+            : item.status === "prerequisite" ? "Waiting for setup" : item.status === "failed"
               ? "Needs you"
               : item.status === "not_sent"
                 ? "Waiting for the model"
@@ -427,6 +427,7 @@ function ReviewItem({
             : `Week ${item.inputs?.week ?? "?"} adjustment`}
         </h3>
       </div>
+      {item.status === "prerequisite" && <p className="notice">Waiting for setup or member information. This request will retry automatically. <a href="/trainer/plans">Check plan setup</a> · <a href="/trainer/programs">Exercise library</a></p>}
       {item.confidence && (
         <p>
           Confidence <strong>{percent(item.confidence.score)}</strong> (your
@@ -440,7 +441,7 @@ function ReviewItem({
       {(item.routeReasons?.length > 0 || item.error) && (
         <ul className="plan-reasons">
           {item.error && <li>{item.error}</li>}
-          {item.routeReasons.map((r: string) => (
+          {(item.routeReasons ?? []).map((r: string) => (
             <li key={r}>{r}</li>
           ))}
         </ul>

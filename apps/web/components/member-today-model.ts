@@ -17,6 +17,7 @@ export type TodayProgramme = {
   planState?: "none" | "awaiting_coach" | "ready" | "self_paced" | "ended";
   today?: string;
   intakeDone?: boolean;
+  setup?: Array<{ key: string; done: boolean; owner: string; href: string }>;
   programme?: {
     state: "not_started" | "active" | "complete";
     billing: "monthly" | "upfront" | "complimentary";

@@ -6,6 +6,7 @@ import { ArrowRight, ChevronRight } from "lucide-react";
 import { resolveBrandDesign } from "@trainer/contracts";
 import { calendarDate, formatDate } from "../lib/format";
 import { useLocale, useT } from "../lib/i18n/react";
+import { MemberSetupChecklist } from "./member-setup";
 import { CoachSwitcher } from "./joining";
 import { EndOfProgramme } from "./programme-today";
 import { BrandImage } from "./trainer-design";
@@ -270,6 +271,7 @@ export function MemberToday({
           )}
         </section>
       )}
+      {!hold && !active && <MemberSetupChecklist steps={data?.setup} />}
       {!hold && status.length > 0 && (
         <ul className="today-status" aria-label={t("fProgressAria")}>
           {status.map((tile) => {

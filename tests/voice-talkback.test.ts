@@ -810,7 +810,7 @@ test("audio made when every line was sent as English is never reused for an Arab
   );
 });
 
-test("code-owned lines stay English even with an Arabic exercise name; audio made as English is still reused", () => {
+test("code-owned templates follow the member language and never reuse wrong-language audio", () => {
   // Review of F5: the setup line with a long Arabic name has more Arabic than
   // Latin letters, so it was sent to Cartesia as Arabic, template, sets and
   // reps included.
@@ -824,27 +824,29 @@ test("code-owned lines stay English even with an Arabic exercise name; audio mad
   });
   const script = buildSessionScript({ title: "Upper body", exercises, style: bilingual, language: "ar" }).script;
   const setup = script.exercises[1].setup;
-  assert.equal(setup.text, codeLines.setup(exercises[1], 1, 2));
-  assert.match(setup.text, /^Last exercise: تمرين الضغط/);
+  assert.equal(setup.text, codeLines.setup(exercises[1], 1, 2, "ar"));
+  assert.match(setup.text, /^التمرين 2 من 2: تمرين الضغط/);
   assert.equal(speechLanguage(setup.text), "ar", "by letters alone it would be Arabic");
-  assert.equal(lineLanguage(setup), "en");
+  assert.equal(lineLanguage(setup), "ar");
   for (const line of spokenLines(script))
     assert.equal(
       lineLanguage(line),
-      line.owner === "code" ? "en" : speechLanguage(line.text),
+      line.owner === "code" ? "ar" : speechLanguage(line.text),
       line.id,
     );
   // The trainer's Arabic cue and phrases are still spoken in Arabic.
   assert.equal(lineLanguage(script.exercises[1].cueLine!), "ar");
   assert.equal(lineLanguage(script.intro[0]), "ar");
-  // The fingerprint of a code line with an Arabic name is the one it had
-  // before lines carried a language (it was, and is, spoken as English).
+  // Arabic code-owned clips cannot reuse audio previously rendered as English.
   const voice = { id: "voice-row", version: 3, provider: "cartesia", model: null };
   const pricing = { model: "sonic-3.6", priceVersion: "price-1" };
   const before = createHash("sha256")
     .update(["voice-row", 3, "sonic-3.6", "price-1", "cartesia", setup.text].join("\n"))
     .digest("hex");
-  assert.equal(clipFingerprint(voice, pricing, setup.text, lineLanguage(setup)), before);
+  assert.notEqual(clipFingerprint(voice, pricing, setup.text, lineLanguage(setup)), before);
+  const english = buildSessionScript({ title: "Upper body", exercises, language: "en" }).script.exercises[1].setup;
+  assert.match(english.text, /^Last exercise:/);
+  assert.equal(lineLanguage(english), "en");
   // Guided segments: the name does not decide the language.
   const segment = {
     name,

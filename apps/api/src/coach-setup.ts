@@ -310,6 +310,8 @@ export async function setupWizard(db: Database, a: Identity) {
         Number.isFinite(mfaAt) && Date.now() - mfaAt < 10 * 60 * 1000,
     },
     grow: [
+      { key: "workouts", label: "Workout delivery", done: check.training_delivery?.ok === true, note: "Published teaching, an exercise library and connected generation.", href: "/trainer/plans" },
+      { key: "guided_delivery", label: "Guided session delivery", done: check.audio_delivery?.ok === true, note: "Voice permission and provider readiness are checked separately from teaching progress.", href: "/trainer/voice" },
       {
         key: "voice",
         label: "Voice clone",

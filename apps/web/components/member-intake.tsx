@@ -64,11 +64,14 @@ export function MemberIntake({
   const t = useT("profile");
   const [busy, setBusy] = useWorkspaceValue("member-intake-saving", false);
   const [error, setError] = useState(""),
-    [saved, setSaved] = useState(false);
+    [saved, setSaved] = useState(false),
+    [savedHold, setSavedHold] = useState(false);
   const answers = {
     age: String(intake?.age ?? ""), goal: intake?.goal ?? "",
     experience: intake?.experience ?? "beginner", days: intake?.daysPerWeek ?? 3,
     equipment: intake?.equipment ?? "", limitations: intake?.limitations ?? "",
+    availableWeekdays: (intake?.availableWeekdays ?? [0, 1, 2, 3, 4, 5, 6]) as number[],
+    maxSessionMinutes: intake?.maxSessionMinutes ?? 60,
   };
   const base = JSON.stringify(answers);
   const initial = { ...answers, base, step: 0 };
@@ -83,6 +86,10 @@ export function MemberIntake({
   /** Checks the current step's fields and shows the browser's hint. */
   const stepValid = () => {
     if (step === 2) {
+      if (draft.availableWeekdays.length < draft.days) {
+        setError(t("inEnoughDays"));
+        return false;
+      }
       const days = form.current?.elements.namedItem("days") as HTMLInputElement | null;
       const value = Number(days?.value);
       days?.setCustomValidity(Number.isInteger(value) && value >= 1 && value <= 7 ? "" : t("inErrDays"));
@@ -138,16 +145,20 @@ export function MemberIntake({
     setBusy(true);
     setError("");
     try {
-      await saveIntake({
+      const result = await saveIntake({
         age: Number(f.get("age")),
         goal: String(f.get("goal") ?? "").trim(),
         experience: f.get("experience"),
         daysPerWeek: Number(f.get("days")),
+        availableWeekdays: draft.availableWeekdays,
+        maxSessionMinutes: Number(f.get("maxSessionMinutes")),
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         equipment: String(f.get("equipment") ?? ""),
         limitations: String(f.get("limitations") ?? ""),
         consent: true,
       });
       clearDraft();
+      setSavedHold(result.trainingHeld === true);
       setSaved(true);
       await onSaved?.();
     } catch (e: any) {
@@ -163,7 +174,7 @@ export function MemberIntake({
       <section className="card intake-done" role="status">
         <DrawnCheck draw emphasis className="intake-done-check" />
         <h1>{t("inThanks")}</h1>
-        <p>{t("inThanksText")}</p>
+        <p>{savedHold ? t("inHealthHeld") : t("inThanksText")}</p>
         <Link className="button" href="/app">
           {t("inBackToday")}
         </Link>
@@ -277,6 +288,10 @@ export function MemberIntake({
             min={1}
             max={7}
           />
+          <p className="field-legend">{t("inAvailableDays")}</p>
+          <div className="intake-weekdays">{(["inWeekday0", "inWeekday1", "inWeekday2", "inWeekday3", "inWeekday4", "inWeekday5", "inWeekday6"] as const).map(key => t(key)).map((day, index) => <label key={index}><input type="checkbox" checked={draft.availableWeekdays.includes(index)} onChange={e => update({ availableWeekdays: e.target.checked ? [...draft.availableWeekdays, index].sort() : draft.availableWeekdays.filter(x => x !== index) })} />{day}</label>)}</div>
+          <Field label={t("inMaxMinutes")}><input type="number" name="maxSessionMinutes" min={15} max={180} required value={draft.maxSessionMinutes} onChange={e => update({ maxSessionMinutes: Number(e.target.value) })} /></Field>
+          <p className="muted">{t("inCalendarChanges")}</p>
           <Field label={t("inEquipment")}>
             <textarea
               name="equipment"

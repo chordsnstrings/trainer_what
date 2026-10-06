@@ -29,3 +29,7 @@ This repository contains planning documents and a runnable development implement
 - Keep secrets, raw bank details and sensitive customer records out of Git, prompts, logs and screenshots. Credentials belong in the deployment secret manager.
 - Make small reversible choices autonomously. Continue independent work around blocked credentials or approvals. Carry forward existing authorization instead of repeatedly asking for it.
 - The owner has authorized implementation. Continue useful work autonomously; live charging, payout execution, purchases and production placement still follow the established release authority and account capabilities.
+
+## Standing release instruction — 6 October 2026
+
+The owner explicitly says “always deploy.” After implementation and the normal release checks, publish the project updates, merge and verify the serving release without asking again. Keep Claude handoff current. Never bypass failed CI, access controls or unknown paid-outcome reconciliation.

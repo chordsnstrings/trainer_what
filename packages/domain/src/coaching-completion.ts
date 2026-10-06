@@ -1,10 +1,17 @@
 import { z } from "zod";
+import { structureShape, structureIssues } from "./session-structure.ts";
+import { EFFORTS } from "./prescription.ts";
 
 export const trainingExerciseSchema = z
   .object({
+    ...structureShape,
     name: z.string().trim().min(2).max(100),
     sets: z.number().int().min(1).max(10),
-    reps: z.number().int().min(1).max(100),
+    reps: z.number().int().min(1).max(100).optional(),
+    durationSeconds: z.number().int().min(5).max(7200).optional(),
+    distanceMeters: z.number().int().min(10).max(50000).optional(),
+    paceSecondsPerKm: z.number().int().min(120).max(1200).optional(),
+    effort: z.enum(EFFORTS).optional(),
     restSeconds: z.number().int().min(0).max(600),
     loadKg: z.number().min(0).max(500).default(0),
     rir: z.number().min(0).max(10).default(2),
@@ -32,7 +39,10 @@ export const trainingExerciseSchema = z
       .max(10)
       .default([]),
   })
-  .strict();
+  .strict().superRefine((e, ctx) => {
+    if ([e.reps, e.durationSeconds, e.distanceMeters].filter(v => v !== undefined).length !== 1) ctx.addIssue({ code: "custom", message: "Choose exactly one of reps, time or distance" });
+    if (e.paceSecondsPerKm && e.reps) ctx.addIssue({ code: "custom", message: "Pace requires time or distance" });
+  });
 export const trainingProgramSchema = z
   .object({
     title: z.string().trim().min(2).max(120),
@@ -60,15 +70,7 @@ export const trainingProgramSchema = z
       value.exercises,
       ...(value.sessions ?? []).map((s) => s.exercises),
     ]) {
-      if (
-        new Set(exercises.map((e) => e.name.toLowerCase())).size !==
-        exercises.length
-      )
-        ctx.addIssue({
-          code: "custom",
-          path: ["exercises"],
-          message: "Each exercise name must be unique within a session",
-        });
+      for (const message of structureIssues(exercises)) ctx.addIssue({ code: "custom", path: ["exercises"], message });
     }
     if (value.sessions && value.sessions.length !== value.daysPerWeek)
       ctx.addIssue({
@@ -578,6 +580,7 @@ export function eligibleCoachAction(
     .slice(0, action.minimumCompletedSets);
   return (
     action.type === "progression" &&
+    typeof exercise.reps === "number" &&
     exercise.loadKg > 0 &&
     (action.increaseKg! / exercise.loadKg) * 100 <=
       action.maxIncreasePercent! &&
@@ -585,7 +588,7 @@ export function eligibleCoachAction(
     recent.length >= action.minimumCompletedSets &&
     recent.every(
       (s) =>
-        s.reps >= exercise.reps &&
+        s.reps >= (exercise.reps ?? Infinity) &&
         s.loadKg >= exercise.loadKg &&
         (s.rir ?? -1) >= action.minimumRir,
     )

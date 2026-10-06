@@ -1,0 +1,200 @@
+{
+  "recordedAt": "2026-10-06T06:25:31.994614+00:00",
+  "branch": "fix/coach-workflow-2026-10-06",
+  "baseCheckpoint": "9c9497f4792826940fa895b4d00b3e89e6d1ef30",
+  "deployment": "not performed",
+  "migration": "087_coach_workflow.sql; local only",
+  "applicationFindings": "F01\u2013F10 implemented locally; F11/F12 external completion outstanding",
+  "typecheck": "passed",
+  "productionBuild": "passed",
+  "diffWhitespace": "passed",
+  "focusedRuns": [
+    {
+      "log": "coach-fix-probes",
+      "counts": {
+        "tests": 4,
+        "pass": 4,
+        "fail": 0,
+        "skipped": 0
+      },
+      "sha256": "24e1cd07f0643a9edbd578d46e23424beed2ac91951cf9225ad39147a6927666"
+    },
+    {
+      "log": "coach-regressions-final",
+      "counts": {
+        "tests": 5,
+        "pass": 5,
+        "fail": 0,
+        "skipped": 0
+      },
+      "sha256": "cb77756926807ef25a7000016d2f7ce67f3af2b7c354db24b597feded8aaa841"
+    },
+    {
+      "log": "coach-connected-tests",
+      "counts": {
+        "tests": 34,
+        "pass": 26,
+        "fail": 8,
+        "skipped": 0
+      },
+      "sha256": "43bc56b31cb04947fe7a0ba7087dfe90be0f8861aa080c854379769adbf9b7b4"
+    },
+    {
+      "log": "coach-billing-final",
+      "counts": {
+        "tests": 22,
+        "pass": 21,
+        "fail": 1,
+        "skipped": 0
+      },
+      "sha256": "e4b306f24b380309fb805c9876a8f072c34354fd568fe6021d5b4fb1bfdf9872"
+    },
+    {
+      "log": "coach-payment-regressions",
+      "counts": {
+        "tests": 45,
+        "pass": 45,
+        "fail": 0,
+        "skipped": 0
+      },
+      "sha256": "a19cacbeebd6e6646a8d89d27a0f5781169060a585131b55f38a1f3fd1f1d6a1"
+    },
+    {
+      "log": "coach-voice-final",
+      "counts": {
+        "tests": 31,
+        "pass": 31,
+        "fail": 0,
+        "skipped": 0
+      },
+      "sha256": "34299992a9b2000dbb28d2e2fe80f2eb73976158fceb69fda827460455e6aeae"
+    },
+    {
+      "log": "coach-final-qualification",
+      "counts": {
+        "tests": 82,
+        "pass": 81,
+        "fail": 1,
+        "skipped": 0
+      },
+      "sha256": "45be00bd5c8ffbc2f6c4d5a2bd4ce64fe4102bc8650a64eb519e75c597b31542"
+    },
+    {
+      "log": "coach-setup-gate-final",
+      "counts": {
+        "tests": 1,
+        "pass": 1,
+        "fail": 0,
+        "skipped": 0
+      },
+      "sha256": "53a64e68b15e7b4b7b1bb8a3aee459b8d3ab573ebe1e3a34ef3f13e5728073c3"
+    }
+  ],
+  "runResolution": [
+    "coach-connected-tests: 26 coaching/nutrition cases passed; eight legacy billing fixtures lacked newly required readiness. Updated fixtures pass in coach-billing-final.",
+    "coach-billing-final: 21 passed; forged scope was correctly refused with ACTOR_ROLE_MISMATCH rather than null. Corrected assertion passes in coach-regressions-final.",
+    "coach-final-qualification: 81 passed; coach go-live fixture lacked the newly required exercise library. Added synthetic exercise; the exact case passes in coach-setup-gate-final.",
+    "No broad suite or restricted PostgreSQL qualification was rerun locally. Exact-head CI remains a release gate."
+  ],
+  "browser": {
+    "checks": [
+      "one guided runner with text, music and recoverable loading",
+      "setup waits for readiness",
+      "confirmation logs once and early readiness preserves rest",
+      "reload restores paused progress and remaining rest",
+      "music changes never advance sets",
+      "remote test consumes signal without changing workout",
+      "failed pain report stays durable and retries without resuming",
+      "timed work requires confirmation and completes the workout once",
+      "Arabic circuit preserves round order and actual distance"
+    ],
+    "screenshots": [
+      "test-results/guided-complete/phone.png",
+      "test-results/guided-complete/desktop.png",
+      "test-results/guided-complete/rtl.png",
+      "test-results/guided-complete/structured-arabic-distance.png"
+    ],
+    "errors": [],
+    "environment": "Local production build; isolated synthetic PGlite; mocked speech/music/workout responses; Chromium 153",
+    "visualReview": [
+      "desktop",
+      "phone structured Arabic/distance"
+    ],
+    "screenshotsSha256": {
+      "test-results/guided-complete/phone.png": "3323aeda2e423ae61d62ef570399f7f49c876677917e9211929840381b6fb78e",
+      "test-results/guided-complete/desktop.png": "1e0e2013fa003708de23f98d5a6618d2195150cebf4d993e89a3b21a0a857416",
+      "test-results/guided-complete/rtl.png": "4ba33b4879b97cc2f936d26128ddfdfbb88c9819dea4486e68c3f0c6998f874f",
+      "test-results/guided-complete/structured-arabic-distance.png": "10104d1da0889d2bd8f61daeaff84e2426c8975514d7b8bab4ea921e96516dfc"
+    }
+  },
+  "external": {
+    "paidRequests": 0,
+    "music": "38 restored tracks; 21 known tasks and one unknown intent preserved; Suno read-only connection timed out",
+    "qualification": "Real frontier-model/Cartesia, iOS/Android/headset and noisy gym measurements remain open"
+  },
+  "changedSourceSha256": {
+    "apps/api/src/brain-plans.ts": "549493e06715b3974594eb18d1659661b6375d8368be4abfc4ac07a011ccd043",
+    "apps/api/src/coach-setup.ts": "73de4461bf376da4bc5070a2c8f7e13f958a589b188baa637e0f6e8503821526",
+    "apps/api/src/coaching-completion.ts": "c77a6fa923f2c7dd0c31d8ce9b36facaeab7ede9d6e9fe367d12e09ab803722c",
+    "apps/api/src/member-setup.ts": "70fb39e31b52346d0072a5d6dc3770f4ce35a6f4702c6f5a1d5baf3424b24382",
+    "apps/api/src/nutrition.ts": "2df0febf137538298b9ff21d599d633ad21444e958e661cc166bd0c8a2543040",
+    "apps/api/src/programme-today.ts": "c0eff73c203279bf46647c448390df8b976c7e11cf628d69e6705b76980f7786",
+    "apps/api/src/service-readiness.ts": "fad390f63b2f6e51fc5b2906d5f38aada079d2bb47fe086fb47dc281306ceefc",
+    "apps/api/src/training-programs.ts": "b370f3c387d60e1caee61e179ccc688a61353c99428d32a2451158c029a1dbe8",
+    "apps/api/src/voice-session.ts": "292a121c81b8f6f533037c424537ae0dc40f49d26f6fe94298664acfaa38433f",
+    "apps/web/components/brain-plans.tsx": "5d965111d38b2dcd928053104a76c6425243ca621f2330565cfe13cc9a47e300",
+    "apps/web/components/member-setup.tsx": "278dc2c183cf90330ebbdec81582b73f04c24ca14801fb97263fd8216ae84784",
+    "apps/web/components/nutrition.tsx": "b7a268a593f560bd8f708997aebc6205f821d08f15cffc8c227fb257ec641451",
+    "apps/web/components/programme-membership.tsx": "e94bb839fe241832f15640663b2720b363f5455733824374c954f01de1a6c308",
+    "apps/web/components/training-workspace.tsx": "c988de85eeebff4e48d6851cc03f184894266164f38227728c4f45fc799bfb75",
+    "apps/web/components/voice-session.tsx": "4e934bce48b09bb04e346850076405b0d0f00edb286873a937b2a7e6c0e9c480",
+    "apps/web/components/workspace-training.tsx": "17936f731ef69d23b9dcdfa2499394a7bb99611feb7ef307bee72107a4587393",
+    "packages/domain/src/brain-plans.ts": "7d2888985e219f0946e113424d928bc460bb22fa536b78117557eab3209e0b77",
+    "packages/domain/src/coaching-completion.ts": "5029e893fc03b7a95a740e740a4d4f87a62833f21d362930b63d08ccbd82893e",
+    "packages/domain/src/voice-runner.ts": "1f1641f5456e3ad15a3efdea3d785fe87fd3f5ce2b7264fe128221f00e364faf",
+    "packages/domain/src/voice-session.ts": "4eea538056af35a25be2ff96e205d83bf34b6bf60a4fb3c7f31a4ce3745a8a06",
+    "packages/providers/src/brain-plans.ts": "4228a54e60dc57bde279256a8a57345c05beb2607eefc7a1ac5edcb10dde894e",
+    "scripts/guided-session-check.mjs": "b7052c9a70f8fc70c133f5ae5bf34d392d721e5acaedc4673625d5330670cbea",
+    "tests/brain-plans-timed.test.ts": "8d87e7fd3a1fdbe5bf207cb29e9d8d9c9d24f8c9de2b779c3e532a790c691f8f",
+    "tests/brain-plans.test.ts": "55cb853c928475cc1911dc3f3e7c42cd7376ddd64acd940a1f3d30edf66d362c",
+    "tests/coach-setup.test.ts": "88cff7b232e7cdcbb28e36a264e4bcefbf937c9b2d288d38cb770898d611e11d",
+    "tests/coaching-completion.test.ts": "9a77a7677d131d4667eaa2b5d14683c25d9c3f36ca0430aff516bc817be9dc46",
+    "tests/finance-checkout.test.ts": "8a3979155fa9684e75387e5beaf27cdf5ef22e42cdcaeae19ccc68d988e4a8ce",
+    "tests/fix-ledger.test.ts": "adeaa9a035b97490af7ad818771f506213a30784cafe13de84ef9eda0824e844",
+    "tests/fix-nutrition-model.test.ts": "04c60ed543e17b928a4065b25ace26220d62ffadb1e359bdfe8ce9ec609987d8",
+    "tests/fix-stripe-payments.test.ts": "0d23d72708f0ee5bb22d90b45338ae9c73b0c2112c529e21c0c6266217f8b4d7",
+    "tests/onboarding-completion.test.ts": "03c2fe896edde322c1b884050b89846b56e5911ca9e681398dc065c8fd130228",
+    "tests/programme-billing.test.ts": "8faf84c1d4b9f03086184b6f547e8c88f43fd2b77bf6bb2faa926d9c25fd51d1",
+    "tests/programme-review.test.ts": "a73951ab6fa15e37bc8c49723a63fbd6d66ba562386dd455ff95f32ab5d828b4",
+    "tests/programme-stripe-mock.test.ts": "8fe7db821f37bbb9ffa6421d7c7557898301c3c95710780e409ef861e5a18d8e",
+    "tests/programme-voice.test.ts": "c716e454d58fd5e4401e8a44c6fef3f7dea4a6e9a9f09d77b5dae6cbb973b3b2",
+    "packages/domain/src/session-structure.ts": "e2b2a389d5e054fc61f36ee82906d45d729def3f120eaf89ce62dc33b092aec2",
+    "tests/coach-workflow-structure.test.ts": "ea84a4b7cdaec656cae0447fc95c89418e6451fee79c84c898dd949c2bc46e06",
+    "tests/service-readiness-fixtures.ts": "4f20466d98dc94d6c7aaf8a58447954935193f420d0b190d673f5b0eef6ef490"
+  },
+  "applicationCommit": "5f95483",
+  "releaseCorrection": {
+    "recordedAt": "2026-10-06T07:04:55.706244+00:00",
+    "initialHead": "9f012305fea53b934b6ccca8626fad80c70a41ef",
+    "initialRun": 37425623889,
+    "initialPassingJobs": [
+      "subscriber-ui",
+      "wildcard-edge",
+      "compose-topology"
+    ],
+    "initialFailingTests": 5,
+    "typecheck": "pass",
+    "focusedCorrectionLogSummary": [
+      "\u2139 tests 70",
+      "\u2139 pass 69",
+      "\u2139 fail 1",
+      "\u2139 skipped 0"
+    ],
+    "nutritionFinalCheck": {
+      "tests": 11,
+      "passed": 11,
+      "failed": 0
+    },
+    "note": "Initial targeted corrections had one remaining nutrition event expectation; corrected to cover the additional retired recipe on an already-held plan. Focused nutrition rerun passes. Normal release CI required."
+  }
+}

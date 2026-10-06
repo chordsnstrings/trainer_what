@@ -14,6 +14,11 @@ import {
 } from "../apps/api/src/finance-checkout.ts";
 import { processStripeEvent } from "../apps/api/src/stripe-events.ts";
 import { settlementBlockers } from "../apps/api/src/privacy-lifecycle.ts";
+const deliveryConfig: Record<string,string> = {
+ MODEL_BASE_URL:"https://model.checkout.invalid",MODEL_API_KEY:"fixture",MODEL_NAME:"fixture",
+ VOICE_PROVIDER:"elevenlabs",VOICE_BASE_URL:"https://voice.checkout.invalid",VOICE_API_KEY:"fixture",VOICE_MODEL:"fixture",VOICE_PRICE_VERSION:"fixture",VOICE_USD_PER_1000_CHARACTERS:"1",VOICE_DAILY_USD_LIMIT:"5",VOICE_CONTRACT_VERIFIED:"true",
+};
+const previousDeliveryConfig = Object.fromEntries(Object.keys(deliveryConfig).map(k => [k,process.env[k]]));
 let db: Database, product: any;
 const owner: Actor = {
   tenantId: randomUUID(),
@@ -25,6 +30,7 @@ const options = {
   nutritionReady: async () => {},
 };
 before(async () => {
+  Object.assign(process.env,deliveryConfig);
   db = await createDatabase({ memory: true });
   await db.system(async (tx) => {
     await tx.query(
@@ -39,6 +45,12 @@ before(async () => {
       "INSERT INTO memberships(tenant_id,user_id,role) VALUES($1,$2,'owner')",
       [owner.tenantId, owner.userId],
     );
+  });
+  await db.tenant(owner,async tx => {
+    await putRecord(tx,owner,"brain_release",{}, {status:"published"});
+    await putRecord(tx,owner,"exercise",{name:"Fixture squat",sets:3,reps:8,restSeconds:60},{status:"active"});
+    await tx.query("INSERT INTO trainer_voices(id,tenant_id,user_id,status,provider_voice_id,consent_version) VALUES($1,$2,$3,'verified','checkout-fixture-voice','fixture')",[randomUUID(),owner.tenantId,owner.userId]);
+    await tx.query("INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,'voice','fixture',true)",[randomUUID(),owner.tenantId,owner.userId]);
   });
   product = await db.tenant(owner, (tx) =>
     putRecord(
@@ -59,7 +71,7 @@ before(async () => {
     ),
   );
 });
-after(async () => db.close());
+after(async () => { await db.close(); for (const [k,v] of Object.entries(previousDeliveryConfig)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } });
 async function subscriber() {
   const a = {
     ...owner,
@@ -606,3 +618,21 @@ test("app exposes checkout reconciliation and persists premium voice on the exis
     await app.close();
   }
 });
+
+ test("an unavailable service blocks a fresh charge before a provider intent exists",async () => {
+  const a = await subscriber(); let calls = 0;
+  const prior = process.env.MODEL_API_KEY; delete process.env.MODEL_API_KEY;
+  try {
+    await assert.rejects(createMembershipCheckout(db,a,input(),options,{checkout:{sessions:{create:async () => {calls++; throw new Error("must not charge");}}}} as any), {code:"SERVICE_NOT_READY"});
+    assert.equal(calls,0); assert.equal((await intents(a)).length,0);
+  } finally { process.env.MODEL_API_KEY = prior; }
+ });
+
+ test("service preflight never exposes another workspace or a forged membership",async () => {
+  const {trainingReadiness} = await import("../apps/api/src/service-readiness.ts");
+  const a = await subscriber();
+  assert.equal((await db.tenant(a,trainingReadiness)).ready,true);
+  for (const forged of [{...a,tenantId:randomUUID()},{...a,userId:randomUUID()},{...a,role:"owner"}]) {
+    try { const r = await db.tenant(forged,trainingReadiness); assert.equal(r.ready,false); assert.match(r.issues.join(" "),/Publish your coaching Brain/); } catch(e) { assert.equal((e as any).statusCode,403); }
+  }
+ });

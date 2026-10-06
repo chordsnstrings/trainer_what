@@ -770,6 +770,10 @@ async function heldByScreen(
     "SELECT id,status FROM records WHERE id=$1 AND kind='workout' AND owner_user_id=$2",
     [session.workout_id, a.userId],
   );
+  await tx.query(
+    "UPDATE voice_sessions SET status='stopped',end_reason='pain',ended_at=coalesce(ended_at,now()),version=version+1,updated_at=now() WHERE id=$1 AND status IN ('ready','running')",
+    [session.id],
+  );
   await openTrainingHold(
     tx,
     a,
@@ -777,10 +781,6 @@ async function heldByScreen(
     ("Voice session: " + transcript).slice(0, 2000),
     workout?.id,
     screen.hold ? screen : undefined,
-  );
-  await tx.query(
-    "UPDATE voice_sessions SET status='stopped',end_reason='pain',ended_at=coalesce(ended_at,now()),version=version+1,updated_at=now() WHERE id=$1 AND status IN ('ready','running')",
-    [session.id],
   );
   await event(tx, a, "voice_session.pain_reported", session.id);
   return {
@@ -1921,7 +1921,7 @@ export async function processVoiceSessionAudio(
         spokenLines(session.script).map((l) => [l.id, l]),
       );
       // The workspace's short reusable clips for this voice version.
-      for (const clip of sharedClips())
+      for (const clip of sharedClips(session.script.language ?? "en"))
         await tx.query(
           "INSERT INTO voice_session_clips(id,tenant_id,clip_key,text_content,voice_id,voice_version,fingerprint,priority,status) VALUES($1,$2,$3,$4,$5,$6,$7,2,'pending') ON CONFLICT (tenant_id,voice_id,voice_version,clip_key) WHERE session_id IS NULL DO UPDATE SET text_content=EXCLUDED.text_content,fingerprint=EXCLUDED.fingerprint,status='pending',audio=NULL,updated_at=now() WHERE voice_session_clips.fingerprint<>EXCLUDED.fingerprint",
           [
@@ -1931,7 +1931,7 @@ export async function processVoiceSessionAudio(
             clip.text,
             voice.id,
             voice.version,
-            clipFingerprint(voice, pricing, clip.text, "en"),
+            clipFingerprint(voice, pricing, clip.text, session.script.language ?? "en"),
           ],
         );
       return { voice, providerVoiceId: voice.provider_voice_id, allowed };
@@ -1960,7 +1960,7 @@ export async function processVoiceSessionAudio(
       }
       if (
         !clip.session_id &&
-        !sharedClips().some(
+        ![...sharedClips(), ...sharedClips("ar")].some(
           (s) => s.key === clip.clip_key && s.text === clip.text_content,
         )
       ) {
@@ -2059,7 +2059,7 @@ export async function processVoiceSessionAudio(
           // The language of the clip's fingerprint: code-owned lines and
           // shared clips are English templates; the trainer's own phrases
           // and cues are spoken in their own language.
-          { ...valid.voice, textLanguage: line ? lineLanguage(line) : "en" },
+          { ...valid.voice, textLanguage: line ? lineLanguage(line) : clip.clip_key.startsWith("ar:") ? "ar" : "en" },
         );
         await db.tenant(actor, async (tx) => {
           const [voice] = await tx.query(

@@ -47,7 +47,7 @@ import {
 } from "../packages/domain/src/voice-clone.ts";
 import { createMockTls, trustMockCa, type MockTls } from "./e2e/mocks/tls.ts";
 import { CartesiaMock } from "./e2e/mocks/cartesia.ts";
-import { spokenLines, type SessionScript } from "../packages/domain/src/voice-session.ts";
+import { spokenLines, lineLanguage, sharedClips, type SessionScript } from "../packages/domain/src/voice-session.ts";
 import { privacyOperator, seedScope } from "./scope-fixtures.ts";
 
 const KEY = "sk_car_fixture_" + randomBytes(8).toString("hex");
@@ -527,20 +527,21 @@ test("Arabic lines are spoken as Arabic, a bilingual trainer's phrases follow th
   assert.equal(language("أحسنتِ، استمري"), "ar");
   assert.equal(language("انزلي ببطء وحافظي على ظهرك مستقيما."), "ar", "the Arabic plan cue, for both members");
   assert.equal(language("Welcome back, let's move gently together."), "en");
-  assert.equal(language(sessions.dana.script.exercises[0].setLines[0].text), "en");
-  // Review of F5: a code-owned line is an English template even with an
-  // Arabic exercise name (it was sent as Arabic, sets and reps included).
+  assert.equal(language(sessions.dana.script.exercises[0].setLines[0].text), "ar");
+  assert.equal(language(sessions.evan.script.exercises[0].setLines[0].text), "en");
+  // Code-owned templates now follow the member language, independent of the exercise name.
   const setup = sessions.dana.script.exercises[1].setup.text;
-  assert.match(setup, /^Last exercise: تمرين الضغط/);
-  assert.equal(language(setup), "en");
-  // Only the trainer's own Arabic phrases and cues are spoken as Arabic.
+  assert.match(setup, /^التمرين 2 من 2: تمرين الضغط/);
+  assert.equal(language(setup), "ar");
+  // Trainer phrases, Arabic templates and their shared recovery bank use Arabic.
   const trainerArabic = new Set(
     [sessions.dana, sessions.evan].flatMap((x) =>
       spokenLines(x.script as SessionScript)
-        .filter((l) => l.owner === "trainer" && /[\u0600-\u06FF]/.test(l.text))
+        .filter((l) => lineLanguage(l) === "ar")
         .map((l) => l.text),
     ),
   );
+  for (const clip of sharedClips("ar")) trainerArabic.add(clip.text);
   assert.ok(trainerArabic.size >= 3);
   for (const s of spoken) assert.equal(s.language, trainerArabic.has(s.text) ? "ar" : "en", s.text);
   // "I didn't do the last one" reaches the trainer as its own outcome.

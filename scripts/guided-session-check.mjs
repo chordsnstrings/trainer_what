@@ -31,7 +31,7 @@ const { buildSessionScript, planExercises } = await tsImport(
   "../packages/domain/src/voice-session.ts",
   import.meta.url,
 );
-const script = buildSessionScript({
+let script = buildSessionScript({
   title: "Strength",
   exercises: planExercises({
     exercises: [
@@ -331,6 +331,67 @@ try {
       assert.equal(logs[2].reps, 0);
       await primary().click();
       await expect.poll(() => finishes).toBe(1);
+    },
+  );
+  await check(
+    "Arabic circuit preserves round order and actual distance",
+    async () => {
+      await page.evaluate(() => localStorage.clear());
+      logs = [];
+      script = buildSessionScript({
+        title: "دائرة",
+        language: "ar",
+        exercises: planExercises({
+          exercises: [
+            {
+              name: "Row",
+              sets: 2,
+              distanceMeters: 200,
+              restSeconds: 30,
+              group: { id: "A", kind: "superset" },
+            },
+            {
+              name: "Plank",
+              sets: 2,
+              durationSeconds: 10,
+              restSeconds: 30,
+              group: { id: "A", kind: "superset" },
+            },
+          ],
+        }),
+      }).script;
+      await go();
+      await page
+        .getByRole("button", { name: "Start session", exact: true })
+        .click();
+      await primary().click();
+      await primary().click();
+      await expect(primary()).toHaveText("Ready");
+      await primary().click();
+      await page.clock.runFor(20000);
+      await root()
+        .getByLabel(/Actual metres/)
+        .fill("120");
+      await primary().click();
+      await expect(primary()).toHaveText("Ready");
+      await expect.poll(() => logs.length).toBe(1);
+      assert.equal(logs[0].distanceMeters, 120);
+      assert.equal(logs[0].exerciseIndex, 0);
+      await primary().click();
+      await page.clock.runFor(30000);
+      await primary().click();
+      await expect(root()).toContainText("Next: Row");
+      await expect.poll(() => logs.length).toBe(2);
+      assert.equal(logs[1].exerciseIndex, 1);
+      assert.equal(logs[1].durationSeconds, 10);
+      await primary().click();
+      await page.clock.runFor(31000);
+      await expect(primary()).toHaveText("Ready");
+      await primary().click();
+      await page.clock.runFor(20000);
+    await expect(root()).toContainText("الجولة 2");
+    await expect(root().locator(".voice-now")).not.toContainText("0 reps");
+      await screenshot("structured-arabic-distance", 390);
     },
   );
   assert.deepEqual(report.errors, []);

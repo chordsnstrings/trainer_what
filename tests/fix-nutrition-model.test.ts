@@ -864,3 +864,45 @@ test("policy compilation keeps blanks as questions for the coach and never confi
   assert.equal(last("nutrition_policy").maxTokens, 12000);
   assert.equal(last("nutrition_policy").timeoutMs, 150000);
 });
+
+test("nutrition screens health disclosures from training intake before model dispatch", async () => {
+  const subscriberA = await subscriber("audit-intake");
+  await ok("/intake", "POST", {
+    age:32, goal:"Build strength", experience:"beginner", daysPerWeek:3,
+    equipment:"Dumbbells", limitations:"I have diabetes and take insulin.", consent:true
+  }, subscriberA);
+  const disclosed = await db.tenant(subscriberA, async tx => ({
+    profile: await tx.query("SELECT data->>'limitations' AS text FROM records WHERE kind='intake' AND owner_user_id=$1", [subscriberA.userId]),
+    permission: await tx.query("SELECT granted FROM consent_records WHERE user_id=$1 AND document_type='coaching' ORDER BY created_at DESC,id DESC LIMIT 1", [subscriberA.userId]),
+  }));
+  assert.equal(disclosed.permission[0]?.granted, true);
+  assert.match(disclosed.profile[0]?.text, /diabetes/);
+  const { nutritionScopeSignals } = await import("../packages/domain/src/nutrition.ts");
+  assert.ok(nutritionScopeSignals([disclosed.profile[0].text]).length > 0);
+  const reply = await generate(subscriberA);
+  assert.equal(reply.statusCode, 200, reply.body);
+  assert.equal(reply.json().code, "SCOPE_REVIEW", JSON.stringify({status:reply.json().plan?.status,code:reply.json().code}));
+  const subscriberB = await subscriber("audit-food", {...fixtureProfile,notes:"I have diabetes and take insulin."});
+  const control = await generate(subscriberB);
+  assert.equal(control.json().code, "SCOPE_REVIEW", control.body);
+});
+
+ test("meal weeks use permitted training schedules and corrected outcomes without estimating calorie burn",async () => {
+  const m = await subscriber("coordinated",{...fixtureProfile,weightKg:75});
+  await ok("/intake","POST",{age:30,goal:"Build strength",experience:"beginner",daysPerWeek:2,equipment:"Dumbbells",limitations:"",consent:true,availableWeekdays:[1,4],maxSessionMinutes:45},m);
+  await db.tenant(owner,async tx => {
+    const p = await putRecord(tx,owner,"program",{title:"Conditioning",exercises:[{name:"Row",sets:1,distanceMeters:500,restSeconds:0}]},{ownerId:m.userId,status:"assigned"});
+    await putRecord(tx,owner,"planned_session",{date:today,label:"Conditioning",programId:p.id,program:p.data},{ownerId:m.userId,status:"planned"});
+    const w = await putRecord(tx,owner,"workout",{programId:p.id,program:p.data},{ownerId:m.userId,status:"active"});
+    const logId=randomUUID();
+    await tx.query("INSERT INTO workout_events(id,tenant_id,user_id,workout_id,event_key,data) VALUES($1,$2,$3,$4,$5,$6)",[logId,owner.tenantId,m.userId,w.id,randomUUID(),JSON.stringify({exercise:"Row",exerciseIndex:0,set:1,reps:0,loadKg:0,distanceMeters:500})]);
+    await putRecord(tx,owner,"workout_correction",{workoutId:w.id,eventId:logId,revision:1,values:{distanceMeters:400},note:"Tracker correction"},{ownerId:m.userId,status:"recorded"});
+  });
+  const response = await generate(m); assert.equal(response.statusCode,200,response.body); assert.ok(response.json().plan?.id, response.body.slice(0,500));
+  const input = last("nutrition_week").input;
+  assert.equal(input.profile.weightKg,75);
+  assert.equal(input.recordedIntakeContext.training.upcoming.length,1);
+  assert.equal(Number(input.recordedIntakeContext.training.recentReportedWork.reported_meters),400);
+  assert.equal(response.json().plan.data.targetSource,"coach_goal_policy");
+  assert.match(last("nutrition_week").system,/Do not estimate energy expenditure/);
+ });

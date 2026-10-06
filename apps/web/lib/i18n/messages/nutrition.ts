@@ -7,6 +7,10 @@ import { defineMessages } from "../core";
  */
 export default defineMessages(
   {
+    currentMethodWeight: "Current weight in kg (for your coach's method)",
+    individualTargetSource: "Individual target set by your coach",
+    policyTargetSource: "Your coach's standard target for this goal. Ask your coach for an individual target when needed.",
+    discussTarget: "Discuss your target",
     saved: "Saved",
     loading: "Loading your nutrition…",
     eyebrow: "EAT WELL, WITH YOUR COACH",
@@ -311,6 +315,10 @@ export default defineMessages(
     ringOf: "of {kcal} kcal planned · {date}",
   },
   {
+    currentMethodWeight: "الوزن الحالي بالكيلوغرام (لطريقة مدربك)",
+    individualTargetSource: "هدف فردي حدده مدربك",
+    policyTargetSource: "هدف مدربك القياسي لهذا الهدف. يمكنك طلب هدف فردي من مدربك عند الحاجة.",
+    discussTarget: "مناقشة هدفك",
     saved: "تم الحفظ",
     loading: "جارٍ تحميل التغذية…",
     eyebrow: "تغذية جيدة، مع مدربك",

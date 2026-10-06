@@ -1726,6 +1726,7 @@ export function ProfileForm({
         void onSubmit({
           profile: {
             age: num(f, "age"),
+            ...(String(f.get("weightKg") ?? "").trim() ? { weightKg: num(f, "weightKg") } : {}),
             goal: f.get("goal"),
             diet: f.get("diet"),
             allergyStatus: f.get("allergyStatus"),
@@ -1754,6 +1755,7 @@ export function ProfileForm({
             required
           />
         </Field>
+        <Field label={t("currentMethodWeight")}><input name="weightKg" type="number" min={20} max={500} step="0.1" defaultValue={initial?.weightKg ?? ""} /></Field>
         <Field label={t("goal")}>
           <input
             name="goal"
@@ -2096,6 +2098,9 @@ export function WeekView({
       <div className="nutrition-week-heading">
         <p>{formatDateRange(view.weekStart, view.weekEnd, { locale })}</p>
         <p className="muted">{t("approxDay", { kcal: view.targetKcal })}</p>
+        <p className="muted">{plan.data.targetId ? (t("individualTargetSource")) : (t("policyTargetSource"))}</p>
+        {!plan.data.targetId && <a className="text-link" href="/app/chat">{t("discussTarget")}</a>}
+
       </div>
       {/* A made-up week's description is test data: the page labels it
           instead (development only). */}
@@ -3799,7 +3804,7 @@ function NutritionTargetForm({
   submit: (body: any) => Promise<any>;
 }) {
   const [methodId, setMethodId] = useState(""),
-    [weight, setWeight] = useState(""),
+    [weight, setWeight] = useState(String(data.profile?.data.profile?.weightKg ?? "")),
     [kcal, setKcal] = useState(
       String(
         target?.data.target.kcal ??

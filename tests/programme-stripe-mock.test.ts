@@ -1,3 +1,5 @@
+import { readyServices } from "./service-readiness-fixtures.ts";
+const restoreServices: Array<() => void> = [];
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { stripeClient, withRuntimeConfig } from "@trainer/providers";
@@ -26,6 +28,7 @@ before(() => {
   });
 });
 after(() => {
+  for(const restore of restoreServices.reverse()) restore();
   tls.cleanup();
   for (const k of env)
     if (saved[k] === undefined) delete process.env[k];
@@ -117,6 +120,7 @@ test("through the e2e Stripe double and the real SDK: a trainer sells an upfront
     // The membership checkout route builds its own client from configuration.
     await withEnv({ COMMERCE_APPROVED: "true", STRIPE_SECRET_KEY: "sk_test_mock_fixture" }, async () => {
       const owner = await workspace(db);
+      restoreServices.push(await readyServices(db,owner));
       const created = await request(app, "POST", "/products", owner.token, {
         name: "Twelve weeks",
         description: "Strength programme",
