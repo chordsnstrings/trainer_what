@@ -2,6 +2,8 @@
 
 ## Work in progress
 
+**Scroll scenes (6 October 2026, Claude, branch `feat/scroll-scenes-2026-10-06`, not built):** owner asked to apply the scroll-scenes skill to the home page. Audit and plan done (6 agents, read-only; baseline screenshots under the session scratchpad). Plan for `/` only (owner: be frugal, home page first): hero `depart`; journey walkthrough custom scroll-scrub pin (480svh desktop / 500svh phone, old autoplay clock stands down, Play/Replay become scroll jumps, short viewports below ~700px keep today's autoplay); subscribers tiles `assemble` (move the `li`, not the hover tile); control flow `beats` (4 beats in place); economics bands `rise` (address input excluded); closing `reveal`; calculator, FAQs, Kamran untouched. Review fixes adopted: track height via `::after`, `data-scene-live` so p=1 leaves no styles, site reduce-motion cookie (`html[data-reduce-motion]`) also respected by the player, crawlers/webdriver skip scenes. **Waiting on the owner's approval before any code.**
+
 Production music agent: `feat/production-music-agent-2026-10-06`. See [feature and activation notes](docs/MUSIC_AGENT_2026-10-06.md).
 
 On 6 October 2026 the owner explicitly approved publishing this feature's source and sanitized handoff publicly, then deploying it. The previous public-publication approval blocker is resolved. The workspace reverted to an older snapshot; the prepared patch was restored onto main `136e7b247e03c5f3d786ef2be1aff63c9424163f`. Restored source passed fifteen music tests, TypeScript, the production build and deployment checks (155 passed / 5 skipped). Public CI and deployment are in progress. Do not claim this feature is serving until the release header confirms it.
