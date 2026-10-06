@@ -655,7 +655,8 @@ async function exception(
 }
 /**
  * A retired (superseded or archived) food or recipe must not stay silently in a
- * current or future delivered week. Such weeks move to needs_recheck (the event
+ * current or future week, including one already held for review. Such weeks
+ * move to needs_recheck (the event
  * records which entity caused it) and each affected client gets one open
  * CATALOG_RETIRED exception, shown to the client and routed to the coach.
  * Call under the tenant's nutrition setup lock.
@@ -667,7 +668,7 @@ export async function invalidatePlansUsing(
 ) {
   // Prefilter with the earliest current date on Earth; exact per-client dates follow.
   const plans = await tx.query(
-    "SELECT p.*,(SELECT pr.data->'profile'->>'timezone' FROM records pr WHERE pr.kind='nutrition_profile' AND pr.owner_user_id=p.owner_user_id ORDER BY pr.created_at DESC,pr.id DESC LIMIT 1) AS profile_timezone FROM records p WHERE p.kind='nutrition_plan' AND p.status='delivered' AND p.data->>'weekStart'>=$1 ORDER BY p.id",
+    "SELECT p.*,(SELECT pr.data->'profile'->>'timezone' FROM records pr WHERE pr.kind='nutrition_profile' AND pr.owner_user_id=p.owner_user_id ORDER BY pr.created_at DESC,pr.id DESC LIMIT 1) AS profile_timezone FROM records p WHERE p.kind='nutrition_plan' AND p.status IN ('delivered','needs_recheck') AND p.data->>'weekStart'>=$1 ORDER BY p.id",
     [dateOffset(localDate("Etc/GMT+12"), -6)],
   );
   const users = new Set<string>();
@@ -693,7 +694,7 @@ export async function invalidatePlansUsing(
     if (!uses || dateOffset(p.data.weekStart, 6) < today) continue;
     // Plan snapshots are immutable (migration 010); only status and version change.
     const changed = await tx.query(
-      "UPDATE records SET status='needs_recheck',version=version+1,updated_at=now() WHERE id=$1 AND status='delivered' RETURNING id",
+      "UPDATE records SET status='needs_recheck',version=version+1,updated_at=now() WHERE id=$1 AND status IN ('delivered','needs_recheck') RETURNING id",
       [p.id],
     );
     if (!changed.length) continue;

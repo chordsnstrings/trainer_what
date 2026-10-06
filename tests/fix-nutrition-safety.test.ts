@@ -750,6 +750,8 @@ test("an eating-related red flag in a check-in or meal-log note stops automatic 
 });
 
 test("retiring an unsafe food or recipe flags current and future delivered weeks for coach review", async () => {
+  // A previous health hold must not hide a later catalog withdrawal.
+  await db.tenant(owner, tx => tx.query("UPDATE records SET status='needs_recheck' WHERE id=$1", [plan.id]));
   const insertPlan = (weekStart: string) =>
     db.tenant(owner, (tx) =>
       putRecord(
@@ -819,10 +821,11 @@ test("retiring an unsafe food or recipe flags current and future delivered weeks
     ),
   );
   assert.deepEqual(
-    invalidated.map((e) => [e.subject_id, e.data.entityKind, e.data.entityId]),
+    invalidated.map((e) => [e.subject_id, e.data.entityKind, e.data.entityId]).sort(),
     [
       [plan.id, "food", foods[0].id],
+      [plan.id, "recipe", recipes[2].id],
       [future.id, "recipe", recipes[2].id],
-    ],
+    ].sort(),
   );
 });

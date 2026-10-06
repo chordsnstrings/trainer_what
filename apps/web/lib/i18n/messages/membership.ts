@@ -6,6 +6,8 @@ import { defineMessages } from "../core";
  */
 export default defineMessages(
   {
+    audioPreparing: "Your coach is preparing audio guidance. Text workouts remain available.",
+    audioMessageCoach: "Message your coach",
     eyebrow: "CLEAR NUMBERS. NO GUESSWORK.",
     title: "Your membership.",
     detail: "See your access, renewal and refund options in one place.",
@@ -198,6 +200,8 @@ export default defineMessages(
     refund_denied: "Declined",
   },
   {
+    audioPreparing: "مدربك يجهز التوجيه الصوتي. تبقى التمارين النصية متاحة.",
+    audioMessageCoach: "راسل مدربك",
     eyebrow: "أرقام واضحة، بلا تخمين.",
     title: "اشتراكك.",
     detail: "وصولك وتجديدك وخيارات الاسترداد في مكان واحد.",

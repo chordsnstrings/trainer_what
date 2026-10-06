@@ -12,7 +12,7 @@ import {
   meterKeyframes,
   playMotion,
 } from "./motion";
-import { useLocale, useT } from "../lib/i18n/react";
+import { useT } from "../lib/i18n/react";
 import { useWorkspaceValue } from "./workspace-continuity";
 import { unsavedMark } from "./pwa";
 
@@ -62,7 +62,6 @@ export function MemberIntake({
   onSaved?: () => Promise<void> | void;
 }) {
   const t = useT("profile");
-  const ar = useLocale() === "ar";
   const [busy, setBusy] = useWorkspaceValue("member-intake-saving", false);
   const [error, setError] = useState(""),
     [saved, setSaved] = useState(false),
@@ -88,7 +87,7 @@ export function MemberIntake({
   const stepValid = () => {
     if (step === 2) {
       if (draft.availableWeekdays.length < draft.days) {
-        setError(ar ? "اختر أياماً كافية لعدد حصصك الأسبوعية." : "Choose enough available weekdays for your weekly sessions.");
+        setError(t("inEnoughDays"));
         return false;
       }
       const days = form.current?.elements.namedItem("days") as HTMLInputElement | null;
@@ -175,7 +174,7 @@ export function MemberIntake({
       <section className="card intake-done" role="status">
         <DrawnCheck draw emphasis className="intake-done-check" />
         <h1>{t("inThanks")}</h1>
-        <p>{savedHold ? (ar ? "تم إيقاف التدريب مؤقتاً حتى يراجع مدربك المعلومات الصحية الجديدة." : "Training is paused until your coach reviews the new health information.") : t("inThanksText")}</p>
+        <p>{savedHold ? t("inHealthHeld") : t("inThanksText")}</p>
         <Link className="button" href="/app">
           {t("inBackToday")}
         </Link>
@@ -289,10 +288,10 @@ export function MemberIntake({
             min={1}
             max={7}
           />
-          <p className="field-legend">{ar ? "أيام التدريب المتاحة" : "Available training days"}</p>
-          <div className="intake-weekdays">{(ar ? ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"] : ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]).map((day, index) => <label key={index}><input type="checkbox" checked={draft.availableWeekdays.includes(index)} onChange={e => update({ availableWeekdays: e.target.checked ? [...draft.availableWeekdays, index].sort() : draft.availableWeekdays.filter(x => x !== index) })} />{day}</label>)}</div>
-          <Field label={ar ? "الوقت الأقصى للحصة بالدقائق" : "Maximum minutes per session"}><input type="number" name="maxSessionMinutes" min={15} max={180} required value={draft.maxSessionMinutes} onChange={e => update({ maxSessionMinutes: Number(e.target.value) })} /></Field>
-          <p className="muted">{ar ? "يمكنك نقل الحصص الفردية من تقويم التدريب." : "Move individual sessions from your training calendar when plans change."}</p>
+          <p className="field-legend">{t("inAvailableDays")}</p>
+          <div className="intake-weekdays">{(["inWeekday0", "inWeekday1", "inWeekday2", "inWeekday3", "inWeekday4", "inWeekday5", "inWeekday6"] as const).map(key => t(key)).map((day, index) => <label key={index}><input type="checkbox" checked={draft.availableWeekdays.includes(index)} onChange={e => update({ availableWeekdays: e.target.checked ? [...draft.availableWeekdays, index].sort() : draft.availableWeekdays.filter(x => x !== index) })} />{day}</label>)}</div>
+          <Field label={t("inMaxMinutes")}><input type="number" name="maxSessionMinutes" min={15} max={180} required value={draft.maxSessionMinutes} onChange={e => update({ maxSessionMinutes: Number(e.target.value) })} /></Field>
+          <p className="muted">{t("inCalendarChanges")}</p>
           <Field label={t("inEquipment")}>
             <textarea
               name="equipment"

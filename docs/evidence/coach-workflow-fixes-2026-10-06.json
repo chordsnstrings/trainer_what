@@ -172,5 +172,29 @@
     "tests/coach-workflow-structure.test.ts": "ea84a4b7cdaec656cae0447fc95c89418e6451fee79c84c898dd949c2bc46e06",
     "tests/service-readiness-fixtures.ts": "4f20466d98dc94d6c7aaf8a58447954935193f420d0b190d673f5b0eef6ef490"
   },
-  "applicationCommit": "5f95483"
+  "applicationCommit": "5f95483",
+  "releaseCorrection": {
+    "recordedAt": "2026-10-06T07:04:55.706244+00:00",
+    "initialHead": "9f012305fea53b934b6ccca8626fad80c70a41ef",
+    "initialRun": 37425623889,
+    "initialPassingJobs": [
+      "subscriber-ui",
+      "wildcard-edge",
+      "compose-topology"
+    ],
+    "initialFailingTests": 5,
+    "typecheck": "pass",
+    "focusedCorrectionLogSummary": [
+      "\u2139 tests 70",
+      "\u2139 pass 69",
+      "\u2139 fail 1",
+      "\u2139 skipped 0"
+    ],
+    "nutritionFinalCheck": {
+      "tests": 11,
+      "passed": 11,
+      "failed": 0
+    },
+    "note": "Initial targeted corrections had one remaining nutrition event expectation; corrected to cover the additional retired recipe on an already-held plan. Focused nutrition rerun passes. Normal release CI required."
+  }
 }

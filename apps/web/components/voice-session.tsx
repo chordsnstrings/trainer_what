@@ -714,7 +714,6 @@ function Runner({
   const player = useRef<HTMLAudioElement | null>(null);
   const [cuePlaying, setCuePlaying] = useState(false);
   const [question, setQuestion] = useState("");
-  const runnerLocale = useLocale();
   const [actualDistance, setActualDistance] = useState("");
   useEffect(() => setActualDistance(""), [state.exercise,state.set]);
   const [answer, setAnswer] = useState("");
@@ -1897,7 +1896,7 @@ function Runner({
                 </button>
               )}
             </StickyActionBar>
-            {state.phase === "set" && ex?.distanceMeters && <label>{runnerLocale === "ar" ? "المسافة الفعلية بالمتر؛ انتهيت يؤكد المسافة المستهدفة" : "Actual metres; Done confirms the target if left blank"}<input type="number" min={0} max={200000} value={actualDistance} placeholder={String(ex.distanceMeters)} onChange={e => setActualDistance(e.target.value)} /></label>}
+            {state.phase === "set" && ex?.distanceMeters && <label>{t("actualMetres")}<input type="number" min={0} max={200000} value={actualDistance} placeholder={String(ex.distanceMeters)} onChange={e => setActualDistance(e.target.value)} /></label>}
             {state.phase === "rest" && (
               <button
                 className="button secondary"

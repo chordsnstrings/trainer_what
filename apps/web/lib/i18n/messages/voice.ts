@@ -7,6 +7,7 @@ import { defineMessages } from "../core";
  */
 export default defineMessages(
   {
+    actualMetres: "Actual metres; Done confirms the target if left blank",
     holdTalk: "Hold to talk",
     loadProgress: "Load latest progress",
     questionConfirm:
@@ -219,6 +220,7 @@ export default defineMessages(
       "Tap, then say done, a number of reps, too heavy, pause, skip or pain.",
   },
   {
+    actualMetres: "المسافة الفعلية بالمتر؛ انتهيت يؤكد المسافة المستهدفة",
     holdTalk: "الضغط المستمر للتحدث",
     loadProgress: "تحميل أحدث تقدم",
     questionConfirm: "تم التقاط السؤال. راجعه في «اسأل المدرب» قبل إرساله.",
