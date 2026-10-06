@@ -2,9 +2,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { api, Heading } from "./workspace-ui";
+import {
+  MusicAgentControls,
+  type MusicAgentData,
+  type MusicPlanData,
+} from "./music-agent-controls";
 type Data = {
   enabled: boolean;
   target: number;
+  agent?: MusicAgentData;
+  plans?: MusicPlanData[];
   playlists: Array<{ id: string; name: string }>;
   tracks: Array<{
     id: string;
@@ -13,6 +20,7 @@ type Data = {
     duration: number;
     status: string;
     review_note?: string;
+    publication_source?: string;
   }>;
   jobs: Array<{
     id: string;
@@ -44,6 +52,10 @@ export function WorkoutMusicAdmin() {
   }, []);
   useEffect(() => {
     void load();
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible") void load();
+    }, 15000);
+    return () => clearInterval(timer);
   }, [load]);
   const act = async (fn: () => Promise<unknown>, message: string) => {
     if (busy) return false;
@@ -65,7 +77,7 @@ export function WorkoutMusicAdmin() {
     <section className="music-admin stack">
       <Heading
         title="Workout music library"
-        detail="Eight instrumental playlists. At least 30 distinct, approved songs in each. Generation uses account credits once; workout playback makes no generation calls."
+        detail="Eight instrumental playlists. At least 30 distinct, checked songs in each. Generate once, save MP3s, and reuse them in workouts without further AI calls."
       />
       <p>
         <Link href="/admin/settings">Music API settings</Link>
@@ -87,6 +99,14 @@ export function WorkoutMusicAdmin() {
         <p role="status">Loading library…</p>
       ) : (
         <>
+          {data.agent && (
+            <MusicAgentControls
+              agent={data.agent}
+              plans={data.plans ?? []}
+              busy={busy}
+              act={act}
+            />
+          )}
           <div className="button-row">
             <button
               className="button secondary"
@@ -259,6 +279,9 @@ export function WorkoutMusicAdmin() {
                   <h3>{t.title}</h3>
                   <span className="badge">
                     {t.status} · {Math.round(Number(t.duration))}s
+                    {t.publication_source === "automatic"
+                      ? " · Auto checked"
+                      : ""}
                   </span>
                 </div>
                 <audio
