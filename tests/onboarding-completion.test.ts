@@ -130,6 +130,7 @@ async function legal(
 }
 async function baseBrain(a: any) {
   return db.tenant(a, async (tx) => {
+    await putRecord(tx,a,"exercise",{name:"Fixture squat",sets:3,reps:8,restSeconds:60},{status:"active"});
     const rule = await putRecord(
       tx,
       a,

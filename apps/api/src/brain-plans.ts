@@ -121,6 +121,8 @@ const validZone = (zone: unknown) => {
 };
 /** The member's own timezone: notification preference, nutrition profile, then UTC. */
 export async function memberPlanTimezone(tx: Tx, userId: string) {
+  const [intake] = await tx.query("SELECT data->>'timezone' AS zone FROM records WHERE kind='intake' AND owner_user_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1", [userId]);
+  if (validZone(intake?.zone)) return intake.zone as string;
   const [pref] = await tx.query(
     "SELECT data->>'timezone' AS zone FROM notification_preferences WHERE user_id=$1",
     [userId],
@@ -383,6 +385,9 @@ function profileOf(intake: any): PlanProfile {
     daysPerWeek: intake.data.daysPerWeek,
     equipment: String(intake.data.equipment ?? ""),
     limitations: String(intake.data.limitations ?? ""),
+    ...(intake.data.availableWeekdays ? { availableWeekdays: intake.data.availableWeekdays } : {}),
+    ...(intake.data.maxSessionMinutes ? { maxSessionMinutes: intake.data.maxSessionMinutes } : {}),
+    ...(intake.data.timezone ? { timezone: intake.data.timezone } : {}),
   };
 }
 function twinProjection(twin: any) {
@@ -564,6 +569,8 @@ function toProgramExercise(
   const entry = library.get(normalizeTerm(e.name));
   const cue = cueFrom === "library" ? (entry?.cue ?? "") : e.cue || entry?.cue || "";
   return {
+    ...(e.instanceId ? { instanceId: e.instanceId } : {}),
+    ...(e.block ? { block: e.block } : {}), ...(e.side ? { side: e.side } : {}), ...(e.group ? { group: e.group } : {}),
     name: entry?.name ?? e.name,
     sets: Math.min(10, e.sets),
     // Reps, or a duration or distance per set (with its pace and effort).
@@ -588,6 +595,8 @@ const planTexts = (d: Pick<PlanDraft, "title" | "summary" | "weeks" | "sessions"
     ...d.sessions.flatMap((s) => [s.label, ...s.exercises.map((e) => e.cue ?? "")]),
   ].map((t) => String(t ?? "").trim());
 const fromProgramExercise = (e: any): ExpandedExercise => ({
+  ...(e.instanceId ? { instanceId: e.instanceId } : {}),
+  ...(e.block ? { block: e.block } : {}), ...(e.side ? { side: e.side } : {}), ...(e.group ? { group: e.group } : {}),
   name: e.name,
   sets: e.sets,
   ...workFields(e),
@@ -887,17 +896,25 @@ async function prepareGeneration(
       });
       return { skip: "interrupted", generation: existing };
     }
-    if (existing && existing.status !== "not_sent")
+    if (existing && !["not_sent", "prerequisite"].includes(existing.status))
       return { skip: "already_generated", generation: existing };
     reuse = existing?.id ?? null;
   }
   // A retried job that no longer applies closes its unsent generation.
   const skip = async (reason: string) => {
-    if (reuse)
-      await updateGeneration(tx, reuse, "superseded", {
-        error: `Not prepared: ${reason.replaceAll("_", " ")}`,
-      });
-    return { skip: reason };
+    const waiting = !!options.jobId && ["no_library", "no_brain", "no_access", "no_intake", "no_consent", "safety_hold"].includes(reason);
+    const data = {
+      type: "programme", subscriberId: userId, trigger: options.trigger,
+      jobId: options.jobId, providerState: "not_sent", prerequisite: waiting ? reason : null,
+      error: notReadyMessages[reason] ?? `Not prepared: ${reason.replaceAll("_", " ")}`,
+    };
+    let generationId = reuse;
+    if (reuse) await updateGeneration(tx, reuse, waiting ? "prerequisite" : "superseded", data);
+    else if (waiting) {
+      generationId = (await putRecord(tx, a, "plan_generation", data, { ownerId: userId, status: "prerequisite" })).id;
+      await noticeReview(tx, a, generationId!);
+    }
+    return { skip: reason, ...(generationId ? { generation: { id: generationId } } : {}) };
   };
   const ready = await memberReady(tx, userId);
   if ("skip" in ready) return skip(ready.skip!);
@@ -2339,7 +2356,10 @@ export async function scheduleBrainPlans(
     let count = 0;
     const enqueue = async (key: string, data: Record<string, unknown>) => {
       const rows = await tx.query(
-        "INSERT INTO jobs(id,tenant_id,kind,intent_key,data) VALUES($1,$2,'brain_plan',$3,$4) ON CONFLICT(intent_key) DO NOTHING RETURNING id",
+        `INSERT INTO jobs(id,tenant_id,kind,intent_key,data) VALUES($1,$2,'brain_plan',$3,$4)
+         ON CONFLICT(intent_key) DO UPDATE SET status='pending',data=EXCLUDED.data,available_at=now(),leased_until=NULL,last_error=NULL
+         WHERE jobs.status='completed' AND NOT EXISTS(SELECT 1 FROM records g WHERE g.kind='plan_generation' AND g.data->>'jobId'=jobs.id::text)
+         RETURNING id`,
         [randomUUID(), tenantId, key, JSON.stringify(data)],
       );
       count += rows.length;
@@ -2457,7 +2477,7 @@ const generationView = (row: any, names: Map<string, string>) => ({
   // Why next week may not go up, and what was held at this week's values.
   progressionHold: row.data.progressionHold ?? [],
   held: row.data.held ?? [],
-  inputs: row.data.inputs
+  inputs: row.data.inputs?.profile
     ? {
         profile: row.data.inputs.profile,
         programmeDays: row.data.inputs.programmeDays,
@@ -2480,7 +2500,7 @@ export function registerBrainPlans(app: FastifyInstance, db: Database) {
       const { row, settings } = await loadPlanSettings(tx);
       const state = await planQualificationState(tx, settings);
       const queue = await tx.query(
-        "SELECT * FROM records WHERE kind='plan_generation' AND (status IN ('pending_review','failed','not_sent') OR (status='delivered' AND data->'outcome'->>'spotCheck'='pending')) ORDER BY created_at,id LIMIT 50",
+        "SELECT * FROM records WHERE kind='plan_generation' AND (status IN ('pending_review','failed','not_sent','prerequisite') OR (status='delivered' AND data->'outcome'->>'spotCheck'='pending')) ORDER BY created_at,id LIMIT 50",
       );
       const recent = await tx.query(
         "SELECT * FROM records WHERE kind='plan_generation' ORDER BY created_at DESC,id DESC LIMIT 30",

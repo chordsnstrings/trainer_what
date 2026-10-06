@@ -757,7 +757,7 @@ export function KeepTraining({
       >
         <div className="setup-meter-top">
           <div>
-            <p className="eyebrow">Brain trained</p>
+            <p className="eyebrow">Teaching progress</p>
             <h2 id="meter-h">{meterText(teach.meter.score)}</h2>
           </div>
           <span className="setup-level">
@@ -767,11 +767,12 @@ export function KeepTraining({
         <Meter
           value={teach.meter.score}
           max={100}
-          label="Brain trained"
+          label="Teaching progress"
           className="setup-meter"
           memoryKey="brain-trained"
         />
         <p>{teach.meter.summary}</p>
+        <p className="muted">This shows teaching progress. Replies, workout plans and nutrition each have their own checks before automatic delivery.</p>
         {teach.meter.next.length > 0 && (
           <ul className="setup-missing">
             {teach.meter.next.map((n) => (

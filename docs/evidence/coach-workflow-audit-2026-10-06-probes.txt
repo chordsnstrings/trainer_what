@@ -1,0 +1,67 @@
+Audit-only isolated probes. Providers are intercepted by each original fixture.
+Reproduce by copying the fixture beside its original in tests/, appending the body below, and running the given command. Remove the temporary copy afterward.
+
+
+Fixture: tests/brain-plans.test.ts
+Temporary path: tests/coach-workflow-audit-probe.test.ts
+Command: node --import tsx --test --test-reporter=spec --test-name-pattern='AUDIT:' tests/coach-workflow-audit-probe.test.ts
+
+test("AUDIT: missing exercise library silently consumes first-plan job", async () => {
+  const coach = await newCoach("audit-empty-library");
+  const client = await member(coach, "Audit subscriber");
+  await asWorker(coach, tx => tx.query("UPDATE records SET status='archived' WHERE kind='exercise'"));
+  assert.equal(await scheduleBrainPlans(db, coach.tenantId, { force: true }), 1);
+  await asWorker(coach, tx => tx.query("UPDATE jobs SET available_at=now()+interval '1 day' WHERE kind<>'brain_plan'"));
+  const job = await claimJob(db, coach.tenantId);
+  assert.equal(job.kind, "brain_plan");
+  const callsBefore = calls.length;
+  await runClaimedJob(db, coach.tenantId, job);
+  const before = await asWorker(coach, async tx => ({
+    jobs: await tx.query("SELECT status FROM jobs WHERE id=$1", [job.id]),
+    generations: await tx.query("SELECT id FROM records WHERE kind='plan_generation' AND owner_user_id=$1", [client.userId]),
+  }));
+  assert.equal(before.jobs[0].status, "completed");
+  assert.equal(before.generations.length, 0);
+  await asWorker(coach, tx => tx.query("UPDATE records SET status='active' WHERE kind='exercise'"));
+  const newJobs = await scheduleBrainPlans(db, coach.tenantId, { force: true });
+  assert.equal(newJobs, 0);
+  assert.equal((await assigned(coach, client.userId)).length, 0);
+  assert.equal(calls.length, callsBefore);
+  console.log("AUDIT_EVIDENCE", JSON.stringify({jobStatus:before.jobs[0].status, generationRecords:before.generations.length, jobsAfterLibraryRestored:newJobs, assignedPlans:0, modelCalls:calls.length-callsBefore}));
+});
+
+test("AUDIT: updated intake safety report does not hold an existing programme", async () => {
+  const coach = await newCoach("audit-intake-hold");
+  const client = await member(coach, "Audit existing plan");
+  const program = await req("/programs", "POST", {subscriberId:client.userId, timezone:"UTC",program:{title:"Strength plan",goal:"Strength",daysPerWeek:2,exercises:[{name:"Goblet squat",sets:3,reps:8,restSeconds:90,loadKg:16}]}},coach);
+  assert.equal(program.statusCode,200,program.body);
+  const intake = await req("/intake", "POST", {age:32,goal:"Build strength",experience:"beginner",daysPerWeek:3,equipment:"Dumbbells",limitations:"I feel chest pain during exercise.",consent:true},client);
+  assert.equal(intake.statusCode,200,intake.body);
+  const holds = await asWorker(coach, tx => tx.query("SELECT id FROM records WHERE kind='training_hold' AND status='active' AND owner_user_id=$1",[client.userId]));
+  assert.equal(holds.length,0);
+  const start = await req("/workouts/start","POST",{programId:program.json().id},client);
+  assert.equal(start.statusCode,200,start.body);
+  console.log("AUDIT_EVIDENCE",JSON.stringify({updatedIntakeDisclosure:"chest pain during exercise",activeHolds:holds.length,workoutStartStatus:start.statusCode}));
+});
+
+
+Fixture: tests/fix-nutrition-model.test.ts
+Temporary path: tests/coach-nutrition-audit-probe.test.ts
+Command: node --import tsx --test --test-reporter=spec --test-name-pattern='^(evaluation keeps|AUDIT:)' tests/coach-nutrition-audit-probe.test.ts
+
+test("AUDIT: a clinical disclosure in training intake is absent from meal generation", async () => {
+  const subscriberA = await subscriber("audit-intake");
+  await ok("/intake", "POST", {
+    age:32, goal:"Build strength", experience:"beginner", daysPerWeek:3,
+    equipment:"Dumbbells", limitations:"I have diabetes and take insulin.", consent:true
+  }, subscriberA);
+  const reply = await generate(subscriberA);
+  assert.equal(reply.statusCode, 200, reply.body);
+  assert.equal(reply.json().plan.status, "delivered", reply.body);
+  const input = last("nutrition_week").input;
+  assert.doesNotMatch(JSON.stringify({profile:input.profile,context:input.recordedIntakeContext}), /diabetes|insulin/i);
+  const subscriberB = await subscriber("audit-food", {...fixtureProfile,notes:"I have diabetes and take insulin."});
+  const control = await generate(subscriberB);
+  assert.equal(control.json().code, "SCOPE_REVIEW", control.body);
+  console.log("AUDIT_EVIDENCE", JSON.stringify({trainingIntakeDisclosure:"diabetes/insulin", mealStatus:reply.json().plan.status, includedInNutritionContext:false, sameDisclosureInFoodProfile:control.json().code, individualTarget:reply.json().plan.data.targetId ?? null}));
+});

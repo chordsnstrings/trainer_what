@@ -347,10 +347,10 @@ test("the session-length estimate and note limits the plan prompts state are the
   assert.equal(notes.safeParse(["x".repeat(301)]).success, false);
 });
 
-test("versions changed with the contract: plan prompt v4, adaptation prompt v3, validator v5 (N1, one rounding unit a week)", () => {
-  assert.equal(planPromptVersion, "brain-plan-v5");
+test("versions changed with the contract: plan prompt v6, adaptation prompt v3, validator v6 (N1, one rounding unit a week)", () => {
+  assert.equal(planPromptVersion, "brain-plan-v6");
   assert.equal(planAdaptationPromptVersion, "brain-plan-adapt-v4");
-  assert.equal(planValidatorVersion, "brain-plan-validator-v5");
+  assert.equal(planValidatorVersion, "brain-plan-validator-v6");
 });
 
 test("an exercise is prescribed by exactly one of reps, a duration or a distance; rest 0 only for one continuous bout", () => {
@@ -1195,7 +1195,7 @@ test("the voice session speaks timed and distance work in rounds and still valid
   assert.equal(text("ex:1:rest"), "Rest 1 minute.");
   assert.equal(
     text("ex:2:set:1"),
-    "Round 1 of 2. 500 metres. Say done when you finish.",
+    "Round 1 of 2. 500 metres. Say done to confirm the full distance, or enter the actual distance on screen.",
   );
   assert.equal(
     text("ex:3:set:1"),
@@ -1512,10 +1512,10 @@ const planReply = (evidenceIds: string[], patch: Partial<PlanDraft> = {}) => ({
 test("the plan prompt is v4 with the timed-work contract, member wording, safety rules and short references; nothing sent carries a UUID", async () => {
   const system = planGenerationSystem(4);
   for (const phrase of [
-    "Trainer Brain plan generator brain-plan-v5.",
+    "Trainer Brain plan generator brain-plan-v6.",
     // v4 (trial tuning): alternatives, repeats, cues, rounding, session length, notes.
     "Every alternative must also be a library exercise the subscriber's equipment allows (check its equipment tag), or leave alternatives empty",
-    "List each exercise at most once per session",
+    "Repeated movements need unique UUID instanceId fields",
     "For single-arm or single-leg work, reps are per side",
     "A cue is one short technique or effort cue with no numbers (counts, times, distances, loads and paces go in the numeric fields) and no warnings or symptoms",
     "The cap applies after rounding (rep sets to whole sets, timed rounds to 5 s, distances to 10 m",
@@ -2575,3 +2575,10 @@ test("a rounded rise never exceeds the limit by more than one rounding unit, for
     }
   assert.ok(checked > 50, `checked ${checked}`);
 });
+
+ test("member weekdays and session length constrain every generated week",() => {
+  const draft = runWalkPlan();
+  const result = validatePlan(draft,{...ctx,profile:{...ctx.profile,availableWeekdays:[0],maxSessionMinutes:15}});
+  assert.ok(result.errors.some(e => e.includes("available weekdays")));
+  assert.ok(result.errors.some(e => /minutes|minute|duration|session.*15/i.test(e)));
+ });

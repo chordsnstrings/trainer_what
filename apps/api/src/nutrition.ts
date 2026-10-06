@@ -1,3 +1,5 @@
+import { openTrainingHold } from "./coaching-completion.ts";
+import { screenForSafety } from "./safety-policy.ts";
 import {
   nutritionLearning,
   checkNutritionSample,
@@ -76,6 +78,7 @@ import {
   validateNutritionWeek,
   NutritionBlocked,
   nutritionRedFlags,
+  nutritionScopeSignals,
   checkinsAllowAdjustment,
   nutritionSummary,
   localDate,
@@ -145,16 +148,45 @@ const NUTRITION_SAFETY_WINDOW_DAYS = 28;
  * exception (its resolvedAt, so a later operator note does not move it) have
  * been reviewed and no longer stop automatic weeks.
  */
-async function requireNoRecentNutritionRedFlags(tx: Tx, userId: string) {
+export async function requireNoRecentNutritionRedFlags(tx: Tx, userId: string) {
   const rows = await tx.query(
     "SELECT r.data->>'notes' AS text FROM records r WHERE r.owner_user_id=$1 AND r.kind IN ('nutrition_checkin','nutrition_log') AND r.created_at>=now()-make_interval(days=>$2) AND coalesce(r.data->>'notes','')<>'' AND r.created_at>coalesce((SELECT max(coalesce((e.data->>'resolvedAt')::timestamptz,e.updated_at)) FROM records e WHERE e.kind='nutrition_exception' AND e.owner_user_id=$1 AND e.status='resolved' AND e.data->>'code'='SCOPE_REVIEW'),'-infinity'::timestamptz) ORDER BY r.created_at DESC LIMIT 200",
     [userId, NUTRITION_SAFETY_WINDOW_DAYS],
   );
-  if (nutritionRedFlags(rows.map((r) => r.text as string)).length)
+  // Coaching disclosures are screened locally only while coaching permission
+  // remains current. Never copy this health text into a nutrition model prompt.
+  const coaching = await consent(tx, userId, "coaching");
+  if (coaching.granted) {
+    const shared = await tx.query(
+      `WITH reviewed AS (
+        SELECT coalesce(max(coalesce((data->>'resolvedAt')::timestamptz,updated_at)),'-infinity'::timestamptz) AS at
+        FROM records WHERE kind='nutrition_exception' AND owner_user_id=$1 AND status='resolved' AND data->>'code'='SCOPE_REVIEW'
+      ), intake AS (
+        SELECT data,created_at FROM records WHERE kind='intake' AND owner_user_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1
+      )
+      SELECT concat_ws(' ',data->>'goal',data->>'limitations',data->>'equipment') AS text FROM intake,reviewed WHERE created_at>reviewed.at
+      UNION ALL SELECT data->>'text' FROM records,reviewed WHERE kind='message' AND owner_user_id=$1 AND data->>'author'='subscriber' AND created_at>reviewed.at AND created_at>=now()-make_interval(days=>$2)
+      UNION ALL SELECT data->>'notes' FROM workout_events,reviewed WHERE user_id=$1 AND created_at>reviewed.at AND created_at>=now()-make_interval(days=>$2)
+      UNION ALL SELECT data->>'reason' FROM records WHERE kind='training_hold' AND owner_user_id=$1 AND status='active'`,
+      [userId, NUTRITION_SAFETY_WINDOW_DAYS],
+    );
+    rows.push(...shared);
+  }
+  const texts = rows.map((r) => String(r.text ?? ""));
+  if (nutritionRedFlags(texts).length || nutritionScopeSignals(texts).length)
     throw new NutritionBlocked(
       "SCOPE_REVIEW",
-      "Your recent nutrition notes need a coach review before automatic dietary guidance.",
+      "Your health information needs a coach review before automatic dietary guidance.",
     );
+}
+async function screenFoodDisclosure(tx: Tx, a: Actor, texts: string[]) {
+  const text = texts.join("\n");
+  const screen = await screenForSafety(tx, text);
+  if (screen.hold) await openTrainingHold(tx, a, a.userId, text, undefined, screen);
+  if (nutritionRedFlags(texts).length || nutritionScopeSignals(texts).length) {
+    await tx.query("UPDATE records SET status='needs_recheck',version=version+1,updated_at=now() WHERE kind='nutrition_plan' AND owner_user_id=$1 AND status='delivered'", [a.userId]);
+    await exception(tx, a, a.userId, "SCOPE_REVIEW", "Your health information needs a coach review before automatic dietary guidance.");
+  }
 }
 async function latest(tx: Tx, kind: string, userId?: string, status?: string) {
   const [r] = await tx.query(
@@ -446,7 +478,7 @@ async function generate(
   requestId?: string,
   requestVersion?: number,
 ): Promise<NutritionWeek> {
-  const instruction = nutritionWeekInstruction(
+  const instruction = "Recorded training context, if present, is member-reported work and the actual upcoming timetable. Coordinate meal choices and practical preparation with it only within the coach policy and prescribed target. Do not estimate energy expenditure or change calories/macros from workouts. " + nutritionWeekInstruction(
     nutritionWeekLimits({
       policy: input.policy,
       targetKcal: input.targetKcal,
@@ -578,7 +610,7 @@ function evidence(
 function promptIntakeContext(context: unknown) {
   return JSON.parse(
     JSON.stringify(context, (key, value) =>
-      key === "sourceIds" || key === "sourceId" ? undefined : value,
+      key === "sourceIds" || key === "sourceId" || key === "coachingConsentId" ? undefined : value,
     ),
   );
 }
@@ -615,7 +647,7 @@ async function exception(
     category: "coaching",
     dedupeKey: `nutrition-review:${e.id}`,
     title: "A nutrition plan needs your review",
-    body: "A client’s nutrition request could not be safely completed within the current plan. Open nutrition exceptions to review the details; their existing valid plan is preserved.",
+    body: "A client’s nutrition request could not be safely completed within the current plan. Open nutrition exceptions to review the details and the current plan status.",
     href: "/trainer/nutrition/exceptions",
     templateKey: "nutrition-review",
   });
@@ -760,8 +792,27 @@ export async function nutritionTwin(tx: Tx, a: Actor, userId: string) {
         [userId],
       )
     : [];
+  const coaching = allowed ? await consent(tx, userId, "coaching") : { granted: false, id: null };
+  let training: unknown = null;
+  if (coaching.granted) {
+    const intake = await latest(tx, "intake", userId);
+    if (intake?.data.allowedUses?.includes("model_prompt")) {
+      const today = localDate(profile?.data.profile.timezone ?? "Asia/Dubai");
+      const sessions = await tx.query("SELECT data->>'date' AS date,data->>'label' AS label,data->'program'->'exercises' AS exercises FROM records WHERE kind='planned_session' AND owner_user_id=$1 AND status='planned' AND data->>'date'>=$2 AND data->>'date'<=$3 ORDER BY data->>'date',id LIMIT 28", [userId, today, dateOffset(today, 13)]);
+      const [outcomes] = await tx.query("WITH effective AS (SELECT w.workout_id,w.data||coalesce(c.data->'values','{}'::jsonb) AS data FROM workout_events w LEFT JOIN LATERAL (SELECT data FROM records WHERE kind='workout_correction' AND owner_user_id=$1 AND data->>'eventId'=w.id::text ORDER BY (data->>'revision')::int DESC LIMIT 1) c ON true WHERE w.user_id=$1 AND w.created_at>=now()-interval '14 days') SELECT count(*)::int AS logged_sets,count(DISTINCT workout_id)::int AS workouts,coalesce(sum((data->>'durationSeconds')::numeric),0) AS reported_seconds,coalesce(sum((data->>'distanceMeters')::numeric),0) AS reported_meters FROM effective", [userId]);
+      training = {
+        daysPerWeek: intake.data.daysPerWeek,
+        availableWeekdays: intake.data.availableWeekdays ?? null,
+        maxSessionMinutes: intake.data.maxSessionMinutes ?? null,
+        upcoming: sessions.map(s => ({ date: s.date, label: s.label, exercises: (s.exercises ?? []).map((e: any) => ({ name: e.name, sets: e.sets, reps: e.reps, durationSeconds: e.durationSeconds, distanceMeters: e.distanceMeters, restSeconds: e.restSeconds })) })),
+        recentReportedWork: outcomes,
+      };
+    }
+  }
   return {
     ...nutritionSummary(logs as any, checkins as any, profile, allowed),
+    training,
+    coachingConsentId: coaching.granted ? coaching.id : null,
     profileCapturedAt: allowed ? (profile?.created_at ?? null) : null,
     partialInput: logs.length === 3000,
     consumed: allowed
@@ -1854,6 +1905,12 @@ function subscriberRoutes(
           today: localDate("Asia/Dubai"),
           ready: false,
         };
+      try { await requireNoRecentNutritionRedFlags(tx,uid); }
+      catch (error) {
+        if (!(error instanceof NutritionBlocked)) throw error;
+        await tx.query("UPDATE records SET status='needs_recheck',version=version+1,updated_at=now() WHERE kind='nutrition_plan' AND owner_user_id=$1 AND status='delivered'",[uid]);
+        await exception(tx,a,uid,"SCOPE_REVIEW","New health information needs your coach's review before dietary guidance resumes.");
+      }
       const records = await tx.query(
         "SELECT * FROM records WHERE owner_user_id=$1 AND kind IN ('nutrition_plan','nutrition_log','nutrition_checkin','nutrition_pantry') ORDER BY created_at DESC LIMIT 500",
         [uid],
@@ -1946,6 +2003,7 @@ function subscriberRoutes(
         "UPDATE records SET status='needs_recheck' WHERE kind='nutrition_plan' AND owner_user_id=$1 AND status='delivered'",
         [a.userId],
       );
+      await screenFoodDisclosure(tx, a, [b.profile.notes, b.profile.goal]);
       await event(tx, a, "nutrition.profile_saved", r.id);
       return { ...r, version: (old?.version ?? 0) + 1 };
     });
@@ -2229,6 +2287,7 @@ function subscriberRoutes(
         },
         { ownerId: a.userId, status: "recorded" },
       );
+      await screenFoodDisclosure(tx, a, [String(b.notes ?? "")]);
       await event(tx, a, "nutrition.meal_logged", r.id);
       return r;
     });
@@ -2271,6 +2330,7 @@ function subscriberRoutes(
           "CHECKIN_DATE",
           "Choose a date that is not in the future.",
         );
+      await screenFoodDisclosure(tx, a, [String(b.notes ?? "")]);
       return putRecord(
         tx,
         a,
@@ -2383,6 +2443,13 @@ export async function prepareNutritionWeek(
         "PROFILE_REQUIRED",
         "Complete your nutrition profile first.",
       );
+    try {
+      await requireNoRecentNutritionRedFlags(tx, a.userId);
+    } catch (error) {
+      const issue = availabilityError(error);
+      await exception(tx, a, a.userId, issue.code, issue.message);
+      return { blocked: issue };
+    }
     const today = localDate(profile.data.profile.timezone);
     if (b.weekStart < today || b.weekStart > dateOffset(today, 28))
       throw fail(
@@ -2655,8 +2722,11 @@ export async function prepareNutritionWeek(
       const now = await permission(tx, a.userId, true),
         profile = await latest(tx, "nutrition_profile", a.userId),
         ready = await requireNutritionReady(tx);
-      // A red flag written while the week was being prepared still stops it.
+      // A red flag or revoked training permission during generation stops delivery.
       await requireNoRecentNutritionRedFlags(tx, a.userId);
+      const coachingNow = await consent(tx, a.userId, "coaching");
+      if (s.nutritionContext.coachingConsentId && (!coachingNow.granted || coachingNow.id !== s.nutritionContext.coachingConsentId || hash((await nutritionTwin(tx, a, a.userId)).training) !== hash(s.nutritionContext.training)))
+        throw fail(409, "GENERATION_STALE", "Training context changed while this meal week was being prepared.");
       if (
         profile?.id !== s.profile.id ||
         ready.release!.id !== s.release.id ||
@@ -2702,6 +2772,8 @@ export async function prepareNutritionWeek(
           origin: "automatic",
           targetId: s.individualTarget.id,
           target: s.individualTarget.details,
+          targetSource: s.individualTarget.id ? "individual" : "coach_goal_policy",
+          trainingContext: s.nutritionContext.training,
           adjustmentEvidence: s.adjustmentEvidence,
           model: nutritionModelIdentity(),
         },

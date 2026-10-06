@@ -2093,3 +2093,10 @@ blockquote {
   cursor: pointer;
   font-weight: 600;
 }
+
+/* One compact setup path across the member's included services. */
+.member-setup-checklist .setup-checklist { list-style: none; margin: 0 0 1.25rem; padding: 0; display: grid; gap: .85rem; }
+.member-setup-checklist .setup-checklist li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .4rem 1rem; }
+.member-setup-checklist .setup-checklist li > span { display: inline-flex; align-items: center; gap: .5rem; }
+.intake-weekdays { display: flex; flex-wrap: wrap; gap: .75rem; margin-block: .75rem 1rem; }
+.intake-weekdays label { display: inline-flex; align-items: center; gap: .4rem; }

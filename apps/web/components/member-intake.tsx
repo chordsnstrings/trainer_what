@@ -12,7 +12,7 @@ import {
   meterKeyframes,
   playMotion,
 } from "./motion";
-import { useT } from "../lib/i18n/react";
+import { useLocale, useT } from "../lib/i18n/react";
 import { useWorkspaceValue } from "./workspace-continuity";
 import { unsavedMark } from "./pwa";
 
@@ -62,13 +62,17 @@ export function MemberIntake({
   onSaved?: () => Promise<void> | void;
 }) {
   const t = useT("profile");
+  const ar = useLocale() === "ar";
   const [busy, setBusy] = useWorkspaceValue("member-intake-saving", false);
   const [error, setError] = useState(""),
-    [saved, setSaved] = useState(false);
+    [saved, setSaved] = useState(false),
+    [savedHold, setSavedHold] = useState(false);
   const answers = {
     age: String(intake?.age ?? ""), goal: intake?.goal ?? "",
     experience: intake?.experience ?? "beginner", days: intake?.daysPerWeek ?? 3,
     equipment: intake?.equipment ?? "", limitations: intake?.limitations ?? "",
+    availableWeekdays: (intake?.availableWeekdays ?? [0, 1, 2, 3, 4, 5, 6]) as number[],
+    maxSessionMinutes: intake?.maxSessionMinutes ?? 60,
   };
   const base = JSON.stringify(answers);
   const initial = { ...answers, base, step: 0 };
@@ -83,6 +87,10 @@ export function MemberIntake({
   /** Checks the current step's fields and shows the browser's hint. */
   const stepValid = () => {
     if (step === 2) {
+      if (draft.availableWeekdays.length < draft.days) {
+        setError(ar ? "اختر أياماً كافية لعدد حصصك الأسبوعية." : "Choose enough available weekdays for your weekly sessions.");
+        return false;
+      }
       const days = form.current?.elements.namedItem("days") as HTMLInputElement | null;
       const value = Number(days?.value);
       days?.setCustomValidity(Number.isInteger(value) && value >= 1 && value <= 7 ? "" : t("inErrDays"));
@@ -138,16 +146,20 @@ export function MemberIntake({
     setBusy(true);
     setError("");
     try {
-      await saveIntake({
+      const result = await saveIntake({
         age: Number(f.get("age")),
         goal: String(f.get("goal") ?? "").trim(),
         experience: f.get("experience"),
         daysPerWeek: Number(f.get("days")),
+        availableWeekdays: draft.availableWeekdays,
+        maxSessionMinutes: Number(f.get("maxSessionMinutes")),
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         equipment: String(f.get("equipment") ?? ""),
         limitations: String(f.get("limitations") ?? ""),
         consent: true,
       });
       clearDraft();
+      setSavedHold(result.trainingHeld === true);
       setSaved(true);
       await onSaved?.();
     } catch (e: any) {
@@ -163,7 +175,7 @@ export function MemberIntake({
       <section className="card intake-done" role="status">
         <DrawnCheck draw emphasis className="intake-done-check" />
         <h1>{t("inThanks")}</h1>
-        <p>{t("inThanksText")}</p>
+        <p>{savedHold ? (ar ? "تم إيقاف التدريب مؤقتاً حتى يراجع مدربك المعلومات الصحية الجديدة." : "Training is paused until your coach reviews the new health information.") : t("inThanksText")}</p>
         <Link className="button" href="/app">
           {t("inBackToday")}
         </Link>
@@ -277,6 +289,10 @@ export function MemberIntake({
             min={1}
             max={7}
           />
+          <p className="field-legend">{ar ? "أيام التدريب المتاحة" : "Available training days"}</p>
+          <div className="intake-weekdays">{(ar ? ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"] : ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]).map((day, index) => <label key={index}><input type="checkbox" checked={draft.availableWeekdays.includes(index)} onChange={e => update({ availableWeekdays: e.target.checked ? [...draft.availableWeekdays, index].sort() : draft.availableWeekdays.filter(x => x !== index) })} />{day}</label>)}</div>
+          <Field label={ar ? "الوقت الأقصى للحصة بالدقائق" : "Maximum minutes per session"}><input type="number" name="maxSessionMinutes" min={15} max={180} required value={draft.maxSessionMinutes} onChange={e => update({ maxSessionMinutes: Number(e.target.value) })} /></Field>
+          <p className="muted">{ar ? "يمكنك نقل الحصص الفردية من تقويم التدريب." : "Move individual sessions from your training calendar when plans change."}</p>
           <Field label={t("inEquipment")}>
             <textarea
               name="equipment"

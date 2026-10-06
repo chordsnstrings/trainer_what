@@ -1,3 +1,5 @@
+import { readyServices } from "./service-readiness-fixtures.ts";
+let restoreServices = () => {};
 import { before, after, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -33,11 +35,13 @@ const DAY = 86400000;
 before(async () => {
   db = await createDatabase({ memory: true });
   owner = await workspace(db);
+  restoreServices = await readyServices(db,owner);
   stripe = fakeStripe();
   const { buildApp } = await import("../apps/api/src/app.ts");
   app = await buildApp({ db, testing: true, providers: { stripe: () => stripe } });
 });
 after(async () => {
+  restoreServices();
   await app.close();
   await db.close();
 });

@@ -1,3 +1,4 @@
+import { requireServiceReady } from "./service-readiness.ts";
 import type { FastifyInstance } from "fastify";
 import {
   type Actor,
@@ -551,6 +552,7 @@ export async function createMembershipCheckout(
               "ALREADY_SUBSCRIBED",
               "A monthly membership can start once your current programme ends",
             );
+          await requireServiceReady(tx, product.data);
           if (product.data.tier === "workout_nutrition")
             await options.nutritionReady(tx);
           const terms = await checkoutOfferTerms(

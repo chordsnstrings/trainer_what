@@ -1,12 +1,18 @@
 # Project memory
 
-Deployment active, 5 October: owner requested PR #34 deployment. CI identified missing shared-music table registration in the runtime privilege gate. Added explicit fresh-host service grants and forced-RLS/tenant-denial checks; full isolated local gate passes (75 migrations). Await the corrected head’s CI, exact-main checks and observed production serving SHA.
+Active 6 October: coach-workflow F01–F10 application fixes implemented on `fix/coach-workflow-2026-10-06` (application `5f95483`, safety/setup base `9c9497f`). Shared safety/recovery, readiness, setup, schedule constraints, nutrition context, structured workouts and Arabic guidance are local; migration 087 is not deployed. TypeScript/build and focused regression checks pass. Nine browser journeys pass, including Arabic circuits and actual distance; screenshots reviewed, no page errors/overflow. Music archive restored; provider connectivity timed out without further requests. Music completion and real-service/device qualification remain executable follow-up for Claude under existing authority. See `docs/COACH_WORKFLOW_FIXES_2026-10-06.md` and `CLAUDE_HANDOFF.md`.
 
-Active 5 October 2026: guided-session overhaul implemented on `feat/guided-session-complete-2026-10-05`. Existing web app, no native prototype. Progression, account/device recovery, deliberate speech, optional Coach remote and the reusable music pipeline are implemented. See `docs/GUIDED_SESSION_IMPLEMENTATION_2026-10-05.md` for checks and exact limits. 38 distinct songs are durably saved; provider network policy interrupted the 240-song build. Preserve 21 known tasks and one unknown intent; resume the bounded script and review before publishing full playlists. Not deployed. Existing Claude DigitalOcean authority continues.
+Audited 6 October: complete coach → Seed 2.0 teaching → subscriber → workout/nutrition/guidance flow on deployed `0773411`. Application unchanged. Twelve findings, four P1; three defects reproduced with isolated mocked providers. Priority: intake safety propagation, cross-module health context, first-plan prerequisite recovery and service readiness before sale. Full report: `docs/COACH_WORKFLOW_AUDIT_2026-10-06.md`; evidence and exact probes alongside it. Saved locally on `audit/coach-workflow-2026-10-06`; automatic approval review blocked publication to the public GitHub repo. Carry these notes into the next release once publication is authorized. Existing Claude DigitalOcean/continuation authority persists.
 
-Updated: 5 October 2026. This is durable project context for future build sessions. It records decisions, not credentials or a claim about account capabilities.
+Deployed 5 October: guided-session PR #34, release `0773411314bb31765f748dbeaeec58ae76bbeded`. All five PR and exact-main checks passed (runs `37318453155` / `37322643343`). Live readiness matched at 14:41:55 UTC; four page shells, 24 JS/CSS assets including the dynamic music-admin bundle, UI markers and API authentication boundaries passed by 14:50 UTC. Proof: `docs/evidence/guided-session-release-2026-10-05.json`. Final checkpoint: `notes/guided-session-release-2026-10-05`; reconcile it into the next application release. Music bank completion/import/review and physical device qualification remain; Claude DigitalOcean authority is unchanged.
+
+Active 5 October 2026: guided-session overhaul implemented on `feat/guided-session-complete-2026-10-05`. Existing web app, no native prototype. Progression, account/device recovery, deliberate speech, optional Coach remote and the reusable music pipeline are implemented. See `docs/GUIDED_SESSION_IMPLEMENTATION_2026-10-05.md` for checks and exact limits. 38 distinct songs are durably saved; provider network policy interrupted the 240-song build. Preserve 21 known tasks and one unknown intent; resume the bounded script and review before publishing full playlists. Deployed and verified in PR #34. Existing Claude DigitalOcean authority continues.
+
+Updated: 6 October 2026. This is durable project context for future build sessions. It records decisions, not credentials or a claim about account capabilities.
 
 ## Owner decisions
+
+Standing release authority (6 October, 10:35 Asia/Dubai): always deploy completed changes through normal CI/release gates, without repeated confirmation. Run the production music build for longer, preserving prior intents and the existing request/credit cap.
 
 | Topic | Current decision |
 | --- | --- |
@@ -107,3 +113,5 @@ The following entries retain their original stage status; current deployment is 
 ## Handoff format
 
 At the end of an implementation slice, replace the current-state bullets with a short factual checkpoint: active/completed issue IDs; code commit; migration/deployment state; checks actually run and evidence paths; unresolved blocker with owner; next executable action. Preserve the owner decisions until explicitly changed. Do not mark a requirement complete because its plan or UI exists.
+
+- 6 October coach workflow fix checkpoint: F01–F03 focused regressions pass; TypeScript passes. Local migration 087/readiness gates, setup checklist, availability and consent-bound nutrition context implemented; further qualification and F08–F12 remain. Production unchanged.

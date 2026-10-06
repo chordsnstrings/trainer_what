@@ -1,3 +1,4 @@
+import { workMeasure } from "../../../packages/domain/src/prescription.ts";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { loadMemberMemory } from "./member-memory.ts";
 import { randomUUID } from "node:crypto";
@@ -114,6 +115,12 @@ export async function openTrainingHold(
   );
   const workouts = await tx.query(
     "UPDATE records SET status='safety_hold',version=version+1,updated_at=now() WHERE kind='workout' AND owner_user_id=$1 AND status='active' RETURNING id",
+    [userId],
+  );
+  // Prepared audio cannot survive a safety interruption, including sessions
+  // prepared before the member updated their intake.
+  await tx.query(
+    "UPDATE voice_sessions SET status='revoked',audio_status='revoked',unavailable_reason='TRAINING_HELD',version=version+1,updated_at=now() WHERE user_id=$1 AND status IN ('ready','running')",
     [userId],
   );
   const hold = await putRecord(
@@ -503,6 +510,9 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
           "SET_NOT_IN_PROGRAM",
           "This set is outside the assigned workout",
         );
+      const measure = workMeasure(exercise);
+      if ((measure === "reps" && (b.durationSeconds !== undefined || b.distanceMeters !== undefined)) || (measure === "time" && (b.durationSeconds === undefined || b.distanceMeters !== undefined || b.reps !== 0)) || (measure === "distance" && (b.distanceMeters === undefined || b.durationSeconds !== undefined || b.reps !== 0)))
+        throw fail(400,"SET_MEASURE","Log actual work using the prescribed measure");
       const [logged] = await tx.query(
         "SELECT id FROM workout_events WHERE workout_id=$1 AND user_id=$2 AND data->>'exercise'=$3 AND (data->>'set')::int=$4 AND (data->>'exerciseIndex' IS NULL OR (data->>'exerciseIndex')::int=$5)",
         [w.id, a.userId, b.exercise, b.set, exerciseIndex],

@@ -1,3 +1,5 @@
+import { requireNoRecentNutritionRedFlags } from "./nutrition.ts";
+import { memberSetup } from "./member-setup.ts";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
   type Actor,
@@ -199,6 +201,7 @@ async function todayNutrition(tx: Tx, userId: string) {
     [userId],
   );
   if (!consent?.granted) return { state: "permission" as const };
+  try { await requireNoRecentNutritionRedFlags(tx,userId); } catch (e) { if ((e as any).code !== "SCOPE_REVIEW") throw e; return { state: "review" as const }; }
   const [profile] = await tx.query(
     "SELECT data FROM records WHERE kind='nutrition_profile' AND owner_user_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1",
     [userId],
@@ -383,6 +386,7 @@ export async function programmeToday(
       planState,
       plan,
       intakeDone: await intakeDone(tx, a.userId),
+      setup: await memberSetup(tx, a.userId, access, session?.id || next?.id ? `/app/voice-session/planned/${session?.id ?? next?.id}` : "/app/program"),
       restDay: planState === "ready" && !session,
       nextProgramme: source?.queued ?? null,
       next: next

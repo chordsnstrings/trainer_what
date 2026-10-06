@@ -47,11 +47,16 @@ export const intakeSchema = z
     goal: z.string().min(3).max(1000),
     experience: z.enum(["beginner", "intermediate", "advanced"]),
     daysPerWeek: z.number().int().min(1).max(7),
+    availableWeekdays: z.array(z.number().int().min(0).max(6)).min(1).max(7).refine(v => new Set(v).size === v.length, "Choose each weekday once").optional(),
+    maxSessionMinutes: z.number().int().min(15).max(180).optional(),
+    timezone: z.string().max(100).refine(v => { try { new Intl.DateTimeFormat("en", { timeZone: v }); return true; } catch { return false; } }, "Choose a valid timezone").optional(),
+
     equipment: z.string().max(1000),
     limitations: z.string().max(2000),
     consent: z.literal(true),
   })
-  .strict();
+  .strict()
+  .refine(v => !v.availableWeekdays || v.availableWeekdays.length >= v.daysPerWeek, "Choose enough available weekdays for your training frequency");
 export const setSchema = z
   .object({
     eventKey: z.string().uuid(),

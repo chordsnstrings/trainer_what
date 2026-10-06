@@ -124,13 +124,14 @@ async function runClaimedJobInScope(
       return;
     }
     if (job.kind === "brain_plan") {
-      // The generation record keeps its own outcome (delivered, review,
-      // failed); the job completes once the handler has returned.
-      await (handlers.brainPlan ?? executeBrainPlanJob)(db, tenantId, job);
+      const result = await (handlers.brainPlan ?? executeBrainPlanJob)(db, tenantId, job);
+      const waiting = result?.status === "skipped" && ["no_library", "no_brain", "no_access", "no_intake", "no_consent", "safety_hold"].includes(result.reason);
+      // A prerequisite is not a completed delivery. Retry only this unsent
+      // intent; the generation record still fences unknown paid outcomes.
       await db.tenant(a, (tx) =>
         tx.query(
-          "UPDATE jobs SET status='completed',leased_until=NULL,last_error=NULL WHERE id=$1 AND status='pending' AND attempts=$2 AND leased_until=$3",
-          [job.id, job.attempts, job.leased_until],
+          "UPDATE jobs SET status=$4,leased_until=NULL,last_error=$5,available_at=CASE WHEN $4='pending' THEN now()+interval '10 minutes' ELSE available_at END,attempts=CASE WHEN $4='pending' THEN greatest(attempts-1,0) ELSE attempts END WHERE id=$1 AND status='pending' AND attempts=$2 AND leased_until=$3",
+          [job.id, job.attempts, job.leased_until, waiting ? "pending" : "completed", waiting ? result.reason : null],
         ),
       );
       return;

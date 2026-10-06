@@ -637,6 +637,7 @@ test("go live: automatic checks with the wizard's Brain minimum, no bank details
     tx.query("DELETE FROM records WHERE kind IN ('rule','scenario')"),
   );
   await teach(a, SETUP_BRAIN_MINIMUM.quiz, SETUP_BRAIN_MINIMUM.own);
+  await db.tenant(a, tx => putRecord(tx, a, "exercise", { name: "Squat", sets: 2, reps: 8, loadKg: 0, restSeconds: 60 }, { status: "active" }));
   await pricedPlan(a);
   const reserved = await call("/api/v1/setup/subdomain", "PUT", {
     name: a.slug,

@@ -352,6 +352,7 @@ export async function verifyRuntimeAccess(client) {
     "model_usage_today(text[],uuid)",
     "voice_guidance_spent_today()",
     "guided_voice()",
+    "member_training_readiness()",
     "coach_wearable_policy()",
     "withdraw_accepted_invitation_emails(uuid,text)",
     "personal_export_records(uuid)",

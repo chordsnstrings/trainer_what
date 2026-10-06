@@ -1,3 +1,6 @@
+import { readyServices } from "./service-readiness-fixtures.ts";
+const restoreServices: Array<() => void> = [];
+async function workspace(db: Database) { const owner = await bareWorkspace(db); restoreServices.push(await readyServices(db,owner)); return owner; }
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createHmac, randomUUID } from "node:crypto";
@@ -40,7 +43,7 @@ import {
   follower,
   offer,
   paidProgrammeSession,
-  workspace,
+  workspace as bareWorkspace,
   withEnv,
   type Member,
 } from "./programme-fixtures.ts";
@@ -62,7 +65,7 @@ let db: Database;
 before(async () => {
   db = await createDatabase({ memory: true });
 });
-after(async () => db.close());
+after(async () => { await db.close(); for(const restore of restoreServices.reverse()) restore(); });
 
 const nowSec = () => Math.floor(Date.now() / 1000);
 function event(type: string, object: any, created = nowSec()) {

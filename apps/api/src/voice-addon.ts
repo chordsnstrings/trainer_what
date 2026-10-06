@@ -1,3 +1,4 @@
+import { audioReadiness, requireServiceReady } from "./service-readiness.ts";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import {
@@ -652,10 +653,12 @@ export async function voiceAddOnStatus(db: Database, a: Actor) {
       [a.userId, v?.providerId ?? null],
     );
     const included = paid && voiceIncluded(s?.data);
+    const readiness = await audioReadiness(tx);
     return {
+      readiness,
       included,
       available:
-        paid &&
+        readiness.ready && paid &&
         !included &&
         pending?.status !== "confirming" &&
         !!offer?.data?.voiceStripePriceId &&
@@ -729,6 +732,7 @@ export async function addVoiceAddOn(
         "VOICE_UNAVAILABLE",
         "Your coach has not priced premium voice for this membership yet.",
       );
+    await requireServiceReady(tx, {}, true);
     const [old] = await tx.query(
       `SELECT * FROM records WHERE ${PENDING_VOICE_CHECKOUT} ORDER BY created_at LIMIT 1 FOR UPDATE`,
       [a.userId, v?.providerId ?? null],

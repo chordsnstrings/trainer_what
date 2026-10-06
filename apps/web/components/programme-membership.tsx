@@ -157,7 +157,7 @@ export function VoiceAddOnCard() {
   }, [load]);
   if (
     !data ||
-    (!data.included && !data.available && !data.active && !data.status)
+    (!data.included && !data.available && !data.active && !data.status && !data.priceMinor)
   )
     return null;
   const act = async (fn: () => Promise<any>, done: string) => {
@@ -182,6 +182,7 @@ export function VoiceAddOnCard() {
     <section className="card voice-addon" aria-labelledby="voice-addon-title">
       <p className="eyebrow">{t("voiceEyebrow")}</p>
       <h2 id="voice-addon-title">{t("voiceTitle")}</h2>
+      {data.readiness && !data.readiness.ready && <p className="notice">{locale === "ar" ? "مدربك يجهز الإرشاد الصوتي. يمكنك متابعة التمرين بالنص." : "Your coach is preparing audio guidance. Text workouts remain available."} <a href="/app/chat">{locale === "ar" ? "راسل مدربك" : "Message your coach"}</a></p>}
       {data.included ? (
         <p>{t("voiceInMembership")}</p>
       ) : data.active ? (

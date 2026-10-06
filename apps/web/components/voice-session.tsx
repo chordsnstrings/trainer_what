@@ -1,4 +1,5 @@
 "use client";
+import { sessionOrder } from "../../../packages/domain/src/session-structure.ts";
 // Hands-free, voice-led workout session. The pure state machine
 // (packages/domain/src/voice-runner.ts) decides what happens; this component
 // plays the trainer-voice clips (or shows the words), runs the clock, listens
@@ -98,6 +99,7 @@ function statusLine(ctx: { script: SessionScript }, s: RunnerState, t: VoiceT) {
     case "setup":
       return t("status_setup", { name: ex.name });
     case "set": {
+      if (workMeasure(ex) !== "reps") return [ex.name, t("roundOf", { set: s.set, sets: ex.sets }), workText({ ...ex, sets: 1 }), ...(target.loadKg > 0 ? [t("load", { load: target.loadKg })] : [])].join(" · ");
       const params = {
         name: ex.name,
         set: s.set,
@@ -712,6 +714,9 @@ function Runner({
   const player = useRef<HTMLAudioElement | null>(null);
   const [cuePlaying, setCuePlaying] = useState(false);
   const [question, setQuestion] = useState("");
+  const runnerLocale = useLocale();
+  const [actualDistance, setActualDistance] = useState("");
+  useEffect(() => setActualDistance(""), [state.exercise,state.set]);
   const [answer, setAnswer] = useState("");
   const [asking, setAsking] = useState(false);
   const [voiceVolume, setVoiceVolume] = useState(1);
@@ -1585,6 +1590,7 @@ function Runner({
   };
 
   const ex = script.exercises[state.exercise];
+  const nextWork = sessionOrder(script.exercises).find(p => !state.logged.includes(`${p.exercise}:${p.set}`) && !state.skipped.includes(`${p.exercise}:${p.set}`));
   const target = state.targets[state.exercise]?.[state.set - 1];
   const running = !["ready", "finished", "stopped"].includes(state.phase);
   // A timed round counts down; other sets count up.
@@ -1779,11 +1785,8 @@ function Runner({
         {state.phase === "rest" && (
           <p className="muted">
             {t("nextTarget", {
-              name:
-                state.set < ex.sets
-                  ? ex.name
-                  : (script.exercises[state.exercise + 1]?.name ?? ""),
-              set: state.set < ex.sets ? state.set + 1 : 1,
+              name: nextWork ? script.exercises[nextWork.exercise].name : "",
+              set: nextWork?.set ?? 1,
             })}
           </p>
         )}
@@ -1886,7 +1889,7 @@ function Runner({
                   type="button"
                   className="button voice-done"
                   disabled={state.phase === "set" && !state.promptReady}
-                  onClick={() => command({ type: "done" })}
+                  onClick={() => command({ type: "done", ...(state.phase === "set" && ex?.distanceMeters && actualDistance !== "" ? { distanceMeters: Math.max(0, Math.min(200000, Math.round(Number(actualDistance)))) } : {}) })}
                 >
                   {state.phase === "setup" || state.phase === "rest"
                     ? t("readyNext")
@@ -1894,6 +1897,7 @@ function Runner({
                 </button>
               )}
             </StickyActionBar>
+            {state.phase === "set" && ex?.distanceMeters && <label>{runnerLocale === "ar" ? "المسافة الفعلية بالمتر؛ انتهيت يؤكد المسافة المستهدفة" : "Actual metres; Done confirms the target if left blank"}<input type="number" min={0} max={200000} value={actualDistance} placeholder={String(ex.distanceMeters)} onChange={e => setActualDistance(e.target.value)} /></label>}
             {state.phase === "rest" && (
               <button
                 className="button secondary"

@@ -1,0 +1,125 @@
+{
+  "date": "2026-10-06",
+  "mode": "read-only application audit; isolated synthetic fixtures; documentation only",
+  "applicationCommit": "0773411314bb31765f748dbeaeec58ae76bbeded",
+  "notesBaseline": "1a50aa97b505a36f79d1fb018615edee119d1f78",
+  "branch": "audit/coach-workflow-2026-10-06",
+  "productionReadiness": {
+    "at": "2026-10-06T05:05:25Z",
+    "url": "https://trainsyou.com/api/v1/ready",
+    "http": 200,
+    "body": {
+      "status": "ready"
+    },
+    "releaseHeader": "0773411314bb31765f748dbeaeec58ae76bbeded"
+  },
+  "reusedReleaseEvidence": {
+    "file": "guided-session-release-2026-10-05.json",
+    "mainRun": 37322643343,
+    "passedJobs": 5,
+    "pglite": {
+      "pass": 1681,
+      "skip": 5,
+      "fail": 0
+    },
+    "postgres": {
+      "pass": 1680,
+      "skip": 6,
+      "fail": 0
+    },
+    "guidedBrowserJourneys": 8
+  },
+  "newProbes": {
+    "provider": "mocked fixture transport only",
+    "tests": 4,
+    "pass": 4,
+    "fail": 0,
+    "defectReproductions": 3,
+    "qualificationPrerequisites": 1,
+    "observations": [
+      {
+        "jobStatus": "completed",
+        "generationRecords": 0,
+        "jobsAfterLibraryRestored": 0,
+        "assignedPlans": 0,
+        "modelCalls": 0
+      },
+      {
+        "updatedIntakeDisclosure": "chest pain during exercise",
+        "activeHolds": 0,
+        "workoutStartStatus": 200
+      },
+      {
+        "trainingIntakeDisclosure": "diabetes/insulin",
+        "mealStatus": "delivered",
+        "includedInNutritionContext": false,
+        "sameDisclosureInFoodProfile": "SCOPE_REVIEW",
+        "individualTarget": null
+      }
+    ],
+    "exactProbeBodies": "coach-workflow-audit-2026-10-06-probes.txt",
+    "finalOutputs": [
+      "(node:13) ExperimentalWarning: The supports Web Crypto API method is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:13) ExperimentalWarning: The ML-DSA-44 Web Crypto API algorithm is an experimental feature and might change at any time\nAUDIT_EVIDENCE {\"jobStatus\":\"completed\",\"generationRecords\":0,\"jobsAfterLibraryRestored\":0,\"assignedPlans\":0,\"modelCalls\":0}\n\u2714 AUDIT: missing exercise library silently consumes first-plan job (2908.930791ms)\nAUDIT_EVIDENCE {\"updatedIntakeDisclosure\":\"chest pain during exercise\",\"activeHolds\":0,\"workoutStartStatus\":200}\n\u2714 AUDIT: updated intake safety report does not hold an existing programme (340.320647ms)\n\u2139 tests 2\n\u2139 suites 0\n\u2139 pass 2\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0\n\u2139 duration_ms 4372.030249\n",
+      "(node:13) ExperimentalWarning: The supports Web Crypto API method is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:13) ExperimentalWarning: The ML-DSA-44 Web Crypto API algorithm is an experimental feature and might change at any time\n\u2714 evaluation keeps each check's category from the model, scales its budget and accepts the teaching behind a safety limit (3905.477644ms)\nAUDIT_EVIDENCE {\"trainingIntakeDisclosure\":\"diabetes/insulin\",\"mealStatus\":\"delivered\",\"includedInNutritionContext\":false,\"sameDisclosureInFoodProfile\":\"SCOPE_REVIEW\",\"individualTarget\":null}\n\u2714 AUDIT: a clinical disclosure in training intake is absent from meal generation (492.48793ms)\n\u2139 tests 2\n\u2139 suites 0\n\u2139 pass 2\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0\n\u2139 duration_ms 5520.137853\n"
+    ]
+  },
+  "findings": {
+    "P1": [
+      "F01",
+      "F02",
+      "F03",
+      "F04"
+    ],
+    "P2": [
+      "F05",
+      "F06",
+      "F07",
+      "F08",
+      "F09",
+      "F10",
+      "F11",
+      "F12"
+    ],
+    "reproduced": [
+      "F01",
+      "F02",
+      "F03"
+    ],
+    "source": [
+      "F04",
+      "F05",
+      "F06",
+      "F07",
+      "F08",
+      "F09",
+      "F10"
+    ],
+    "checkpoint": [
+      "F11"
+    ],
+    "qualificationGap": [
+      "F12"
+    ]
+  },
+  "limits": [
+    "No authenticated production data or model settings inspected",
+    "No fresh live AI, Cartesia, Suno or Stripe request",
+    "No new visual or physical-device run",
+    "Music inventory uses the saved 5 October checkpoint, not a current production query"
+  ],
+  "applicationChanges": false,
+  "deployed": false,
+  "persistence": {
+    "localCommit": true,
+    "githubPush": "blocked_by_automatic_approval_review",
+    "reason": "Publication authorization for internal audit findings and handoff was not verified",
+    "subsequentReadOnlyVerification": {
+      "authenticatedLogin": "chordsnstrings",
+      "repositoryOwner": "chordsnstrings",
+      "visibility": "public",
+      "admin": true,
+      "push": true
+    },
+    "retryAttempted": false
+  }
+}

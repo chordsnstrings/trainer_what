@@ -1,3 +1,4 @@
+import { requireServiceReady } from "./service-readiness.ts";
 import { registerFinanceAutomation } from "./finance-automation.ts";
 import { clientContextRoutes } from "./client-context.ts";
 import { registerAffiliates } from "./affiliates.ts";
@@ -107,7 +108,8 @@ import {
   registerLegalStatus,
 } from "./legal.ts";
 import { registerAdminOperations } from "./admin-operations.ts";
-import { screenForSafety } from "./safety-policy.ts";
+import { openPersonalReview, screenForSafety } from "./safety-policy.ts";
+import { nutritionRedFlags, nutritionScopeSignals } from "../../../packages/domain/src/nutrition.ts";
 import { registerMessaging } from "./messaging-admin.ts";
 import { registerSupportPreview } from "./support-preview.ts";
 import {
@@ -1731,8 +1733,20 @@ export async function buildApp(
         "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,'coaching',$4,true)",
         [randomUUID(), a.tenantId, a.userId, coachingVersion],
       );
-      await event(tx, a, "intake.completed", r.id);
-      return r;
+      const text = [b.goal, b.equipment, b.limitations].join("\n");
+      const screen = await screenForSafety(tx, text);
+      if (screen.hold) await openTrainingHold(tx, a, a.userId, text, undefined, screen);
+      else if (screen.review && a.role === "subscriber")
+        await openPersonalReview(tx, a, a.userId, text, screen);
+      // Existing food weeks must not remain actionable after a new health disclosure.
+      // This stays in the member's own scope; no withdrawn data is sent to a model.
+      if (nutritionRedFlags([text]).length || nutritionScopeSignals([text]).length)
+        await tx.query(
+          "UPDATE records SET status='needs_recheck',version=version+1,updated_at=now() WHERE kind='nutrition_plan' AND owner_user_id=$1 AND status='delivered'",
+          [a.userId],
+        );
+      await event(tx, a, "intake.completed", r.id, { trainingHeld: screen.hold, review: screen.review });
+      return { ...r, trainingHeld: screen.hold, reviewRequired: screen.review };
     });
   });
   app.post("/api/v1/messages", async (req) => {
@@ -1851,6 +1865,7 @@ export async function buildApp(
     // Stripe idempotency keys expire, so a repeated activation must not mint a second product/price.
     if (product.status === "published" && product.data.stripePriceId)
       return { ok: true };
+    await db.tenant(a, tx => requireServiceReady(tx, { ...product.data, premiumVoice: !!(product.data.premiumVoice || product.data.voiceAddOnMinor) }));
     if (product.data.tier === "workout_nutrition")
       await db.tenant(a, requireNutritionReady);
     const remote = await stripe.products.create(

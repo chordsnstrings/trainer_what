@@ -114,6 +114,7 @@ export const recipeSchema = z
 export type Recipe = z.infer<typeof recipeSchema> & { id: string };
 export const nutritionProfileSchema = z
   .object({
+    weightKg: z.number().min(20).max(500).optional(),
     age: z.number().int().min(18).max(100),
     goal: text(100),
     diet: text(80).transform((s) => s.toLowerCase()),
