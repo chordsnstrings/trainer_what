@@ -1,6 +1,10 @@
 # Project memory
 
-## Current work — 6 October 2026
+## Current work — 7 October 2026
+
+UAE policy-first signup: the owner authorised professional policies and merge/deployment after completion, with lawyer review later. English only; no named hosting location. The three policy drafts and publication instructions are in `docs/legal/uae-2026-10/`. Complete verified company/licence/address/contact fields before publication. Existing registration and consent gates remain intact. Customer consent must not be fabricated or preselected. The preceding local signup-bypass patch is superseded. Production publication remains pending those missing business details.
+
+## Earlier work — 6 October 2026
 
 Production music automation. See [music agent](MUSIC_AGENT_2026-10-06.md) and [Claude handoff](../CLAUDE_HANDOFF.md). The owner approved public source/sanitized-handoff publication and deployment. The prepared implementation was restored after a workspace reset; restored-source TypeScript, production build, fifteen music tests and deployment checks passed. Public CI and deployment are underway. New migration starts automation paused until earlier paid work is reconciled.
 
