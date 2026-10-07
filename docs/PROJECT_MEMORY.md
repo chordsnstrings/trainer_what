@@ -2,7 +2,7 @@
 
 ## Current work — 7 October 2026
 
-UAE policies and signup: the owner explicitly authorised publication now with missing business details updated later. English only; no named hosting location. Migration 090 publishes the approved three-policy pack and enables the existing legal setting; consent and signup enforcement remain intact. Policies use existing in-account Support/Privacy tools. No company/contact information is invented. PR #44; 26 focused checks and root TypeScript passed; normal CI/deployment are next. Lawyer review and later document versions remain follow-up work.
+UAE policies and signup: the owner explicitly authorised publication now with missing business details updated later. English only; no named hosting location. Migration 090 publishes the approved three-policy pack and enables the existing legal setting; consent and signup enforcement remain intact. Policies use existing in-account Support/Privacy tools. No company/contact information is invented. PR #44 is live in release `02601ce22c004c60d377f0f3e4955da5337ccdfb`, verified 7 October at 12:47 Dubai time. All five PR/main checks passed, alongside the 26 focused checks and TypeScript. Readiness and `/signup`/policy pages return 200; password signup and trainer/client joining are open; all three policies are version 2 and match the approved text. No production test accounts were created. Lawyer review and later document versions remain follow-up work.
 
 ## Earlier work — 6 October 2026
 
