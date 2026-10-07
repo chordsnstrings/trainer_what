@@ -1,8 +1,12 @@
--- Owner request (7 October 2026): the music agent's lifetime budget can go
--- past 120 requests / 1,440 credits (the owner set 5,000). The table keeps a
--- hard ceiling; the owner still chooses the budget in Admin Music.
+-- Owner (7 October 2026): "we should be able to set it ourselves". The music
+-- agent's lifetime budgets are the operator's choice in Admin Music, with no
+-- ceiling in code: only positive values are required.
 ALTER TABLE workout_music_agent
  DROP CONSTRAINT workout_music_agent_request_limit_check,
- ADD CONSTRAINT workout_music_agent_request_limit_check CHECK(request_limit BETWEEN 1 AND 1000),
+ ADD CONSTRAINT workout_music_agent_request_limit_check CHECK(request_limit>=1),
  DROP CONSTRAINT workout_music_agent_credit_limit_check,
- ADD CONSTRAINT workout_music_agent_credit_limit_check CHECK(credit_limit>0 AND credit_limit<=20000);
+ ADD CONSTRAINT workout_music_agent_credit_limit_check CHECK(credit_limit>0),
+ DROP CONSTRAINT workout_music_agent_model_call_limit_check,
+ ADD CONSTRAINT workout_music_agent_model_call_limit_check CHECK(model_call_limit>=1),
+ DROP CONSTRAINT workout_music_agent_model_usd_limit_check,
+ ADD CONSTRAINT workout_music_agent_model_usd_limit_check CHECK(model_usd_limit>0);
