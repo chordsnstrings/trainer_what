@@ -26,6 +26,10 @@ No deployment, provider call or live action was made. All test data is synthetic
   state, suspend (reason + optional team notice) or reinstate with a reason; find
   an account by exact email, lock or unlock it with a reason, see lock history and
   currently locked accounts. Support operators can view workspaces (read-only).
+  Since 7 October 2026 (owner request) a Super admin can also confirm another
+  account's unconfirmed email address with a reason (`POST /api/v1/admin/governance/accounts/:userId/verify-email`,
+  fresh authenticator, audited as `account.email_verified_by_operator`, account notice to the person); it is
+  meant for test accounts while email delivery is off.
 - **Business metrics** at `/admin/metrics` (`business-metrics.tsx`), also for
   finance operators: KPI tiles, active memberships by tier, monthly series table,
   payout status, definitions, CSV download.
