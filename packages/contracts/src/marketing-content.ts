@@ -658,6 +658,14 @@ const PRICE_FAQ: MarketingFaq = {
   q: "Who sets the subscription price?",
   a: "You do. You set the monthly or upfront price in AED, the programme length, trials and promotions. {APP_NAME} takes a transparent commission on subscription revenue using marginal bands of 25%, 20%, 15% and 10%.",
 };
+// Owner decision (7 October 2026): free onboarding is a lead hook. Joining,
+// setup and teaching the AI cost the trainer nothing (setup AI usage is
+// platform-borne: docs/features/platform-finance.md); the only optional
+// purchase is the trainer's own domain name.
+const FREE_FAQ: MarketingFaq = {
+  q: "Does it cost anything to join?",
+  a: "No. Joining, building your coaching site and app, and teaching and testing your AI are free, with nothing to pay upfront. {APP_NAME} earns a commission only when your subscribers pay. Your own domain name is the only optional purchase; your {APP_NAME} address is free.",
+};
 const TRAINED_FAQ: MarketingFaq = {
   q: "Is the AI trained on my data?",
   a: "It is taught with your material: confirmed rules, coaching cases, examples and corrections. Each version is tested on held-out scenarios and can be rolled back. We do not claim to fine-tune a separate model on you, and your teaching stays private to your workspace.",
@@ -726,20 +734,20 @@ export const MARKETING_CONTENT: MarketingPage[] = [
     kind: "home",
     group: "product",
     navLabel: "Home",
-    title: "AI personal trainer platform for UAE coaches",
+    title: "Free-to-join AI trainer platform for UAE coaches",
     // 28 September 2026 refresh: the H1 says what happens (the trainer
     // teaches, the platform trains their subscribers); the brand line leads
     // the description and closes every page. Removed home blocks now live
     // on deeper pages (docs/features/marketing-site.md "Where the home
     // content went").
     description:
-      "Your coaching. Beyond your hours. Teach your AI how you coach; it trains your subscribers day by day under your brand, priced in AED.",
+      "Your coaching. Beyond your hours. Free to join: teach your AI how you coach; it trains your subscribers day by day under your brand, priced in AED.",
     h1: BRAND_COPY.homeHeadline,
     h1Highlight: "trains",
     eyebrow: "FOR PERSONAL TRAINERS",
     // One name in the hero ("your AI", as in the H1 and the call to
     // action); the relay's loop is the only place that says it asks you.
-    lede: "Share your methods and rules. Your AI coaches every subscriber day by day, your way.",
+    lede: "Free to set up, nothing to pay upfront. Share your methods and rules; your AI coaches every subscriber day by day, your way.",
     intro: HOME_INTRO,
     primaryKeyword: "AI personal trainer platform",
     sections: [
@@ -757,10 +765,10 @@ export const MARKETING_CONTENT: MarketingPage[] = [
       },
       {
         id: "economics",
-        heading: "Your site. Your price.",
+        heading: "Free to start. Your price.",
         body: [
-          "Your own coaching site and app, under your name. You set the price in AED.",
-          "Our share starts at 25% and falls as you grow. Card processing is itemised.",
+          "Joining, your coaching site and app, and teaching your AI are free. Nothing to pay upfront; your own domain is optional.",
+          "You set the price in AED. We earn only when subscribers pay: our share starts at 25% and falls as you grow. Card processing is itemised.",
         ],
       },
       {
@@ -773,7 +781,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
       { q: "How does {APP_NAME} work?", a: HOME_INTRO },
       REPLACE_FAQ,
       SAFETY_FAQ,
-      PRICE_FAQ,
+      FREE_FAQ,
       TECH_FAQ,
       INSTAGRAM_FAQ,
     ],
@@ -1825,12 +1833,12 @@ export const MARKETING_CONTENT: MarketingPage[] = [
     navLabel: "Pricing",
     title: "Online coaching platform fees and commission",
     description:
-      "You set your price in AED. {APP_NAME} takes a marginal commission of 25%, 20%, 15% and 10% of subscription revenue.",
+      "Free to join, nothing upfront. You set your price in AED; {APP_NAME} takes a marginal commission of 25%, 20%, 15% and 10% of subscription revenue.",
     h1: "Your price, our transparent share",
     eyebrow: "PRICING",
-    lede: "You set your price in AED. Our commission starts at 25% and falls in bands as you grow.",
+    lede: "Free to join, nothing to pay upfront. You set your price in AED; our commission starts at 25% and falls as you grow.",
     intro:
-      "You choose your price in AED, the programme length and monthly or upfront billing. {APP_NAME} takes a commission on subscription revenue in marginal bands of 25%, 20%, 15% and 10%. Payment processing and optional services are itemised on your statement.",
+      "Joining, setup and teaching your AI are free, with nothing to pay upfront. You choose your price in AED, the programme length and monthly or upfront billing. {APP_NAME} takes a commission on subscription revenue in marginal bands of 25%, 20%, 15% and 10%. Payment processing and optional services are itemised on your statement.",
     primaryKeyword: "online coaching platform fees",
     sections: [
       {
@@ -1894,10 +1902,11 @@ export const MARKETING_CONTENT: MarketingPage[] = [
       },
     ],
     faqs: [
+      FREE_FAQ,
       PRICE_FAQ,
       {
         q: "What will I pay?",
-        a: "Commission on subscription revenue by band and payment processing. Optional services you choose, such as the voice add-on or your own domain, are extra. Every item appears on your monthly statement.",
+        a: "Nothing to join or set up. Once subscribers pay: commission on subscription revenue by band and payment processing. Optional services you choose, such as the voice add-on or your own domain, are extra. Every item appears on your monthly statement.",
       },
       {
         q: "How is commission counted when I have different prices?",
@@ -2173,6 +2182,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
     faqs: [
       REPLACE_FAQ,
       TRAINED_FAQ,
+      FREE_FAQ,
       {
         q: "Will it give bad advice under my name?",
         a: "The Brain acts on its own only where your confirmed rules make it confident. Everything else is handed to you, safety issues always come to you, and you can correct or roll back any release.",
@@ -2269,7 +2279,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         id: "money",
         heading: "How we make money",
         body: [
-          "A commission on trainers’ subscription revenue in marginal bands of 25%, 20%, 15% and 10%. Optional services are itemised.",
+          "Joining is free for trainers. We earn a commission on their subscription revenue in marginal bands of 25%, 20%, 15% and 10%. Optional services are itemised.",
         ],
       },
       {
@@ -2294,7 +2304,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
     faqs: [
       {
         q: "How does {APP_NAME} make money?",
-        a: "A commission on trainers’ subscription revenue in marginal bands of 25%, 20%, 15% and 10%. Optional services are itemised."
+        a: "A commission on trainers’ subscription revenue in marginal bands of 25%, 20%, 15% and 10%; joining is free for trainers. Optional services are itemised."
       },
       {
         q: "Does {APP_NAME} own my method?",
@@ -2410,7 +2420,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
       "Start in six steps: create your account, choose your page, teach your Brain and set your offer. Save progress; add bank details at your first payout.",
     h1: "Start your coaching business in {APP_NAME}",
     eyebrow: "GET STARTED",
-    lede: "Six steps, about 15 minutes for a starter setup. Save your progress and continue later. Add bank details at your first payout.",
+    lede: "Free to join. Six steps, about 15 minutes for a starter setup. Save your progress and continue later. Add bank details at your first payout.",
     intro:
       "Start with your coaching approach and an offer. Six guided steps take you from an account to your page, a supervised Brain and launch checks. A starter setup takes about 15 minutes; deeper teaching takes longer. Save and continue later. Bank details are collected at your first payout.",
     primaryKeyword: "how to start online personal training UAE",

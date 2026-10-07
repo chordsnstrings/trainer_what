@@ -5,7 +5,7 @@ A durable application worker fills eight shared instrumental playlists to thirty
 ## Bounds and recovery
 
 - One plan contains at most six arrangements; 2,500 output tokens, a 90-second deadline, no alternate-model fallback. Reserved slots and deterministic titles are checked before generation.
-- At most four queued/submitting/pending music requests. Lifetime maximum: 120 requests and 1,440 credits, including cumulative purchases outside application jobs. Daily credit limits also apply. No automatic top-ups.
+- At most four queued/submitting/pending music requests. Lifetime budget set in Admin Music (default 120 requests and 1,440 credits; hard ceiling 1,000 requests and 20,000 credits since migration 089, 7 October 2026), including cumulative purchases outside application jobs. Daily credit limits also apply. No automatic top-ups.
 - Default planning allowance: 32 calls and $1; at most eight calls per day. Input/output prices must be configured. Reservations remain charged against the allowance after unknown results.
 - Persist paid intent before network submission. Never automatically resubmit a generation with an unknown outcome. An overdue provider task is retained for reconciliation after two hours.
 - Interrupted/failed planning can use saved standard arrangements without another model call. Ready arrangements are reused. Filled playlists stop purchases.

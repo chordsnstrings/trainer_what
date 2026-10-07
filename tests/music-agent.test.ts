@@ -247,6 +247,20 @@ test("agent starts paused and requires an administrator to reconcile prior purch
     ),
     /reconcile/,
   );
+  // Owner request (7 October 2026): a budget past 1,440 credits saves
+  // (migration 089); the hard ceiling still refuses anything above it.
+  await db.system((tx) =>
+    saveMusicAgent(tx, actor.userId, { ...settings, requestLimit: 160, creditLimit: 5000 }),
+  );
+  const raised = await info();
+  assert.deepEqual([raised.request_limit, Number(raised.credit_limit)], [160, 5000]);
+  await assert.rejects(
+    db.system((tx) => saveMusicAgent(tx, actor.userId, { ...settings, creditLimit: 20001 })),
+  );
+  await assert.rejects(
+    db.system((tx) => tx.query("UPDATE workout_music_agent SET credit_limit=20001")),
+    /credit_limit_check/,
+  );
   await db.system((tx) => saveMusicAgent(tx, actor.userId, settings));
 });
 test("concurrent ticks plan once, reserve before purchase and keep paid downloads running when paused", async () => {

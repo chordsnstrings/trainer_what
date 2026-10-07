@@ -1468,7 +1468,7 @@ function Home({ page, platform }: Ctx) {
                 </Link>
               </div>
               <p className="mk-hero-micro">
-                Built for UAE trainers · No technical skills needed
+                Free to join · No upfront cost · Built for UAE trainers
               </p>
             </div>
           </div>

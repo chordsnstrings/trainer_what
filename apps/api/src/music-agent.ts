@@ -18,15 +18,18 @@ import {
   MUSIC_PLAN_VERSION,
 } from "../../../packages/providers/src/music-planner.ts";
 import { resolveSiteStarterConfig } from "./site-builder-starter.ts";
+/** Hard ceilings on the lifetime budget (migration 089); the owner picks the budget below them. */
+export const MUSIC_MAX_REQUESTS = 1000;
+export const MUSIC_MAX_CREDITS = 20000;
 export const musicAgentSettings = z
   .object({
     enabled: z.boolean(),
     autoPublish: z.boolean(),
     recoveryConfirmed: z.boolean(),
-    requestLimit: z.number().int().min(1).max(120),
-    creditLimit: z.number().positive().max(1440),
-    externalRequests: z.number().int().min(0).max(120),
-    externalCredits: z.number().min(0).max(1440),
+    requestLimit: z.number().int().min(1).max(MUSIC_MAX_REQUESTS),
+    creditLimit: z.number().positive().max(MUSIC_MAX_CREDITS),
+    externalRequests: z.number().int().min(0).max(MUSIC_MAX_REQUESTS),
+    externalCredits: z.number().min(0).max(MUSIC_MAX_CREDITS),
     modelCallLimit: z.number().int().min(1).max(32),
     modelUsdLimit: z.number().positive().max(5),
   })

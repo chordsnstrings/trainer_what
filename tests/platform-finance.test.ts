@@ -28,6 +28,7 @@ import {
   estimateUnresolvedUsage,
   monthRate,
   periodUsage,
+  PLATFORM_BORNE_SETUP_TASKS,
   reserveVoiceCost,
 } from "../apps/api/src/cost-accounting.ts";
 import {
@@ -177,7 +178,7 @@ test("voice calls are priced at their estimate when made, and unpriced rows are 
   const [voiceUnknown, aiUnknown, noBasis] = await costs(owner.tenantId, [
     { task: "voice.session", provider: "cartesia", status: "unknown", estimate: 0.004, at: "2026-05-10T10:00:00Z" },
     { task: "coaching", provider: "openai", status: "unknown", at: "2026-05-11T10:00:00Z" },
-    { task: "brain_compilation", provider: "openai", model: "rare-model", status: "unknown", at: "2026-05-12T10:00:00Z" },
+    { task: "nutrition_week", provider: "openai", model: "rare-model", status: "unknown", at: "2026-05-12T10:00:00Z" },
     { task: "coaching", provider: "openai", status: "recorded", cost: 0.01, estimate: 0.01, at: "2026-05-01T10:00:00Z" },
     { task: "coaching", provider: "openai", status: "recorded", cost: 0.03, estimate: 0.03, at: "2026-05-02T10:00:00Z" },
   ]);
@@ -519,6 +520,31 @@ test("one reviewed USD to AED rate per month: revisions, metrics conversion, and
     [last.data.aedPerUsd, last.data.previousAedPerUsd, last.data.previousRevision, last.data.source, last.data.usageStatementsAtOtherRate],
     [3.7, 3.68, 2, "Synthetic central bank rate", 1],
   );
+});
+
+test("onboarding is free: a trainer's setup and teaching AI is borne by the platform, never charged", async () => {
+  const owner = await f.person({ name: "Owner Free Onboarding" });
+  // Owner decision (7 October 2026): joining, setup and teaching the AI cost
+  // the trainer nothing; AI that serves subscribers is charged as before.
+  await costs(owner.tenantId, [
+    ...PLATFORM_BORNE_SETUP_TASKS.map((task) => ({ task, status: "recorded", cost: 0.25, estimate: 0.25, at: "2026-04-07T10:00:00Z" })),
+    { task: "coaching", status: "recorded", cost: 1, estimate: 1, at: "2026-04-08T10:00:00Z" },
+    { task: "plan_generation", status: "recorded", cost: 0.5, estimate: 0.5, at: "2026-04-08T11:00:00Z" },
+  ]);
+  const usage = await f.db.tenant(finance(owner), (tx) => periodUsage(tx, "2026-04", 4));
+  assert.equal(usage.events, PLATFORM_BORNE_SETUP_TASKS.length + 2);
+  assert.deepEqual(
+    [usage.chargeableUsd, usage.chargeMinor, usage.platformBorneUsd],
+    ["1.50000000", 1200, (0.25 * PLATFORM_BORNE_SETUP_TASKS.length).toFixed(8)],
+  );
+  // A month of onboarding only charges nothing.
+  const fresh = await f.person({ name: "Owner Setup Only" });
+  await costs(fresh.tenantId, [
+    { task: "setup_assistant", status: "recorded", cost: 0.4, estimate: 0.4, at: "2026-04-09T10:00:00Z" },
+    { task: "brain_quiz", status: "recorded", cost: 0.3, estimate: 0.3, at: "2026-04-09T11:00:00Z" },
+  ]);
+  const setupOnly = await f.db.tenant(finance(fresh), (tx) => periodUsage(tx, "2026-04", 4));
+  assert.deepEqual([setupOnly.chargeableUsd, setupOnly.chargeMinor, setupOnly.platformBorneUsd], ["0.00000000", 0, "0.70000000"]);
 });
 
 test("the usage markup (default 100%) and who pays for complimentary members (the trainer) are settings", async () => {

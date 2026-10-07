@@ -309,7 +309,7 @@ test("metadata: unique branded titles, canonical and Open Graph addresses per pa
   }
   const acme = marketingMetadata(marketingPage("/")!, { ...ctx, appName: "Acme Coaching" });
   assert.equal(acme.openGraph.images[0].url, ORIGIN + "/og?path=%2F");
-  assert.equal(acme.title, "AI personal trainer platform for UAE coaches | Acme Coaching");
+  assert.equal(acme.title, "Free-to-join AI trainer platform for UAE coaches | Acme Coaching");
 });
 
 test("JSON-LD: valid schema.org graphs built from the page's visible text", () => {
@@ -494,7 +494,7 @@ test("home: one H1 that says what happens, a short hero, the relay and five sect
   assert.ok(page.lede, "the home page has a lede");
   assert.ok(brandText(page.lede!, APP).split(/\s+/).length <= 25);
   assert.ok(text.includes(brandText(page.lede!, APP)));
-  assert.match(text, /Built for UAE trainers · No technical skills needed/);
+  assert.match(text, /Free to join · No upfront cost · Built for UAE trainers/);
   // A short hero: payout details live on /pricing and /how-it-works.
   assert.doesNotMatch(text, /payouts to a UAE bank/i, "the hero stays short");
   // One name in the hero: "your AI" (H1, lede, call to action); the Trainer
@@ -590,7 +590,7 @@ test("home: one H1 that says what happens, a short hero, the relay and five sect
   assert.deepEqual(h2s, [
     "What your subscribers get",
     "You stay in charge",
-    "Your site. Your price.",
+    "Free to start. Your price.",
     "What are your followers worth?",
     "Questions trainers ask",
     "Your coaching. Beyond your hours.",
