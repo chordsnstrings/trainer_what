@@ -6,6 +6,13 @@ Application implementation and the job audit are complete for the current phase.
 
 The local environment restored an older snapshot. Yesterday's uncommitted completion work is absent. The recovery note on `work-in-progress/completion-2026-09-25` documents intended behavior, not preserved source. Work here starts from published `620eef1` and reconstructs missing features. Previously passing release evidence does not verify these new changes.
 
+## Stage 2026-10-07b — test trainer activation (PR #46)
+
+- **Owner scope:** activate kamran@arks.ae for end-to-end testing, override email confirmation for this test user, keep payments off, Claude completes coach setup, test client with a password.
+- **Delivered:** Super-admin "Confirm email" action (PR #46, live `a08cfa3`); live coach setup through normal APIs; test client joined by invitation with 90-day complimentary workout access.
+- **Checks (actual):** root and web tsc; governance-locks + governance-step-up 12/12; all five PR checks; release header confirmed; live setup reports every coach step done and only `payments` failing; client access endpoint active.
+- **Remaining:** payments (owner decision), email provider for real sign-ups, owner's own client-side test.
+
 ## Stage 2026-10-07 — free onboarding hook and music budget ceiling (branch `claude/repository-overview-osejlw`)
 
 - **Owner scope:** lead with free onboarding (nothing upfront; a custom domain is the only optional purchase; "AI based trainer with free onboarding at no cost to the trainer"); fix the music cap that "didn't get updated" at 5,000.
