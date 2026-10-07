@@ -1,10 +1,10 @@
 # Privacy policy
 
-Version: 1.0 | Effective date: {{effective_date}}
+Policy edition: 7 October 2026. The effective date appears with the published version.
 
 ## 1. Who handles your information
 
-{{legal_entity}}, trading as trainsyou, operates trainsyou.com and the platform’s web app. Our trade licence is {{trade_licence}}, issued by {{licensing_authority}}. Our registered address is {{registered_address}}, United Arab Emirates. Contact {{support_email}} for privacy requests or concerns.
+This policy explains how the operator of trainsyou.com handles personal information through the website and web app. For privacy questions or requests, use the Privacy controls or select Privacy on the Support page in your account.
 
 We determine how information is used to run accounts, secure the platform, administer payments, provide support and manage our own communications. Your chosen trainer determines how to use information for their independent coaching practice. We also provide tools that process information on a trainer’s instructions. The legal responsibilities of each party depend on the activity, not simply on these labels. Contact either party if you are unsure who should handle a request; we will direct it appropriately.
 
@@ -64,9 +64,9 @@ Your installed web app may keep drafts, session progress, preferences and downlo
 
 ## 8. Your choices and rights
 
-Subject to the applicable law and its exceptions, you may request information about processing, access to your personal data, correction, erasure, restriction or cessation of processing, and a copy or transfer of eligible data. You may withdraw consent and object to qualifying automated decisions. Requests are not refused solely because they are made by email rather than through an account screen.
+Subject to the applicable law and its exceptions, you may request information about processing, access to your personal data, correction, erasure, restriction or cessation of processing, and a copy or transfer of eligible data. You may withdraw consent and object to qualifying automated decisions. You may use either the available privacy controls or the Support page to raise a request.
 
-Use the privacy and account controls available in the app or write to {{support_email}}. We may ask for proportionate verification to prevent disclosure to the wrong person. We will respond within the legally applicable period and explain a lawful refusal, limitation or need for additional time. An ordinary request will not attract an undisclosed charge. You may contact the competent UAE data-protection authority and use any available complaint or judicial procedure.
+Use the privacy and account controls available in the app or send a request through the Support page in your account. We may ask for proportionate verification to prevent disclosure to the wrong person. We will respond within the legally applicable period and explain a lawful refusal, limitation or need for additional time. An ordinary request will not attract an undisclosed charge. You may contact the competent UAE data-protection authority and use any available complaint or judicial procedure.
 
 Tell your trainer as well if information in their independent records needs correction or deletion. Where we process it on their instructions, we assist with the request within our responsibilities. We cannot erase records held independently by an unrelated provider simply by removing them from our app.
 
@@ -78,7 +78,7 @@ Operational messages concern account access, security, purchases or services you
 
 ## 10. Security, children and policy changes
 
-We apply reasonable technical and organisational measures, including access restrictions, secure connections and controls over administrative credentials. No service can guarantee that an incident will never occur. We investigate suspected incidents and notify affected people and authorities when the applicable law requires it. Report suspected account or data misuse to {{support_email}}; do not include unnecessary sensitive records in the report.
+We apply reasonable technical and organisational measures, including access restrictions, secure connections and controls over administrative credentials. No service can guarantee that an incident will never occur. We investigate suspected incidents and notify affected people and authorities when the applicable law requires it. Report suspected account or data misuse through the Support page in your account; do not include unnecessary sensitive records in the report.
 
 The service is intended for adults aged 18 and over. It is not offered as a children's service. Contact us if a child’s information has been submitted so that we can assess and address it.
 

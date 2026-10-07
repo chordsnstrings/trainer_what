@@ -1,6 +1,6 @@
 # trainsyou — UAE policy pack
 
-Prepared 7 October 2026. English only, as requested by the owner. Drafts for owner publication and subsequent UAE lawyer review; no legal opinion or compliance certification is claimed.
+Prepared 7 October 2026. English only, as requested by the owner. Owner-approved policies for immediate publication and subsequent UAE lawyer review; no legal opinion or compliance certification is claimed.
 
 ## Documents
 
@@ -10,13 +10,13 @@ Prepared 7 October 2026. English only, as requested by the owner. Drafts for own
 | `/privacy` | [privacy.en.md](privacy.en.md) | Data purposes and roles; sensitive information and consent; AI and providers; international processing; retention, erasure and rights; cookies and marketing |
 | `/ai-disclosure` | [ai-disclosure.en.md](ai-disclosure.en.md) | Automated and human coaching; exercise and nutrition limitations; guided sessions, music, voice and wearables; safety and review requests |
 
-## Complete before publication
+## Publication authorised
 
-The live public settings returned `companyDetails: null` and `supportEmail: null` on 7 October. Obtain the registered operator name, trade-licence number and issuing authority, registered address and working support/privacy email. Replace the matching `{{...}}` fields in all three documents. Set the effective date to the actual publication date. Do not invent these details or publish unresolved fields.
+On 7 October the owner explicitly instructed: "just publish. don't bother about all this for now. We will update later." This supersedes the earlier request to wait for company/licence/address/contact details. Those details remain unset; none are invented or displayed as placeholders. The policies direct account holders to the existing Support and Privacy tools. Publication is authorised now; lawyer review and identity/contact updates follow separately.
 
-The owner has explicitly authorised publication, merge and deployment after the policies are ready. “Auto accept” is recorded as owner approval of publication, not permission to tick boxes for customers or fabricate their health-data consent. No second owner approval is needed for that authorised publication. End users actively accept the published terms; optional data-use permissions remain separate.
+Migration `090_publish_uae_policies.sql` publishes all three immutable versions and sets `LEGAL_APPROVED=true` in one transaction on an existing installation with a platform administrator. It retains older documents and other settings. An unprivileged release identity records the automated action, with no login password or memberships. The publication audit prevents repeated activation. Fresh databases without an administrator retain their normal setup flow.
 
-Use the existing Superadmin document registry: create each as kind `legal` with keys `terms`, `privacy` and `ai-disclosure`; publish matching versions with the actual effective time, then enable `LEGAL_APPROVED` in Application settings. Preserve previous published versions. Verify the three public documents, `/public/legal-status` and `/public/signup-options`. The earlier proposed signup-gate bypass is superseded and must not be deployed as part of this pack. This pack has not been installed in the production registry.
+Customer acceptance and optional data-use permissions remain explicit and separately recorded. The earlier signup-gate bypass is superseded and is not included. After deployment, verify the three public documents, `/public/legal-status` and `/public/signup-options`. Later lawyer edits must be new published versions, not changes to the applied migration. This release does not assert lawyer approval.
 
 ## Lawyer review
 

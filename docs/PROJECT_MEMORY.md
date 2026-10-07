@@ -2,7 +2,7 @@
 
 ## Current work — 7 October 2026
 
-UAE policy-first signup: the owner authorised professional policies and merge/deployment after completion, with lawyer review later. English only; no named hosting location. The three policy drafts and publication instructions are in `docs/legal/uae-2026-10/`. Complete verified company/licence/address/contact fields before publication. Existing registration and consent gates remain intact. Customer consent must not be fabricated or preselected. The preceding local signup-bypass patch is superseded. Production publication remains pending those missing business details.
+UAE policies and signup: the owner explicitly authorised publication now with missing business details updated later. English only; no named hosting location. Migration 090 publishes the approved three-policy pack and enables the existing legal setting; consent and signup enforcement remain intact. Policies use existing in-account Support/Privacy tools. No company/contact information is invented. PR #44; 26 focused checks and root TypeScript passed; normal CI/deployment are next. Lawyer review and later document versions remain follow-up work.
 
 ## Earlier work — 6 October 2026
 

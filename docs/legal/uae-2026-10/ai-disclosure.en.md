@@ -1,6 +1,6 @@
 # Digital coaching and health disclosure
 
-Version: 1.0 | Effective date: {{effective_date}}
+Policy edition: 7 October 2026. The effective date appears with the published version.
 
 ## 1. What digital coaching means
 
@@ -42,6 +42,6 @@ Microphone or audio processing must be tied to an explicit voice feature you cho
 
 Creating an account or accepting the Terms does not grant every optional permission. Coaching information, nutrition features, connected devices, voice and public testimonials use the permissions applicable to their purpose. Review the Privacy Policy for the information involved, service providers, international processing and your rights. You can withdraw relevant consent; a dependent feature may then stop working.
 
-Report an unsafe, inaccurate or unsuitable response to your trainer or to {{support_email}}. Include enough information to identify the session without sending unnecessary sensitive records. You can ask for human review; urgent health issues should go to a qualified professional or emergency service. Do not repeat an exercise to reproduce a dangerous response.
+Report an unsafe, inaccurate or unsuitable response to your trainer or to the Support page in your account. Include enough information to identify the session without sending unnecessary sensitive records. You can ask for human review; urgent health issues should go to a qualified professional or emergency service. Do not repeat an exercise to reproduce a dangerous response.
 
 Fitness progress varies. Before-and-after photographs and testimonials describe individual experiences, not typical or guaranteed results. These disclosures explain the limits of the service; they do not waive liability for negligence, remove a consumer remedy or override a legal duty owed by trainsyou or your trainer.

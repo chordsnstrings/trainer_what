@@ -1,10 +1,10 @@
 # Terms of service
 
-Version: 1.0 | Effective date: {{effective_date}}
+Policy edition: 7 October 2026. The effective date appears with the published version.
 
 ## 1. Who we are and what these terms cover
 
-trainsyou is operated by {{legal_entity}}, trade licence {{trade_licence}}, issued by {{licensing_authority}}, with its registered address at {{registered_address}}, United Arab Emirates. Contact us at {{support_email}}. In these terms, “we” means that company; “trainer” means the independent coach whose service you choose; “you” means the account holder.
+In these terms, “trainsyou”, “we” and “us” mean the operator of trainsyou.com; “trainer” means the independent coach whose service you choose; and “you” means the account holder. Use the Support page in your account for questions about the service.
 
 These terms cover trainsyou.com, trainer websites hosted on the platform, and the trainsyou web app. The Privacy Policy explains personal-data use. The Digital Coaching Disclosure explains AI, exercise, nutrition and voice features. Your trainer’s offer and the order confirmation specify the service you buy. Additional trainer terms must be available before purchase and cannot reduce your mandatory rights or our responsibilities under these terms.
 
@@ -32,11 +32,11 @@ Where enabled, payment providers process card payments and banks or payment prov
 
 ## 5. Cancellation, refunds and bookings
 
-Cancel renewal using your account’s subscription controls. Cancellation normally takes effect at the end of the paid period, and the account shows when access ends. Deleting the app, signing out or stopping exercise does not itself cancel a subscription. If a cancellation control fails, contact {{support_email}} and keep the request confirmation; we will assess the request using the time it reached us.
+Cancel renewal using your account’s subscription controls. Cancellation normally takes effect at the end of the paid period, and the account shows when access ends. Deleting the app, signing out or stopping exercise does not itself cancel a subscription. If a cancellation control fails, send a request through the Support page in your account and keep the request confirmation; we will assess the request using the time it reached us.
 
 Unused time is not automatically refunded merely because you stop using a correctly supplied service. This does not restrict a refund, repeat performance, price reduction or other remedy required by UAE law. We will correct duplicate charges and investigate unauthorised payments, material misdescription, defective service and paid services that were not supplied. No “no refunds” label overrides those rights.
 
-Send a refund request through the available billing/support channel or to {{support_email}}, with your order reference and reason. Do not send full card details. We will explain the decision and calculation. Approved refunds normally go to the original payment method; bank processing times vary. Your right to approach your payment provider or a competent authority is unaffected.
+Send a refund request through the available billing/support channel or through the Support page in your account, with your order reference and reason. Do not send full card details. We will explain the decision and calculation. Approved refunds normally go to the original payment method; bank processing times vary. Your right to approach your payment provider or a competent authority is unaffected.
 
 Appointment cancellation, rescheduling and no-show conditions must be shown before booking. If the trainer cancels, you may choose an agreed replacement or a refund for the undelivered appointment. Any deduction must have been disclosed, be lawful and reflect the relevant circumstances. Credits or replacement services are not imposed instead of a refund you are legally entitled to receive.
 
@@ -78,7 +78,7 @@ We give reasonable notice of material changes, explain when they take effect and
 
 ## 11. Complaints, governing law and language
 
-Contact {{support_email}} with the account or order reference, what happened and the remedy requested. We will investigate and provide a reasoned response. You may also complain to the competent UAE consumer-protection authority or data-protection regulator and seek judicial relief. You need not waive those rights or agree to compulsory arbitration to use the service.
+Send a request through the Support page in your account with the account or order reference, what happened and the remedy requested. We will investigate and provide a reasoned response. You may also complain to the competent UAE consumer-protection authority or data-protection regulator and seek judicial relief. You need not waive those rights or agree to compulsory arbitration to use the service.
 
 These terms are governed by the applicable laws of the United Arab Emirates and the Emirate of Dubai. Disputes may be brought before the competent UAE courts, subject to mandatory jurisdiction and consumer protections. No clause overrides a law that applies because of your location, a regulated activity or a relevant free-zone regime.
 
