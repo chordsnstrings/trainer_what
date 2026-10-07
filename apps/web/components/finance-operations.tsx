@@ -277,7 +277,7 @@ export function FinanceOperations({ tenants }: { tenants: any[] }) {
                   ) with {usagePreview.usage.markupPercent}% markup ={" "}
                   <span dir="ltr">{money(usagePreview.usage.chargeMinor)}</span>
                   {Number(usagePreview.usage.platformBorneUsd) > 0 &&
-                    ` · USD ${Number(usagePreview.usage.platformBorneUsd).toFixed(4)} of complimentary members' usage borne by the platform`}
+                    ` · USD ${Number(usagePreview.usage.platformBorneUsd).toFixed(4)} borne by the platform (trainers' setup AI and complimentary members' usage)`}
                 </p>
                 {usagePreview.postedComparison && (
                   <p className="notice" role="status">

@@ -247,6 +247,30 @@ test("agent starts paused and requires an administrator to reconcile prior purch
     ),
     /reconcile/,
   );
+  // Owner (7 October 2026): "we should be able to set it ourselves". Budgets
+  // past the old 120 / 1,440 / 32 / USD 5 save (migration 089); only
+  // non-positive values are refused.
+  await db.system((tx) =>
+    saveMusicAgent(tx, actor.userId, {
+      ...settings,
+      requestLimit: 160,
+      creditLimit: 5000,
+      modelCallLimit: 100,
+      modelUsdLimit: 20,
+    }),
+  );
+  const raised = await info();
+  assert.deepEqual(
+    [raised.request_limit, Number(raised.credit_limit), raised.model_call_limit, Number(raised.model_usd_limit)],
+    [160, 5000, 100, 20],
+  );
+  await assert.rejects(
+    db.system((tx) => saveMusicAgent(tx, actor.userId, { ...settings, creditLimit: 0 })),
+  );
+  await assert.rejects(
+    db.system((tx) => tx.query("UPDATE workout_music_agent SET credit_limit=0")),
+    /credit_limit_check/,
+  );
   await db.system((tx) => saveMusicAgent(tx, actor.userId, settings));
 });
 test("concurrent ticks plan once, reserve before purchase and keep paid downloads running when paused", async () => {

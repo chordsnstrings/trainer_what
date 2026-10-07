@@ -173,7 +173,6 @@ export function MusicAgentControls({
               <input
                 type="number"
                 min="1"
-                max="120"
                 required
                 value={draft.requestLimit}
                 onChange={(e) => set("requestLimit", Number(e.target.value))}
@@ -184,7 +183,6 @@ export function MusicAgentControls({
               <input
                 type="number"
                 min="1"
-                max="1440"
                 step="0.01"
                 required
                 value={draft.creditLimit}
@@ -196,7 +194,6 @@ export function MusicAgentControls({
               <input
                 type="number"
                 min={Number(agent.external_requests)}
-                max="120"
                 required
                 value={draft.externalRequests}
                 onChange={(e) =>
@@ -209,7 +206,6 @@ export function MusicAgentControls({
               <input
                 type="number"
                 min={Number(agent.external_credits)}
-                max="1440"
                 step="0.01"
                 required
                 value={draft.externalCredits}
@@ -221,7 +217,6 @@ export function MusicAgentControls({
               <input
                 type="number"
                 min="1"
-                max="32"
                 required
                 value={draft.modelCallLimit}
                 onChange={(e) => set("modelCallLimit", Number(e.target.value))}
@@ -232,7 +227,6 @@ export function MusicAgentControls({
               <input
                 type="number"
                 min="0.01"
-                max="5"
                 step="0.01"
                 required
                 value={draft.modelUsdLimit}

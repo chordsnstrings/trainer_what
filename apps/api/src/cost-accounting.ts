@@ -293,7 +293,7 @@ export type PeriodUsage = {
   estimated: number;
   /** USD the trainer is charged for (all priced rows, less excluded ones). */
   chargeableUsd: string;
-  /** Complimentary members' cost the platform bears (when it is set to). */
+  /** Cost the platform bears: trainers' setup AI (PLATFORM_BORNE_SETUP_TASKS), and complimentary members' cost when it is set to. */
   platformBorneUsd: string;
   markupPercent: number;
   complimentaryBearer: FinanceSettings["complimentaryBearer"];
@@ -306,6 +306,28 @@ export type PeriodUsage = {
  * once to AED minor units. Unpriced rows are counted; the caller refuses to
  * charge while any remain.
  */
+/**
+ * The AI a trainer uses to set up and teach their own AI: the setup chat and
+ * its transcription, the website starter, Brain compilation, practice quiz,
+ * edits and corrections, and the Brain and plan checks. Owner decision
+ * (7 October 2026): onboarding is free to the trainer, so these calls are
+ * always borne by the platform and never reach the AI Coach Service Fee.
+ * AI that serves subscribers (coaching, plans, nutrition, voice) is charged
+ * as before.
+ */
+export const PLATFORM_BORNE_SETUP_TASKS = [
+  "setup_assistant",
+  "setup.transcription",
+  "site_builder_starter",
+  "brain_compilation",
+  "brain_quiz",
+  "brain_edits",
+  "brain_correction",
+  "brain_plan_qualification",
+  "evaluation",
+  "coaching_evaluation",
+] as const;
+
 export async function periodUsage(
   tx: Tx,
   period: string,
@@ -315,13 +337,14 @@ export async function periodUsage(
   const platform = settings.complimentaryBearer === "platform";
   const range = dubaiMonthRange(period);
   const [usage] = await tx.query(
-    "SELECT count(*)::int AS n,count(*) FILTER(WHERE cost_usd IS NULL)::int AS unpriced,count(*) FILTER(WHERE status='estimated')::int AS estimated,coalesce(sum(cost_usd) FILTER(WHERE NOT ($3 AND complimentary)),0)::numeric(18,8)::text AS usd,coalesce(sum(cost_usd) FILTER(WHERE $3 AND complimentary),0)::numeric(18,8)::text AS borne,round(coalesce(sum(cost_usd) FILTER(WHERE NOT ($3 AND complimentary)),0)*$2::numeric*(100+$4::numeric))::text AS minor FROM cost_events WHERE created_at>=$1::timestamptz AND created_at<$5::timestamptz",
+    "WITH e AS (SELECT cost_usd,status,(($3 AND complimentary) OR task=ANY($6::text[])) AS borne FROM cost_events WHERE created_at>=$1::timestamptz AND created_at<$5::timestamptz) SELECT count(*)::int AS n,count(*) FILTER(WHERE cost_usd IS NULL)::int AS unpriced,count(*) FILTER(WHERE status='estimated')::int AS estimated,coalesce(sum(cost_usd) FILTER(WHERE NOT borne),0)::numeric(18,8)::text AS usd,coalesce(sum(cost_usd) FILTER(WHERE borne),0)::numeric(18,8)::text AS borne,round(coalesce(sum(cost_usd) FILTER(WHERE NOT borne),0)*$2::numeric*(100+$4::numeric))::text AS minor FROM e",
     [
       range.from.toISOString(),
       aedPerUsd,
       platform,
       settings.markupPercent,
       range.to.toISOString(),
+      PLATFORM_BORNE_SETUP_TASKS,
     ],
   );
   return {

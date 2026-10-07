@@ -18,17 +18,21 @@ import {
   MUSIC_PLAN_VERSION,
 } from "../../../packages/providers/src/music-planner.ts";
 import { resolveSiteStarterConfig } from "./site-builder-starter.ts";
+// Owner (7 October 2026): "we should be able to set it ourselves". Budgets
+// have no ceiling in code (migration 089); integer limits only stay within
+// the database's integer range.
+const MAX_INT = 2_147_483_647;
 export const musicAgentSettings = z
   .object({
     enabled: z.boolean(),
     autoPublish: z.boolean(),
     recoveryConfirmed: z.boolean(),
-    requestLimit: z.number().int().min(1).max(120),
-    creditLimit: z.number().positive().max(1440),
-    externalRequests: z.number().int().min(0).max(120),
-    externalCredits: z.number().min(0).max(1440),
-    modelCallLimit: z.number().int().min(1).max(32),
-    modelUsdLimit: z.number().positive().max(5),
+    requestLimit: z.number().int().min(1).max(MAX_INT),
+    creditLimit: z.number().positive().finite(),
+    externalRequests: z.number().int().min(0).max(MAX_INT),
+    externalCredits: z.number().min(0).finite(),
+    modelCallLimit: z.number().int().min(1).max(MAX_INT),
+    modelUsdLimit: z.number().positive().finite(),
   })
   .strict();
 const fail = (code: string, message: string) =>
