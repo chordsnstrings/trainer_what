@@ -350,6 +350,35 @@ function AccountLocks() {
                 .join("; ")}
             </p>
           )}
+          {!account.self && !account.email_verified && (
+            <form
+              className="governance-action"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const reason = new FormData(e.currentTarget).get("reason");
+                void act(
+                  `/admin/governance/accounts/${account.id}/verify-email`,
+                  { reason },
+                  "The email address is confirmed.",
+                );
+                e.currentTarget.reset();
+              }}
+            >
+              <fieldset disabled={busy}>
+                <legend>Confirm this email address</legend>
+                <p className="muted">
+                  The address is not confirmed yet. Confirm it only for an account you know is genuine,
+                  such as a test account while email delivery is off.
+                </p>
+                <Field label="Reason (recorded in the audit log)">
+                  <textarea name="reason" required minLength={10} maxLength={1000} rows={2} />
+                </Field>
+                <button className="button" type="submit">
+                  Confirm email
+                </button>
+              </fieldset>
+            </form>
+          )}
           {account.self ? (
             <p className="muted">This is your own account.</p>
           ) : (

@@ -336,3 +336,39 @@ test("host operator commands honour account locks and keep one active Super admi
     /locked account cannot receive/,
   );
 });
+
+test("a Super admin can confirm another account's email address once, with an audited reason", async () => {
+  const admin = await f.operator("admin"),
+    stale = await f.operator("admin", false),
+    support = await f.operator("support");
+  const target = await f.person();
+  await f.db.system((tx) =>
+    tx.query("UPDATE users SET email_verified=false WHERE id=$1", [target.userId]),
+  );
+  const verify = (op: { cookie: string }, userId = target.userId) =>
+    f.call(`/admin/governance/accounts/${userId}/verify-email`, {
+      body: { reason: "Owner test account while email delivery is off" },
+      cookie: op.cookie,
+    });
+  assert.equal((await verify(stale)).json().code, "MFA_STEP_UP");
+  assert.equal((await verify(support)).json().code, "OPERATOR_SCOPE");
+  const done = await verify(admin);
+  assert.equal(done.statusCode, 200, done.body);
+  const [u] = await f.db.system((tx) =>
+    tx.query("SELECT email_verified FROM users WHERE id=$1", [target.userId]),
+  );
+  assert.equal(u.email_verified, true);
+  assert.equal((await verify(admin)).json().code, "EMAIL_ALREADY_VERIFIED");
+  const audit = await f.db.system((tx) =>
+    tx.query(
+      "SELECT data FROM admin_operations_audit WHERE action='account.email_verified_by_operator' AND subject_id=$1",
+      [target.userId],
+    ),
+  );
+  assert.equal(audit.length, 1);
+  assert.match(audit[0].data.reason, /email delivery is off/);
+  const notices = await f.db.system((tx) =>
+    tx.query("SELECT kind FROM account_notices WHERE user_id=$1", [target.userId]),
+  );
+  assert.ok(notices.some((n: any) => n.kind === "email_verified_by_support"));
+});

@@ -14,6 +14,7 @@ import { workspaceLock } from "./privacy-lifecycle.ts";
 import { transitionPayout } from "./finance.ts";
 import { notifyUser } from "./notifications.ts";
 import { accountLocked } from "./account-governance.ts";
+import { addAccountNotice } from "./account-self-service.ts";
 import {
   platformWorkspaceSql,
   workspaceSuspendedMessage,
@@ -373,6 +374,48 @@ export async function lockAccount(
   });
 }
 
+/**
+ * Owner request (7 October 2026): a Super admin can confirm an account's
+ * email address without the emailed code, for test accounts while email
+ * delivery is off. Audited with the reason; the person gets an account notice.
+ */
+export async function verifyAccountEmail(
+  db: Database,
+  a: GovernanceIdentity,
+  userId: string,
+  input: { reason: string },
+) {
+  return db.system(async (tx) => {
+    await currentSuperAdmin(tx, a.userId);
+    const [target] = await tx.query(
+      "SELECT id,email,email_verified FROM users WHERE id=$1 FOR UPDATE",
+      [userId],
+    );
+    if (!target || String(target.email).endsWith("@deleted.invalid"))
+      throw fail(404, "ACCOUNT_NOT_FOUND", "Account unavailable.");
+    if (target.email_verified)
+      throw fail(
+        409,
+        "EMAIL_ALREADY_VERIFIED",
+        "This email address is already confirmed.",
+      );
+    await tx.query("UPDATE users SET email_verified=true WHERE id=$1", [
+      userId,
+    ]);
+    await audit(tx, a.userId, "account.email_verified_by_operator", null, userId, {
+      reason: input.reason,
+    });
+    await addAccountNotice(
+      tx,
+      userId,
+      "email_verified_by_support",
+      "Email address confirmed by support",
+      "A trainsyou Super admin confirmed your email address for this account.",
+    );
+    return { emailVerified: true };
+  });
+}
+
 export async function unlockAccount(
   db: Database,
   a: GovernanceIdentity,
@@ -586,6 +629,15 @@ export function registerGovernance(
       return { locked, account };
     });
   });
+  app.post(
+    "/api/v1/admin/governance/accounts/:userId/verify-email",
+    async (req) => {
+      const a = superAdmin(req),
+        userId = userParam(req),
+        b = z.object({ reason }).strict().parse(req.body);
+      return verifyAccountEmail(db, a, userId, b);
+    },
+  );
   app.post("/api/v1/admin/governance/accounts/:userId/lock", async (req) => {
     const a = superAdmin(req),
       userId = userParam(req),
