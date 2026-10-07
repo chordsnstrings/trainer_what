@@ -11,7 +11,8 @@ The local environment restored an older snapshot. Yesterday's uncommitted comple
 - **Owner scope:** lead with free onboarding (nothing upfront; a custom domain is the only optional purchase; "AI based trainer with free onboarding at no cost to the trainer"); fix the music cap that "didn't get updated" at 5,000.
 - **Delivered:** setup and teaching AI usage is platform-borne (`PLATFORM_BORNE_SETUP_TASKS`, `periodUsage`); marketing copy on home, pricing, FAQ, About and Get started; migration 089 and API/form changes removing the ceilings on the music agent's lifetime budgets (owner: "we should be able to set it ourselves").
 - **Checks (actual):** root and web tsc pass; platform-finance(+bcd) 30/30; music-agent 7/7; marketing and related unit tests 102/102. Brand-check and browser checks not run.
-- **Remaining:** CI, merge, release check; the owner sets the music budget in Admin Music (not changed live by Claude).
+- **Released:** PR #42 merged as `3a845d8`; release header confirmed 7 October 2026.
+- **Remaining:** the owner sets the music budget in Admin Music (not changed live by Claude).
 
 ## Stage 2026-10-06s — home page scroll scenes (branch `feat/scroll-scenes-2026-10-06`, draft PR #37, not merged or deployed)
 
