@@ -1,6 +1,10 @@
 # Project memory
 
-## Current work — 6 October 2026
+## Current work — 7 October 2026
+
+UAE policies and signup: the owner explicitly authorised publication now with missing business details updated later. English only; no named hosting location. Migration 090 publishes the approved three-policy pack and enables the existing legal setting; consent and signup enforcement remain intact. Policies use existing in-account Support/Privacy tools. No company/contact information is invented. PR #44; 26 focused checks and root TypeScript passed; normal CI/deployment are next. Lawyer review and later document versions remain follow-up work.
+
+## Earlier work — 6 October 2026
 
 Production music automation. See [music agent](MUSIC_AGENT_2026-10-06.md) and [Claude handoff](../CLAUDE_HANDOFF.md). The owner approved public source/sanitized-handoff publication and deployment. The prepared implementation was restored after a workspace reset; restored-source TypeScript, production build, fifteen music tests and deployment checks passed. Public CI and deployment are underway. New migration starts automation paused until earlier paid work is reconciled.
 
