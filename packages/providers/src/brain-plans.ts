@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { trainerBrainInstruction, trainerWordingIssues, type TrainerBrainContext } from "../../domain/src/trainer-brain.ts";
 import {
   canonicalCoaching,
   teachingCaseSchema,
@@ -33,8 +34,8 @@ import {
 // Ranking, projection or limits change only with a new version: the policy is
 // part of the pinned contract a plan qualification is evaluated against.
 export const planRetrievalPolicy = Object.freeze({
-  version: "brain-plan-retrieval-v1",
-  maxRules: 20,
+  version: "brain-plan-retrieval-v2",
+  maxRules: 38,
   maxCases: 6,
   maxExamples: 6,
   maxTemplates: 3,
@@ -91,6 +92,7 @@ export const planModelConfigured = () => {
  */
 export function retrievePlanMaterial(input: {
   tenantId: string;
+  trainerBrain?: TrainerBrainContext;
   segment: PlanSegment;
   goal: string;
   rules: Array<{ id: string; version?: number; data: any }>;
@@ -197,6 +199,7 @@ export function retrievePlanMaterial(input: {
   const strip = <T extends { score?: number }>(rows: T[]) =>
     rows.map(({ score: _s, ...rest }) => rest);
   const material = {
+    trainerBrain: input.trainerBrain ?? null,
     rules: strip(rules),
     cases: strip(cases),
     examples,
@@ -462,7 +465,7 @@ export async function generateTrainingPlan(
   });
   const refs = planPromptRefs({ task: "plan_generation", ...input });
   const { content, usage } = await complete(
-    planGenerationSystem(input.programme.weeks),
+    planGenerationSystem(input.programme.weeks) + " " + trainerBrainInstruction,
     refs,
     budget.maxTokens,
     accounting,
@@ -483,8 +486,10 @@ export async function generateTrainingPlan(
           ...s.exercises.map((e) => [`sessions.${s.key}.${e.name}.cue`, e.cue]),
         ]),
       ]
-        .filter(([, text]) => namesIdentifier(refs, text))
-        .map(([path]) => `Model output: ${path} names an internal identifier`)
+        .flatMap(([path, text]) => [
+          ...(namesIdentifier(refs, text) ? [`Model output: ${path} names an internal identifier`] : []),
+          ...trainerWordingIssues(text, input.material.trainerBrain).map(issue => `Model output: ${path}: ${issue}`),
+        ])
     : [];
   const errors = reply.errors.length
     ? reply.errors
@@ -521,7 +526,7 @@ export async function proposePlanAdaptation(
   });
   const budget = modelCallBudget("plan_adaptation", runtimeConfig());
   const { content, usage } = await complete(
-    planAdaptationSystem(),
+    planAdaptationSystem() + " " + trainerBrainInstruction,
     refs,
     budget.maxTokens!,
     accounting,
@@ -533,7 +538,7 @@ export async function proposePlanAdaptation(
     ? reply.errors
     : !parsed!.success
       ? schemaErrors(parsed!.error.issues, "proposal")
-      : [];
+      : trainerWordingIssues(parsed!.data.reason, input.material.trainerBrain);
   return {
     usage,
     pin: planModelPin(),

@@ -31,6 +31,7 @@ type View = {
   };
   confirmed: null | { summary: string; confirmedAt: string; current: boolean };
   active: boolean;
+  publication?: { releaseId: string | null; pending: boolean };
   modelAvailable: boolean;
   voiceSample: boolean;
   droppedLines?: number;
@@ -114,17 +115,19 @@ export function VoiceOneOnOne() {
   return (
     <section className="card voice-one-on-one" id="one-on-one" aria-labelledby="one-on-one-title">
       <div className="card-heading">
-        <h2 id="one-on-one-title">Your one-on-one sessions</h2>
-        <span className={"badge" + (view.active ? "" : " amber")}>{view.active ? "On" : "Off"}</span>
+        <h2 id="one-on-one-title">How your Brain communicates</h2>
+        <span className={"badge" + (view.active ? "" : " amber")}>{view.active ? "Confirmed" : "Needs teaching"}</span>
       </div>
       <p className="muted">
-        Tell your Brain how you run a session with a client. Once you confirm the style, every new voice session gets a
-        few extra lines in your manner, personal to each client (their name, their numbers from last time). Sets, reps,
-        weights, counts and the safety line always come from the plan, and every line is checked before anyone hears it.
+        Teach one communication style for your messages, training plans, food guidance and spoken workouts.
+        Use the words you would actually say to a client. Your Brain checks confirmed changes before publishing them;
+        each subscriber still gets guidance suited to their own plan and needs.
       </p>
       {view.confirmed && !view.confirmed.current && (
-        <p className="notice">Your answers changed since you confirmed. Sessions keep the confirmed style until you draft and confirm again.</p>
+        <p className="notice">Your answers changed since you confirmed. Draft and confirm the update when it sounds like you.</p>
       )}
+      {view.publication?.pending && <p className="notice">Your shared style has an update waiting for Brain checks. Subscribers keep the last published version until it passes.</p>}
+      {!view.publication?.releaseId && <p className="muted">Review and publish your Brain to use this shared style across your coaching.</p>}
       <div className="stack">
         {view.topics.map((topic) => (
           <label key={topic.key} className="field">
@@ -240,7 +243,7 @@ export function VoiceOneOnOne() {
                   )
                 }
               >
-                Stop using it
+                Remove from next Brain update
               </button>
             )}
           </div>
@@ -249,7 +252,7 @@ export function VoiceOneOnOne() {
       )}
       {view.active && view.confirmed && (
         <p className="muted">
-          On since {new Date(view.confirmed.confirmedAt).toLocaleDateString()}: new voice sessions use this style.
+          Confirmed {new Date(view.confirmed.confirmedAt).toLocaleDateString()}. Your published Brain determines which style subscribers receive.
         </p>
       )}
     </section>

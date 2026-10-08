@@ -1,6 +1,7 @@
 import { workMeasure } from "../../../packages/domain/src/prescription.ts";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { loadMemberMemory } from "./member-memory.ts";
+import { trainerBrainContext } from "../../../packages/domain/src/trainer-brain.ts";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
@@ -902,6 +903,7 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
         b.message,
         evidence,
         modelAccounting(db, a, "coaching"),
+        { trainerBrain: trainerBrainContext(material.release) },
       );
     } catch (error) {
       if (!(error instanceof ModelOutputInvalid)) throw error;

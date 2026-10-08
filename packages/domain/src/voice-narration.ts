@@ -11,13 +11,15 @@
 // medical-advice, contact, vendor and unsafe checks; a failing line is dropped
 // and the session runs on the code and trainer lines. Pure and browser-safe.
 import { z } from "zod";
+import type { TrainerBrainContext } from "./trainer-brain.ts";
+import { forbiddenTrainerPhrase } from "./trainer-wording.ts";
 import { NUMBER_WORDS, phraseIssues, proseIssues, MEDICAL_ADVICE } from "./text-screen.ts";
 import { screeningText } from "./red-flags.ts";
 import { mentionsModelVendor } from "./setup-assistant.ts";
 import type { PlanExercise, ScriptLine, SessionScript } from "./voice-session.ts";
 
 /** The per-session narration prompt. */
-export const NARRATION_PROMPT_VERSION = "voice-narration-v1";
+export const NARRATION_PROMPT_VERSION = "voice-narration-v2";
 /** The coach's style draft: a summary and a sample session. */
 export const ONE_ON_ONE_PROMPT_VERSION = "voice-one-on-one-v1";
 /** A Brain line fits one short clip: about 12 words, 4.5 seconds. */
@@ -401,12 +403,7 @@ export function brainLineIssues(
   for (const i of proseIssues(value, MEDICAL_ADVICE)) push(i);
   if (mentionsModelVendor(value)) push("vendor");
   // The coach's never-say phrases, matched as whole words ("easy" is not "uneasy").
-  const words = (text: string) => " " + text.replace(/[^\p{L}\p{N}']+/gu, " ").replace(/\s+/g, " ").trim() + " ";
-  const spoken = words(folded);
-  for (const phrase of never) {
-    const p = words(screeningText(String(phrase ?? "")));
-    if (p.trim().length >= 3 && spoken.includes(p)) push("coach_never_says");
-  }
+  if (forbiddenTrainerPhrase(value, never)) push("coach_never_says");
   return issues;
 }
 
@@ -574,6 +571,7 @@ export function narrationInstruction() {
   );
 }
 export type NarrationInput = {
+  trainerBrain?: TrainerBrainContext;
   style: { summary: string; answers: OneOnOneAnswers };
   facts: NarrationFacts;
   plan: PlanExercise[];
@@ -591,6 +589,7 @@ const styleData = (style: NarrationInput["style"]) => ({
 export function narrationUserContent(input: NarrationInput) {
   return JSON.stringify({
     coachStyle: styleData(input.style),
+    trainerBrain: input.trainerBrain,
     member: {
       ...(input.facts.firstName ? { firstName: input.facts.firstName } : {}),
       ...(typeof input.facts.sessionsLast7Days === "number" ? { sessionsLast7Days: input.facts.sessionsLast7Days } : {}),

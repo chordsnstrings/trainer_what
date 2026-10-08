@@ -457,7 +457,7 @@ export const teachingCaseSchema = z
  * data and not by themselves a reason for review, and which concrete reasons
  * do need review (including a spacing rule a moved session could break).
  */
-export const coachingPromptVersion = "coach-action-selector-v4";
+export const coachingPromptVersion = "coach-action-selector-v5";
 export const coachingFactsSchema = z
   .object({
     profile: z

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { Tx } from "@trainer/db";
+import { candidateCommunication, communicationDigest, checkedCommunication } from "./trainer-brain.ts";
 import {
   brainTrainingMeter,
   OWN_CASES_FOR_FULL_CHECK,
@@ -34,8 +35,10 @@ export async function brainTrainingState(tx: Tx) {
     .sort((a, b) => a.id.localeCompare(b.id));
   const drafts = rules.filter((r) => r.status === "draft");
   const rulesDigest = confirmedRulesDigest(confirmed);
+  const communication = await candidateCommunication(tx);
+  const styleDigest = communicationDigest(communication);
   const evaluations = of("evaluation").filter(
-    (e) => e.data.rulesDigest === rulesDigest,
+    (e) => e.data.rulesDigest === rulesDigest && checkedCommunication(e, communication),
   );
   const fullCheck = evaluations.find(
     (e) =>
@@ -99,6 +102,8 @@ export async function brainTrainingState(tx: Tx) {
     confirmed,
     drafts,
     rulesDigest,
+    communication,
+    communicationDigest: styleDigest,
     rounds,
     completedRounds,
     openRound,

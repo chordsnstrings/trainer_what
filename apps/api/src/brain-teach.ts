@@ -5,6 +5,7 @@
  * launch. docs/features/brain-teach.md describes the API.
  */
 import { randomUUID } from "node:crypto";
+import { communicationDigest } from "./trainer-brain.ts";
 import { z } from "zod";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { event, putRecord, type Actor, type Database, type Tx } from "@trainer/db";
@@ -108,7 +109,8 @@ function launchState(s: BrainTrainingState) {
   if (!s.fullCheck) automatic.push("Pass the full check of your current rules.");
   const live =
     !!s.release &&
-    confirmedRulesDigest(s.release.data.rules ?? []) === s.rulesDigest;
+    confirmedRulesDigest(s.release.data.rules ?? []) === s.rulesDigest &&
+    communicationDigest(s.release.data.communication) === s.communicationDigest;
   return {
     live,
     liveMode: s.release
@@ -478,6 +480,7 @@ export function registerBrainTeaching(
         "brain_release",
         {
           rules: s.confirmed.map((r) => ({ id: r.id, data: r.data, version: r.version })),
+          communication: s.communication,
           notes: b.notes,
           mode: "supervised",
           qualification: "quiz",

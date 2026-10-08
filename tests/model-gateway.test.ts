@@ -1254,7 +1254,7 @@ test("C4: the reasoning effort setting says what unselected sends, labels the mo
   );
 });
 
-test("C1: the request style and reasoning effort are part of every qualification pin; the default classic pin is unchanged", () => {
+test("C1: request style, reasoning effort and shared Brain version are pinned; default classic requests have no request override", () => {
   const base = { MODEL_BASE_URL: BASE, MODEL_API_KEY: "fixture-key", MODEL_NAME: "gpt-4.1" };
   const pins = (config: Record<string, string>) =>
     withRuntimeConfig(config, () => ({
@@ -1262,10 +1262,11 @@ test("C1: the request style and reasoning effort are part of every qualification
       plan: planModelPin(),
       nutrition: nutritionModelIdentity(),
     }));
-  // The default classic request is the request sent before request styles:
-  // its pins keep exactly their earlier keys, so qualifications stay valid.
+  // Shared Brain qualification is explicit; the default classic transport
+  // still adds no request override or reasoning-effort setting.
   const classic = pins(base);
-  assert.deepEqual(Object.keys(classic.coaching), ["endpoint", "model", "promptVersion", "policyVersion", "retrieval"]);
+  assert.deepEqual(Object.keys(classic.coaching), ["endpoint", "model", "promptVersion", "trainerBrainVersion", "policyVersion", "retrieval"]);
+  assert.equal(classic.coaching.trainerBrainVersion, "trainer-brain-context-v1");
   assert.deepEqual(Object.keys(classic.plan), [
     "endpoint", "model", "promptVersion", "adaptationPromptVersion", "validatorVersion", "confidenceVersion", "retrieval",
   ]);

@@ -1,6 +1,10 @@
 import { openTrainingHold } from "./coaching-completion.ts";
 import { screenForSafety } from "./safety-policy.ts";
 import {
+  publishedTrainerBrain,
+} from "./trainer-brain.ts";
+import { trainerBrainContext } from "../../../packages/domain/src/trainer-brain.ts";
+import {
   nutritionLearning,
   checkNutritionSample,
   rationaleMatches,
@@ -316,7 +320,8 @@ export async function nutritionCatalog(
     })) as Recipe[];
   return { foods, recipes };
 }
-export async function nutritionMaterial(tx: Tx) {
+export async function nutritionMaterial(tx: Tx, candidateBrain?: any) {
+  const trainerBrain = candidateBrain ? trainerBrainContext(candidateBrain) : await publishedTrainerBrain(tx);
   const cases = await tx.query(
     "SELECT * FROM records WHERE kind='nutrition_case' AND status='confirmed' ORDER BY id",
   );
@@ -327,6 +332,7 @@ export async function nutritionMaterial(tx: Tx) {
     catalog = await nutritionCatalog(tx);
   const snapshot = {
     qualificationVersion: 2,
+    trainerBrain,
     cases: cases.map((r) => ({ id: r.id, data: r.data, version: r.version })),
     sources: sources.map((r) => ({
       id: r.id,
@@ -596,6 +602,7 @@ function evidence(
     : material;
   return {
     cases: material.snapshot.cases,
+    trainerBrain: material.snapshot.trainerBrain,
     policy: material.policy?.data.policy,
     foods: catalog.foods,
     // For meal weeks each cooking option carries perServing nutrients computed
@@ -838,8 +845,9 @@ export async function evaluateNutritionKnowledge(
   db: Database,
   a: Actor,
   testing: boolean,
+  candidateBrain?: any,
 ) {
-  const m = await db.tenant(a, nutritionMaterial),
+  const m = await db.tenant(a, tx => nutritionMaterial(tx, candidateBrain)),
     scenarios = await db.tenant(a, (tx) =>
       tx.query(
         "SELECT * FROM records WHERE kind='nutrition_scenario' AND status='held_out' ORDER BY id LIMIT $1",
@@ -1026,7 +1034,7 @@ export async function evaluateNutritionKnowledge(
     };
   });
   return db.tenant(a, async (tx) => {
-    const current = await nutritionMaterial(tx);
+    const current = await nutritionMaterial(tx, candidateBrain);
     if (current.digest !== m.digest)
       throw fail(
         409,

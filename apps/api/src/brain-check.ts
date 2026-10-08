@@ -20,6 +20,7 @@ import { OWN_CASES_FOR_FULL_CHECK } from "../../../packages/domain/src/brain-tea
 import { brainTrainingState, confirmedRulesDigest } from "./brain-training-state.ts";
 import { evaluateBrainReplies } from "./brain-replies-check.ts";
 import { notifyCoachingTeam } from "./notifications.ts";
+import { communicationDigest } from "./trainer-brain.ts";
 import {
   activateCoachingRuntime,
   coachingRuntimeReadiness,
@@ -98,6 +99,7 @@ export async function requestBrainCheck(
 // held-out cases, plan settings and nutrition teaching. A successful one asks
 // for a background re-check.
 const EDIT_ROUTES = [
+  /^\/api\/v1\/voice-sessions\/(style|one-on-one\/confirm)$/,
   /^\/api\/v1\/brain\/rules(\/[^/]+\/confirm|\/approve-all|\/[^/]+)?$/,
   /^\/api\/v1\/brain\/conflicts\/[^/]+\/resolve$/,
   /^\/api\/v1\/brain\/(scenarios|coaching-actions|teaching-cases|coaching-scenarios)(\/[^/]+\/archive)?$/,
@@ -212,7 +214,8 @@ export async function runBrainCheck(
   }
   const liveRelease = s.release;
   const rulesChanged =
-    !!liveRelease && confirmedRulesDigest(liveRelease.data.rules ?? []) !== s.rulesDigest;
+    !!liveRelease && (confirmedRulesDigest(liveRelease.data.rules ?? []) !== s.rulesDigest ||
+      communicationDigest(liveRelease.data.communication) !== s.communicationDigest);
 
   if (rulesChanged && replies?.status === "passed" && !s.openConflicts) {
     // A candidate release: checked against every live area before it is published.
@@ -223,6 +226,7 @@ export async function runBrainCheck(
         "brain_release",
         {
           rules: s.confirmed.map((r) => ({ id: r.id, data: r.data, version: r.version })),
+          communication: s.communication,
           evaluationId: replies.id,
           notes: "Re-checked automatically after your edits",
           mode: "supervised",
@@ -233,6 +237,7 @@ export async function runBrainCheck(
         { status: "candidate" },
       ),
     );
+    let nutritionEval: any = null;
     let actionsEval: any = null,
       ok = true;
     if (start.runtime && start.actions) {
@@ -263,13 +268,25 @@ export async function runBrainCheck(
       }
       ok &&= areas.plans.state === "passed";
     }
+    if (start.nutrition.live) {
+      try {
+        const nutrition = await evaluateNutritionKnowledge(db, a, false, candidate);
+        nutritionEval = nutrition;
+        areas.nutrition = { state: nutrition.status === "passed" ? "passed" : "failed", checkId: nutrition.id,
+          passed: nutrition.data.passed, total: nutrition.data.total };
+      } catch (error) { areas.nutrition = setting(error); }
+      ok &&= areas.nutrition.state === "passed";
+    }
     const outcome = await db.tenant(a, async (tx) => {
       await lockRuntime(tx, a);
       const now = await brainTrainingState(tx);
+      const nutritionChanged = nutritionEval &&
+        (await nutritionMaterial(tx, candidate)).digest !== nutritionEval.data.digest;
       const stale =
         now.rulesDigest !== s.rulesDigest ||
+        now.communicationDigest !== s.communicationDigest ||
         now.release?.id !== liveRelease.id ||
-        now.openConflicts > 0;
+        now.openConflicts > 0 || !!nutritionChanged;
       if (!ok || stale) {
         await tx.query(
           "UPDATE records SET status='check_failed',version=version+1,updated_at=now(),data=data||$2::jsonb WHERE id=$1",
@@ -400,13 +417,14 @@ export async function runBrainCheck(
 
   // Nutrition: evaluated in the background; switching the updated nutrition
   // on still needs the coach's reviewed sample week (unchanged).
-  if (start.nutrition.used) {
-    if (start.nutrition.evaluation)
+  const currentNutrition = await db.tenant(a, nutritionState);
+  if (currentNutrition.used && areas.nutrition.state === "not_used") {
+    if (currentNutrition.evaluation)
       areas.nutrition = {
-        state: start.nutrition.evaluation.status === "passed" ? "unchanged" : "failed",
-        checkId: start.nutrition.evaluation.id,
-        passed: start.nutrition.evaluation.data.passed,
-        total: start.nutrition.evaluation.data.total,
+        state: currentNutrition.evaluation.status === "passed" ? "unchanged" : "failed",
+        checkId: currentNutrition.evaluation.id,
+        passed: currentNutrition.evaluation.data.passed,
+        total: currentNutrition.evaluation.data.total,
       };
     else
       try {
@@ -504,7 +522,8 @@ async function checkOverview(tx: Tx, a: Actor) {
     "SELECT id,status,data,created_at FROM records WHERE kind='brain_check' ORDER BY created_at DESC,id DESC LIMIT 1",
   );
   const releaseCurrent =
-    !!s.release && confirmedRulesDigest(s.release.data.rules ?? []) === s.rulesDigest;
+    !!s.release && confirmedRulesDigest(s.release.data.rules ?? []) === s.rulesDigest &&
+    communicationDigest(s.release.data.communication) === s.communicationDigest;
   const rechecking = pending?.status === "pending";
   const areas = {
     replies: {

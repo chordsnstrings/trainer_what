@@ -46,7 +46,7 @@ import {
 // from the member's own logs, member-memory.ts) is data, never instructions,
 // and never overrides the trainer's rules, bounds, starting loads or safety.
 // v6: member weekdays/time limits and instance-aware blocks, sides and groups.
-export const planPromptVersion = "brain-plan-v6";
+export const planPromptVersion = "brain-plan-v7";
 // v2: timed and distance changes, no increases after missed sessions or a
 // harder-than-planned week (the code-computed progressionHold is sent), and
 // short evidence references.
@@ -54,7 +54,7 @@ export const planPromptVersion = "brain-plan-v6";
 // bounds.maxSessionMinutes by the stated estimate (a longer next week is
 // shortened, never made harder), and uncertainties fit the schema.
 // v4 (round 5, 1 October 2026): the optional memberMemory block, as for plans.
-export const planAdaptationPromptVersion = "brain-plan-adapt-v4";
+export const planAdaptationPromptVersion = "brain-plan-adapt-v5";
 // v3: time and distance prescriptions, rest 0 only for one continuous bout,
 // weekly and per-exercise timed-work and distance progression caps.
 // v4 (N1, 30 September 2026): within a draft the weekly limit is checked on

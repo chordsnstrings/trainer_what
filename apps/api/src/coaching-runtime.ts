@@ -1,6 +1,9 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
 import {
+  trainerBrainContext, trainerWordingIssues,
+} from "../../../packages/domain/src/trainer-brain.ts";
+import {
   coachFacingPin,
   coachModelLabel,
 } from "../../../packages/providers/src/model-profiles.ts";
@@ -230,6 +233,7 @@ async function runtimeMaterial(tx: Tx, candidateBrain?: any) {
   const rules = brain?.data.rules ?? [];
   const contract = {
     brainId: brain?.id ?? null,
+    trainerBrain: trainerBrainContext(brain),
     rules,
     actions: actions.map((a) => ({
       id: a.id,
@@ -321,6 +325,7 @@ async function liveRuntimeMaterial(tx: Tx, runtime: any) {
     return undefined;
   }
   if (current.digest === runtime.data.contractDigest) return current;
+  if (hash(contract.trainerBrain ?? null) !== hash(trainerBrainContext(current.brain))) return undefined;
   const intact = (snapshot: any[] = [], rows: any[]) =>
     snapshot.every((x) =>
       rows.some((r) => r.id === x.id && r.version === x.version),
@@ -343,6 +348,7 @@ async function liveRuntimeMaterial(tx: Tx, runtime: any) {
       id: contract.brainId,
       data: {
         rules: contract.rules,
+        communication: contract.trainerBrain.communication,
         qualification: current.brain?.data.qualification,
       },
     },
@@ -419,6 +425,7 @@ function deliverable(
   return candidates(material, request, facts).filter(
     (a) =>
       !!coachActionReply(a.data, request) &&
+      !trainerWordingIssues(coachActionReply(a.data, request)!.text, trainerBrainContext(material.brain)).length &&
       (a.data.type !== "schedule" ||
         moveKeepsSessionSpacing(facts, a.data.daysOffset, material.rules)),
   );
@@ -866,6 +873,7 @@ export async function evaluateCoachingRuntime(
         {
           tenantId: a.tenantId,
           request: c.prompt,
+          trainerBrain: trainerBrainContext(material.brain),
           facts: c.facts,
           actions: eligible,
           examples: material.examples,
@@ -1357,6 +1365,7 @@ export async function tryQualifiedCoaching(
         tenantId: a.tenantId,
         request,
         facts: initial.facts,
+        trainerBrain: trainerBrainContext(initial.material.brain),
         actions: initial.eligible,
         examples: initial.material.examples,
         rules: initial.material.rules,
