@@ -22,7 +22,7 @@ export async function onboardingReply(
   const content = JSON.stringify({
     version: CHAT_VERSION, audience: chat.audience, mode: chat.mode,
     facts: chat.facts, question, fields, nutritionIncluded: nutrition,
-    brainRules: knowledge, conversation: chat.messages.slice(-10).map(({ from, text }) => ({ from, text })),
+    brainRules: knowledge.slice(0, 10), conversation: chat.messages.slice(-8).map(({ from, text }, i, all) => ({ from, text: i === all.length - 1 ? text : text.slice(0, 700) })),
   });
   if (content.length > 36000) throw new ModelOutputInvalid("This message is too long. Try a shorter reply.");
   const { payload } = await modelCompletion(base, key, model, {

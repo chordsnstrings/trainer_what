@@ -52,7 +52,7 @@ function valueText(key: string, value: any, state: State) {
   if (Array.isArray(value)) return value.length ? value.join(", ") : "None";
   return String(value).replaceAll("_", " ");
 }
-export function MemberOnboarding({ intake, onSaved }: { intake?: any; onSaved: () => void | Promise<void> }) {
+export function MemberOnboarding({ intake, onSaved }: { intake?: any; onSaved?: () => void | Promise<void> }) {
   const [details, setDetails] = useWorkspaceValue("member:onboarding-details", false, true);
   return details ? <div className="onboarding-fallback">
     <button type="button" className="button secondary" onClick={() => setDetails(false)}><MessageCircle size={16} /> Back to conversation</button>
@@ -134,7 +134,12 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
     try {
       for (const type of food ? ["nutrition", "nutrition_model"] : ["coaching"])
         await request("/privacy/consent", { type, granted: true });
-      await load();
+      const current = await request("/onboarding-chat?mode=" + mode);
+      setState(current);
+      if (food) {
+        const next = await request("/onboarding-chat/actions", { id: crypto.randomUUID(), version: current.version, action: "resume" });
+        setState(next);
+      }
       if (food) setNutritionConsent(false); else setConsent(false);
     } catch (e) { setError((e as Error).message); }
     finally { flight.current = false; setSending(false); }
@@ -146,6 +151,7 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
   const teaching = audience === "coach";
   const field = state?.lastQuestion?.field;
   const problem = error || state?.error;
+  const lastPerson = state?.messages.filter(m => m.from === "person").at(-1);
   const rows = state ? Object.entries(state.facts).filter(([, value]) => value !== undefined && value !== null && value !== "") : [];
   const messages = [...older, ...(state?.messages ?? [])];
   if (!state) return <section className="onboarding-chat" aria-label="Onboarding conversation"><div className="onboarding-loading" role="status">{error || "Opening your conversation…"}</div>{error && <button className="button secondary" onClick={() => void load()}>Try again</button>}</section>;
@@ -180,6 +186,7 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
             {rows.length ? <dl>{rows.map(([key, value]) => <div key={key}><dt>{labels[key] ?? key}</dt><dd>{valueText(key, value, state)} <button className="text-link" aria-label={"Change " + (labels[key] ?? key)} onClick={() => { setText("Change my " + (labels[key] ?? key).toLowerCase() + " to "); input.current?.focus(); }}>Change</button></dd></div>)}</dl> : <p>Your answers will appear here.</p>}
             {state.missing.length > 0 && <p className="muted">Still to cover: {state.missing.map(k => labels[k] ?? k).join(", ")}.</p>}
             {state.ready && <button className="button" disabled={busy} onClick={() => void act("profile")}>{teaching ? "Save profile and page draft" : "Confirm my coaching profile"}</button>}
+            {teaching && state.facts.name && state.facts.priceAed && state.facts.billing && <button className="button secondary" disabled={busy} onClick={() => void act("offer")}>Save offer draft</button>}
             {!teaching && state.permissions.nutrition && !state.missing.length && <button className="button secondary" disabled={busy} onClick={() => void act("nutrition")}>Confirm my food preferences</button>}
           </div>}
           {teaching && <div className="onboarding-brain" aria-label="Brain review">
@@ -220,6 +227,7 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
         {busy && <div className="onboarding-pending" role="status"><span aria-hidden="true">•••</span> {sending ? "Working on that…" : "Your reply is still being prepared…"}</div>}
         {problem && <div className="onboarding-error" role="alert"><p>{problem}</p><div className="onboarding-options">
           {restoreRequest.current ? <button className="text-link" disabled={busy} onClick={() => { const saved = restoreRequest.current!; void transmit(saved.path, saved.body, saved.sentText); }}><RotateCcw size={14} /> Retry saved request</button> : <button className="text-link" disabled={busy} onClick={() => void load()}>Refresh conversation</button>}
+          {state.error && lastPerson && <button className="text-link" disabled={busy} onClick={() => void transmit("/onboarding-chat/messages", { id: crypto.randomUUID(), version: state.version, mode, text: lastPerson.text, retryOf: lastPerson.id })}>Try reply again</button>}
           {onDetails && <button className="text-link" onClick={onDetails}>Use {teaching ? "setup" : "profile"} forms</button>}
         </div></div>}
         <div ref={end} />

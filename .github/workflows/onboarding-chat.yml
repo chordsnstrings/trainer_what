@@ -19,3 +19,19 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run typecheck
       - run: node --import tsx --test tests/onboarding-chat.test.ts
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium --only-shell
+      - name: Phone and desktop onboarding journeys
+        run: node scripts/run-onboarding-chat-check.mjs
+        env:
+          RTL_WEB_MODE: start
+          RTL_WEB_PORT: "3203"
+          RTL_API_PORT: "4203"
+          RTL_DATA_DIR: .data/onboarding-chat-check
+          AUTHENTICATOR_REQUIRED: "false"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: onboarding-conversation-evidence
+          path: test-results/
+          if-no-files-found: ignore

@@ -103,7 +103,9 @@ try {
     await page.unroute("**/api/v1/messages");
   });
   await check("intake answers and step survive navigation; consent remains explicit", async () => {
-    await go("/app/intake"); await page.locator('[name="age"]').fill("28");
+    await go("/app/intake");
+    await page.getByRole("button", { name: "Use profile forms", exact: true }).last().click();
+    await page.locator('[name="age"]').fill("28");
     await page.getByRole("button", { name: "Next", exact: true }).click();
     await page.locator('[name="goal"]').fill("Build sustainable strength");
     await page.getByRole("button", { name: "Next", exact: true }).click();

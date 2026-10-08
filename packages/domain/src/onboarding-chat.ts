@@ -94,7 +94,7 @@ export function nextChatQuestion(c: ChatData, specialties: readonly Specialty[],
   if (field && !(c.audience === "coach" && c.mode === "teach")) {
     return { field, text: c.audience === "member" ? memberQuestions[field] : coachSpecs(specialties)[field]?.question ?? "Tell me a little more." };
   }
-  if (c.audience === "member") return { field: "review", text: "That's enough to get started. Check your profile below, or tell me what to change." };
+  if (c.audience === "member") return { field: "review", text: missingFacts(c, nutrition).length ? "We can leave those for later. Your saved details show what we still need before your profile is ready." : "That's enough to get started. Check your profile below, or tell me what to change." };
   const index = c.teachingIds.length % teachingTopics.length;
   return { field: "teaching", text: teachingTopics[index]! };
 }
@@ -155,4 +155,23 @@ export function appendChatMessage(c: ChatData, message: ChatMessage) {
 export function profileReady(c: ChatData) {
   const keys = c.audience === "coach" ? ["publicName", "city", "specialty", "audience", "headline", "bio"] : trainingFields;
   return keys.every(k => hasFact(c.facts, k)) && (c.audience === "coach" || c.facts.availableWeekdays.length >= c.facts.daysPerWeek);
+}
+
+/** Explicit quick replies need validation and persistence, but no inference. */
+export function quickChatReply(field: string, text: string): ChatReply | null {
+  const input = text.trim();
+  let value: unknown;
+  if (field === "daysPerWeek" && /^([1-7]) days? a week$/i.test(input)) value = Number(input[0]);
+  if (["maxSessionMinutes", "cookingMinutes"].includes(field) && /^\d{1,3} minutes?$/i.test(input)) value = Number(input.match(/\d+/)![0]);
+  if (field === "experience" && /^I'm (a beginner|intermediate|advanced)$/i.test(input)) value = input.toLowerCase().replace("i'm ", "").replace("a ", "");
+  if (field === "equipment" && ["A full gym", "Dumbbells at home", "No equipment"].includes(input)) value = input;
+  if (field === "limitations" && input === "No injuries or limitations") value = input;
+  if (field === "allergyStatus") value = ({ "No food allergies": "none_reported", "I have food allergies": "reported", "I'm not sure": "unknown" } as Record<string,string>)[input];
+  if (field === "exclusions" && input === "I don't avoid any foods") value = [];
+  if (field === "foodBudget" && ["Low", "Moderate", "Flexible"].includes(input)) value = input.toLowerCase();
+  if (field === "nutritionScope") value = ({ "General meal planning": "general_wellness", "I need help with a medical condition": "specialist_needed" } as Record<string,string>)[input];
+  if (field === "availableWeekdays" && /^I can train on (Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday)(, (Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday))*$/.test(input))
+    value = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"].flatMap((day, i) => input.includes(day) ? [i] : []);
+  if (value === undefined) return null;
+  return { reply: "Got it.", patch: { [field]: value }, evidence: { [field]: input } };
 }

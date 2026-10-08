@@ -750,6 +750,15 @@ function PageStep({
     if (d.headline) setHeadline(d.headline);
     if (d.bio) setBio(d.bio);
   }, [draft]);
+  useEffect(() => {
+    let active = true;
+    void setupApi("/tenant/design-draft").then(saved => {
+      if (!active || !saved?.data) return;
+      setHeadline(current => current === String(theme.headline ?? "") ? String(saved.data.headline ?? current) : current);
+      setBio(current => current === String(theme.bio ?? "") ? String(saved.data.bio ?? current) : current);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, []);
   const specialty = setup.about.specialties.find(
     (s) => s.id === setup.about.values.specialty,
   )?.label;

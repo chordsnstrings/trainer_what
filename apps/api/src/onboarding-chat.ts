@@ -5,7 +5,7 @@ import { type Actor, type Database, type Tx, putRecord, event } from "@trainer/d
 import { OFFERED_DIRECTORY_SPECIALTIES, intakeSchema } from "@trainer/contracts";
 import {
   emptyChat, nextChatQuestion, mergeChatFacts, appendChatMessage, chatText,
-  profileReady, missingFacts, trainingFields, type ChatData,
+  profileReady, missingFacts, trainingFields, quickChatReply, type ChatData,
 } from "../../../packages/domain/src/onboarding-chat.ts";
 import { onboardingReply } from "../../../packages/providers/src/onboarding-chat.ts";
 import { modelAccounting } from "./model-accounting.ts";
@@ -23,11 +23,11 @@ const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(va
 type Row = { id: string; version: number; data: ChatData };
 const common = { id: z.string().uuid(), version: z.number().int().nonnegative() };
 const messageSchema = z.object({
-  ...common, text: z.string().trim().min(1).max(4000), mode: z.enum(["setup", "teach"]).default("setup"),
+  ...common, text: z.string().trim().min(1).max(4000), retryOf: z.string().uuid().optional(), mode: z.enum(["setup", "teach"]).default("setup"),
 }).strict();
 const actionSchema = z.object({
   ...common,
-  action: z.enum(["pause", "resume", "skip", "profile", "nutrition", "compile", "approve", "quiz", "quiz-answer", "scenario", "publish"]),
+  action: z.enum(["pause", "resume", "skip", "profile", "offer", "nutrition", "compile", "approve", "quiz", "quiz-answer", "scenario", "publish"]),
   timezone: z.string().max(100).optional(),
   rules: z.array(z.object({ id: z.string().uuid(), version: z.number().int().positive() }).strict()).min(1).max(100).optional(),
   roundId: z.string().uuid().optional(), caseId: z.string().uuid().optional(),
@@ -172,7 +172,7 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
         if (request.data.fingerprint !== fingerprint) throw fail(409, "REQUEST_CHANGED", "Send this as a new message.");
         return null;
       }
-      let row = await initialize(tx, a, mode, p);
+      let row = await initialize(tx, a, mode ?? "setup", p);
       if (row.version !== b.version) throw fail(409, "CHAT_CHANGED", "Your conversation changed in another tab. Reload, then send your message.");
       if (row.data.pending) throw fail(409, "CHAT_BUSY", "A reply is still in progress.");
       if (a.role === "subscriber" && !p.coaching) throw fail(403, "CONSENT_REQUIRED", "Choose whether to allow coaching before sharing your profile.");
@@ -204,7 +204,7 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
   app.post(prefix + "/messages", { config: { rateLimit: { max: 40, timeWindow: "10 minutes" } } }, async (req, reply) => {
     reply.header("Cache-Control", "private, no-store");
     const a = actor(req), b = messageSchema.parse(req.body);
-    const claimed = await claim(a, b, "message", digest({ text: b.text, mode: b.mode }), b.mode);
+    const claimed = await claim(a, b, "message", digest({ text: b.text, mode: b.mode, retryOf: b.retryOf }), b.mode);
     if (!claimed) return snapshot(req, a, b.mode);
     try {
       const prepared = await db.tenant(a, async tx => {
@@ -218,8 +218,13 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
         const at = new Date().toISOString(), q = nextChatQuestion(data, specialties, p.nutrition);
         const teaching = a.role === "owner" && (b.mode === "teach" || ["approach", "alwaysDo", "neverDo", "referOut", "teaching"].includes(q.field));
         if (teaching && privacyMatches(b.text).length) throw fail(400, "PERSONAL_DATA_REMAINS", "Leave out client names, emails and phone numbers. Describe the situation in general terms.");
-        appendChatMessage(data, { id: b.id, from: "person", text: b.text, at });
-        if (teaching && b.text.length >= 10) {
+        if (b.retryOf) {
+          const [failed] = await tx.query("SELECT status FROM records WHERE id=$1 AND kind='onboarding_chat_request' AND owner_user_id=$2", [b.retryOf, a.userId]);
+          const original = data.messages.filter(m => m.from === "person").at(-1);
+          if (!failed || !["failed", "interrupted"].includes(failed.status) || original?.id !== b.retryOf || original.text !== b.text)
+            throw fail(409, "RETRY_CHANGED", "Send this as a new message.");
+        } else appendChatMessage(data, { id: b.id, from: "person", text: b.text, at });
+        if (teaching && !b.retryOf && b.text.length >= 10) {
           const source = await putRecord(tx, a, "interview", { question: data.lastQuestion?.text ?? q.text, answer: b.text, origin: "onboarding_chat", allowedUses: ["model_prompt", "trainer_specific_learning"] }, { status: "answered" });
           data.teachingIds.push(source.id);
           await event(tx, a, "brain.interview_answered", source.id);
@@ -243,11 +248,18 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
       if (prepared.held) {
         await finish(a, b.id, data => { say(data, "I've flagged this for your coach. Please pause training until it has been reviewed. If you feel seriously unwell or in immediate danger, contact local emergency services."); });
       } else {
-        const answer = await onboardingReply(prepared.data, prepared.q, prepared.rules, specialties, prepared.p.nutrition, modelAccounting(db, a, a.role === "owner" ? "setup_assistant" : "member_onboarding"));
+        const answer = quickChatReply(prepared.q.field, b.text) ?? await onboardingReply(prepared.data, prepared.q, prepared.rules, specialties, prepared.p.nutrition, modelAccounting(db, a, a.role === "owner" ? "setup_assistant" : "member_onboarding"));
         await finish(a, b.id, async (data, tx) => {
           const p = await permissions(tx, a);
-          const merged = mergeChatFacts(data, answer, b.text, b.id, new Date().toISOString(), specialties, p.nutrition);
+          const merged = mergeChatFacts(data, answer, b.text, b.retryOf ?? b.id, new Date().toISOString(), specialties, p.nutrition);
           Object.assign(data, merged);
+          if (a.role === "owner" && !b.retryOf && prepared.data.teachingIds.length === claimed.row.data.teachingIds.length &&
+              ["approach", "alwaysDo", "neverDo", "referOut", "maxLoadJumpPct", "maxWeeklyVolumeIncreasePct"].some(k => data.memory[k]?.messageId === b.id)) {
+            const source = await putRecord(tx, a, "interview", { question: prepared.q.text, answer: b.text, origin: "onboarding_chat", allowedUses: ["model_prompt", "trainer_specific_learning"] }, { status: "answered" });
+            data.teachingIds.push(source.id);
+            await event(tx, a, "brain.interview_answered", source.id);
+          }
+          if (b.retryOf) await tx.query("UPDATE records SET status='complete',updated_at=now() WHERE id=$1 AND kind='onboarding_chat_request'", [b.retryOf]);
           const q = nextChatQuestion(data, specialties, p.nutrition);
           if (answer.questionField === q.field) q.text = chatText(answer.question, q.text);
           data.lastQuestion = q;
@@ -265,7 +277,7 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
   app.post(prefix + "/actions", async (req, reply) => {
     reply.header("Cache-Control", "private, no-store");
     const a = actor(req), b = actionSchema.parse(req.body);
-    if (a.role !== "owner" && ["compile", "approve", "quiz", "quiz-answer", "scenario", "publish"].includes(b.action)) throw fail(403, "OWNER_REQUIRED", "Trainer access required.");
+    if (a.role !== "owner" && ["offer", "compile", "approve", "quiz", "quiz-answer", "scenario", "publish"].includes(b.action)) throw fail(403, "OWNER_REQUIRED", "Trainer access required.");
     if (a.role === "owner" && b.action === "nutrition") throw fail(403, "MEMBER_REQUIRED", "Client access required.");
     const claimed = await claim(a, b, b.action, digest({ ...b, version: undefined }));
     if (!claimed) return snapshot(req, a);
@@ -276,7 +288,7 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
       else if (b.action === "resume" || b.action === "skip") { /* code-only controls below */ }
       else if (b.action === "profile") {
         if (!profileReady(data)) throw fail(409, "PROFILE_INCOMPLETE", "A few details are still missing. You can tell me several at once.");
-        const hash = digest(f);
+        const hash = digest(pick(f, a.role === "subscriber" ? trainingFields : ["publicName", "businessName", "city", "specialty", "audience", "headline", "bio"]));
         if (data.applied.profile !== hash) {
           if (a.role === "subscriber") {
             const payload = intakeSchema.parse({ ...pick(f, trainingFields), timezone: b.timezone ?? "Asia/Dubai", consent: true });
@@ -299,6 +311,16 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
           }
           applied = ["profile", hash];
         } else line = "This profile is already saved.";
+      } else if (b.action === "offer") {
+        if (!f.name || !f.priceAed || !f.billing || (f.billing === "upfront" && !f.programmeDays))
+          throw fail(409, "OFFER_INCOMPLETE", "Tell me the offer name, price and billing first.");
+        const payload = { name: f.name, description: f.description ?? "", priceMinor: Math.round(f.priceAed * 100), billing: f.billing, programmeDays: f.billing === "upfront" ? f.programmeDays : null };
+        const hash = digest(payload);
+        const products = await db.tenant(a, tx => tx.query("SELECT id,data FROM records WHERE kind='product' AND status<>'archived'"));
+        if (data.applied.offer !== hash && !products.some(r => Object.entries(payload).every(([k, v]) => (r.data[k] ?? null) === v)))
+          await forward(app, req, "POST", "/api/v1/products", payload);
+        applied = ["offer", hash];
+        line = "Your offer draft is saved. Offer details has the remaining activation checks.";
       } else if (b.action === "nutrition") {
         if (!claimed.p.nutrition) throw fail(403, "CONSENT_REQUIRED", "Allow nutrition processing and AI planning before saving food preferences.");
         if (missingFacts(data, true).length) throw fail(409, "PROFILE_INCOMPLETE", "Let's finish the missing food and training details first.");
@@ -335,7 +357,7 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
       }
       await finish(a, b.id, async c => {
         if (b.action === "pause") c.paused = true;
-        if (b.action === "resume") c.paused = false;
+        if (b.action === "resume") { c.paused = false; c.skipped = []; }
         if (b.action === "skip") {
           const q = c.lastQuestion ?? nextChatQuestion(c, specialties, claimed.p.nutrition);
           if (!["review", "teaching", "paused"].includes(q.field)) c.skipped.push(q.field);

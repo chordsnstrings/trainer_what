@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { accountsContext, withEnv } from "./accounts-fixtures.ts";
 import { OFFERED_DIRECTORY_SPECIALTIES } from "@trainer/contracts";
-import { emptyChat, mergeChatFacts, nextChatQuestion, profileReady, chatText } from "../packages/domain/src/onboarding-chat.ts";
+import { emptyChat, mergeChatFacts, nextChatQuestion, profileReady, chatText, quickChatReply } from "../packages/domain/src/onboarding-chat.ts";
 
 const specialties = OFFERED_DIRECTORY_SPECIALTIES.map(({ id, label }) => ({ id, label }));
 let ctx: Awaited<ReturnType<typeof accountsContext>>;
@@ -158,5 +158,31 @@ test("withdrawal during inference removes private messages and rejects the late 
     assert.equal(result.statusCode, 200, result.body); assert.equal(result.json().permissions.coaching, false);
     assert.deepEqual(result.json().facts, {}); assert.ok(!JSON.stringify(result.json().messages).includes("Dumbbells")); assert.equal(sent.length, 1);
     await grant(member); const fresh = await snapshot(member); assert.deepEqual(fresh.facts, {});
+  });
+});
+
+test("quick choices skip inference and update the current question", async () => {
+  assert.equal(quickChatReply("daysPerWeek", "3 days a week")?.patch.daysPerWeek, 3);
+  assert.equal(quickChatReply("daysPerWeek", "3 days a week but only during summer"), null);
+  const owner = await ctx.person({ role: "owner" }), member = await ctx.person({ role: "subscriber", tenantId: owner.tenantId });
+  await grant(member); const c = await snapshot(member);
+  await model(() => ({ reply: "Got it.", patch: { goal: "Build strength", experience: "beginner" }, evidence: { goal: "Build strength", experience: "beginner" } }), async sent => {
+    const r = await call(member, "/onboarding-chat/messages", { id: randomUUID(), version: c.version, text: "Build strength. I'm a beginner." });
+    assert.equal(r.json().lastQuestion.field, "daysPerWeek", r.body);
+    const quick = await call(member, "/onboarding-chat/messages", { id: randomUUID(), version: r.json().version, text: "3 days a week" });
+    assert.equal(quick.json().facts.daysPerWeek, 3); assert.equal(sent.length, 1);
+  });
+});
+test("explicit reply retry does not duplicate the transcript or teaching source", async () => {
+  const owner = await ctx.person({ role: "owner" }), c = await snapshot(owner);
+  const body = { id: randomUUID(), version: c.version, mode: "teach", text: "I only progress a load after all prescribed reps are comfortable." };
+  let count = 0;
+  await model(() => ++count === 1 ? "bad fixture" : { reply: "Understood.", patch: {}, evidence: {} }, async sent => {
+    const failed = await call(owner, "/onboarding-chat/messages", body);
+    assert.ok(failed.json().error);
+    const retry = await call(owner, "/onboarding-chat/messages", { ...body, id: randomUUID(), version: failed.json().version, retryOf: body.id });
+    assert.equal(retry.json().error, undefined, retry.body);
+    assert.equal(retry.json().messages.filter((m: any) => m.from === "person").length, 1);
+    assert.equal(retry.json().teachingIds.length, 1); assert.equal(sent.length, 2);
   });
 });
