@@ -851,13 +851,18 @@ test("the worker's daily pass rebuilds older months, and personal exports carry 
   assert.ok(built && Date.parse(built) >= now.getTime() - 60000);
   // A member's personal export lists what ran and when, never the
   // provider, model or price of a call.
+  const usageId = randomUUID();
+  // This timestamp contains the provider-cost digits; matching the serialized
+  // export for "0.5" used to reject valid timestamps nondeterministically.
+  const usageAt = "2026-10-08T10:54:00.565Z";
   await f.db.tenant(f.scoped(owner.tenantId, "finance"), (tx) =>
-    tx.query("INSERT INTO cost_events(id,tenant_id,user_id,task,provider,model,cost_usd,estimated_cost_usd,status,product,pricing) VALUES($1,$2,$3,'coaching','secretai','secret-model',0.5,0.5,'recorded','membership','{}')", [randomUUID(), owner.tenantId, owner.userId]),
+    tx.query("INSERT INTO cost_events(id,tenant_id,user_id,task,provider,model,cost_usd,estimated_cost_usd,status,product,pricing,created_at) VALUES($1,$2,$3,'coaching','secretai','secret-model',0.5,0.5,'recorded','membership','{}',$4)", [usageId, owner.tenantId, owner.userId, usageAt]),
   );
   const exported = await f.call("/privacy/export", { cookie: owner.cookie });
   assert.equal(exported.statusCode, 200, exported.body);
   const usage = exported.json().usage;
   assert.ok(Array.isArray(usage) && usage.length >= 1);
-  assert.deepEqual(Object.keys(usage[0]).sort(), ["created_at", "id", "task"]);
-  assert.doesNotMatch(JSON.stringify(usage), /secretai|secret-model|0\.5/);
+  for (const event of usage) assert.deepEqual(Object.keys(event).sort(), ["created_at", "id", "task"]);
+  assert.deepEqual(usage.find((event: any) => event.id === usageId), { id: usageId, task: "coaching", created_at: usageAt });
+  assert.doesNotMatch(JSON.stringify(usage), /secretai|secret-model/);
 });
