@@ -84,8 +84,8 @@ async function initialize(tx: Tx, a: Actor, mode: "setup" | "teach", p: Awaited<
     const identity = rows.find(r => r.kind === "onboarding_step" && r.data.step === "identity")?.data.values ?? {};
     Object.assign(data.facts, Object.fromEntries(["publicName", "businessName", "city", "audience"].filter(k => identity[k]).map(k => [k, identity[k]])));
     for (const r of rows.filter(r => r.kind === "setup_conversation")) Object.assign(data.facts, r.data.draft ?? {});
-    const [tenant] = await tx.query("SELECT name,theme FROM tenants WHERE id=$1", [a.tenantId]);
-    const theme = tenant?.theme ?? {};
+    const [tenant] = await tx.query("SELECT trainer_brand_tenant() AS tenant");
+    const theme = tenant?.tenant?.theme ?? {};
     if (theme.headline) data.facts.headline = theme.headline;
     if (theme.bio) data.facts.bio = theme.bio;
     const spec = specialties.find(s => s.label === (theme.category ?? identity.category));
@@ -302,8 +302,8 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
             const [identity] = await db.tenant(a, tx => tx.query("SELECT version,data FROM records WHERE kind='onboarding_step' AND data->>'step'='identity'"));
             await forward(app, req, "PUT", "/api/v1/onboarding/identity", { version: identity?.version ?? 0, values: { ...(identity?.data.values ?? {}), publicName: f.publicName, businessName: f.businessName ?? f.publicName, city: f.city, audience: f.audience, category: specialties.find(s => s.id === f.specialty)?.label, country: "AE" }, defer: false });
             const draft = await forward(app, req, "GET", "/api/v1/tenant/design-draft");
-            const [tenant] = await db.tenant(a, tx => tx.query("SELECT name,theme FROM tenants WHERE id=$1", [a.tenantId]));
-            const theme = tenant?.theme ?? {};
+            const [tenant] = await db.tenant(a, tx => tx.query("SELECT trainer_brand_tenant() AS tenant"));
+            const theme = tenant?.tenant?.theme ?? {};
             const base = draft?.data ?? { name: f.publicName, bio: theme.bio ?? "", category: theme.category ?? "", accent: theme.accent ?? "#0F766E", headline: theme.headline ?? "", ...(theme.design ? { design: theme.design } : {}) };
             const { expectedVersion: _drop, ...rest } = base;
             await forward(app, req, "PUT", "/api/v1/tenant/design-draft", { version: draft?.version ?? 0, data: { ...rest, name: f.publicName, headline: f.headline, bio: f.bio, category: specialties.find(s => s.id === f.specialty)?.label ?? "" } });

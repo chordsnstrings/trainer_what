@@ -186,3 +186,22 @@ test("explicit reply retry does not duplicate the transcript or teaching source"
     assert.equal(retry.json().teachingIds.length, 1); assert.equal(sent.length, 2);
   });
 });
+
+test("reviewed trainer profile and offer save through the existing draft workflows", async () => {
+  const owner = await ctx.person({ role: "owner" }), c = await snapshot(owner);
+  const spec = specialties[0]!;
+  const text = "I'm Alex in Dubai. I coach busy beginners. My specialty is " + spec.label + ". Strength coaching for busy beginners. I help beginners build confidence with simple, consistent strength sessions. My offer is Starter Strength, 300 AED monthly.";
+  const patch = { publicName: "Alex", city: "Dubai", audience: "busy beginners", specialty: spec.id, headline: "Strength coaching for busy beginners", bio: "I help beginners build confidence with simple, consistent strength sessions.", name: "Starter Strength", priceAed: 300, billing: "monthly" };
+  await model(() => ({ reply: "Got it.", patch, evidence: Object.fromEntries(Object.keys(patch).map(k => [k, text])) }), async () => {
+    const r = await call(owner, "/onboarding-chat/messages", { id: randomUUID(), version: c.version, text });
+    assert.equal(r.json().ready, true, r.body);
+    const profile = await call(owner, "/onboarding-chat/actions", { id: randomUUID(), version: r.json().version, action: "profile" });
+    assert.equal(profile.json().error, undefined, profile.body); assert.ok(profile.json().applied.profile);
+    const offer = await call(owner, "/onboarding-chat/actions", { id: randomUUID(), version: profile.json().version, action: "offer" });
+    assert.equal(offer.json().error, undefined, offer.body); assert.ok(offer.json().applied.offer);
+    const again = await call(owner, "/onboarding-chat/actions", { id: randomUUID(), version: offer.json().version, action: "offer" });
+    assert.equal(again.json().error, undefined, again.body);
+    const products = await ctx.db.tenant({ userId: owner.userId, tenantId: owner.tenantId, role: "owner" }, tx => tx.query("SELECT status,data FROM records WHERE kind='product'"));
+    assert.equal(products.length, 1); assert.equal(products[0].status, "draft"); assert.equal(products[0].data.priceMinor, 30000);
+  });
+});
