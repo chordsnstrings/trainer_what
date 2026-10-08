@@ -14,7 +14,7 @@ import { AnalyticsSetting } from "./acquisition";
 import { LeaveTrainer } from "./membership-exit";
 import { useT } from "../lib/i18n/react";
 import { DisplayPreferences } from "./appearance";
-import { MemberIntake } from "./member-intake";
+import { MemberOnboarding } from "./onboarding-chat";
 import { InstallAppRow } from "./pwa-ui";
 import Link from "next/link";
 import { ArrowUpRight, Download } from "lucide-react";
@@ -136,7 +136,7 @@ export function SettingsView({
   // (member-intake.tsx); account security stays in Profile and settings.
   if (sub && path === "/app/intake")
     return (
-      <MemberIntake intake={records("intake")[0]?.data} onSaved={onSaved} />
+      <MemberOnboarding intake={records("intake")[0]?.data} onSaved={onSaved} />
     );
   if (sub) return <MemberSettings state={state} action={action} busy={busy} />;
   return <TrainerSettingsView state={state} action={action} busy={busy} />;

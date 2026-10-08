@@ -1,6 +1,10 @@
 # Project memory
 
-## Current work — 7 October 2026
+## Current work — 8 October 2026
+
+Conversational onboarding: implement trainer setup, continued Brain teaching and client profiles as short text-message conversations. Reuse the existing frontier-model adapter; one bounded inference per substantive reply, code-only controls, batch rule compilation. Remember grounded facts and transcript with person/workspace isolation. Permissions and approvals stay explicit. Branch `feat/conversational-onboarding-2026-10-08`, base `6b8ed72`. Implementation is in PR #48. TypeScript, 16 focused API/domain checks, 19 layout/paging regression checks, production build and phone/desktop browser journeys passed; normal release gates are tracked on that PR. Local execution is unavailable. After merge, the existing checked-main controller deploys and the read-only Verify serving release workflow checks the public release header. See Claude handoff and docs/features/onboarding-chat.md for the release boundary and entry points.
+
+## Earlier work — 7 October 2026
 
 UAE policies and signup: the owner explicitly authorised publication now with missing business details updated later. English only; no named hosting location. Migration 090 publishes the approved three-policy pack and enables the existing legal setting; consent and signup enforcement remain intact. Policies use existing in-account Support/Privacy tools. No company/contact information is invented. PR #44 is live in release `02601ce22c004c60d377f0f3e4955da5337ccdfb`, verified 7 October at 12:47 Dubai time. All five PR/main checks passed, alongside the 26 focused checks and TypeScript. Readiness and `/signup`/policy pages return 200; password signup and trainer/client joining are open; all three policies are version 2 and match the approved text. No production test accounts were created. Lawyer review and later document versions remain follow-up work.
 

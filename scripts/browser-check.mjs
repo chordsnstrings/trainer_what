@@ -204,6 +204,7 @@ try {
   // The setup wizard (docs/features/setup-wizard.md): About you saves as
   // the coach types and resumes after a reload.
   await page.goto(base + "/setup/about");
+  await page.getByRole("button", { name: "Use setup forms", exact: true }).last().click();
   await page
     .getByRole("heading", { level: 1, name: "About you", exact: true })
     .waitFor();

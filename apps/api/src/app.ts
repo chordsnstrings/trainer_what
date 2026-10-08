@@ -1,3 +1,4 @@
+import { onboardingChatRoutes } from "./onboarding-chat.ts";
 import { requireServiceReady } from "./service-readiness.ts";
 import { registerFinanceAutomation } from "./finance-automation.ts";
 import { clientContextRoutes } from "./client-context.ts";
@@ -1150,6 +1151,7 @@ export async function buildApp(
   });
   onboardingRoutes(app, db, owner);
   setupAssistantRoutes(app, db, owner);
+  onboardingChatRoutes(app, db, identity);
   app.post("/api/v1/tenant/publish", (req) =>
     publishStorefront(db, owner(req)),
   );
@@ -2145,6 +2147,13 @@ export async function buildApp(
         "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,$4,$5,$6)",
         [randomUUID(), a.tenantId, a.userId, b.type, consentVersion, b.granted],
       );
+      // A withdrawn health permission invalidates pending replies and their private
+      // transcript. A later opt-in starts fresh; withdrawn text is never replayed.
+      if (a.role === "subscriber" && !b.granted && ["coaching", "nutrition", "nutrition_model"].includes(b.type)) {
+        await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [a.tenantId + ":onboarding-chat:" + a.userId]);
+        await tx.query("DELETE FROM records WHERE owner_user_id=$1 AND kind IN ('onboarding_chat','onboarding_chat_archive')", [a.userId]);
+        await tx.query("UPDATE records SET status='withdrawn',updated_at=now() WHERE owner_user_id=$1 AND kind='onboarding_chat_request' AND status='processing'", [a.userId]);
+      }
       // The consent history decides marketing; keep the settings toggle in step.
       if (b.type === "marketing")
         await tx.query(

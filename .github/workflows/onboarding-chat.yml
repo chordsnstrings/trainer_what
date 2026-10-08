@@ -1,0 +1,35 @@
+name: Onboarding conversation
+on:
+  pull_request:
+    paths: ["apps/api/src/onboarding-chat.ts", "apps/web/components/onboarding-chat.tsx", "packages/domain/src/onboarding-chat.ts", "packages/providers/src/onboarding-chat.ts", "tests/onboarding-chat.test.ts", "scripts/onboarding-chat-check.mjs"]
+permissions:
+  contents: read
+jobs:
+  conversation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: node --import tsx --test --test-concurrency=1 tests/onboarding-chat.test.ts tests/logical-css.test.ts tests/bounded-bootstrap.test.ts
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium --only-shell
+      - name: Phone and desktop onboarding journeys
+        run: node --import tsx scripts/run-onboarding-chat-check.mjs
+        env:
+          RTL_WEB_MODE: start
+          RTL_WEB_PORT: "3203"
+          RTL_API_PORT: "4203"
+          RTL_DATA_DIR: .data/onboarding-chat-check
+          AUTHENTICATOR_REQUIRED: "false"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: onboarding-conversation-evidence
+          path: test-results/
+          if-no-files-found: ignore
