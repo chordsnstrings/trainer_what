@@ -172,6 +172,8 @@ try {
   await capture(page, "trainer-desktop");
   report.checks.push("Trainer multi-answer message, persisted resume and grounded review");
   await page.getByRole("button", { name: "Close review", exact: true }).click();
+  // The native modal keeps the composer inert during its short exit animation.
+  await expect(page.getByRole("dialog", { name: "Saved details", exact: true })).not.toBeVisible();
   await page.getByLabel("Your onboarding message").fill("A draft I have not sent yet");
   await page.reload();
   await expect(page.getByLabel("Your onboarding message")).toHaveValue("A draft I have not sent yet");
