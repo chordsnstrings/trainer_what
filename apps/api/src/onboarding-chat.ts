@@ -19,6 +19,7 @@ import { lockOnboarding as lock, onboardingPermissions as permissions } from "./
 import { attachmentView, onboardingFiles, onboardingAttachmentRoutes } from "./onboarding-attachments.ts";
 import { onboardingCallRoutes } from "./onboarding-calls.ts";
 import { screenSafety } from "../../../packages/domain/src/safety-policy.ts";
+import { coachingCoverage, mergeCoachingInterview } from "../../../packages/domain/src/coaching-interview.ts";
 
 const specialties = OFFERED_DIRECTORY_SPECIALTIES.map(({ id, label }) => ({ id, label }));
 const prefix = "/api/v1/onboarding-chat";
@@ -100,6 +101,29 @@ function say(data: ChatData, text: string, id = randomUUID()) {
 }
 const pick = (facts: Record<string, any>, keys: string[]) => Object.fromEntries(keys.filter(k => facts[k] !== undefined).map(k => [k, facts[k]]));
 
+async function recordTeaching(tx: Tx, a: Actor, data: ChatData, messageId: string, text: string, question: { field: string; text: string }, files: Awaited<ReturnType<typeof onboardingFiles>>, shortMethod = false, retry = false) {
+  const existing = await tx.query("SELECT id FROM records WHERE kind='interview' AND data->>'origin'='onboarding_chat' AND data->>'messageId'=$1", [messageId]);
+  if (existing.length) return existing.map(r => r.id as string);
+  if (retry && data.teachingIds.length) {
+    // Failed turns saved before v4 had no messageId on their teaching records.
+    const legacy = await tx.query("SELECT id,data FROM records WHERE kind='interview' AND data->>'origin'='onboarding_chat' AND data->>'messageId' IS NULL AND id=ANY($1::uuid[])", [data.teachingIds]);
+    const matched = legacy.filter(r => r.data.answer === text && r.data.question === question.text || files.some(f => r.data.attachmentId === f.id && r.data.answer === f.data.text));
+    if (matched.length) return matched.map(r => r.id as string);
+  }
+  const sources = [
+    ...(text.length >= (shortMethod ? 3 : 10) ? [{ question: question.text, answer: text }] : []),
+    ...files.filter(f => f.data.text.length >= 10).map(f => ({ question: "Teaching from " + f.data.name, answer: f.data.text, attachmentId: f.id, extraction: f.data.extraction, warnings: f.data.warnings })),
+  ];
+  const ids: string[] = [];
+  for (const source of sources) {
+    const saved = await putRecord(tx, a, "interview", { ...source, messageId, point: question.field, origin: "onboarding_chat", allowedUses: ["model_prompt", "trainer_specific_learning"] }, { status: "answered" });
+    data.teachingIds.push(saved.id);
+    ids.push(saved.id);
+    await event(tx, a, "brain.interview_answered", saved.id);
+  }
+  return ids;
+}
+
 export function onboardingChatRoutes(app: FastifyInstance, db: Database, identity: (req: FastifyRequest) => Actor) {
   onboardingAttachmentRoutes(app, db);
   onboardingCallRoutes(app, db);
@@ -131,7 +155,7 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
       }
       const data = p.coaching ? row.data : { ...emptyChat("member"), messages: row.data.messages.filter(m => m.from === "assistant").slice(0, 1) };
       const [program] = a.role === "subscriber" ? await tx.query("SELECT id,status FROM records WHERE owner_user_id=$1 AND kind='program' AND status='assigned' ORDER BY created_at DESC LIMIT 1", [a.userId]) : [];
-      return { id: row.id, version: row.version, ...data, permissions: p, ready: profileReady(data), missing: missingFacts(data, p.nutrition), programReady: !!program };
+      return { id: row.id, version: row.version, ...data, permissions: p, ready: profileReady(data), missing: missingFacts(data, p.nutrition), programReady: !!program, ...(a.role === "owner" ? { coachingCoverage: coachingCoverage(data) } : {}) };
     });
     if (a.role === "owner") {
       const [setup, brain] = await Promise.all([forward(app, req, "GET", "/api/v1/setup"), forward(app, req, "GET", "/api/v1/brain/teach")]);
@@ -213,8 +237,9 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
         }
         const data = structuredClone(row.data);
         data.paused = false;
-        const at = new Date().toISOString(), q = nextChatQuestion(data, specialties, p.nutrition);
-        const teaching = a.role === "owner" && (b.mode === "teach" || ["approach", "alwaysDo", "neverDo", "referOut", "teaching"].includes(q.field));
+        // An existing conversation may be answering a question from an older curriculum.
+        const at = new Date().toISOString(), q = data.lastQuestion ?? nextChatQuestion(data, specialties, p.nutrition);
+        const teaching = a.role === "owner" && (b.mode === "teach" || q.field.startsWith("coaching.") || ["approach", "alwaysDo", "neverDo", "referOut", "teaching"].includes(q.field));
         const original = b.retryOf ? data.messages.filter(m => m.from === "person").at(-1) : undefined;
         const files = await onboardingFiles(tx, a, b.retryOf ? original?.attachments?.map(f => f.id) ?? [] : b.attachmentIds ?? [], b.id, b.retryOf);
         const material = [b.text, ...files.map(f => `File: ${f.data.name}\n${String(f.data.text).slice(0, 8000)}${f.data.text.length > 8000 ? "\n[Excerpt: ask about a specific part if needed.]" : ""}`)].join("\n\n");
@@ -224,16 +249,7 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
           if (!failed || !["failed", "interrupted"].includes(failed.status) || original?.id !== b.retryOf || original.text !== b.text)
             throw fail(409, "RETRY_CHANGED", "Send this as a new message.");
         } else appendChatMessage(data, { id: b.id, from: "person", text: b.text, at, ...(b.source ? { source: b.source } : {}), ...(files.length ? { attachments: files.map(f => { const { preview, ...metadata } = attachmentView(f); return metadata; }) } : {}) });
-        if (teaching && !b.retryOf && b.text.length >= 10) {
-          const source = await putRecord(tx, a, "interview", { question: data.lastQuestion?.text ?? q.text, answer: b.text, origin: "onboarding_chat", allowedUses: ["model_prompt", "trainer_specific_learning"] }, { status: "answered" });
-          data.teachingIds.push(source.id);
-          await event(tx, a, "brain.interview_answered", source.id);
-        }
-        if (teaching && !b.retryOf) for (const file of files) if (file.data.text.length >= 10) {
-          const source = await putRecord(tx, a, "interview", { question: "Teaching from " + file.data.name, answer: file.data.text, origin: "onboarding_chat", attachmentId: file.id, extraction: file.data.extraction, warnings: file.data.warnings, allowedUses: ["model_prompt", "trainer_specific_learning"] }, { status: "answered" });
-          data.teachingIds.push(source.id);
-          await event(tx, a, "brain.interview_answered", source.id);
-        }
+        const sourceIds = teaching ? await recordTeaching(tx, a, data, b.retryOf ?? b.id, b.text, q, files, false, !!b.retryOf) : [];
         let held = false;
         if (a.role === "subscriber") {
           const healthMaterial = [b.text, ...files.map(f => `File: ${f.data.name}\n${f.data.text}`)].join("\n\n");
@@ -258,7 +274,7 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
         }
         await save(tx, a, row, data);
         const rules = a.role === "owner" ? await tx.query("SELECT data FROM records WHERE kind='rule' AND status='confirmed' ORDER BY updated_at DESC LIMIT 24") : [];
-        return { data, q, p, held, material, files, rules: rules.map(r => ({ title: String(r.data.title ?? "").slice(0, 120), condition: String(r.data.condition ?? "").slice(0, 300), directive: String(r.data.directive ?? "").slice(0, 500) })) };
+        return { data, q, p, held, material, files, sourceIds, rules: rules.map(r => ({ title: String(r.data.title ?? "").slice(0, 120), condition: String(r.data.condition ?? "").slice(0, 300), directive: String(r.data.directive ?? "").slice(0, 500) })) };
       });
       if (prepared.held) {
         await finish(a, b.id, data => { say(data, "I've flagged this for your coach. Please pause training until it has been reviewed. If you feel seriously unwell or in immediate danger, contact local emergency services."); });
@@ -268,11 +284,12 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
           const p = await permissions(tx, a);
           const merged = mergeChatFacts(data, answer, prepared.material, b.retryOf ?? b.id, new Date().toISOString(), specialties, p.nutrition);
           Object.assign(data, merged);
-          if (a.role === "owner" && !b.retryOf && !privacyMatches(b.text).length && prepared.data.teachingIds.length === claimed.row.data.teachingIds.length &&
-              ["approach", "alwaysDo", "neverDo", "referOut", "maxLoadJumpPct", "maxWeeklyVolumeIncreasePct"].some(k => data.memory[k]?.messageId === b.id)) {
-            const source = await putRecord(tx, a, "interview", { question: prepared.q.text, answer: b.text, origin: "onboarding_chat", allowedUses: ["model_prompt", "trainer_specific_learning"] }, { status: "answered" });
-            data.teachingIds.push(source.id);
-            await event(tx, a, "brain.interview_answered", source.id);
+          if (a.role === "owner" && !privacyMatches([b.text, ...prepared.files.map(f => f.data.text)].join("\n")).length) {
+            const messageId = b.retryOf ?? b.id;
+            const newTeaching = answer.coaching?.answers?.length || answer.coaching?.methods ||
+              ["approach", "alwaysDo", "neverDo", "referOut", "maxLoadJumpPct", "maxWeeklyVolumeIncreasePct"].some(k => data.memory[k]?.messageId === messageId);
+            const sourceIds = prepared.sourceIds.length ? prepared.sourceIds : newTeaching ? await recordTeaching(tx, a, data, messageId, b.text, prepared.q, prepared.files, !!answer.coaching?.methods, !!b.retryOf) : [];
+            mergeCoachingInterview(data, answer.coaching, prepared.material, messageId, new Date().toISOString(), sourceIds);
           }
           if (b.retryOf) await tx.query("UPDATE records SET status='complete',updated_at=now() WHERE id=$1 AND kind='onboarding_chat_request'", [b.retryOf]);
           const q = nextChatQuestion(data, specialties, p.nutrition);
@@ -377,7 +394,7 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
         if (b.action === "resume") { c.paused = false; c.skipped = []; }
         if (b.action === "skip") {
           const q = c.lastQuestion ?? nextChatQuestion(c, specialties, claimed.p.nutrition);
-          if (!["review", "teaching", "paused"].includes(q.field)) c.skipped.push(q.field);
+          if (!["review", "teaching", "paused", "coaching.review"].includes(q.field)) c.skipped = [...new Set([...c.skipped, q.field])];
         }
         if (applied) c.applied[applied[0]] = applied[1];
         c.compiledIds = [...new Set([...c.compiledIds, ...compiled])];

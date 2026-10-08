@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { emptyChat, parseChatReply, mergeChatFacts } from "../packages/domain/src/onboarding-chat.ts";
+import { emptyChat, parseChatReply, mergeChatFacts, coachSpecs } from "../packages/domain/src/onboarding-chat.ts";
+import { coachingTopics } from "../packages/domain/src/coaching-interview.ts";
 import { onboardingReply } from "../packages/providers/src/onboarding-chat.ts";
 import { withRuntimeConfig } from "../packages/providers/src/configuration.ts";
 import { modelCallBudget } from "../packages/providers/src/model-request.ts";
@@ -83,6 +84,28 @@ test("onboarding has room for structured output and uses model-family timeouts u
   assert.deepEqual(modelCallBudget("onboarding_reply", { MODEL_NAME: "seed-2-0-pro-260328" }), { maxTokens: 4096, timeoutMs: 60000 });
   assert.deepEqual(modelCallBudget("onboarding_reply", { MODEL_NAME: "gpt-5.5" }), { maxTokens: 4096, timeoutMs: 60000 });
   assert.deepEqual(modelCallBudget("onboarding_reply", { MODEL_NAME: "fixture" }), { maxTokens: 4096, timeoutMs: 30000 });
+});
+
+test("long coaching interviews preserve facts and coverage while leaving bounded space for file excerpts", async () => {
+  await withReply({}, completion(JSON.stringify(clarification)), async (_send, sent) => {
+    const c = emptyChat("coach");
+    c.facts = Object.fromEntries(Object.entries(coachSpecs([])).map(([key, field]) => [key,
+      field.kind === "text" ? "x".repeat(field.max) : field.kind === "list" ? Array(field.items).fill("x".repeat(field.max)) : field.kind === "enum" ? field.values[0] : field.max,
+    ]));
+    c.messages = Array.from({ length: 8 }, (_, i) => ({ id: String(i), from: "person", text: "x".repeat(i === 7 ? 4000 : 700), at: "now" }));
+    const points = coachingTopics.flatMap(t => t.points);
+    for (const count of [0, 16, points.length]) {
+      c.interview = { version: 1, answers: Object.fromEntries(points.slice(0, count).map(p => [p.id, { evidence: "x".repeat(1200), messageId: "message", at: "now", sourceIds: ["source"] }])) };
+      await onboardingReply(c, { field: "coaching.weekly.split", text: "How do you split the week?" }, Array(10).fill({ title: "x".repeat(120), condition: "x".repeat(300), directive: "x".repeat(500) }), [], false,
+        { reserve: async () => undefined, record: async () => {} }, [1, 2, 3].map(i => ({ name: "notes" + i + ".txt", text: "x".repeat(8000) })));
+      const content = sent.at(-1).body.messages[1].content, context = JSON.parse(content);
+      assert.ok(content.length <= 36000);
+      assert.deepEqual(context.facts, JSON.parse(JSON.stringify(c.facts)));
+      assert.equal(Object.keys(context.coachingInterview.covered).length, count);
+      assert.equal(context.conversation.at(-1).text.length, 4000);
+      assert.ok(context.attachments.every((f: any) => f.text.length >= 1000 && f.truncated));
+    }
+  });
 });
 
 test("Seed 2.0 is frontier for inherited and named profiles without relabelling other model families", () => {

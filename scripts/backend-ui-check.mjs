@@ -51,6 +51,8 @@ try {
   if (await declineAnalytics.isVisible()) await declineAnalytics.click();
   await check("immediate onboarding exit saves the latest answer", async () => {
     await go("/setup/about");
+    const conversationOptions = page.getByRole("button", { name: "Conversation options", exact: true });
+    if (await conversationOptions.isVisible()) await conversationOptions.click();
     const forms = page.getByRole("button", { name: "Use setup forms", exact: true });
     if (await forms.count()) await forms.last().click();
     await page.getByLabel("Your name, as clients will see it", { exact: true }).fill("Alex Save Before Exit");

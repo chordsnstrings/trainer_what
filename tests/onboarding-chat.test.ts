@@ -278,3 +278,84 @@ test("resume excludes previously compiled teaching and includes new practice cor
   c = await snapshot(owner); assert.ok(c.teachingIds.includes(correctionId));
   assert.ok(!c.compiledIds.includes(correctionId)); assert.equal(c.brain.suggestions.teaching, 1);
 });
+
+test("a detailed trainer answer persists programming coverage and sources, asks CrossFit follow-ups and survives archiving", async () => {
+  const owner = await ctx.person({ role: "owner" });
+  const a = { userId: owner.userId, tenantId: owner.tenantId, role: "owner" };
+  let c = await snapshot(owner);
+  const answers = [
+    { point: "philosophy.priorities", evidence: "I prioritise repeatable technique and consistent attendance because those let beginners develop capacity." },
+    { point: "philosophy.tradeoffs", evidence: "If someone wants faster progress than their recovery supports, I keep the workload manageable and explain the trade-off." },
+    { point: "methods.choice", evidence: "I coach CrossFit, combining strength, skills and conditioning for people who want broad fitness." },
+    { point: "assessment.baseline", evidence: "I assess movement control, training history, basic work capacity and the client's available schedule before programming." },
+    { point: "assessment.placement", evidence: "Beginners start with simple movement practice; experienced clients start from loads and skills they can already perform consistently." },
+    { point: "weekly.split", evidence: "I programme three full-body days, alternating emphasis on strength and conditioning so the week has time to recover." },
+    { point: "weekly.frequency", evidence: "With two days I keep full-body sessions; with five I separate heavier strength, skills and conditioning days." },
+    { point: "session.sequence", evidence: "A session has ten minutes of warm-up, twenty of strength, fifteen of conditioning and five to cool down." },
+    { point: "session.order", evidence: "I put technical skill practice before heavy strength, then conditioning, so fatigue does not spoil skill learning." },
+  ];
+  const text = "I coach busy beginners. " + answers.map(answer => answer.evidence).join(" ");
+  const id = randomUUID();
+  await model(() => ({ reply: "Your week gives skill work space before fatigue builds.", patch: { audience: "busy beginners" }, evidence: { audience: "busy beginners" }, coaching: { answers, methods: { selected: ["crossfit"], evidence: answers[2]!.evidence } } }), async sent => {
+    const r = await call(owner, "/onboarding-chat/messages", { id, version: c.version, text });
+    c = r.json(); assert.equal(c.error, undefined, r.body);
+    assert.equal(c.lastQuestion.field, "coaching.crossfit_stimulus.design");
+    assert.match(c.lastQuestion.text, /CrossFit.*stimulus/);
+    assert.equal(c.coachingCoverage.covered, 5); assert.equal(c.coachingCoverage.total, 21);
+    assert.equal(c.teachingIds.length, 1); assert.equal(c.brain.rules.length, 0);
+    assert.equal(c.interview.answers["weekly.split"].messageId, id);
+    assert.deepEqual(c.interview.answers["weekly.split"].sourceIds, c.teachingIds);
+    assert.ok(sent[0].coachingInterview.curriculum.some((t: any) => t.method === "crossfit"));
+    const source = await ctx.db.tenant(a, tx => tx.query("SELECT data FROM records WHERE id=$1", [c.teachingIds[0]]));
+    assert.equal(source[0].data.answer, text); assert.equal(source[0].data.messageId, id);
+    assert.deepEqual(source[0].data.allowedUses, ["model_prompt", "trainer_specific_learning"]);
+  });
+  c = await snapshot(owner); assert.equal(c.lastQuestion.field, "coaching.crossfit_stimulus.design");
+  await model(() => ({ reply: "For example, what should an athlete feel during it?", patch: {}, evidence: {}, coaching: { answers: [{ point: "crossfit_stimulus.design", evidence: "It depends on the client." }] } }), async () => {
+    c = (await call(owner, "/onboarding-chat/messages", { id: randomUUID(), version: c.version, text: "It depends on the client." })).json();
+    assert.equal(c.lastQuestion.field, "coaching.crossfit_stimulus.design");
+    assert.equal(c.interview.answers["crossfit_stimulus.design"], undefined);
+  });
+  // Force the same archive boundary a long, comprehensive interview crosses.
+  await ctx.db.tenant(a, async tx => {
+    const [row] = await tx.query("SELECT id,data FROM records WHERE kind='onboarding_chat'");
+    row.data.messages = Array.from({ length: 101 }, (_, i) => ({ id: randomUUID(), from: i % 2 ? "person" : "assistant", text: "Synthetic earlier conversation", at: new Date().toISOString() }));
+    await tx.query("UPDATE records SET data=$2 WHERE id=$1", [row.id, JSON.stringify(row.data)]);
+  });
+  c = (await call(owner, "/onboarding-chat/actions", { id: randomUUID(), version: c.version, action: "pause" })).json();
+  assert.ok(c.archived >= 60);
+  c = (await call(owner, "/onboarding-chat/actions", { id: randomUUID(), version: c.version, action: "resume" })).json();
+  assert.equal(c.lastQuestion.field, "coaching.crossfit_stimulus.design");
+  assert.equal(c.coachingCoverage.covered, 5);
+  c = (await call(owner, "/onboarding-chat/actions", { id: randomUUID(), version: c.version, action: "skip" })).json();
+  assert.equal(c.lastQuestion.field, "coaching.crossfit_stimulus.pacing");
+  assert.equal(c.coachingCoverage.covered, 5);
+});
+
+test("retrying a failed coaching extraction credits the original teaching source once", async () => {
+  const owner = await ctx.person({ role: "owner" }), initial = await snapshot(owner);
+  const text = "I increase the load only after the client completes every set at the target reps with consistent technique.";
+  const first = { id: randomUUID(), version: initial.version, mode: "teach", text };
+  let calls = 0;
+  await model(() => ++calls === 1 ? "invalid" : { reply: "Technique and completed reps come before adding load.", patch: {}, evidence: {}, coaching: { answers: [{ point: "progression.advance", evidence: text }] } }, async () => {
+    const failed = (await call(owner, "/onboarding-chat/messages", first)).json();
+    assert.ok(failed.error); assert.equal(failed.teachingIds.length, 1);
+    // Also covers a saved failure from the release before message/source linkage.
+    await ctx.db.tenant({ userId: owner.userId, tenantId: owner.tenantId, role: "owner" }, tx => tx.query("UPDATE records SET data=data-'messageId' WHERE id=$1", [failed.teachingIds[0]]));
+    const retry = (await call(owner, "/onboarding-chat/messages", { ...first, id: randomUUID(), version: failed.version, retryOf: first.id })).json();
+    assert.equal(retry.error, undefined); assert.equal(retry.teachingIds.length, 1);
+    assert.equal(retry.interview.answers["progression.advance"].messageId, first.id);
+    assert.deepEqual(retry.interview.answers["progression.advance"].sourceIds, failed.teachingIds);
+    assert.equal(retry.compiledIds.length, 0);
+  });
+});
+
+test("a short method name selects relevant follow-ups without pretending it is a detailed answer", async () => {
+  const owner = await ctx.person({ role: "owner" }), initial = await snapshot(owner);
+  await model(() => ({ reply: "Let's explore how you use it.", patch: {}, evidence: {}, coaching: { methods: { selected: ["crossfit"], evidence: "CrossFit" } } }), async () => {
+    const c = (await call(owner, "/onboarding-chat/messages", { id: randomUUID(), version: initial.version, mode: "teach", text: "CrossFit" })).json();
+    assert.equal(c.error, undefined); assert.deepEqual(c.interview.methods.selected, ["crossfit"]);
+    assert.equal(c.coachingCoverage.total, 21); assert.equal(c.coachingCoverage.covered, 0);
+    assert.equal(c.teachingIds.length, 1); assert.equal(c.interview.answers["methods.choice"], undefined);
+  });
+});

@@ -28,8 +28,10 @@ const server = createServer({ key: tls.key, cert: tls.cert }, async (req, res) =
   const payload = JSON.parse(raw), context = JSON.parse(payload.messages[1].content);
   const text = context.conversation.at(-1).text, patch = replies[context.audience];
   const evidence = Object.fromEntries(Object.keys(patch).map(key => [key, key === "limitations" ? "No injuries or limitations" : text]));
+  const coaching = context.audience === "coach" && text.includes("simple strength sessions")
+    ? { methods: { selected: ["strength"], evidence: "simple strength sessions" } } : undefined;
   res.setHeader("Content-Type", "application/json");
-  res.end(JSON.stringify({ usage: { prompt_tokens: 20, completion_tokens: 20 }, choices: [{ message: { content: JSON.stringify({ reply: "That sounds doable. We'll keep it practical.", patch, evidence, question: null, questionField: null }) } }] }));
+  res.end(JSON.stringify({ usage: { prompt_tokens: 20, completion_tokens: 20 }, choices: [{ message: { content: JSON.stringify({ reply: "That sounds doable. We'll keep it practical.", patch, evidence, coaching, question: null, questionField: null }) } }] }));
 });
 await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
 const port = server.address().port;
