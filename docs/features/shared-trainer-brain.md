@@ -1,6 +1,6 @@
 # One trainer Brain across channels
 
-Status: release candidate, validation in progress, 8 October 2026. Owner direction: one consistent Brain across all channels, including the trainer's decisions, tone, actual wording and continued teaching. Branch `feat/shared-trainer-brain-2026-10-08`, based on PR #51 / `52d2d968dd9da65fee5dfddce4916c489a1dff84`. Do not claim this work is live.
+Status: live, 8 October 2026. [PR #52](https://github.com/chordsnstrings/trainer_what/pull/52) merged as `5a0749a8bc3e970543234b0f12bcd18502a27a93`; [serving verification](https://github.com/chordsnstrings/trainer_what/actions/runs/37818441259) confirmed HTTP 200 and that exact release at 17:45:03 UTC / 21:45:03 Dubai. Owner direction: one consistent Brain across all channels, including the trainer's decisions, tone, actual wording and continued teaching.
 
 ## Findings before this change
 
@@ -29,4 +29,12 @@ The migration backfills only currently published releases, using the same tenant
 
 A failed or stale Brain check keeps the last published version. Working answers do not start publication; saved phrase-bank edits and explicit style confirmation request the usual background check. The common editor is available from the conversation's Brain review and the detailed Brain workspace. The existing seven questions, exact phrase banks and always/never phrases are the communication training material; this does not fine-tune model weights or prove that unseen responses match the human trainer.
 
-Validation so far: root TypeScript and 192 focused and affected-domain tests passed. The local Next build is blocked by external cached dependency paths; production build, hosted browser and full release gates remain pending in CI. Do not claim production deployment until the readiness release header is recorded here or in the handoff.
+## Validation and access
+
+Root TypeScript and 219 focused/affected-domain checks passed. All six PR gates passed on `abcaf83a7489e4175f6caf3c6520360df566eaa4`: [application, PostgreSQL/container and browser checks](https://github.com/chordsnstrings/trainer_what/actions/runs/37809780857) and [phone/desktop conversation checks](https://github.com/chordsnstrings/trainer_what/actions/runs/37809780961). The full application suite recorded 1,766 passed / 0 failed / 5 skipped; PostgreSQL recorded 1,765 passed / 0 failed / 6 skipped. Fresh CI production builds passed. Browser evidence includes saving shared communication answers, phone/desktop layouts, files/calls and subscriber/guided-workout journeys. An outdated expected list of qualification-pin fields was corrected before release; no gate was bypassed.
+
+All five [exact-main production checks](https://github.com/chordsnstrings/trainer_what/actions/runs/37814120364) passed before the [serving watcher](https://github.com/chordsnstrings/trainer_what/actions/runs/37818441259) confirmed `x-gymmembership-release: 5a0749a8bc3e970543234b0f12bcd18502a27a93` with HTTP 200 at 17:45:03 UTC on 8 October 2026. This receipt applies to the feature release; subsequent documentation updates do not change that observed release.
+
+Open **My Brain → Conversation options → Brain review → Your communication style**, or the detailed Brain workspace's **Communication style** tab. New context/prompt pins require applicable automatic qualifications to pass again; **Check my Brain** is available. No claim is made that every live workspace has already requalified. Nutrition retains its reviewed-week activation step.
+
+Real-provider/account acceptance and physical iPhone/Android audio remain unverified. Browser fixtures and context consistency do not establish human-trainer fidelity.
