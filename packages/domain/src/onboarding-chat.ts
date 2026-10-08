@@ -1,0 +1,158 @@
+import { z } from "zod";
+import { groundSetupDraft, mentionsModelVendor, setupFields, type Specialty } from "./setup-assistant.ts";
+import { givesMedicalAdvice } from "./text-screen.ts";
+
+export const CHAT_VERSION = "onboarding-chat-v1";
+export type ChatAudience = "coach" | "member";
+export type ChatMode = "setup" | "teach";
+export type ChatMessage = { id: string; from: "person" | "assistant"; text: string; at: string };
+export type ChatMemory = Record<string, { evidence: string; messageId: string; at: string }>;
+export type ChatData = {
+  audience: ChatAudience; mode: ChatMode; messages: ChatMessage[];
+  facts: Record<string, any>; memory: ChatMemory; skipped: string[];
+  teachingIds: string[]; compiledIds: string[]; paused: boolean;
+  applied: Record<string, string>; pending?: { id: string; at: string }; lastQuestion?: { field: string; text: string };
+  error?: string; archived?: number;
+};
+export const replySchema = z.object({
+  reply: z.string().max(700),
+  patch: z.record(z.string(), z.unknown()).default({}),
+  evidence: z.record(z.string(), z.string().max(1000)).default({}),
+  question: z.string().max(220).optional(),
+  questionField: z.string().max(50).optional(),
+}).strict();
+export type ChatReply = z.infer<typeof replySchema>;
+export const memberFieldSchemas: Record<string, z.ZodType> = {
+  age: z.number().int().min(18).max(100), goal: z.string().min(3).max(1000),
+  experience: z.enum(["beginner", "intermediate", "advanced"]),
+  daysPerWeek: z.number().int().min(1).max(7),
+  availableWeekdays: z.array(z.number().int().min(0).max(6)).min(1).max(7).refine(a => new Set(a).size === a.length),
+  maxSessionMinutes: z.number().int().min(15).max(180),
+  equipment: z.string().min(1).max(1000), limitations: z.string().min(1).max(2000),
+  diet: z.string().min(1).max(80),
+  allergyStatus: z.enum(["none_reported", "reported", "unknown", "declined"]),
+  allergens: z.array(z.string().min(1).max(80)).max(30),
+  exclusions: z.array(z.string().min(1).max(80)).max(30),
+  kitchenEquipment: z.array(z.string().min(1).max(80)).max(30),
+  cookingMinutes: z.number().int().min(1).max(1440),
+  foodBudget: z.enum(["low", "moderate", "flexible"]),
+  nutritionScope: z.enum(["general_wellness", "specialist_needed", "unknown"]),
+  nutritionNotes: z.string().max(2000),
+};
+export const memberQuestions: Record<string, string> = {
+  goal: "What would you most like to change?",
+  experience: "How much training have you done before?",
+  daysPerWeek: "How many days a week can you realistically train?",
+  availableWeekdays: "Which days usually work for you?",
+  maxSessionMinutes: "How much time can you give each session?",
+  equipment: "What equipment will you have?",
+  age: "How old are you?",
+  limitations: "Anything affecting how you can train, like an injury or a movement you need to avoid?",
+  diet: "How do you usually like to eat?",
+  allergyStatus: "Do you have any food allergies?",
+  allergens: "Which foods are you allergic to?",
+  exclusions: "Any other foods you avoid?",
+  kitchenEquipment: "What can you cook with at home?",
+  cookingMinutes: "How much time do you want to spend cooking?",
+  foodBudget: "Would you describe your food budget as low, moderate or flexible?",
+  nutritionScope: "Are you looking for general meal planning, or do you need help managing a medical condition?",
+  nutritionNotes: "Anything else your coach should know about food?",
+};
+export const trainingFields = ["goal", "experience", "daysPerWeek", "availableWeekdays", "maxSessionMinutes", "equipment", "age", "limitations"];
+export const nutritionFields = ["diet", "allergyStatus", "exclusions", "kitchenEquipment", "cookingMinutes", "foodBudget", "nutritionScope"];
+export const coachOrder = ["audience", "approach", "alwaysDo", "referOut", "publicName", "city", "specialty", "headline", "bio", "name", "priceAed", "billing"];
+export const teachingTopics = [
+  "How do you decide when a client is ready to progress?",
+  "What would you change for a client who can only train twice a week?",
+  "How do you adapt a session when a client is tired?",
+  "What tells you a beginner is doing too much?",
+  "How do you help someone get back on track after missing a week?",
+  "When would you stop a session and refer a client to a professional?",
+  "How do you choose an alternative when a client dislikes an exercise?",
+];
+export function emptyChat(audience: ChatAudience, mode: ChatMode = "setup"): ChatData {
+  return { audience, mode, messages: [], facts: {}, memory: {}, skipped: [], teachingIds: [], compiledIds: [], paused: false, applied: {} };
+}
+export function coachSpecs(specialties: readonly Specialty[]) {
+  return Object.assign({}, ...(["about", "page", "brain", "plan"] as const).map(s => setupFields(s, specialties))) as ReturnType<typeof setupFields>;
+}
+export function hasFact(facts: Record<string, any>, key: string) {
+  const value = facts[key];
+  return value !== undefined && value !== null && value !== "" && (!Array.isArray(value) || value.length > 0 || ["allergens", "exclusions", "kitchenEquipment"].includes(key));
+}
+export function missingFacts(c: ChatData, nutrition = false) {
+  const keys = c.audience === "coach" ? coachOrder : [...trainingFields, ...(nutrition ? nutritionFields : [])];
+  const missing = keys.filter(k => !hasFact(c.facts, k));
+  if (c.audience === "coach" && c.facts.billing === "upfront" && !hasFact(c.facts, "programmeDays")) missing.push("programmeDays");
+  if (nutrition && c.facts.allergyStatus === "reported" && !c.facts.allergens?.length) missing.push("allergens");
+  if (c.audience === "member" && c.facts.daysPerWeek && c.facts.availableWeekdays?.length < c.facts.daysPerWeek && !missing.includes("availableWeekdays")) missing.push("availableWeekdays");
+  return missing;
+}
+export function nextChatQuestion(c: ChatData, specialties: readonly Specialty[], nutrition = false) {
+  if (c.paused) return { field: "paused", text: "Saved. We can pick this up whenever you're ready." };
+  const field = missingFacts(c, nutrition).find(f => !c.skipped.includes(f));
+  if (field && !(c.audience === "coach" && c.mode === "teach")) {
+    return { field, text: c.audience === "member" ? memberQuestions[field] : coachSpecs(specialties)[field]?.question ?? "Tell me a little more." };
+  }
+  if (c.audience === "member") return { field: "review", text: "That's enough to get started. Check your profile below, or tell me what to change." };
+  const index = c.teachingIds.length % teachingTopics.length;
+  return { field: "teaching", text: teachingTopics[index]! };
+}
+const normal = (s: string) => s.toLowerCase().replace(/[٠-٩]/g, d => String(d.charCodeAt(0) - 1632)).replace(/\s+/g, " ").trim();
+const numberWords: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7 };
+function numberIn(value: number, evidence: string) {
+  const normalized = normal(evidence).replace(/\b(one|two|three|four|five|six|seven)\b/g, w => String(numberWords[w]));
+  return [...normalized.matchAll(/\d+(?:\.\d+)?/g)].some(m => Number(m[0]) === value);
+}
+const weekdays = [
+  /\b(sun|sunday)\b|الأحد|الاحد/i, /\b(mon|monday)\b|الإثنين|الاثنين/i,
+  /\b(tue|tues|tuesday)\b|الثلاثاء/i, /\b(wed|wednesday)\b|الأربعاء|الاربعاء/i,
+  /\b(thu|thur|thurs|thursday)\b|الخميس/i, /\b(fri|friday)\b|الجمعة/i,
+  /\b(sat|saturday)\b|السبت/i,
+];
+/** A model proposes facts; only fields tied to the person's current words survive. */
+export function mergeChatFacts(c: ChatData, reply: ChatReply, text: string, messageId: string, at: string, specialties: readonly Specialty[], nutrition = false) {
+  const next = structuredClone(c), accepted: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(reply.patch)) {
+    const evidence = reply.evidence[key];
+    if (!evidence?.trim() || !normal(text).includes(normal(evidence))) continue;
+    if (c.audience === "member" && typeof value === "number" && !numberIn(value, evidence)) continue;
+    if (c.audience === "member") {
+      if (!nutrition && !trainingFields.includes(key)) continue;
+      const checked = memberFieldSchemas[key]?.safeParse(value);
+      if (!checked?.success) continue;
+      if (key === "availableWeekdays" && !(checked.data as number[]).every(day => weekdays[day]!.test(evidence) || /\b(every day|any day|all days|daily)\b|كل يوم|جميع الأيام/i.test(evidence))) continue;
+      // Preserve the person's health disclosure verbatim, including negations.
+      accepted[key] = ["limitations", "nutritionNotes"].includes(key) ? evidence : checked.data;
+    } else accepted[key] = value;
+  }
+  if (c.audience === "coach") {
+    const grounded: Record<string, unknown> = {};
+    for (const step of ["about", "page", "brain", "plan"] as const)
+      Object.assign(grounded, groundSetupDraft(step, accepted, [text], specialties, {}).fields);
+    for (const key of Object.keys(accepted)) {
+      if (grounded[key] === undefined) delete accepted[key];
+      else accepted[key] = grounded[key];
+    }
+  }
+  for (const [key, value] of Object.entries(accepted)) {
+    next.facts[key] = value;
+    next.memory[key] = { evidence: reply.evidence[key]!, messageId, at };
+    next.skipped = next.skipped.filter(k => k !== key);
+  }
+  return next;
+}
+/** Short phone-message copy, no model/vendor names or unsolicited coaching advice. */
+export function chatText(value: string | undefined, fallback = "Got it.") {
+  if (!value || mentionsModelVendor(value) || givesMedicalAdvice(value)) return fallback;
+  const text = value.replace(/^\s*#{1,6}\s*/gm, "").replace(/\*\*|__|`/g, "").replace(/^\s*[-*]\s+/gm, "").trim();
+  const short = text.length > 360 ? text.slice(0, 357).trimEnd() + "…" : text;
+  return short || fallback;
+}
+export function appendChatMessage(c: ChatData, message: ChatMessage) {
+  if (!c.messages.some(m => m.id === message.id)) c.messages.push(message);
+}
+export function profileReady(c: ChatData) {
+  const keys = c.audience === "coach" ? ["publicName", "city", "specialty", "audience", "headline", "bio"] : trainingFields;
+  return keys.every(k => hasFact(c.facts, k)) && (c.audience === "coach" || c.facts.availableWeekdays.length >= c.facts.daysPerWeek);
+}
