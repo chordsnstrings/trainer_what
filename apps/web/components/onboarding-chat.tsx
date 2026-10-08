@@ -1,12 +1,14 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
-import { ArrowUp, ArrowDown, Send, Check, MessageCircle, Pause, RotateCcw, X, Phone, Mic } from "lucide-react";
+import { ArrowUp, ArrowDown, Send, Check, MessageCircle, Pause, RotateCcw, Phone, Mic, MoreHorizontal, ChevronRight, Sparkles } from "lucide-react";
 import type { ChatData, ChatMessage, OnboardingAttachment } from "../../../packages/domain/src/onboarding-chat";
+import type { CoachingCoverage } from "../../../packages/domain/src/coaching-interview";
 import { useWorkspaceValue } from "./workspace-continuity";
 import { MemberIntake } from "./member-intake";
 import { OnboardingFiles, OnboardingFile, type OnboardingFilesHandle } from "./onboarding-files";
 import { OnboardingCall } from "./onboarding-call";
+import { ConversationTools, type ConversationPanel } from "./onboarding-tools";
 import { chatAppearance, onboardingRequest as request, type ChatAppearance } from "../lib/onboarding-http";
 import { prefersReducedMotion } from "./motion";
 
@@ -14,6 +16,7 @@ type State = ChatData & {
   id: string; version: number; ready: boolean; missing: string[]; programReady?: boolean;
   permissions: { coaching: boolean; nutrition: boolean; nutritionIncluded: boolean; active: boolean };
   setup?: any; brain?: any;
+  coachingCoverage?: CoachingCoverage;
 };
 type Props = { audience: "coach" | "member"; mode?: "setup" | "teach"; onSaved?: () => void | Promise<void>; onDetails?: () => void };
 const labels: Record<string, string> = {
@@ -65,7 +68,9 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
   const [optimistic, setOptimistic] = useState<ChatMessage | null>(null), [arriving, setArriving] = useState<Set<string>>(new Set()), [newMessages, setNewMessages] = useState(false);
   const known = useRef<Set<string> | null>(null), scrolled = useRef(false), nearBottom = useRef(true), thread = useRef<HTMLDivElement>(null), filePicker = useRef<OnboardingFilesHandle>(null), textRef = useRef(text);
   textRef.current = text;
-  const [review, setReview] = useState(false), [rulesOpen, setRulesOpen] = useState(false);
+  const [panel, setPanel] = useState<ConversationPanel>(null), [rulesOpen, setRulesOpen] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const sentHere = useRef(new Set<string>()), composer = useRef<HTMLElement>(null);
   const [answerMode, setAnswerMode] = useState(false), [scenarioMode, setScenarioMode] = useState(false);
   const [ruleId, setRuleId] = useState(""), [escalate, setEscalate] = useState(false);
   const [older, setOlder] = useState<ChatMessage[]>([]), [before, setBefore] = useState<string | null>(null), [historyDone, setHistoryDone] = useState(false);
@@ -78,7 +83,8 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
   const receive = useCallback((next: State) => {
     if (!mounted.current) return;
     const ids = new Set(next.messages.map(m => m.id));
-    setArriving(new Set(known.current ? [...ids].filter(id => !known.current!.has(id)) : []));
+    const unseen = known.current ? [...ids].filter(id => !known.current!.has(id)) : [];
+    if (unseen.length) setArriving(current => new Set([...current, ...unseen]));
     known.current = new Set([...(known.current ?? []), ...ids]);
     setState(next);
     setOptimistic(old => old && ids.has(old.id) ? null : old);
@@ -108,11 +114,26 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
     scrolled.current = true;
   }, [state?.messages.at(-1)?.id, sending, optimistic?.id]);
   useEffect(() => { if (input.current) { input.current.style.height = "0px"; input.current.style.height = Math.min(input.current.scrollHeight, 144) + "px"; } }, [text, sending]);
+  useEffect(() => {
+    if (!arriving.size) return;
+    const timer = window.setTimeout(() => setArriving(new Set()), 900);
+    return () => window.clearTimeout(timer);
+  }, [arriving]);
+  useEffect(() => {
+    if (!composer.current || !thread.current) return;
+    const observer = new ResizeObserver(() => {
+      if (nearBottom.current && thread.current) thread.current.scrollTop = thread.current.scrollHeight;
+    });
+    observer.observe(composer.current);
+    return () => observer.disconnect();
+  }, [state?.id]);
   const busy = sending || !!state?.pending || callActive;
   const act = async (action: string, extra: Record<string, any> = {}) => {
     if (!latest.current || flight.current || latest.current.pending) return;
-    await transmit("/onboarding-chat/actions", { id: crypto.randomUUID(), version: latest.current.version, action, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, ...extra });
-    if (action === "compile") setRulesOpen(true);
+    setPanel(null);
+    const next = await transmit("/onboarding-chat/actions", { id: crypto.randomUUID(), version: latest.current.version, action, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, ...extra });
+    if (next && !next.error && ["compile", "approve"].includes(action)) { setRulesOpen(true); setPanel("brain"); }
+    if (next && !next.error && ["profile", "offer", "nutrition"].includes(action)) setPanel("details");
   };
   async function transmit(path: string, body: any, sentText?: string) {
     if (flight.current) return;
@@ -120,6 +141,9 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
     restoreRequest.current = { path, body, sentText };
     if (path.endsWith("/messages") && !body.retryOf) {
       nearBottom.current = true;
+      known.current?.add(body.id);
+      sentHere.current.add(body.id);
+      setArriving(current => new Set([...current, body.id]));
       setOptimistic({ id: body.id, from: "person", text: body.text || "I've shared a file for us to look at.", at: new Date().toISOString(), attachments: files });
     }
     try {
@@ -136,6 +160,7 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
       }
       // A failed background refresh must never turn a successful save into a resend.
       if (!next.error && path.endsWith("/actions")) void Promise.resolve(onSaved?.()).catch(() => {});
+      return next;
     } catch (e) {
       if (mounted.current) {
         setError((e as Error).message);
@@ -179,26 +204,84 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
   const lastPerson = state?.messages.filter(m => m.from === "person").at(-1);
   const rows = state ? Object.entries(state.facts).filter(([, value]) => value !== undefined && value !== null && value !== "") : [];
   const messages = [...older, ...(state?.messages ?? []), ...(optimistic && !state?.messages.some(m => m.id === optimistic.id) ? [optimistic] : [])];
+  const lastAssistant = messages.map(message => message.from).lastIndexOf("assistant");
   if (!state) return <section className="onboarding-chat" data-chat-style={appearance} aria-label="Onboarding conversation"><div className="onboarding-loading" role="status">{error || "Opening your conversation…"}</div>{error && <button className="button secondary" onClick={() => void load()}>Try again</button>}</section>;
   return <section className={"onboarding-chat" + (dragging ? " drag-over" : "")} data-chat-style={appearance} aria-label={teaching ? "Trainer onboarding conversation" : "Your coaching profile conversation"} onDragOver={e => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setDragging(true); } }} onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false); }} onDrop={e => { e.preventDefault(); setDragging(false); filePicker.current?.add(Array.from(e.dataTransfer.files)); }}>
     <header className="onboarding-chat-header">
       <span className="onboarding-avatar" aria-hidden="true">K</span>
-      <div><h1>{teaching ? mode === "teach" ? "Teach your Brain" : "Let's get you started" : "Let's get to know you"}</h1><p>Kamran · AI {teaching ? "setup guide" : "onboarding guide"} · {callActive ? "Voice call" : sending || state.pending ? "Replying…" : "Saved conversation"}</p></div>
+      <div><h1>Kamran <small>AI</small></h1><p><span className="onboarding-presence" key={callActive ? "call" : sending || state.pending ? "reply" : state.paused ? "paused" : "ready"}>{callActive ? "Voice call in progress" : sending || state.pending ? "Replying…" : state.paused ? "Conversation saved · paused" : teaching ? mode === "teach" ? "Your coaching ideas, in your words" : "Your setup conversation" : "Your coaching conversation"}</span></p></div>
       <button type="button" className="onboarding-icon" aria-label={callActive ? "Return to voice call" : "Start voice conversation"} disabled={!state.permissions.coaching || sending || !!state.pending} onClick={() => setCallOpen(true)}><Phone size={20} /></button>
-      <button className="onboarding-icon" aria-label={review ? "Close saved details" : "View saved details"} aria-expanded={review} onClick={() => setReview(!review)}><Check size={20} /></button>
+      <button type="button" className="onboarding-icon onboarding-more" aria-label="Conversation options" aria-haspopup="dialog" aria-expanded={panel !== null} onClick={() => setPanel("menu")}><MoreHorizontal size={22} />{(uncompiled > 0 || drafts.length > 0 || state.ready && !state.applied.profile) && <span className="onboarding-attention" aria-hidden="true" />}</button>
     </header>
     <OnboardingCall audience={audience} mode={mode} open={callOpen} onOpenChange={setCallOpen} onConversation={receive} onActiveChange={setCallActive} />
+    <ConversationTools panel={panel} onPanel={setPanel}>
+      {panel === "menu" && <div className="onboarding-tool-menu">
+        <button type="button" className="onboarding-tool-action" onClick={() => setPanel("details")}><Check size={18} /><span>View saved details<small>Review the answers you've shared</small></span><ChevronRight size={16} /></button>
+        {teaching && <button type="button" className="onboarding-tool-action" onClick={() => setPanel("brain")}><Sparkles size={18} /><span>Brain review<small>{uncompiled ? uncompiled + " new teaching notes" : drafts.length ? drafts.length + " draft rules" : "Rules, practice and your client situations"}</small></span><ChevronRight size={16} /></button>}
+        {state.permissions.coaching && <>
+          <button type="button" className="onboarding-tool-action" disabled={busy} onClick={() => void act(state.paused ? "resume" : "pause")}><Pause size={18} /><span>{state.paused ? "Continue conversation" : "Save for later"}<small>Your conversation and draft stay saved</small></span></button>
+          {!state.paused && field && !["review", "teaching", "coaching.review"].includes(field) && <button type="button" className="onboarding-tool-action" disabled={busy} onClick={() => void act("skip")}><span>Ask later<small>Come back to the current question</small></span></button>}
+          {!state.paused && state.skipped.length > 0 && <button type="button" className="onboarding-tool-action" disabled={busy} onClick={() => void act("resume")}><RotateCcw size={18} /><span>Revisit deferred questions<small>Continue with the details we left for later</small></span></button>}
+          {!!((choices[field ?? ""] ?? []).length || field === "availableWeekdays" || field === "specialty") && <button type="button" className="onboarding-tool-action" disabled={busy} onClick={() => { setShowSuggestions(!showSuggestions); setPanel(null); }}><MessageCircle size={18} /><span>{showSuggestions ? "Hide suggested replies" : "Suggested replies"}<small>Optional shortcuts for this question</small></span></button>}
+        </>}
+        <div className="onboarding-tool-links">
+          {onDetails && <button className="text-link" onClick={() => { setPanel(null); onDetails(); }}>Use {teaching ? "setup" : "profile"} forms</button>}
+          {teaching && <><Link className="text-link" href="/setup/page?details=1">Page details</Link><Link className="text-link" href="/setup/plan?details=1">Offer details</Link><Link className="text-link" href="/setup/live?details=1">Launch checks</Link></>}
+          {!teaching && state.applied.nutrition && <Link className="text-link" href="/app/nutrition">Open Nutrition</Link>}
+        </div>
+      </div>}
+          {panel === "details" && <div className="onboarding-inline-card onboarding-review">
+            <p>Tell me what to change. {teaching ? "Draft rules need your approval before they can be used." : "Your coach uses the profile you confirm below."}</p>
+            {rows.length ? <dl>{rows.map(([key, value]) => <div key={key}><dt>{labels[key] ?? key}</dt><dd>{valueText(key, value, state)} <button className="text-link" aria-label={"Change " + (labels[key] ?? key)} onClick={() => { setText("Change my " + (labels[key] ?? key).toLowerCase() + " to "); setPanel(null); requestAnimationFrame(() => requestAnimationFrame(() => input.current?.focus())); }}>Change</button></dd></div>)}</dl> : <p>Your answers will appear here.</p>}
+            {state.missing.length > 0 && <p className="muted">Still to cover: {state.missing.map(k => labels[k] ?? k).join(", ")}.</p>}
+            {state.ready && <button className="button" disabled={busy} onClick={() => void act("profile")}>{teaching ? "Save profile and page draft" : "Confirm my coaching profile"}</button>}
+            {teaching && state.facts.name && state.facts.priceAed && state.facts.billing && <button className="button secondary" disabled={busy} onClick={() => void act("offer")}>Save offer draft</button>}
+            {!teaching && state.permissions.nutrition && !state.missing.length && <button className="button secondary" disabled={busy} onClick={() => void act("nutrition")}>Confirm my food preferences</button>}
+          </div>}
+          {panel === "brain" && teaching && <div className="onboarding-brain" aria-label="Brain review">
+            {state.coachingCoverage && <details className="onboarding-inline-card onboarding-coverage">
+              <summary>{state.coachingCoverage.covered} of {state.coachingCoverage.total} coaching topics covered</summary>
+              <p>These are the details you've explained. Your draft rules still need review and practice checks before your Brain uses them.</p>
+              {state.coachingCoverage.topics.map(topic => <details key={topic.id}>
+                <summary>{topic.title}<small>{topic.status === "covered" ? "Covered" : topic.status === "partial" ? "More detail needed" : topic.status === "deferred" ? "Left for later" : "Still to discuss"}</small></summary>
+                {topic.notes.map(note => <blockquote key={note.point}>{note.evidence}</blockquote>)}
+                {topic.next && <p>{topic.next}</p>}
+              </details>)}
+            </details>}
+            {!uncompiled && !drafts.length && !confirmed.length && <p>Share how you coach in our conversation. We can review your teaching here when you're ready.</p>}
+            {uncompiled > 0 && <button className="button secondary" disabled={busy} onClick={() => void act("compile")}>Review what I've taught you <span className="onboarding-count">{uncompiled}</span></button>}
+            {drafts.length > 0 && <details className="onboarding-inline-card" open={rulesOpen} onToggle={e => setRulesOpen(e.currentTarget.open)}>
+              <summary>{drafts.length} draft {drafts.length === 1 ? "rule" : "rules"} to review</summary>
+              <p>These are drafts. Approval makes them available for Brain checks.</p>
+              {drafts.map((r: any) => <article className="onboarding-rule" key={r.id}><strong>{r.title}</strong><p>{r.condition}</p><p>{r.directive}</p>{r.flags?.length > 0 && <p className="onboarding-warning">Needs individual review: {r.flags.join(", ").replaceAll("_", " ")}</p>}</article>)}
+              {!!state.brain.approveAll.length && <button className="button" disabled={busy} onClick={() => void act("approve", { rules: state.brain.approveAll })}>Approve these {state.brain.approveAll.length} clear rules</button>}
+              {!!state.brain.flaggedDrafts && <Link className="text-link" href="/trainer/brain/constitution">Review flagged rules</Link>}
+            </details>}
+            {confirmed.length > 0 && <button className="button secondary" disabled={busy} onClick={() => { if (currentCase) { setPanel(null); nearBottom.current = true; requestAnimationFrame(() => thread.current?.scrollTo({ top: thread.current.scrollHeight, behavior: prefersReducedMotion() ? "auto" : "smooth" })); } else void act("quiz"); }}>{currentCase ? "Continue practice" : "Try a client situation"}</button>}
+            {confirmed.length > 0 && <div className="onboarding-inline-card">
+              <p>{state.brain.ownCases.count < state.brain.ownCases.forWaitsForMe ? "Let's also check situations you've written yourself." : "Have another situation you'd like to check?"}</p>
+              <small>{state.brain.ownCases.count} saved · {state.brain.ownCases.forWaitsForMe} needed for review mode</small>
+              <button className="text-link" disabled={busy} onClick={() => { setScenarioMode(true); setAnswerMode(false); setRuleId(confirmed[0]?.id ?? ""); setPanel(null); requestAnimationFrame(() => requestAnimationFrame(() => input.current?.focus())); }}>Add a client situation</button>
+            </div>}
+            {state.brain?.launch?.supervised?.ready && <button className="button" disabled={busy} onClick={() => void act("publish")}>Use Brain in review mode</button>}
+            {state.brain?.launch?.supervised?.missing?.length > 0 && <details className="onboarding-inline-card"><summary>What your Brain still needs</summary><ul>{state.brain.launch.supervised.missing.map((item: string) => <li key={item}>{item}</li>)}</ul></details>}
+          </div>}
+    </ConversationTools>
     <div className="onboarding-chat-body">
       <div className="onboarding-thread" ref={thread} onScroll={e => { const el = e.currentTarget; nearBottom.current = el.scrollHeight - el.clientHeight - el.scrollTop < 80; if (nearBottom.current) setNewMessages(false); }}>
         {state.archived && !historyDone ? <button className="text-link" disabled={busy} onClick={async () => {
           try { const root = thread.current, height = root?.scrollHeight ?? 0, top = root?.scrollTop ?? 0; const result = await request("/onboarding-chat/history" + (before ? "?before=" + encodeURIComponent(before) : "")); setOlder(old => [...result.messages, ...old]); setBefore(result.before); if (!result.messages.length) setHistoryDone(true); requestAnimationFrame(() => { if (root) root.scrollTop = top + root.scrollHeight - height; }); } catch (e) { setError((e as Error).message); }
         }}>Earlier messages</button> : null}
         <div className="onboarding-messages" role="log" aria-label="Conversation" aria-live="polite" aria-relevant="additions">
-          {messages.map((message, i) => <div key={message.id} className={"onboarding-message " + message.from + (messages[i - 1]?.from === message.from ? " grouped" : "") + (arriving.has(message.id) || optimistic?.id === message.id ? " arriving" : "")}>
+          {messages.map((message, i) => <div key={message.id} className={"onboarding-message " + message.from + (messages[i - 1]?.from === message.from ? " grouped" : "") + (arriving.has(message.id) ? " arriving" : "")} data-message-id={message.id} data-sent-here={sentHere.current.has(message.id) ? "true" : undefined} style={{ "--chat-arrival-delay": Math.min(180, [...arriving].filter(id => messages.find(m => m.id === id)?.from === "assistant").indexOf(message.id) * 90) + "ms" } as CSSProperties} onAnimationEnd={event => { if (event.target === event.currentTarget) setArriving(current => { const next = new Set(current); next.delete(message.id); return next; }); }}>
             <span className="sr-only">{message.from === "person" ? "You" : "Assistant"}: </span>
             {message.attachments?.map(file => <OnboardingFile file={file} key={file.id} />)}
-            <p dir="auto">{message.text}</p>
-            <span className="onboarding-message-meta">{message.source === "voice" && <Mic size={11} aria-label="From your voice conversation" />}<time dateTime={message.at}>{new Date(message.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time>{message.from === "person" && (optimistic?.id === message.id ? <span>{error ? "Not confirmed" : "Sending…"}</span> : <Check size={13} aria-label="Saved" />)}</span>
+            <p className="onboarding-message-content" dir="auto">{message.text}</p>
+            {i === lastAssistant && !busy && <div className="onboarding-message-actions">
+              {state.ready && !state.applied.profile && <button type="button" className="onboarding-message-link" onClick={() => setPanel("details")}>Review my {teaching ? "profile and page" : "answers"}<ChevronRight size={14} /></button>}
+              {!teaching && state.applied.profile && <Link className="onboarding-message-link" href="/app/program">{state.programReady ? "Open my workout" : "Check my training plan"}<ChevronRight size={14} /></Link>}
+            </div>}
+            <span className="onboarding-message-meta">{message.source === "voice" && <Mic size={11} aria-label="From your voice conversation" />}<time dateTime={message.at}>{new Date(message.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time>{message.from === "person" && (optimistic?.id === message.id ? <span className="onboarding-saving">{error ? "Not confirmed" : "Sending…"}</span> : <Check className="onboarding-saved-check" size={13} aria-label="Saved" />)}</span>
           </div>)}
         </div>
         {!state.permissions.coaching && <div className="onboarding-inline-card">
@@ -209,45 +292,16 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
           {onDetails && <button className="text-link" onClick={onDetails}>Use profile form</button>}
         </div>}
         {state.permissions.coaching && <>
-          {review && <div className="onboarding-inline-card onboarding-review" aria-label="Saved details">
-            <div className="onboarding-card-top"><h2>What I've understood</h2><button className="onboarding-icon" aria-label="Close review" onClick={() => setReview(false)}><X size={18} /></button></div>
-            <p>Tell me what to change. {teaching ? "Draft rules need your approval before they can be used." : "Your coach uses the profile you confirm below."}</p>
-            {rows.length ? <dl>{rows.map(([key, value]) => <div key={key}><dt>{labels[key] ?? key}</dt><dd>{valueText(key, value, state)} <button className="text-link" aria-label={"Change " + (labels[key] ?? key)} onClick={() => { setText("Change my " + (labels[key] ?? key).toLowerCase() + " to "); input.current?.focus(); }}>Change</button></dd></div>)}</dl> : <p>Your answers will appear here.</p>}
-            {state.missing.length > 0 && <p className="muted">Still to cover: {state.missing.map(k => labels[k] ?? k).join(", ")}.</p>}
-            {state.ready && <button className="button" disabled={busy} onClick={() => void act("profile")}>{teaching ? "Save profile and page draft" : "Confirm my coaching profile"}</button>}
-            {teaching && state.facts.name && state.facts.priceAed && state.facts.billing && <button className="button secondary" disabled={busy} onClick={() => void act("offer")}>Save offer draft</button>}
-            {!teaching && state.permissions.nutrition && !state.missing.length && <button className="button secondary" disabled={busy} onClick={() => void act("nutrition")}>Confirm my food preferences</button>}
-          </div>}
-          {teaching && <div className="onboarding-brain" aria-label="Brain review">
-            {uncompiled > 0 && <button className="button secondary" disabled={busy} onClick={() => void act("compile")}>Review what I've taught you <span className="onboarding-count">{uncompiled}</span></button>}
-            {drafts.length > 0 && <details className="onboarding-inline-card" open={rulesOpen} onToggle={e => setRulesOpen(e.currentTarget.open)}>
-              <summary>{drafts.length} draft {drafts.length === 1 ? "rule" : "rules"} to review</summary>
-              <p>These are drafts. Approval makes them available for Brain checks.</p>
-              {drafts.map((r: any) => <article className="onboarding-rule" key={r.id}><strong>{r.title}</strong><p>{r.condition}</p><p>{r.directive}</p>{r.flags?.length > 0 && <p className="onboarding-warning">Needs individual review: {r.flags.join(", ").replaceAll("_", " ")}</p>}</article>)}
-              {!!state.brain.approveAll.length && <button className="button" disabled={busy} onClick={() => void act("approve", { rules: state.brain.approveAll })}>Approve these {state.brain.approveAll.length} clear rules</button>}
-              {!!state.brain.flaggedDrafts && <Link className="text-link" href="/trainer/brain/constitution">Review flagged rules</Link>}
-            </details>}
-            {currentCase ? <div className="onboarding-inline-card onboarding-practice">
-              <small>Practice · {state.brain.quiz.open.answered + 1} of {state.brain.quiz.open.total}</small>
-              <p><strong>A client says</strong></p><p>{currentCase.message}</p>
-              <p><strong>Your Brain would {currentCase.route === "escalate" ? "refer this for review" : "reply"}</strong></p><p>{currentCase.reply}</p>
-              <div className="onboarding-options"><button className="button" disabled={busy} onClick={() => void act("quiz-answer", { roundId: state.brain.quiz.open.id, caseId: currentCase.id, verdict: "yes" })}>Yes, that sounds like me</button><button className="button secondary" disabled={busy} onClick={() => { setAnswerMode(true); setScenarioMode(false); input.current?.focus(); }}>I'd say it differently</button></div>
-            </div> : confirmed.length > 0 && <button className="button secondary" disabled={busy} onClick={() => void act("quiz")}>Try a client situation</button>}
-            {confirmed.length > 0 && <div className="onboarding-inline-card">
-              <p>{state.brain.ownCases.count < state.brain.ownCases.forWaitsForMe ? "Let's also check situations you've written yourself." : "Have another situation you'd like to check?"}</p>
-              <small>{state.brain.ownCases.count} saved · {state.brain.ownCases.forWaitsForMe} needed for review mode</small>
-              <button className="text-link" disabled={busy} onClick={() => { setScenarioMode(true); setAnswerMode(false); setRuleId(confirmed[0]?.id ?? ""); input.current?.focus(); }}>Add a client situation</button>
-            </div>}
-            {state.brain?.launch?.supervised?.ready && <button className="button" disabled={busy} onClick={() => void act("publish")}>Use Brain in review mode</button>}
-            {state.brain?.launch?.supervised?.missing?.length > 0 && <details className="onboarding-inline-card"><summary>What your Brain still needs</summary><ul>{state.brain.launch.supervised.missing.map((item: string) => <li key={item}>{item}</li>)}</ul></details>}
+          {teaching && currentCase && <div className="onboarding-message assistant onboarding-practice">
+            <small>Practice · {state.brain.quiz.open.answered + 1} of {state.brain.quiz.open.total}</small>
+            <p><strong>A client says</strong></p><p>{currentCase.message}</p>
+            <p><strong>Your Brain would {currentCase.route === "escalate" ? "refer this for review" : "reply"}</strong></p><p>{currentCase.reply}</p>
+            <div className="onboarding-options"><button className="onboarding-reply" disabled={busy} onClick={() => void act("quiz-answer", { roundId: state.brain.quiz.open.id, caseId: currentCase.id, verdict: "yes" })}>Yes, that sounds like me</button><button className="onboarding-reply" disabled={busy} onClick={() => { setAnswerMode(true); setScenarioMode(false); input.current?.focus(); }}>I'd say it differently</button></div>
           </div>}
           {!teaching && state.applied.profile && <>
             {state.permissions.nutritionIncluded && !state.permissions.nutrition && <div className="onboarding-inline-card"><p>Your membership includes nutrition. Want to talk through food preferences too?</p><label className="onboarding-choice"><input type="checkbox" checked={nutritionConsent} onChange={e => setNutritionConsent(e.target.checked)} /> I allow nutrition data processing and AI meal planning.</label><button className="button secondary" disabled={!nutritionConsent || busy} onClick={() => void allow(true)}>Continue with food preferences</button><Link className="text-link" href="/app/nutrition">Review nutrition permissions</Link></div>}
-            <Link className="button secondary" href="/app/program">{state.programReady ? "Open my workout" : "Check my training plan"}</Link>
-            {state.applied.nutrition && <Link className="text-link" href="/app/nutrition">Open Nutrition</Link>}
           </>}
-          {state.ready && !review && <button className="button secondary" disabled={busy} onClick={() => setReview(true)}>Review my {teaching ? "profile and page" : "answers"}</button>}
-          {!busy && !state.paused && !answerMode && !scenarioMode && !review && <div className="onboarding-options" aria-label="Suggested replies">
+          {!busy && !state.paused && !answerMode && !scenarioMode && showSuggestions && <div className="onboarding-options" aria-label="Suggested replies">
             {(choices[field ?? ""] ?? []).map(choice => <button key={choice} className="onboarding-chip" onClick={() => void send(choice)}>{choice}</button>)}
             {field === "availableWeekdays" && <><div className="onboarding-weekdays">{days.map((day, i) => <button type="button" key={day} className="onboarding-chip" aria-pressed={selectedDays.includes(i)} onClick={() => setSelectedDays(current => current.includes(i) ? current.filter(d => d !== i) : [...current, i])}>{day.slice(0, 3)}</button>)}</div><button className="onboarding-chip" disabled={!selectedDays.length} onClick={() => void send("I can train on " + selectedDays.map(d => days[d]).join(", "))}>Use these days</button></>}
             {field === "specialty" && state.setup?.about.specialties.map((s: any) => <button key={s.id} className="onboarding-chip" onClick={() => void send("My specialty is " + s.label)}>{s.label}</button>)}
@@ -261,8 +315,8 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
         </div></div>}
         <div ref={end} />
       </div>
-      <footer className="onboarding-compose-area">
-      {newMessages && <button type="button" className="onboarding-latest" onClick={() => { nearBottom.current = true; thread.current?.scrollTo({ top: thread.current.scrollHeight, behavior: prefersReducedMotion() ? "auto" : "smooth" }); setNewMessages(false); }}><ArrowDown size={16} /> Latest messages</button>}
+      <footer className="onboarding-compose-area" ref={composer}>
+      {newMessages && <button type="button" className="onboarding-latest" aria-label="Latest messages" onClick={() => { nearBottom.current = true; thread.current?.scrollTo({ top: thread.current.scrollHeight, behavior: prefersReducedMotion() ? "auto" : "smooth" }); setNewMessages(false); }}><ArrowDown size={16} /><span className="sr-only">Latest messages</span></button>}
         {state.permissions.coaching && <>
           {(answerMode || scenarioMode) && <div className="onboarding-compose-context"><span>{answerMode ? "Write the reply you'd use." : "Describe a client situation in your own words."}</span><button className="text-link" onClick={() => { setAnswerMode(false); setScenarioMode(false); }}>Cancel</button>
             {scenarioMode && <><label>Rule to check<select value={ruleId} onChange={e => setRuleId(e.target.value)}>{confirmed.map((r: any) => <option value={r.id} key={r.id}>{r.title}</option>)}</select></label><label className="onboarding-choice"><input type="checkbox" checked={escalate} onChange={e => setEscalate(e.target.checked)} /> This needs referral or human review</label></>}
@@ -273,14 +327,10 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
             <textarea ref={input} aria-label="Your onboarding message" placeholder={answerMode ? "I'd say…" : scenarioMode ? "A client tells me…" : callActive ? "Your call is in progress…" : "Message…"} value={sending && restoreRequest.current?.sentText === text.trim() ? "" : text} maxLength={4000} rows={1} disabled={!state.permissions.coaching || callActive} onChange={e => setText(e.target.value)} onPaste={e => { const pasted = Array.from(e.clipboardData.files); if (pasted.length) { e.preventDefault(); filePicker.current?.add(pasted); } }} onKeyDown={e => {
               if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && window.matchMedia("(pointer: fine)").matches) { e.preventDefault(); void send(); }
             }} />
-            <button type="submit" className="onboarding-send" aria-label="Send message" disabled={busy || uploading || (!text.trim() && !files.length)}>{appearance === "ios" ? <ArrowUp size={22} /> : <Send size={19} />}</button>
+            <button type="submit" className="onboarding-send" data-sending={sending ? "true" : undefined} aria-label="Send message" disabled={busy || uploading || (!text.trim() && !files.length)}>{appearance === "ios" ? <ArrowUp size={22} /> : <Send size={19} />}</button>
           </form>
-          <div className="onboarding-utilities"><span>{text ? "Draft saved on this device" : "A few words is enough"}</span><button className="text-link" disabled={busy} onClick={() => void act(state.paused ? "resume" : "pause")}><Pause size={13} />{state.paused ? "Continue" : "Save for later"}</button>{!state.paused && field && !["review", "teaching"].includes(field) && <button className="text-link" disabled={busy} onClick={() => void act("skip")}>Ask later</button>}</div>
+          {state.paused && <div className="onboarding-paused"><span>Conversation paused</span><button className="text-link" disabled={busy} onClick={() => void act("resume")}>Continue</button></div>}
         </>}
-        <div className="onboarding-footer-links">
-          {onDetails && <button className="text-link" onClick={onDetails}>Use {teaching ? "setup" : "profile"} forms</button>}
-          {teaching && <><Link className="text-link" href="/setup/page?details=1">Page details</Link><Link className="text-link" href="/setup/plan?details=1">Offer details</Link><Link className="text-link" href="/setup/live?details=1">Launch checks</Link></>}
-        </div>
       </footer>
     </div>
   </section>;

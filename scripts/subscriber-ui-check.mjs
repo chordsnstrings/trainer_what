@@ -104,6 +104,7 @@ try {
   });
   await check("intake answers and step survive navigation; consent remains explicit", async () => {
     await go("/app/intake");
+    await page.getByRole("button", { name: "Conversation options", exact: true }).click();
     await page.getByRole("button", { name: "Use profile forms", exact: true }).last().click();
     await page.locator('[name="age"]').fill("28");
     await page.getByRole("button", { name: "Next", exact: true }).click();

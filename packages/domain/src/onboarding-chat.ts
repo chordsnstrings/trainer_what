@@ -1,8 +1,9 @@
 import { z } from "zod";
 import { groundSetupDraft, mentionsModelVendor, setupFields, type Specialty } from "./setup-assistant.ts";
 import { givesMedicalAdvice } from "./text-screen.ts";
+import { coachingUpdateSchema, nextCoachingQuestion, coachingCoverage, type CoachingInterview } from "./coaching-interview.ts";
 
-export const CHAT_VERSION = "onboarding-chat-v3";
+export const CHAT_VERSION = "onboarding-chat-v4";
 export type ChatAudience = "coach" | "member";
 export type ChatMode = "setup" | "teach";
 export type OnboardingAttachment = { id: string; name: string; bytes: number; format: string; characters: number; warnings: string[]; image: boolean; preview?: string };
@@ -14,6 +15,7 @@ export type ChatData = {
   teachingIds: string[]; compiledIds: string[]; paused: boolean;
   applied: Record<string, string>; pending?: { id: string; at: string }; lastQuestion?: { field: string; text: string };
   error?: string; archived?: number;
+  interview?: CoachingInterview;
 };
 export const replySchema = z.object({
   reply: z.string().trim().min(1).max(700),
@@ -21,6 +23,7 @@ export const replySchema = z.object({
   evidence: z.record(z.string(), z.string().max(1000)).default({}),
   question: z.string().max(220).optional(),
   questionField: z.string().max(50).optional(),
+  coaching: coachingUpdateSchema.optional(),
 }).strict();
 export type ChatReply = z.infer<typeof replySchema>;
 /** Normalize transport differences only; facts still require field validation and quoted evidence. */
@@ -33,6 +36,7 @@ export function parseChatReply(raw: unknown): ChatReply {
     evidence: value.evidence ?? {},
     question: value.question ?? undefined,
     questionField: value.questionField ?? undefined,
+    coaching: value.coaching ?? undefined,
   });
 }
 export const memberFieldSchemas: Record<string, z.ZodType> = {
@@ -73,16 +77,7 @@ export const memberQuestions: Record<string, string> = {
 };
 export const trainingFields = ["goal", "experience", "daysPerWeek", "availableWeekdays", "maxSessionMinutes", "equipment", "age", "limitations"];
 export const nutritionFields = ["diet", "allergyStatus", "exclusions", "kitchenEquipment", "cookingMinutes", "foodBudget", "nutritionScope"];
-export const coachOrder = ["audience", "approach", "alwaysDo", "referOut", "publicName", "city", "specialty", "headline", "bio", "name", "priceAed", "billing"];
-export const teachingTopics = [
-  "How do you decide when a client is ready to progress?",
-  "What would you change for a client who can only train twice a week?",
-  "How do you adapt a session when a client is tired?",
-  "What tells you a beginner is doing too much?",
-  "How do you help someone get back on track after missing a week?",
-  "When would you stop a session and refer a client to a professional?",
-  "How do you choose an alternative when a client dislikes an exercise?",
-];
+export const coachOrder = ["audience", "publicName", "city", "specialty", "headline", "bio", "name", "priceAed", "billing"];
 export function emptyChat(audience: ChatAudience, mode: ChatMode = "setup"): ChatData {
   return { audience, mode, messages: [], facts: {}, memory: {}, skipped: [], teachingIds: [], compiledIds: [], paused: false, applied: {} };
 }
@@ -104,12 +99,19 @@ export function missingFacts(c: ChatData, nutrition = false) {
 export function nextChatQuestion(c: ChatData, specialties: readonly Specialty[], nutrition = false) {
   if (c.paused) return { field: "paused", text: "Saved. We can pick this up whenever you're ready." };
   const field = missingFacts(c, nutrition).find(f => !c.skipped.includes(f));
+  if (c.audience === "coach") {
+    if (field === "audience" && c.mode !== "teach") return { field, text: coachSpecs(specialties)[field]!.question };
+    const coaching = nextCoachingQuestion(c);
+    if (coaching) return coaching;
+  }
   if (field && !(c.audience === "coach" && c.mode === "teach")) {
     return { field, text: c.audience === "member" ? memberQuestions[field] : coachSpecs(specialties)[field]?.question ?? "Tell me a little more." };
   }
   if (c.audience === "member") return { field: "review", text: missingFacts(c, nutrition).length ? "We can leave those for later. Your saved details show what we still need before your profile is ready." : "That's enough to get started. Check your profile below, or tell me what to change." };
-  const index = c.teachingIds.length % teachingTopics.length;
-  return { field: "teaching", text: teachingTopics[index]! };
+  const coverage = coachingCoverage(c);
+  return { field: "coaching.review", text: coverage.covered < coverage.total
+    ? "We've left some coaching details for later. You can keep sharing, or choose Revisit deferred questions in conversation options. Your teaching is there to review too."
+    : "We've explored your approach and worked through examples. You can keep adding details, or review the draft rules and try client situations in conversation options. Your Brain still needs those checks." };
 }
 const normal = (s: string) => s.toLowerCase().replace(/[٠-٩]/g, d => String(d.charCodeAt(0) - 1632)).replace(/\s+/g, " ").trim();
 const numberWords: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7 };
