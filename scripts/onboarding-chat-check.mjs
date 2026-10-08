@@ -37,7 +37,12 @@ try {
   const { context: coach, page } = await login("coach@example.test", 1440);
   await go(page, "/setup");
   await page.getByLabel("Your onboarding message").fill("I'm Alex in Dubai. I coach busy beginners with simple strength sessions.");
+  const sent = page.waitForResponse(r => r.url().endsWith("/onboarding-chat/messages") && r.request().method() === "POST");
   await page.getByRole("button", { name: "Send message", exact: true }).click();
+  const response = await sent;
+  const reply = await response.json();
+  assert.equal(response.status(), 200, JSON.stringify(reply));
+  assert.equal(reply.error, undefined, JSON.stringify({ error: reply.error, pending: reply.pending }));
   await expect(page.locator(".onboarding-message.assistant").filter({ hasText: "That sounds doable" })).toHaveCount(1, { timeout: 60000 });
   await page.reload();
   await expect(page.locator(".onboarding-message.person")).toContainText("busy beginners", { timeout: 30000 });
@@ -68,7 +73,10 @@ try {
   await phone.getByRole("button", { name: "Let's start", exact: true }).click();
   await expect(phone.getByLabel("Your onboarding message")).toBeVisible();
   await phone.getByLabel("Your onboarding message").fill("I'm 28, a beginner. Build sustainable strength. 3 days a week: Monday, Wednesday, Friday. 45 minutes. Dumbbells. No injuries or limitations.");
+  const memberSent = phone.waitForResponse(r => r.url().endsWith("/onboarding-chat/messages") && r.request().method() === "POST");
   await phone.getByRole("button", { name: "Send message", exact: true }).click();
+  const memberReply = await (await memberSent).json();
+  assert.equal(memberReply.error, undefined, JSON.stringify({ error: memberReply.error }));
   await expect(phone.getByRole("button", { name: "Review my answers", exact: true })).toBeVisible({ timeout: 60000 });
   await phone.getByRole("button", { name: "Review my answers", exact: true }).click();
   await expect(phone.getByLabel("Saved details")).toContainText("Monday, Wednesday, Friday");

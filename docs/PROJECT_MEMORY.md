@@ -2,7 +2,7 @@
 
 ## Current work — 8 October 2026
 
-Conversational onboarding: implement trainer setup, continued Brain teaching and client profiles as short text-message conversations. Reuse the existing frontier-model adapter; one bounded inference per substantive reply, code-only controls, batch rule compilation. Remember grounded facts and transcript with person/workspace isolation. Permissions and approvals stay explicit. Branch `feat/conversational-onboarding-2026-10-08`, base `6b8ed72`. Local execution unavailable; CI validation pending. No production changes yet. See Claude handoff for the release boundary.
+Conversational onboarding: implement trainer setup, continued Brain teaching and client profiles as short text-message conversations. Reuse the existing frontier-model adapter; one bounded inference per substantive reply, code-only controls, batch rule compilation. Remember grounded facts and transcript with person/workspace isolation. Permissions and approvals stay explicit. Branch `feat/conversational-onboarding-2026-10-08`, base `6b8ed72`. Implementation is in PR #48. TypeScript, 15 focused API/domain checks and production build passed; final browser/normal release gates are tracked on that PR. Local execution is unavailable. After merge, the existing checked-main controller deploys and the read-only Verify serving release workflow checks the public release header. See Claude handoff and docs/features/onboarding-chat.md for the release boundary and entry points.
 
 ## Earlier work — 7 October 2026
 
