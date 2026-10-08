@@ -58,10 +58,23 @@ test("opening, resuming and pausing use no model calls", async () => {
   const owner = await ctx.person({ role: "owner", name: "Synthetic Chat Coach" });
   await model(() => { throw Error("Unexpected call"); }, async sent => {
     const a = await snapshot(owner), b = await snapshot(owner);
+    assert.equal(a.messages.filter((m: any) => m.text.includes("?")).length, 1);
+    assert.ok(!a.messages[0].text.includes("Tell me"));
     assert.equal(a.id, b.id); assert.equal(a.version, b.version);
     const pause = await call(owner, "/onboarding-chat/actions", { id: randomUUID(), version: a.version, action: "pause" });
     assert.equal(pause.statusCode, 200, pause.body);
     assert.equal(pause.json().paused, true); assert.equal(sent.length, 0);
+  });
+});
+test("a clarification with nullable optional fields gets a reply without inventing trainer facts", async () => {
+  const owner = await ctx.person({ role: "owner" }), c = await snapshot(owner);
+  await model(() => ({ reply: "Start with who you usually coach.", patch: null, evidence: null, question: null, questionField: null }), async sent => {
+    const r = await call(owner, "/onboarding-chat/messages", { id: randomUUID(), version: c.version, text: "Which one should I answer?" });
+    assert.equal(r.statusCode, 200, r.body);
+    assert.equal(r.json().error, undefined, r.body);
+    assert.equal(r.json().facts.audience, undefined);
+    assert.ok(r.json().messages.some((m: any) => m.text === "Start with who you usually coach."));
+    assert.equal(sent.length, 1);
   });
 });
 test("one answer records several grounded coach facts and one billed request; replay is idempotent", async () => {

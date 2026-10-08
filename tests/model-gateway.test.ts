@@ -744,6 +744,7 @@ test("time limits come from each call site's budget per model family; classic de
   assert.deepEqual(
     Object.fromEntries(Object.keys(MODEL_CALL_BUDGETS).map((task) => [task, modelCallBudget(task as any, classic)])),
     {
+      onboarding_reply: { maxTokens: 4096, timeoutMs: 30000 },
       coach_selection: { maxTokens: 800, timeoutMs: 30000 },
       coach_decision: { maxTokens: 2500, timeoutMs: 30000 },
       rule_compilation: { maxTokens: 5000, timeoutMs: 30000 },

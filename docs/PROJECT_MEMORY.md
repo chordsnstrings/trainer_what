@@ -2,6 +2,8 @@
 
 ## Current work — 8 October 2026
 
+Owner-reported onboarding reply failure: active branch `fix/onboarding-model-compatibility-2026-10-08` from `4b22942`. Normalize nullable optional JSON fields and text blocks, specify the reply contract, respect active-profile onboarding budgets, and ask one opening question. Owner explicitly classifies Seed 2.0 as frontier; apply that to inherited and named profiles without changing provider settings, pins or switch qualification. TypeScript, production build and 68 focused checks passed; release checks/deployment next. Exact live response unavailable; fixtures are not live-model evidence. See the current Claude handoff.
+
 Conversational onboarding is live as e07f76e9330e64f232dd623d770612321d50f01c (PR #48). Exact production release and healthy readiness verified at 05:42:59 UTC / 09:42:59 Dubai on 8 October, reconfirmed at 05:44 UTC. All five PR/main checks passed, plus 35 focused/regression checks and phone/desktop onboarding journeys. Trainer setup, ongoing Brain teaching and client intake now use short text-message conversations with saved, grounded memory. Reuses existing frontier-model adapters, consent and publishing gates; bounded free-text calls, code-only quick choices and batch teaching compilation. No new provider integrations or production account/payment changes. Claude handoff records evidence and the remaining production account walkthrough. See docs/features/onboarding-chat.md.
 
 ## Earlier work — 7 October 2026

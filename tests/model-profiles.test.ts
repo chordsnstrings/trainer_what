@@ -307,13 +307,15 @@ test("Super admin: seeded profiles, key, test, switch check job, activate, front
     const current = profiles.find((p: any) => p.slug === "current-settings");
     assert.equal(current.role, "active");
     assert.equal(current.effective.model, ENV.MODEL_NAME);
+    assert.equal(current.tier, "frontier");
+    assert.equal(current.label, "Frontier model");
     assert.equal(profiles.find((p: any) => p.slug === "anthropic-opus").key, "missing");
     for (const p of profiles) assert.equal(labelNamesModel(p.label), false, p.label);
     // The default profile changes nothing a pin reads.
     const runtime = await loadRuntimeSettings(f.db);
-    // The untouched default profile adds nothing to the runtime settings.
-    assert.deepEqual(runtime, {});
-    assert.equal(coachModelLabel(runtime), "Standard model");
+    // Seed 2.0's classification changes presentation only, not its connection or pins.
+    assert.deepEqual(runtime, { MODEL_PROFILE_ID: current.id, MODEL_PROFILE_LABEL: "Frontier model", MODEL_PROFILE_TIER: "frontier" });
+    assert.equal(coachModelLabel(runtime), "Frontier model");
     assert.deepEqual(withRuntimeConfig(runtime, pins), withRuntimeConfig({}, pins));
     // A vendor name in a label is refused.
     const opus = profiles.find((p: any) => p.slug === "anthropic-opus");
@@ -384,7 +386,7 @@ test("Super admin: seeded profiles, key, test, switch check job, activate, front
     const back = await f.call("/admin/model-profiles/switch-back", { cookie: admin.cookie, body: {} });
     assert.equal(back.statusCode, 200, back.body);
     const restored = await loadRuntimeSettings(f.db);
-    assert.equal(coachModelLabel(restored), "Standard model");
+    assert.equal(coachModelLabel(restored), "Frontier model");
     assert.equal(restored.MODEL_NAME, undefined);
     assert.deepEqual(withRuntimeConfig(restored, pins), withRuntimeConfig(runtime, pins));
     // The frontier profile as fallback: its keys reach the runtime for failover only.

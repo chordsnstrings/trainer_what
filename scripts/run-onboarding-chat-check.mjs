@@ -13,13 +13,13 @@ const server = createServer({ key: tls.key, cert: tls.cert }, async (req, res) =
   const text = context.conversation.at(-1).text, patch = replies[context.audience];
   const evidence = Object.fromEntries(Object.keys(patch).map(key => [key, key === "limitations" ? "No injuries or limitations" : text]));
   res.setHeader("Content-Type", "application/json");
-  res.end(JSON.stringify({ usage: { prompt_tokens: 20, completion_tokens: 20 }, choices: [{ message: { content: JSON.stringify({ reply: "That sounds doable. We'll keep it practical.", patch, evidence }) } }] }));
+  res.end(JSON.stringify({ usage: { prompt_tokens: 20, completion_tokens: 20 }, choices: [{ message: { content: JSON.stringify({ reply: "That sounds doable. We'll keep it practical.", patch, evidence, question: null, questionField: null }) } }] }));
 });
 await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
 const port = server.address().port;
 Object.assign(process.env, {
   TRAINER_PROVIDER_SANDBOX: "mock", NODE_EXTRA_CA_CERTS: tls.caFile,
-  MODEL_BASE_URL: "https://127.0.0.1:" + port + "/v1", MODEL_API_KEY: "synthetic-local-fixture", MODEL_NAME: "fixture-onboarding",
+  MODEL_BASE_URL: "https://127.0.0.1:" + port + "/v1", MODEL_API_KEY: "synthetic-local-fixture", MODEL_NAME: "seed-2-0-pro-260328",
   RTL_CHECK_MODULE: "./onboarding-chat-check.mjs",
 });
 try { await import("./run-rtl-check.mjs"); } finally { await new Promise(resolve => { server.close(resolve); server.closeAllConnections(); }); tls.cleanup(); }

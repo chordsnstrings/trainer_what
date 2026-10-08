@@ -27,6 +27,18 @@ import {
 export const MODEL_PROFILE_TIERS = ["standard", "frontier"] as const;
 export type ModelProfileTier = (typeof MODEL_PROFILE_TIERS)[number];
 
+/** Owner classification: Seed 2.0 is frontier, including the inherited Settings connection. */
+export function isSeed20Model(model: string | undefined) {
+  return /(?:^|[^a-z0-9])seed[-_. ]2[-_. ]0(?:$|[^a-z0-9])/i.test(model ?? "");
+}
+export function profilePresentation(profile: Pick<ModelProfileRow, "tier" | "label" | "inherit_settings" | "settings">, inheritedModel?: string) {
+  const frontier = isSeed20Model(profile.inherit_settings ? inheritedModel : profile.settings.model);
+  return {
+    tier: frontier ? "frontier" as const : profile.tier,
+    label: frontier && profile.label === "Standard model" ? "Frontier model" : profile.label,
+  };
+}
+
 /**
  * Words a coach-facing label must never contain: the model, its vendor or a
  * hosting platform (public, member and coach text never names them).
@@ -135,13 +147,14 @@ const text = (value: unknown) =>
  */
 export function profileRuntimeKeys(
   profile: ModelProfileRow,
-  options: { key?: string | null; inherited?: Record<string, string | undefined> },
+  options: { key?: string | null; inherited?: Record<string, string | undefined>; inheritedModel?: string },
 ): Record<string, string> {
   const s = modelProfileSettingsSchema.parse({ ...profile.settings });
+  const presentation = profilePresentation(profile, options.inherited?.MODEL_NAME ?? options.inheritedModel);
   const out: Record<string, string> = {
     [MODEL_PROFILE_KEYS.id]: profile.id,
-    [MODEL_PROFILE_KEYS.label]: profile.label,
-    [MODEL_PROFILE_KEYS.tier]: profile.tier,
+    [MODEL_PROFILE_KEYS.label]: presentation.label,
+    [MODEL_PROFILE_KEYS.tier]: presentation.tier,
   };
   if (profile.inherit_settings) {
     for (const key of INHERITED_KEYS) {
@@ -230,7 +243,8 @@ export function profileRequestFingerprint(profile: Pick<ModelProfileRow, "adapte
 
 /** The label coaches see for the configured model (never the model ID). */
 export function coachModelLabel(config: Record<string, string | undefined>) {
-  return config[MODEL_PROFILE_KEYS.label]?.trim() || "Standard model";
+  const label = config[MODEL_PROFILE_KEYS.label]?.trim() || "Standard model";
+  return label === "Standard model" && isSeed20Model(config.MODEL_NAME) ? "Frontier model" : label;
 }
 /**
  * A qualification pin as a coach may receive it: the address and model ID
