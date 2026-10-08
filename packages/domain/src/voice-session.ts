@@ -8,6 +8,7 @@ import { z } from "zod";
 import { cueIssues, MARKUP, phraseIssues, type PhraseIssue } from "./text-screen.ts";
 import { EFFORTS, spokenDistance, spokenDuration, workMeasure } from "./prescription.ts";
 import { speechLanguage, type SpeechLanguage } from "./speech-language.ts";
+import { forbiddenTrainerPhrase } from "./trainer-wording.ts";
 import {
   applyNarration,
   brainLines,
@@ -457,7 +458,7 @@ export function checkedSuggestions(raw: VoiceSuggestions, style: VoiceStyle) {
 export type RejectedLine = {
   source: "trainer" | "cue";
   text: string;
-  issues: PhraseIssue[];
+  issues: Array<PhraseIssue | "trainer_wording">;
 };
 
 /**
@@ -487,6 +488,7 @@ export function buildSessionScript(input: {
   const style = input.style ?? defaultVoiceStyle();
   const language = input.language ?? "en";
   const defaults = language === "ar" ? AR_DEFAULTS : DEFAULTS[style.tone];
+  const permitted = (text: string) => !forbiddenTrainerPhrase(text, style.oneOnOne?.confirmed?.answers.never ?? []);
   const rejected: RejectedLine[] = [];
   const prefer = (texts: string[]) => {
     if (!input.language) return texts;
@@ -496,7 +498,8 @@ export function buildSessionScript(input: {
   const accept = (texts: string[] | undefined) =>
     prefer(
       (texts ?? []).map((t) => String(t).trim()).filter((text) => {
-        const issues = phraseIssues(text);
+        const issues: RejectedLine["issues"] = phraseIssues(text);
+        if (!permitted(text)) issues.push("trainer_wording");
         if (issues.length) rejected.push({ source: "trainer", text, issues });
         return !issues.length;
       }),
@@ -505,7 +508,7 @@ export function buildSessionScript(input: {
     const fromTrainer = accept(trainer);
     if (fromTrainer.length)
       return fromTrainer.map((text) => ({ text, owner: "trainer" as const }));
-    return fallback.map((text) => ({ text, owner: "code" as const }));
+    return fallback.filter(permitted).map((text) => ({ text, owner: "code" as const }));
   };
   const lines = (
     prefix: string,
@@ -516,16 +519,18 @@ export function buildSessionScript(input: {
   const intro = pick(style.intro, [defaults.intro]).slice(0, 2);
   const encouragement = pick(style.encouragement, defaults.encouragement);
   const genericForm = accept(style.formReminders);
+  const defaultForm = defaults.form.filter(permitted);
   const exercises: ScriptExercise[] = input.exercises.map((ex, index) => {
     const form = genericForm.length
       ? [0, 1]
           .map((k) => genericForm[(index * 2 + k) % genericForm.length])
           .filter((t, k, all) => all.indexOf(t) === k)
           .map((text) => ({ text, owner: "trainer" as const }))
-      : [{ text: defaults.form[index % defaults.form.length], owner: "code" as const }];
+      : defaultForm.length ? [{ text: defaultForm[index % defaultForm.length], owner: "code" as const }] : [];
     let cueLine: ScriptLine | null = null;
     if (ex.cue) {
-      const issues = cueIssues(ex.cue);
+      const issues: RejectedLine["issues"] = cueIssues(ex.cue);
+      if (!permitted(ex.cue)) issues.push("trainer_wording");
       if (issues.length) rejected.push({ source: "cue", text: ex.cue, issues });
       else cueLine = { id: `ex:${index}:cue`, kind: "cue", owner: "trainer", text: ex.cue };
     }
@@ -554,7 +559,9 @@ export function buildSessionScript(input: {
       encouragement: lines(`ex:${index}:encourage`, "encourage", enc),
     };
   });
-  const finish = pick(style.finish, [defaults.finish])[0];
+  // A neutral completion is a required runner status when all decorative closings are excluded.
+  const finish = pick(style.finish, [defaults.finish])[0] ??
+    { text: language === "ar" ? "انتهت الجلسة." : "Session complete.", owner: "code" as const };
   const script: SessionScript = {
     version: VOICE_SCRIPT_VERSION,
     ...(language === "ar" ? { language } : {}),

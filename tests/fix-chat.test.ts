@@ -549,10 +549,10 @@ const trialRuleRecords = (t: TrialTrainer) =>
   );
 
 test("the selector states the evidence contract and sends short references", async () => {
-  assert.equal(coachingPromptVersion, "coach-action-selector-v4");
+  assert.equal(coachingPromptVersion, "coach-action-selector-v5");
   assert.match(
     selectorSystemPrompt,
-    /^Coach action selector coach-action-selector-v4\./,
+    /^Coach action selector coach-action-selector-v5\./,
   );
   assert.match(
     selectorSystemPrompt,
@@ -595,7 +595,9 @@ test("the selector states the evidence contract and sends short references", asy
       assert.equal(sent[0].system, selectorSystemPrompt);
       assert.doesNotMatch(sent[0].raw, UUID, "no full ID leaves the app");
       assert.equal(sent[0].input.actions[0].id, "K1");
-      assert.deepEqual(sent[0].input.actions[0].data.evidenceIds, ["R1"]);
+      const homeRef = sent[0].input.rules[input.rules.findIndex(r => r.id === home)].id;
+      assert.deepEqual(sent[0].input.actions[0].data.evidenceIds, [homeRef]);
+      assert.equal(sent[0].input.rules.length, input.rules.length, "every published method constraint is supplied");
       assert.equal(sent[0].input.rules[0].id, "R1");
       assert.equal(result.selection.actionId, action("T2", "bandRow").id);
       assert.deepEqual(result.selection.evidenceIds, [home]);
@@ -640,8 +642,8 @@ test("the selector states the evidence contract and sends short references", asy
 });
 
 test("a reference-shaped word in the selector's reason does not withhold a grounded selection (review of F1)", async () => {
-  // "x8", "K2" and "R2" read like references (X, K and R are this request's
-  // prefixes), but only R1 and K1 were issued. The reason is trainer-facing
+  // "x8", "K2" and "R99" read like references (X, K and R are this request's
+  // prefixes), but these were not issued. The reason is trainer-facing
   // prose; the identifier fields stay strict.
   const m = member("T2S04");
   const progress = action("T2", "progress");
@@ -665,7 +667,7 @@ test("a reference-shaped word in the selector's reason does not withhold a groun
     });
   for (const reason of [
     "All 3 sets x8 at RIR 4, so the +1 kg step fits",
-    "Fits rule R2 and the goblet squat progression",
+    "Fits rule R99 and the goblet squat progression",
     "Not about vitamin K2; the squat felt easy",
   ])
     await withModel(answer(reason), async () => {
@@ -678,11 +680,11 @@ test("a reference-shaped word in the selector's reason does not withhold a groun
   // An issued reference in the reason is stored as the full ID, never as R1.
   await withModel(answer("Rule R1 allows +1 kg"), async () => {
     const result = await selectCoachAction(input, accounting);
-    assert.equal(result.selection.reason, `Rule ${rule} allows +1 kg`);
+    assert.equal(result.selection.reason, `Rule ${input.rules[0].id} allows +1 kg`);
   });
   // The identifier fields are not relaxed.
   for (const extra of [
-    { evidenceIds: ["R2"] },
+    { evidenceIds: ["R99"] },
     { evidenceIds: ["x8"] },
     { actionId: "K2" },
   ])
@@ -705,11 +707,11 @@ const draftEvidence = (memberKey: string) => {
 };
 
 test("the draft prompt states the exact JSON contract and a version", () => {
-  assert.equal(coachDecisionPromptVersion, "coach-decision-v2");
+  assert.equal(coachDecisionPromptVersion, "coach-decision-v3");
   // The e2e model double classifies by these opening words.
   assert.ok(
     coachDecisionSystemPrompt.startsWith(
-      "You are a governed digital coaching assistant (coach-decision-v2).",
+      "You are a governed digital coaching assistant (coach-decision-v3).",
     ),
   );
   for (const type of [
@@ -789,7 +791,7 @@ test("a valid Arabic draft decodes its evidence and records the prompt version",
         evidence,
         accounting,
       );
-      assert.equal(result.promptVersion, "coach-decision-v2");
+      assert.equal(result.promptVersion, "coach-decision-v3");
       assert.equal(result.decision.type, "message");
       assert.equal(writtenInArabic(result.decision.message), true);
       assert.equal(result.decision.requiresHumanReview, true);
@@ -1101,7 +1103,7 @@ test("an invalid draft reaches the trainer as a review item; the member never se
   assert.equal(valid.json().pendingReview, true);
   const stored = (await decisions()).at(-1)!;
   assert.equal(stored.status, "pending_review");
-  assert.equal(stored.data.promptVersion, "coach-decision-v2");
+  assert.equal(stored.data.promptVersion, "coach-decision-v3");
   assert.equal(stored.data.request, message("T2S03/chat2"));
   assert.equal(writtenInArabic(stored.data.message), true);
 });
@@ -1147,7 +1149,7 @@ test("qualified routine replies are delivered in the member's language, and with
   const workspace = (
     await req("/brain/coaching-workspace", "GET", undefined, coach)
   ).json();
-  assert.equal(workspace.modelPin.promptVersion, "coach-action-selector-v4");
+  assert.equal(workspace.modelPin.promptVersion, "coach-action-selector-v5");
   // Qualification is exercised elsewhere (tests/coaching-runtime.test.ts);
   // here the current contract is published directly.
   const runtime = await db.tenant(coach, (tx) =>
@@ -1388,7 +1390,7 @@ test("qualified routine replies are delivered in the member's language, and with
   assert.equal(evaluated.json().status, "failed");
   assert.equal(
     evaluated.json().data.pin.promptVersion,
-    "coach-action-selector-v4",
+    "coach-action-selector-v5",
   );
   // Arabic teaching with an outcome context is accepted next to Arabic
   // held-out questions (before, "" matched every held-out Arabic question).

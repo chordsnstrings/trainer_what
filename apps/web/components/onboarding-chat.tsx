@@ -1,4 +1,5 @@
 "use client";
+import { VoiceOneOnOne } from "./voice-one-on-one";
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { ArrowUp, ArrowDown, Send, Check, MessageCircle, Pause, RotateCcw, Phone, Mic, MoreHorizontal, ChevronRight, Sparkles } from "lucide-react";
@@ -239,6 +240,7 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
             {!teaching && state.permissions.nutrition && !state.missing.length && <button className="button secondary" disabled={busy} onClick={() => void act("nutrition")}>Confirm my food preferences</button>}
           </div>}
           {panel === "brain" && teaching && <div className="onboarding-brain" aria-label="Brain review">
+            <details className="onboarding-inline-card"><summary>Your communication style</summary><VoiceOneOnOne /></details>
             {state.coachingCoverage && <details className="onboarding-inline-card onboarding-coverage">
               <summary>{state.coachingCoverage.covered} of {state.coachingCoverage.total} coaching topics covered</summary>
               <p>These are the details you've explained. Your draft rules still need review and practice checks before your Brain uses them.</p>

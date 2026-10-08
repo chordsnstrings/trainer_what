@@ -23,6 +23,8 @@ import {
 } from "../../../packages/domain/src/brain-plans.ts";
 import { loadPlanSettings } from "./brain-plans.ts";
 import { modelAccounting } from "./model-accounting.ts";
+import { candidateCommunication, communicationDigest } from "./trainer-brain.ts";
+import { trainerBrainContext } from "../../../packages/domain/src/trainer-brain.ts";
 
 const fail = (statusCode: number, code: string, message: string) =>
   Object.assign(new Error(message), { statusCode, code });
@@ -41,6 +43,7 @@ export function assertReleaseRuleLimit(count: number) {
 
 export async function evaluateBrainReplies(db: Database, a: Actor) {
   const material = await db.tenant(a, async (tx) => ({
+    communication: await candidateCommunication(tx),
     rules: await tx.query(
       "SELECT * FROM records WHERE kind='rule' AND status='confirmed' ORDER BY id",
     ),
@@ -93,6 +96,7 @@ export async function evaluateBrainReplies(db: Database, a: Actor) {
         c.data.prompt,
         material.rules.map((r) => ({ id: r.id, data: r.data })),
         modelAccounting(db, a, "evaluation"),
+        { trainerBrain: trainerBrainContext({ data: { rules: material.rules, communication: material.communication } }) },
       );
     } catch (error) {
       // An invalid answer fails its scenario; the rest of the run and the
@@ -151,6 +155,7 @@ export async function evaluateBrainReplies(db: Database, a: Actor) {
         total: outcomes.length,
         passed: outcomes.filter((x) => x.passed).length,
         rulesDigest: digest,
+        communicationDigest: communicationDigest(material.communication),
         promptVersion: coachDecisionPromptVersion,
       },
       { status: outcomes.every((x) => x.passed) ? "passed" : "failed" },

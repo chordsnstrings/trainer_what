@@ -8,6 +8,7 @@ import {
   profileReady, missingFacts, trainingFields, quickChatReply, type ChatData,
 } from "../../../packages/domain/src/onboarding-chat.ts";
 import { onboardingReply } from "../../../packages/providers/src/onboarding-chat.ts";
+import { publishedTrainerBrain } from "./trainer-brain.ts";
 import { MODEL_CALL_TIMEOUT_CAP_MS } from "../../../packages/providers/src/model-request.ts";
 import { brainTrainingState } from "./brain-training-state.ts";
 import { modelAccounting } from "./model-accounting.ts";
@@ -274,13 +275,17 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
         }
         await save(tx, a, row, data);
         const rules = a.role === "owner" ? await tx.query("SELECT data FROM records WHERE kind='rule' AND status='confirmed' ORDER BY updated_at DESC LIMIT 24") : [];
-        return { data, q, p, held, material, files, sourceIds, rules: rules.map(r => ({ title: String(r.data.title ?? "").slice(0, 120), condition: String(r.data.condition ?? "").slice(0, 300), directive: String(r.data.directive ?? "").slice(0, 500) })) };
+        const trainerBrain = a.role === "subscriber" ? await publishedTrainerBrain(tx) : undefined;
+        if (trainerBrain) await tx.query("UPDATE records SET data=data||$2::jsonb WHERE id=$1 AND kind='onboarding_chat_request' AND owner_user_id=$3", [b.id, JSON.stringify({ trainerBrainReleaseId: trainerBrain.releaseId }), a.userId]);
+        return { data, q, p, held, material, files, sourceIds, trainerBrain, rules: rules.map(r => ({ title: String(r.data.title ?? "").slice(0, 120), condition: String(r.data.condition ?? "").slice(0, 300), directive: String(r.data.directive ?? "").slice(0, 500) })) };
       });
       if (prepared.held) {
         await finish(a, b.id, data => { say(data, "I've flagged this for your coach. Please pause training until it has been reviewed. If you feel seriously unwell or in immediate danger, contact local emergency services."); });
       } else {
-        const answer = (!prepared.files.length ? quickChatReply(prepared.q.field, b.text) : null) ?? await onboardingReply(prepared.data, prepared.q, prepared.rules, specialties, prepared.p.nutrition, modelAccounting(db, a, a.role === "owner" ? "setup_assistant" : "member_onboarding"), prepared.files.map(f => ({ name: f.data.name, text: String(f.data.text).slice(0, 8000), image: f.data.image, truncated: f.data.text.length > 8000 })));
+        const answer = (!prepared.files.length ? quickChatReply(prepared.q.field, b.text) : null) ?? await onboardingReply(prepared.data, prepared.q, prepared.rules, specialties, prepared.p.nutrition, modelAccounting(db, a, a.role === "owner" ? "setup_assistant" : "member_onboarding"), prepared.files.map(f => ({ name: f.data.name, text: String(f.data.text).slice(0, 8000), image: f.data.image, truncated: f.data.text.length > 8000 })), prepared.trainerBrain);
         await finish(a, b.id, async (data, tx) => {
+          if (prepared.trainerBrain && (await publishedTrainerBrain(tx)).releaseId !== prepared.trainerBrain.releaseId)
+            throw fail(409, "BRAIN_CHANGED", "Your trainer's Brain was updated. Your message is saved; try the reply again.");
           const p = await permissions(tx, a);
           const merged = mergeChatFacts(data, answer, prepared.material, b.retryOf ?? b.id, new Date().toISOString(), specialties, p.nutrition);
           Object.assign(data, merged);

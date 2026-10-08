@@ -4,6 +4,7 @@
 // coach asks for a style draft. Replies are only read here; every line is
 // checked by applyNarration before it can be stored or spoken.
 import { modelCompletion, type ModelAccounting } from "./model-accounting.ts";
+import { trainerBrainInstruction } from "../../domain/src/trainer-brain.ts";
 import { ModelOutputInvalid, ProviderUnavailable } from "./index.ts";
 import { runtimeConfig, type RuntimeConfig } from "./configuration.ts";
 import { modelCallBudget, modelReplyJson } from "./model-request.ts";
@@ -59,7 +60,8 @@ export async function generateNarration(
       temperature: 0.5,
       max_tokens: budget.maxTokens,
       response_format: { type: "json_object" },
-      messages: narrationMessages(input),
+      messages: narrationMessages(input).map(message => message.role === "system"
+        ? { ...message, content: message.content + " " + trainerBrainInstruction } : message),
     },
     accounting,
     { timeoutMs: budget.timeoutMs },

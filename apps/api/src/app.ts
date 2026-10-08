@@ -1,4 +1,5 @@
 import { onboardingChatRoutes } from "./onboarding-chat.ts";
+import { candidateCommunication, checkedCommunication } from "./trainer-brain.ts";
 import { requireServiceReady } from "./service-readiness.ts";
 import { registerFinanceAutomation } from "./finance-automation.ts";
 import { clientContextRoutes } from "./client-context.ts";
@@ -1655,14 +1656,16 @@ export async function buildApp(
         )
         .digest("hex");
       assertReleaseRuleLimit(rules.length);
+      const communication = await candidateCommunication(tx);
       if (
         evaluation.status !== "passed" ||
-        evaluation.data.rulesDigest !== digest
+        evaluation.data.rulesDigest !== digest ||
+        !checkedCommunication(evaluation, communication)
       )
         throw fail(
           409,
           "EVAL_REQUIRED",
-          "A passing evaluation of the current rules is required",
+          "A passing evaluation of the current rules and communication style is required",
         );
       await tx.query(
         "UPDATE records SET status='archived' WHERE kind='brain_release' AND status='published'",
@@ -1678,6 +1681,7 @@ export async function buildApp(
             version: r.version,
           })),
           evaluationId: evaluation.id,
+          communication,
           notes: b.notes,
           mode: "supervised",
           // A full check (at least 20 own cases) qualifies this release for

@@ -254,7 +254,7 @@ test("each new session gets Brain lines from one call, kept with the session; fa
   const sent = JSON.parse(prompts.at(-1)!.user);
   assert.equal(sent.member.firstName, "Sara");
   assert.deepEqual(sent.today.exercises[0].lastTime, { sets: 2, reps: 8, loadKg: 55, daysAgo: 0 });
-  assert.match(prompts.at(-1)!.system, /voice-narration-v1/);
+  assert.match(prompts.at(-1)!.system, /voice-narration-v2/);
   const s = session.script;
   assert.deepEqual(s.intro.map((l: any) => l.id), ["intro:0", "brain:open", "safety"]);
   assert.equal(s.exercises[0].brain.lead.text, "Last time 55 kilograms for 8, today 60.");

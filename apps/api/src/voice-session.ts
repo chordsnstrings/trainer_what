@@ -9,6 +9,9 @@
 // without voice get the same session as a text-guided runner. Spoken replies
 // are parsed and re-screened here; a red flag opens the existing safety hold.
 import { createHash, randomUUID } from "node:crypto";
+import { previewLines } from "../../../packages/domain/src/voice-narration.ts";
+import { communicationStyle, communicationFromStyle, trainerWordingIssues } from "../../../packages/domain/src/trainer-brain.ts";
+import { publishedTrainerBrain } from "./trainer-brain.ts";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import {
@@ -991,6 +994,12 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
         if (gate.held) throw fail(409, "TRAINING_HELD", REASONS.TRAINING_HELD);
         const plan = planExercises(program);
         const style = await currentVoiceStyle(tx);
+        const trainerBrain = await publishedTrainerBrain(tx);
+        if (trainerBrain.releaseId) style.style = communicationStyle(style.style, trainerBrain.communication);
+        else trainerBrain.communication = communicationFromStyle(style.style);
+        // A release may change while narration is being generated. Never mix
+        // lines from the old profile with a newly published trainer identity.
+        if (narration && hash(JSON.stringify(narration.trainerBrain ?? null)) !== hash(JSON.stringify(trainerBrain))) narration = null;
         let existing: any = null,
           stale: any = null;
         if (workout) {
@@ -1051,6 +1060,7 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
         if (narration === undefined) {
           const request = await narrationRequest(tx, a, {
             plan,
+            trainerBrain,
             style: style.style,
             title,
             language,
@@ -1066,6 +1076,10 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
           language,
           narration: narration ?? null,
         });
+        // Authored phrase banks obey the same never-say list as model lines.
+        if (previewLines(built.script).some(line => line.owner !== "code" && trainerWordingIssues(line.text, trainerBrain).length))
+          throw fail(409, "VOICE_STYLE_CONFLICT", "Your trainer's saved phrases conflict with their published communication style.");
+        Object.assign(built.script, { trainerBrainReleaseId: trainerBrain.releaseId });
         if (scriptIssues(built.script, plan).length)
           throw fail(
             409,

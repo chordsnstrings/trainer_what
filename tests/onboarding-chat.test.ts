@@ -188,6 +188,36 @@ test("quick choices skip inference and update the current question", async () =>
     assert.equal(quick.json().facts.daysPerWeek, 3); assert.equal(sent.length, 1);
   });
 });
+
+test("subscriber intake uses the published trainer Brain and withholds replies when that version changes", async () => {
+  const owner = await ctx.person({ role: "owner" }), member = await ctx.person({ role: "subscriber", tenantId: owner.tenantId });
+  const actor = { userId: owner.userId, tenantId: owner.tenantId, role: "owner" };
+  const release = await ctx.db.tenant(actor, tx => putRecord(tx, actor, "brain_release", {
+    rules: [], communication: { tone: "calm", intro: ["Welcome back."] },
+  }, { status: "published" }));
+  await grant(member);
+  let c = await snapshot(member);
+  await model(() => ({ reply: "Let's take this at your pace.", patch: {}, evidence: {} }), async sent => {
+    const r = await call(member, "/onboarding-chat/messages", { id: randomUUID(), version: c.version, text: "Can you explain the question?" });
+    assert.equal(r.json().error, undefined, r.body);
+    assert.equal(sent[0].trainerBrain.releaseId, release.id);
+    assert.equal(sent[0].trainerBrain.communication.tone, "calm");
+    c = r.json();
+  });
+  await model(async () => {
+    await ctx.db.tenant(actor, async tx => {
+      await tx.query("UPDATE records SET status='archived' WHERE id=$1", [release.id]);
+      await putRecord(tx, actor, "brain_release", { rules: [] }, { status: "published" });
+    });
+    return { reply: "OLD STYLE SHOULD NOT ARRIVE", patch: {}, evidence: {} };
+  }, async () => {
+    const r = await call(member, "/onboarding-chat/messages", { id: randomUUID(), version: c.version, text: "What do you mean by that?" });
+    assert.equal(r.statusCode, 200, r.body);
+    assert.ok(r.json().error);
+    assert.ok(!JSON.stringify(r.json().messages).includes("OLD STYLE SHOULD NOT ARRIVE"));
+    assert.ok(r.json().messages.some((m: any) => m.text === "What do you mean by that?"));
+  });
+});
 test("explicit reply retry does not duplicate the transcript or teaching source", async () => {
   const owner = await ctx.person({ role: "owner" }), c = await snapshot(owner);
   const body = { id: randomUUID(), version: c.version, mode: "teach", text: "I only progress a load after all prescribed reps are comfortable." };

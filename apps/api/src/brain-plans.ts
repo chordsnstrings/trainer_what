@@ -4,6 +4,9 @@ import { coachFacingPin } from "../../../packages/providers/src/model-profiles.t
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
+  trainerBrainContext,
+} from "../../../packages/domain/src/trainer-brain.ts";
+import {
   elevated,
   event,
   putRecord,
@@ -210,6 +213,7 @@ function planContract(release: any, settings: PlanSettings, learning: string | n
   const pin = planModelPin();
   return hash({
     brainReleaseId: release?.id ?? null,
+    trainerBrain: trainerBrainContext(release),
     rules: (release?.data?.rules ?? []).map((r: any) => ({
       id: r.id,
       version: r.version ?? null,
@@ -961,6 +965,7 @@ async function prepareGeneration(
     segment,
     goal: profile.goal,
     rules: material.rules,
+    trainerBrain: trainerBrainContext(material.release),
     cases: material.cases,
     learning: material.learning,
     templates: material.templates,
@@ -1450,6 +1455,7 @@ export async function adaptMemberPlan(
       segment,
       goal: profile.goal,
       rules: material.rules,
+      trainerBrain: trainerBrainContext(material.release),
       cases: material.cases,
       learning: material.learning.filter((l) => l.data.type === "adaptation"),
       templates: [],
@@ -2033,6 +2039,7 @@ async function qualifyWithLearning(
       segment: planSegment(profile),
       goal: profile.goal,
       rules: material.rules,
+      trainerBrain: trainerBrainContext(material.release),
       cases: material.cases,
       learning: type === "adaptation" ? material.learning.filter((l) => l.data.type === "adaptation") : material.learning,
       templates: type === "adaptation" ? [] : material.templates,

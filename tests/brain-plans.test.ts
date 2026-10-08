@@ -463,10 +463,10 @@ test("confidence is deterministic, explained and raised by similar reviewed plan
 test("the e2e rule responder answers both prompt kinds with schema-valid output, and long programmes get a larger budget", () => {
   const body = (system: string, input: any) => ({ messages: [{ role: "system", content: system }, { role: "user", content: JSON.stringify(input) }] });
   const retrieval = retrievePlanMaterial({ tenantId: "t", segment: planSegment({ goal: "Build strength", experience: "beginner", daysPerWeek: 3, equipment: "Dumbbells, bench" }), goal: "Build strength", rules: [], cases: [], learning: [], templates: [], library });
-  const plan = ruleBasedAnswer(body("Trainer Brain plan generator brain-plan-v6.", { profile: { daysPerWeek: 3, experience: "beginner", equipment: "Dumbbells, bench" }, programme: { weeks: 4 }, bounds: ctx.bounds, material: retrieval.material }));
+  const plan = ruleBasedAnswer(body("Trainer Brain plan generator brain-plan-v7.", { profile: { daysPerWeek: 3, experience: "beginner", equipment: "Dumbbells, bench" }, programme: { weeks: 4 }, bounds: ctx.bounds, material: retrieval.material }));
   assert.equal(plan.kind, "plan_generation");
   assert.deepEqual(validatePlan(plan.content as PlanDraft, ctx).errors, []);
-  const adaptation = ruleBasedAnswer(body("Trainer Brain plan adaptation brain-plan-adapt-v4.", { outcomes: { adherence: 1, exercises: [] }, nextWeek: [], material: { rules: [] } }));
+  const adaptation = ruleBasedAnswer(body("Trainer Brain plan adaptation brain-plan-adapt-v5.", { outcomes: { adherence: 1, exercises: [] }, nextWeek: [], material: { rules: [] } }));
   assert.equal(adaptation.kind, "plan_adaptation");
   assert.deepEqual((adaptation.content as any).changes, []);
   const short = planGenerationBudget({ daysPerWeek: 3, weeks: 4 }),
@@ -496,7 +496,7 @@ test("supervised generation goes to review with its audit record, and approval d
   const gen = await generation(r.generationId, coach.tenantId);
   assert.equal(gen.status, "pending_review");
   assert.equal(gen.owner_user_id, client.userId);
-  assert.equal(gen.data.promptVersion, "brain-plan-v6");
+  assert.equal(gen.data.promptVersion, "brain-plan-v7");
   assert.match(gen.data.inputsDigest, /^[0-9a-f]{64}$/);
   assert.ok(gen.data.brainReleaseId);
   assert.equal(gen.data.inputs.programmeDays, 14);

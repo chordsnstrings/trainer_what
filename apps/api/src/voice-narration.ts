@@ -9,6 +9,8 @@
 // (voice_session_styles.style.oneOnOne), saved only through these routes;
 // members only ever get the confirmed snapshot, through the script.
 import { randomUUID } from "node:crypto";
+import { candidateCommunication, communicationDigest } from "./trainer-brain.ts";
+import type { TrainerBrainContext } from "../../../packages/domain/src/trainer-brain.ts";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { event, type Actor, type Database, type Tx } from "@trainer/db";
@@ -105,6 +107,8 @@ function sampleScript(style: VoiceStyle, o: OneOnOne, lines: NarrationLines) {
   });
 }
 async function view(tx: Tx, current: { version: number; style: VoiceStyle }) {
+  const [release] = await tx.query("SELECT * FROM member_material('brain_release')");
+  const pending = !!release && communicationDigest(release.data.communication) !== communicationDigest(await candidateCommunication(tx));
   const o = current.style.oneOnOne ?? emptyOneOnOne();
   const fingerprint = oneOnOneFingerprint(o.answers);
   const draft = o.draft ? sampleScript(current.style, o, o.draft.sample) : null;
@@ -132,6 +136,7 @@ async function view(tx: Tx, current: { version: number; style: VoiceStyle }) {
       : null,
     /** Whether new voice sessions get Brain lines in this style. */
     active: !!o.confirmed,
+    publication: { releaseId: release?.id ?? null, pending },
     modelAvailable: narrationAvailable(),
     voiceSample: !!(await sampleVoice(tx)),
   };
@@ -141,7 +146,7 @@ async function view(tx: Tx, current: { version: number; style: VoiceStyle }) {
 // Prepare time: whether a new session gets Brain lines, and the model call.
 // ---------------------------------------------------------------------------
 export type NarrationRequest = { input: NarrationInput; never: string[] };
-export type PreparedNarration = { lines: NarrationLines; facts: NarrationFacts; never: string[] };
+export type PreparedNarration = { lines: NarrationLines; facts: NarrationFacts; never: string[]; trainerBrain?: TrainerBrainContext };
 /**
  * Inside the member's prepare transaction: the request for this new
  * session's Brain lines, or null when there is no confirmed style, no model,
@@ -151,7 +156,7 @@ export type PreparedNarration = { lines: NarrationLines; facts: NarrationFacts; 
 export async function narrationRequest(
   tx: Tx,
   a: Actor,
-  o: { plan: PlanExercise[]; style: VoiceStyle; title: string; language: "en" | "ar"; workoutId: string | null },
+  o: { plan: PlanExercise[]; style: VoiceStyle; title: string; language: "en" | "ar"; workoutId: string | null; trainerBrain?: TrainerBrainContext },
 ): Promise<NarrationRequest | null> {
   const confirmed = o.style.oneOnOne?.confirmed;
   if (!confirmed || !narrationAvailable() || !o.plan.length) return null;
@@ -179,6 +184,7 @@ export async function narrationRequest(
   };
   return {
     input: {
+      trainerBrain: o.trainerBrain,
       style: { summary: confirmed.summary, answers: confirmed.answers },
       facts,
       plan: o.plan,
@@ -196,7 +202,7 @@ export async function narrationRequest(
 export async function narrate(db: Database, a: Actor, request: NarrationRequest): Promise<PreparedNarration | null> {
   try {
     const lines = await generateNarration(request.input, modelAccounting(db, a, "voice_session_narration"));
-    return { lines, facts: request.input.facts, never: request.never };
+    return { lines, facts: request.input.facts, never: request.never, trainerBrain: request.input.trainerBrain };
   } catch {
     return null;
   }

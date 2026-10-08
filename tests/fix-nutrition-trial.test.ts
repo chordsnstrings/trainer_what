@@ -115,7 +115,7 @@ test("every nutrition task gets a budget and timeout above the trial's slowest r
   const web = (nextConfig as any).default ?? nextConfig;
   const proxy = web.experimental?.proxyTimeout;
   assert.ok(proxy >= largest.timeoutMs + 10000, String(proxy));
-  assert.equal(NUTRITION_PROMPT_VERSION, "nutrition-cases-v4");
+  assert.equal(NUTRITION_PROMPT_VERSION, "nutrition-cases-v5");
 });
 
 // ---------------------------------------------------------------------------
@@ -721,7 +721,7 @@ test("a meal-week request carries no full IDs and a reply in references decodes 
   const sent = JSON.stringify(seen.body.messages[1].content);
   assert.ok(!UUID_TEXT.test(sent), "no UUID reaches the model");
   const payload = JSON.parse(seen.body.messages[1].content);
-  assert.equal(payload.promptVersion, "nutrition-cases-v4");
+  assert.equal(payload.promptVersion, "nutrition-cases-v5");
   assert.ok(payload.input.recipes.every((r: any) => /^M\d+$/.test(r.id)));
   assert.ok(payload.input.foods.every((f: any) => /^G\d+$/.test(f.id)));
   assert.ok(payload.input.cases.every((c: any) => /^X\d+$/.test(c.id)));
