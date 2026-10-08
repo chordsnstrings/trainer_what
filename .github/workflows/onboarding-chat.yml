@@ -20,7 +20,7 @@ jobs:
       - run: npm run build
       - run: npx playwright install --with-deps chromium --only-shell
       - name: Phone and desktop onboarding journeys
-        run: node scripts/run-onboarding-chat-check.mjs
+        run: node --import tsx scripts/run-onboarding-chat-check.mjs
         env:
           RTL_WEB_MODE: start
           RTL_WEB_PORT: "3203"
