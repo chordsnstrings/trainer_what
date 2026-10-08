@@ -230,7 +230,7 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
           {!teaching && state.applied.nutrition && <Link className="text-link" href="/app/nutrition">Open Nutrition</Link>}
         </div>
       </div>}
-          {panel === "details" && <div className="onboarding-inline-card onboarding-review" aria-label="Saved details">
+          {panel === "details" && <div className="onboarding-inline-card onboarding-review">
             <p>Tell me what to change. {teaching ? "Draft rules need your approval before they can be used." : "Your coach uses the profile you confirm below."}</p>
             {rows.length ? <dl>{rows.map(([key, value]) => <div key={key}><dt>{labels[key] ?? key}</dt><dd>{valueText(key, value, state)} <button className="text-link" aria-label={"Change " + (labels[key] ?? key)} onClick={() => { setText("Change my " + (labels[key] ?? key).toLowerCase() + " to "); setPanel(null); requestAnimationFrame(() => requestAnimationFrame(() => input.current?.focus())); }}>Change</button></dd></div>)}</dl> : <p>Your answers will appear here.</p>}
             {state.missing.length > 0 && <p className="muted">Still to cover: {state.missing.map(k => labels[k] ?? k).join(", ")}.</p>}

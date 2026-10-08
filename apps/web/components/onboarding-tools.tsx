@@ -31,7 +31,7 @@ export function ConversationTools({ panel, onPanel, children }: {
   }
   return <dialog ref={dialog} className={"onboarding-tools" + (closing ? " closing" : "")} aria-labelledby={heading}
     data-panel={panel ?? "menu"}
-    onClose={() => onPanel(null)}
+    onClose={event => { if (!event.currentTarget.open) onPanel(null); }}
     onCancel={event => { event.preventDefault(); close(); }}
     onClick={event => {
       if (event.target !== event.currentTarget) return;
