@@ -11,12 +11,14 @@ import { onboardingReply } from "../../../packages/providers/src/onboarding-chat
 import { MODEL_CALL_TIMEOUT_CAP_MS } from "../../../packages/providers/src/model-request.ts";
 import { brainTrainingState } from "./brain-training-state.ts";
 import { modelAccounting } from "./model-accounting.ts";
-import { memberAccess } from "./entitlements.ts";
 import { forwardWorkspaceRequest as forward } from "./internal-request.ts";
 import { privacyMatches } from "./ingestion.ts";
-import { lockTraining, openTrainingHold } from "./coaching-completion.ts";
+import { openTrainingHold } from "./coaching-completion.ts";
 import { openPersonalReview, screenForSafety } from "./safety-policy.ts";
-import { workspaceLock } from "./privacy-lifecycle.ts";
+import { lockOnboarding as lock, onboardingPermissions as permissions } from "./onboarding-access.ts";
+import { attachmentView, onboardingFiles, onboardingAttachmentRoutes } from "./onboarding-attachments.ts";
+import { onboardingCallRoutes } from "./onboarding-calls.ts";
+import { screenSafety } from "../../../packages/domain/src/safety-policy.ts";
 
 const specialties = OFFERED_DIRECTORY_SPECIALTIES.map(({ id, label }) => ({ id, label }));
 const prefix = "/api/v1/onboarding-chat";
@@ -25,8 +27,10 @@ const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(va
 type Row = { id: string; version: number; data: ChatData };
 const common = { id: z.string().uuid(), version: z.number().int().nonnegative() };
 const messageSchema = z.object({
-  ...common, text: z.string().trim().min(1).max(4000), retryOf: z.string().uuid().optional(), mode: z.enum(["setup", "teach"]).default("setup"),
-}).strict();
+  ...common, text: z.string().trim().max(4000), retryOf: z.string().uuid().optional(), mode: z.enum(["setup", "teach"]).default("setup"),
+  attachmentIds: z.array(z.string().uuid()).max(3).optional(), attachmentRights: z.literal(true).optional(),
+  source: z.literal("voice").optional(), callId: z.string().uuid().optional(),
+}).strict().refine(b => b.text.length > 0 || !!b.attachmentIds?.length, "Add a message or a file.").refine(b => !b.attachmentIds?.length || b.attachmentRights, "Confirm that you can share these files.");
 const actionSchema = z.object({
   ...common,
   action: z.enum(["pause", "resume", "skip", "profile", "offer", "nutrition", "compile", "approve", "quiz", "quiz-answer", "scenario", "publish"]),
@@ -37,20 +41,6 @@ const actionSchema = z.object({
   ruleId: z.string().uuid().optional(), escalate: z.boolean().optional(),
 }).strict();
 
-async function lock(tx: Tx, a: Actor) {
-  await workspaceLock(tx, a.tenantId);
-  if (a.role === "subscriber") await lockTraining(tx, a);
-  const [current] = await tx.query("SELECT training_actor_is_current($1,$2,$3) AS current", [a.tenantId, a.userId, a.role]);
-  if (!current?.current) throw fail(403, "ACCESS_CHANGED", "Your access changed. Sign in again.");
-  await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [a.tenantId + ":onboarding-chat:" + a.userId]);
-}
-async function permissions(tx: Tx, a: Actor) {
-  if (a.role === "owner") return { coaching: true, nutrition: false, nutritionIncluded: false, active: true };
-  const rows = await tx.query("SELECT DISTINCT ON(document_type) document_type,granted FROM consent_records WHERE user_id=$1 AND document_type IN ('coaching','nutrition','nutrition_model') ORDER BY document_type,created_at DESC,id DESC", [a.userId]);
-  const allowed = (key: string) => rows.some(r => r.document_type === key && r.granted);
-  const access = await memberAccess(tx, a.userId);
-  return { coaching: allowed("coaching"), nutrition: access.modules.includes("nutrition") && allowed("nutrition") && allowed("nutrition_model"), nutritionIncluded: access.modules.includes("nutrition"), active: access.active };
-}
 async function load(tx: Tx, a: Actor): Promise<Row | undefined> {
   const [row] = await tx.query("SELECT * FROM records WHERE kind='onboarding_chat' AND owner_user_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1 FOR UPDATE", [a.userId]);
   return row as Row | undefined;
@@ -111,6 +101,8 @@ function say(data: ChatData, text: string, id = randomUUID()) {
 const pick = (facts: Record<string, any>, keys: string[]) => Object.fromEntries(keys.filter(k => facts[k] !== undefined).map(k => [k, facts[k]]));
 
 export function onboardingChatRoutes(app: FastifyInstance, db: Database, identity: (req: FastifyRequest) => Actor) {
+  onboardingAttachmentRoutes(app, db);
+  onboardingCallRoutes(app, db);
   const actor = (req: FastifyRequest) => {
     const a = identity(req);
     if (!["owner", "subscriber"].includes(a.role)) throw fail(403, "ROLE_REQUIRED", "This conversation belongs to the trainer or client signing in.");
@@ -205,7 +197,8 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
   app.post(prefix + "/messages", { config: { rateLimit: { max: 40, timeWindow: "10 minutes" } } }, async (req, reply) => {
     reply.header("Cache-Control", "private, no-store");
     const a = actor(req), b = messageSchema.parse(req.body);
-    const claimed = await claim(a, b, "message", digest({ text: b.text, mode: b.mode, retryOf: b.retryOf }), b.mode);
+    b.text ||= "I've shared a file for us to look at.";
+    const claimed = await claim(a, b, "message", digest({ text: b.text, mode: b.mode, retryOf: b.retryOf, attachmentIds: b.attachmentIds?.length ? b.attachmentIds : undefined, source: b.source, callId: b.callId }), b.mode);
     if (!claimed) return snapshot(req, a, b.mode);
     try {
       const prepared = await db.tenant(a, async tx => {
@@ -214,45 +207,66 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
         if (!p.coaching) throw fail(403, "CONSENT_REQUIRED", "Coaching permission changed.");
         const row = (await load(tx, a))!;
         if (row.data.pending?.id !== b.id) throw fail(409, "CHAT_CHANGED", "The conversation changed.");
+        if (b.callId) {
+          const [call] = await tx.query("SELECT id FROM records WHERE id=$1 AND kind='onboarding_call' AND owner_user_id=$2 AND status='active' AND (data->>'expiresAt')::timestamptz>now()", [b.callId, a.userId]);
+          if (!call) throw fail(409, "CALL_ENDED", "The call has ended. You can continue by message.");
+        }
         const data = structuredClone(row.data);
         data.paused = false;
         const at = new Date().toISOString(), q = nextChatQuestion(data, specialties, p.nutrition);
         const teaching = a.role === "owner" && (b.mode === "teach" || ["approach", "alwaysDo", "neverDo", "referOut", "teaching"].includes(q.field));
-        if (teaching && privacyMatches(b.text).length) throw fail(400, "PERSONAL_DATA_REMAINS", "Leave out client names, emails and phone numbers. Describe the situation in general terms.");
+        const original = b.retryOf ? data.messages.filter(m => m.from === "person").at(-1) : undefined;
+        const files = await onboardingFiles(tx, a, b.retryOf ? original?.attachments?.map(f => f.id) ?? [] : b.attachmentIds ?? [], b.id, b.retryOf);
+        const material = [b.text, ...files.map(f => `File: ${f.data.name}\n${String(f.data.text).slice(0, 8000)}${f.data.text.length > 8000 ? "\n[Excerpt: ask about a specific part if needed.]" : ""}`)].join("\n\n");
+        if (teaching && privacyMatches([b.text, ...files.map(f => f.data.text)].join("\n")).length) throw fail(400, "PERSONAL_DATA_REMAINS", "Leave out client names, emails and phone numbers. Describe the situation in general terms.");
         if (b.retryOf) {
           const [failed] = await tx.query("SELECT status FROM records WHERE id=$1 AND kind='onboarding_chat_request' AND owner_user_id=$2", [b.retryOf, a.userId]);
-          const original = data.messages.filter(m => m.from === "person").at(-1);
           if (!failed || !["failed", "interrupted"].includes(failed.status) || original?.id !== b.retryOf || original.text !== b.text)
             throw fail(409, "RETRY_CHANGED", "Send this as a new message.");
-        } else appendChatMessage(data, { id: b.id, from: "person", text: b.text, at });
+        } else appendChatMessage(data, { id: b.id, from: "person", text: b.text, at, ...(b.source ? { source: b.source } : {}), ...(files.length ? { attachments: files.map(f => { const { preview, ...metadata } = attachmentView(f); return metadata; }) } : {}) });
         if (teaching && !b.retryOf && b.text.length >= 10) {
           const source = await putRecord(tx, a, "interview", { question: data.lastQuestion?.text ?? q.text, answer: b.text, origin: "onboarding_chat", allowedUses: ["model_prompt", "trainer_specific_learning"] }, { status: "answered" });
           data.teachingIds.push(source.id);
           await event(tx, a, "brain.interview_answered", source.id);
         }
+        if (teaching && !b.retryOf) for (const file of files) if (file.data.text.length >= 10) {
+          const source = await putRecord(tx, a, "interview", { question: "Teaching from " + file.data.name, answer: file.data.text, origin: "onboarding_chat", attachmentId: file.id, extraction: file.data.extraction, warnings: file.data.warnings, allowedUses: ["model_prompt", "trainer_specific_learning"] }, { status: "answered" });
+          data.teachingIds.push(source.id);
+          await event(tx, a, "brain.interview_answered", source.id);
+        }
         let held = false;
         if (a.role === "subscriber") {
-          const screen = await screenForSafety(tx, b.text);
+          const healthMaterial = [b.text, ...files.map(f => `File: ${f.data.name}\n${f.data.text}`)].join("\n\n");
+          const screen = await screenForSafety(tx, healthMaterial);
           held = screen.hold;
-          if (screen.hold) await openTrainingHold(tx, a, a.userId, b.text, undefined, screen);
-          else if (screen.review) await openPersonalReview(tx, a, a.userId, b.text, screen);
+          if (screen.hold) await openTrainingHold(tx, a, a.userId, healthMaterial, undefined, screen);
+          else if (screen.review) await openPersonalReview(tx, a, a.userId, healthMaterial, screen);
           if (screen.hold || screen.review) {
             // A health disclosure is never lost if the model fails or rewrites it.
-            data.facts.limitations = [data.facts.limitations, b.text].filter(Boolean).join("\n").slice(-2000);
-            data.memory.limitations = { evidence: b.text, messageId: b.id, at };
+            let evidence = healthMaterial;
+            if (evidence.length > 1800) {
+              evidence = "";
+              for (let at = 0; at < healthMaterial.length && evidence.length < 1200; at += 400) {
+                const excerpt = healthMaterial.slice(at, at + 800), matched = screenSafety(excerpt, screen.policy);
+                if (screen.hold ? matched.hold : matched.review) evidence += (evidence ? "\n[…]\n" : "") + excerpt;
+              }
+              evidence = evidence.slice(0, 1800) || "Health details in the shared files require coach review. The full text is saved with the review.";
+            }
+            data.facts.limitations = [data.facts.limitations?.slice(-190), evidence].filter(Boolean).join("\n");
+            data.memory.limitations = { evidence, messageId: b.id, at };
           }
         }
         await save(tx, a, row, data);
         const rules = a.role === "owner" ? await tx.query("SELECT data FROM records WHERE kind='rule' AND status='confirmed' ORDER BY updated_at DESC LIMIT 24") : [];
-        return { data, q, p, held, rules: rules.map(r => ({ title: String(r.data.title ?? "").slice(0, 120), condition: String(r.data.condition ?? "").slice(0, 300), directive: String(r.data.directive ?? "").slice(0, 500) })) };
+        return { data, q, p, held, material, files, rules: rules.map(r => ({ title: String(r.data.title ?? "").slice(0, 120), condition: String(r.data.condition ?? "").slice(0, 300), directive: String(r.data.directive ?? "").slice(0, 500) })) };
       });
       if (prepared.held) {
         await finish(a, b.id, data => { say(data, "I've flagged this for your coach. Please pause training until it has been reviewed. If you feel seriously unwell or in immediate danger, contact local emergency services."); });
       } else {
-        const answer = quickChatReply(prepared.q.field, b.text) ?? await onboardingReply(prepared.data, prepared.q, prepared.rules, specialties, prepared.p.nutrition, modelAccounting(db, a, a.role === "owner" ? "setup_assistant" : "member_onboarding"));
+        const answer = (!prepared.files.length ? quickChatReply(prepared.q.field, b.text) : null) ?? await onboardingReply(prepared.data, prepared.q, prepared.rules, specialties, prepared.p.nutrition, modelAccounting(db, a, a.role === "owner" ? "setup_assistant" : "member_onboarding"), prepared.files.map(f => ({ name: f.data.name, text: String(f.data.text).slice(0, 8000), image: f.data.image, truncated: f.data.text.length > 8000 })));
         await finish(a, b.id, async (data, tx) => {
           const p = await permissions(tx, a);
-          const merged = mergeChatFacts(data, answer, b.text, b.retryOf ?? b.id, new Date().toISOString(), specialties, p.nutrition);
+          const merged = mergeChatFacts(data, answer, prepared.material, b.retryOf ?? b.id, new Date().toISOString(), specialties, p.nutrition);
           Object.assign(data, merged);
           if (a.role === "owner" && !b.retryOf && !privacyMatches(b.text).length && prepared.data.teachingIds.length === claimed.row.data.teachingIds.length &&
               ["approach", "alwaysDo", "neverDo", "referOut", "maxLoadJumpPct", "maxWeeklyVolumeIncreasePct"].some(k => data.memory[k]?.messageId === b.id)) {

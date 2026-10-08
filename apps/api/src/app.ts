@@ -2151,8 +2151,13 @@ export async function buildApp(
       // transcript. A later opt-in starts fresh; withdrawn text is never replayed.
       if (a.role === "subscriber" && !b.granted && ["coaching", "nutrition", "nutrition_model"].includes(b.type)) {
         await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [a.tenantId + ":onboarding-chat:" + a.userId]);
-        await tx.query("DELETE FROM records WHERE owner_user_id=$1 AND kind IN ('onboarding_chat','onboarding_chat_archive')", [a.userId]);
+        await tx.query("DELETE FROM records WHERE owner_user_id=$1 AND kind IN ('onboarding_chat','onboarding_chat_archive','onboarding_attachment','onboarding_call','onboarding_voice_request')", [a.userId]);
         await tx.query("UPDATE records SET status='withdrawn',updated_at=now() WHERE owner_user_id=$1 AND kind='onboarding_chat_request' AND status='processing'", [a.userId]);
+      }
+      if (!b.granted && b.type === "voice") {
+        await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [a.tenantId + ":onboarding-chat:" + a.userId]);
+        await tx.query("UPDATE records SET status='ended',data=data-'cloneConsent',updated_at=now() WHERE owner_user_id=$1 AND kind='onboarding_call'", [a.userId]);
+        await tx.query("DELETE FROM records WHERE owner_user_id=$1 AND kind='onboarding_voice_request'", [a.userId]);
       }
       // The consent history decides marketing; keep the settings toggle in step.
       if (b.type === "marketing")

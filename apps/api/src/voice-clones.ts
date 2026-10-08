@@ -1460,6 +1460,7 @@ export function registerVoiceClones(app: FastifyInstance, db: Database) {
             })
             .strict(),
           proAcknowledged: z.boolean().default(false),
+          onboardingCallId: z.string().uuid().optional(),
         })
         .strict()
         .parse(req.body);
@@ -1484,6 +1485,21 @@ export function registerVoiceClones(app: FastifyInstance, db: Database) {
       (await legalAcceptanceVersion(db, "voice")) + "|" + CLONE_CONSENT_VERSION;
     return db.tenant(a, async (tx) => {
       await lockVoice(tx, a);
+      if (b.onboardingCallId) {
+        const [call] = await tx.query("SELECT data FROM records WHERE id=$1 AND kind='onboarding_call' AND owner_user_id=$2 AND status='active' AND (data->>'expiresAt')::timestamptz>now()", [b.onboardingCallId, a.userId]);
+        if (!call?.data.cloneConsent || b.kind !== "instant") throw fail(403, "CALL_CLONE_CONSENT", "This call was not approved for voice creation.");
+        const [prior] = await tx.query(`SELECT ${CLONE_COLUMNS} FROM trainer_voice_clones WHERE user_id=$1 AND evidence->>'onboardingCallId'=$2 AND status<>'deleted'`, [a.userId, b.onboardingCallId]);
+        if (prior) return cloneView(tx, prior);
+        // A short, interrupted call may have made an empty draft. Reuse only
+        // that empty call draft; never replace a manually recorded sample.
+        const [empty] = await tx.query("SELECT id FROM trainer_voice_clones c WHERE user_id=$1 AND kind='instant' AND status='draft' AND evidence ? 'onboardingCallId' AND NOT EXISTS(SELECT 1 FROM trainer_voice_samples s WHERE s.clone_id=c.id) FOR UPDATE", [a.userId]);
+        if (empty) {
+          await tx.query("INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,'voice',$4,true)", [randomUUID(), a.tenantId, a.userId, consentVersion]);
+          const [resumed] = await tx.query(`UPDATE trainer_voice_clones SET language=$2,consent_version=$3,evidence=evidence||$4::jsonb,version=version+1,updated_at=now() WHERE id=$1 RETURNING ${CLONE_COLUMNS}`, [empty.id, b.language, consentVersion, JSON.stringify({ onboardingCallId: b.onboardingCallId, consent: CLONE_CONSENT, consentVersion: CLONE_CONSENT_VERSION, confirmedAt: new Date().toISOString(), providerTrainingOptOut: contract.cloning.providerTrainingOptOut })]);
+          await event(tx, a, "voice.clone_resumed", empty.id, { kind: b.kind, language: b.language });
+          return cloneView(tx, resumed);
+        }
+      }
       const [count] = await tx.query(
         "SELECT count(*)::int AS n FROM trainer_voice_clones WHERE status NOT IN ('deleted','failed')",
       );
@@ -1524,6 +1540,7 @@ export function registerVoiceClones(app: FastifyInstance, db: Database) {
           JSON.stringify({
             consent: CLONE_CONSENT,
             consentVersion: CLONE_CONSENT_VERSION,
+            ...(b.onboardingCallId ? { onboardingCallId: b.onboardingCallId } : {}),
             confirmedAt: new Date().toISOString(),
             providerTrainingOptOut: contract.cloning.providerTrainingOptOut,
             ...(b.kind === "pro"

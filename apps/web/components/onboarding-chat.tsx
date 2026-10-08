@@ -1,10 +1,14 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowUp, Check, MessageCircle, Pause, RotateCcw, X } from "lucide-react";
-import type { ChatData, ChatMessage } from "../../../packages/domain/src/onboarding-chat";
+import { ArrowUp, ArrowDown, Send, Check, MessageCircle, Pause, RotateCcw, X, Phone, Mic } from "lucide-react";
+import type { ChatData, ChatMessage, OnboardingAttachment } from "../../../packages/domain/src/onboarding-chat";
 import { useWorkspaceValue } from "./workspace-continuity";
 import { MemberIntake } from "./member-intake";
+import { OnboardingFiles, OnboardingFile, type OnboardingFilesHandle } from "./onboarding-files";
+import { OnboardingCall } from "./onboarding-call";
+import { chatAppearance, onboardingRequest as request, type ChatAppearance } from "../lib/onboarding-http";
+import { prefersReducedMotion } from "./motion";
 
 type State = ChatData & {
   id: string; version: number; ready: boolean; missing: string[]; programReady?: boolean;
@@ -37,15 +41,6 @@ const choices: Record<string, string[]> = {
   nutritionScope: ["General meal planning", "I need help with a medical condition"],
   billing: ["Monthly membership", "Paid upfront"],
 };
-async function request(path: string, body?: unknown) {
-  const response = await fetch("/api/v1" + path, {
-    method: body === undefined ? "GET" : "POST", cache: "no-store",
-    ...(body === undefined ? {} : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
-  });
-  const data = await response.json();
-  if (!response.ok) throw Object.assign(new Error(data.message ?? "Something went wrong. Try again."), { status: response.status });
-  return data;
-}
 function valueText(key: string, value: any, state: State) {
   if (key === "specialty") return state.setup?.about.specialties.find((s: any) => s.id === value)?.label ?? value;
   if (key === "availableWeekdays") return value.map((day: number) => days[day]).join(", ");
@@ -63,6 +58,13 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
   const [state, setState] = useState<State | null>(null);
   const [text, setText, clearText] = useWorkspaceValue("onboarding:composer:" + audience, "", true);
   const [sending, setSending] = useState(false), [error, setError] = useState("");
+  const [appearance, setAppearance] = useState<ChatAppearance>("web");
+  const [files, setFiles] = useWorkspaceValue<OnboardingAttachment[]>("onboarding:files:" + audience, [], true);
+  const [uploading, setUploading] = useState(false), [dragging, setDragging] = useState(false);
+  const [callOpen, setCallOpen] = useState(false), [callActive, setCallActive] = useState(false);
+  const [optimistic, setOptimistic] = useState<ChatMessage | null>(null), [arriving, setArriving] = useState<Set<string>>(new Set()), [newMessages, setNewMessages] = useState(false);
+  const known = useRef<Set<string> | null>(null), scrolled = useRef(false), nearBottom = useRef(true), thread = useRef<HTMLDivElement>(null), filePicker = useRef<OnboardingFilesHandle>(null), textRef = useRef(text);
+  textRef.current = text;
   const [review, setReview] = useState(false), [rulesOpen, setRulesOpen] = useState(false);
   const [answerMode, setAnswerMode] = useState(false), [scenarioMode, setScenarioMode] = useState(false);
   const [ruleId, setRuleId] = useState(""), [escalate, setEscalate] = useState(false);
@@ -73,12 +75,21 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
   const flight = useRef(false), mounted = useRef(true), latest = useRef<State | null>(null);
   const restoreRequest = useRef<{ path: string; body: any; sentText?: string } | null>(null);
   latest.current = state;
+  const receive = useCallback((next: State) => {
+    if (!mounted.current) return;
+    const ids = new Set(next.messages.map(m => m.id));
+    setArriving(new Set(known.current ? [...ids].filter(id => !known.current!.has(id)) : []));
+    known.current = new Set([...(known.current ?? []), ...ids]);
+    setState(next);
+    setOptimistic(old => old && ids.has(old.id) ? null : old);
+  }, []);
   const load = useCallback(async () => {
     try {
       const next = await request("/onboarding-chat?mode=" + mode);
-      if (mounted.current) { setState(next); setError(""); }
+      if (mounted.current) { receive(next); setError(""); }
     } catch (e) { if (mounted.current) setError((e as Error).message); }
-  }, [mode]);
+  }, [mode, receive]);
+  useEffect(() => { setAppearance(chatAppearance(navigator.userAgent, navigator.platform, navigator.maxTouchPoints)); }, []);
   useEffect(() => {
     mounted.current = true; void load();
     return () => { mounted.current = false; };
@@ -88,10 +99,16 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
     const id = window.setInterval(() => { void load(); }, 4000);
     return () => window.clearInterval(id);
   }, [state?.pending?.id, sending, load]);
+  useEffect(() => { if (state && !state.permissions.coaching) { setFiles([]); setOptimistic(null); setOlder([]); } }, [state?.permissions.coaching, setFiles]);
   useEffect(() => {
-    end.current?.scrollIntoView({ block: "nearest", behavior: "auto" });
-  }, [state?.messages.length, sending]);
-  const busy = sending || !!state?.pending;
+    const root = thread.current;
+    if (!root) return;
+    if (nearBottom.current) root.scrollTo({ top: root.scrollHeight, behavior: prefersReducedMotion() || !scrolled.current ? "auto" : "smooth" });
+    else if (state?.messages.at(-1)?.from === "assistant") setNewMessages(true);
+    scrolled.current = true;
+  }, [state?.messages.at(-1)?.id, sending, optimistic?.id]);
+  useEffect(() => { if (input.current) { input.current.style.height = "0px"; input.current.style.height = Math.min(input.current.scrollHeight, 144) + "px"; } }, [text, sending]);
+  const busy = sending || !!state?.pending || callActive;
   const act = async (action: string, extra: Record<string, any> = {}) => {
     if (!latest.current || flight.current || latest.current.pending) return;
     await transmit("/onboarding-chat/actions", { id: crypto.randomUUID(), version: latest.current.version, action, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, ...extra });
@@ -101,13 +118,20 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
     if (flight.current) return;
     flight.current = true; setSending(true); setError("");
     restoreRequest.current = { path, body, sentText };
+    if (path.endsWith("/messages") && !body.retryOf) {
+      nearBottom.current = true;
+      setOptimistic({ id: body.id, from: "person", text: body.text || "I've shared a file for us to look at.", at: new Date().toISOString(), attachments: files });
+    }
     try {
       const next = await request(path, body);
       restoreRequest.current = null;
       if (["quiz-answer", "scenario"].includes(body.action) && !next.error) { setText(""); clearText(); }
-      if (sentText !== undefined && next.messages?.some((m: ChatMessage) => m.from === "person" && m.id === body.id)) { setText(""); clearText(); }
+      if (sentText !== undefined && next.messages?.some((m: ChatMessage) => m.from === "person" && m.id === body.id)) {
+        if (textRef.current.trim() === sentText) { setText(""); clearText(); }
+        setFiles(files.filter(f => !body.attachmentIds?.includes(f.id)));
+      }
       if (mounted.current) {
-        setState(next);
+        receive(next);
         if (!next.error) { setAnswerMode(false); setScenarioMode(false); }
       }
       // A failed background refresh must never turn a successful save into a resend.
@@ -115,6 +139,7 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
     } catch (e) {
       if (mounted.current) {
         setError((e as Error).message);
+        if ((e as any).status) setOptimistic(null);
         if ((e as any).status === 409) { restoreRequest.current = null; await load(); setError((e as Error).message); }
       }
     } finally {
@@ -123,10 +148,10 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
   }
   async function send(value = text) {
     const clean = value.trim();
-    if (!clean || !state || busy || flight.current) return;
+    if ((!clean && !files.length) || !state || busy || uploading || flight.current) return;
     if (answerMode && currentCase) { await act("quiz-answer", { roundId: state.brain.quiz.open.id, caseId: currentCase.id, verdict: "change", text: clean }); return; }
     if (scenarioMode) { await act("scenario", { text: clean, ruleId, escalate }); return; }
-    await transmit("/onboarding-chat/messages", { id: crypto.randomUUID(), version: state.version, mode, text: clean }, clean);
+    await transmit("/onboarding-chat/messages", { id: crypto.randomUUID(), version: state.version, mode, text: clean, ...(files.length ? { attachmentIds: files.map(f => f.id), attachmentRights: true } : {}) }, clean);
   }
   async function allow(food = false) {
     if (flight.current) return;
@@ -135,10 +160,10 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
       for (const type of food ? ["nutrition", "nutrition_model"] : ["coaching"])
         await request("/privacy/consent", { type, granted: true });
       const current = await request("/onboarding-chat?mode=" + mode);
-      setState(current);
+      receive(current);
       if (food) {
         const next = await request("/onboarding-chat/actions", { id: crypto.randomUUID(), version: current.version, action: "resume" });
-        setState(next);
+        receive(next);
       }
       if (food) setNutritionConsent(false); else setConsent(false);
     } catch (e) { setError((e as Error).message); }
@@ -153,23 +178,27 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
   const problem = error || state?.error;
   const lastPerson = state?.messages.filter(m => m.from === "person").at(-1);
   const rows = state ? Object.entries(state.facts).filter(([, value]) => value !== undefined && value !== null && value !== "") : [];
-  const messages = [...older, ...(state?.messages ?? [])];
-  if (!state) return <section className="onboarding-chat" aria-label="Onboarding conversation"><div className="onboarding-loading" role="status">{error || "Opening your conversation…"}</div>{error && <button className="button secondary" onClick={() => void load()}>Try again</button>}</section>;
-  return <section className="onboarding-chat" aria-label={teaching ? "Trainer onboarding conversation" : "Your coaching profile conversation"}>
+  const messages = [...older, ...(state?.messages ?? []), ...(optimistic && !state?.messages.some(m => m.id === optimistic.id) ? [optimistic] : [])];
+  if (!state) return <section className="onboarding-chat" data-chat-style={appearance} aria-label="Onboarding conversation"><div className="onboarding-loading" role="status">{error || "Opening your conversation…"}</div>{error && <button className="button secondary" onClick={() => void load()}>Try again</button>}</section>;
+  return <section className={"onboarding-chat" + (dragging ? " drag-over" : "")} data-chat-style={appearance} aria-label={teaching ? "Trainer onboarding conversation" : "Your coaching profile conversation"} onDragOver={e => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setDragging(true); } }} onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false); }} onDrop={e => { e.preventDefault(); setDragging(false); filePicker.current?.add(Array.from(e.dataTransfer.files)); }}>
     <header className="onboarding-chat-header">
-      <span className="onboarding-avatar" aria-hidden="true"><MessageCircle size={21} /></span>
-      <div><h1>{teaching ? mode === "teach" ? "Teach your Brain" : "Let's get you started" : "Let's get to know you"}</h1><p>AI {teaching ? "setup guide" : "coaching assistant"} · {busy ? "Working on your reply" : "Your conversation is saved"}</p></div>
+      <span className="onboarding-avatar" aria-hidden="true">K</span>
+      <div><h1>{teaching ? mode === "teach" ? "Teach your Brain" : "Let's get you started" : "Let's get to know you"}</h1><p>Kamran · AI {teaching ? "setup guide" : "onboarding guide"} · {callActive ? "Voice call" : sending || state.pending ? "Replying…" : "Saved conversation"}</p></div>
+      <button type="button" className="onboarding-icon" aria-label={callActive ? "Return to voice call" : "Start voice conversation"} disabled={!state.permissions.coaching || sending || !!state.pending} onClick={() => setCallOpen(true)}><Phone size={20} /></button>
       <button className="onboarding-icon" aria-label={review ? "Close saved details" : "View saved details"} aria-expanded={review} onClick={() => setReview(!review)}><Check size={20} /></button>
     </header>
+    <OnboardingCall audience={audience} mode={mode} open={callOpen} onOpenChange={setCallOpen} onConversation={receive} onActiveChange={setCallActive} />
     <div className="onboarding-chat-body">
-      <div className="onboarding-thread">
+      <div className="onboarding-thread" ref={thread} onScroll={e => { const el = e.currentTarget; nearBottom.current = el.scrollHeight - el.clientHeight - el.scrollTop < 80; if (nearBottom.current) setNewMessages(false); }}>
         {state.archived && !historyDone ? <button className="text-link" disabled={busy} onClick={async () => {
-          try { const result = await request("/onboarding-chat/history" + (before ? "?before=" + encodeURIComponent(before) : "")); setOlder(old => [...result.messages, ...old]); setBefore(result.before); if (!result.messages.length) setHistoryDone(true); } catch (e) { setError((e as Error).message); }
+          try { const root = thread.current, height = root?.scrollHeight ?? 0, top = root?.scrollTop ?? 0; const result = await request("/onboarding-chat/history" + (before ? "?before=" + encodeURIComponent(before) : "")); setOlder(old => [...result.messages, ...old]); setBefore(result.before); if (!result.messages.length) setHistoryDone(true); requestAnimationFrame(() => { if (root) root.scrollTop = top + root.scrollHeight - height; }); } catch (e) { setError((e as Error).message); }
         }}>Earlier messages</button> : null}
         <div className="onboarding-messages" role="log" aria-label="Conversation" aria-live="polite" aria-relevant="additions">
-          {messages.map((message, i) => <div key={message.id} className={"onboarding-message " + message.from + (messages[i - 1]?.from === message.from ? " grouped" : "")}>
+          {messages.map((message, i) => <div key={message.id} className={"onboarding-message " + message.from + (messages[i - 1]?.from === message.from ? " grouped" : "") + (arriving.has(message.id) || optimistic?.id === message.id ? " arriving" : "")}>
             <span className="sr-only">{message.from === "person" ? "You" : "Assistant"}: </span>
+            {message.attachments?.map(file => <OnboardingFile file={file} key={file.id} />)}
             <p dir="auto">{message.text}</p>
+            <span className="onboarding-message-meta">{message.source === "voice" && <Mic size={11} aria-label="From your voice conversation" />}<time dateTime={message.at}>{new Date(message.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time>{message.from === "person" && (optimistic?.id === message.id ? <span>{error ? "Not confirmed" : "Sending…"}</span> : <Check size={13} aria-label="Saved" />)}</span>
           </div>)}
         </div>
         {!state.permissions.coaching && <div className="onboarding-inline-card">
@@ -224,7 +253,7 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
             {field === "specialty" && state.setup?.about.specialties.map((s: any) => <button key={s.id} className="onboarding-chip" onClick={() => void send("My specialty is " + s.label)}>{s.label}</button>)}
           </div>}
         </>}
-        {busy && <div className="onboarding-pending" role="status"><span aria-hidden="true">•••</span> {sending ? "Working on that…" : "Your reply is still being prepared…"}</div>}
+        {(sending || state.pending) && <div className="onboarding-pending" role="status"><span className="onboarding-typing" aria-hidden="true"><i /><i /><i /></span><span className="sr-only">Preparing your reply…</span></div>}
         {problem && <div className="onboarding-error" role="alert"><p>{problem}</p><div className="onboarding-options">
           {restoreRequest.current ? <button className="text-link" disabled={busy} onClick={() => { const saved = restoreRequest.current!; void transmit(saved.path, saved.body, saved.sentText); }}><RotateCcw size={14} /> Retry saved request</button> : <button className="text-link" disabled={busy} onClick={() => void load()}>Refresh conversation</button>}
           {state.error && lastPerson && <button className="text-link" disabled={busy} onClick={() => void transmit("/onboarding-chat/messages", { id: crypto.randomUUID(), version: state.version, mode, text: lastPerson.text, retryOf: lastPerson.id })}>Try reply again</button>}
@@ -232,16 +261,19 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
         </div></div>}
         <div ref={end} />
       </div>
+      {newMessages && <button type="button" className="onboarding-latest" onClick={() => { nearBottom.current = true; thread.current?.scrollTo({ top: thread.current.scrollHeight, behavior: prefersReducedMotion() ? "auto" : "smooth" }); setNewMessages(false); }}><ArrowDown size={16} /> Latest messages</button>}
       <footer className="onboarding-compose-area">
         {state.permissions.coaching && <>
           {(answerMode || scenarioMode) && <div className="onboarding-compose-context"><span>{answerMode ? "Write the reply you'd use." : "Describe a client situation in your own words."}</span><button className="text-link" onClick={() => { setAnswerMode(false); setScenarioMode(false); }}>Cancel</button>
             {scenarioMode && <><label>Rule to check<select value={ruleId} onChange={e => setRuleId(e.target.value)}>{confirmed.map((r: any) => <option value={r.id} key={r.id}>{r.title}</option>)}</select></label><label className="onboarding-choice"><input type="checkbox" checked={escalate} onChange={e => setEscalate(e.target.checked)} /> This needs referral or human review</label></>}
           </div>}
+          {!!files.length && <div className="onboarding-file-tray" aria-label="Files ready to send">{files.map(file => <OnboardingFile key={file.id} file={file} disabled={busy || uploading} remove={() => { void request("/onboarding-chat/attachments/" + file.id, undefined, { method: "DELETE" }).then(() => setFiles(files.filter(f => f.id !== file.id))).catch(e => setError(e.message)); }} />)}<small>Check the preview before sending. Tell me what you'd like to use from these files.</small></div>}
           <form className="onboarding-composer" onSubmit={e => { e.preventDefault(); void send(); }}>
-            <textarea ref={input} aria-label="Your onboarding message" placeholder={answerMode ? "I'd say…" : scenarioMode ? "A client tells me…" : "Message…"} value={text} maxLength={4000} rows={2} disabled={!state.permissions.coaching} onChange={e => setText(e.target.value)} onKeyDown={e => {
+            <OnboardingFiles ref={filePicker} files={files} onChange={setFiles} onBusy={setUploading} disabled={busy || answerMode || scenarioMode} ios={appearance === "ios"} />
+            <textarea ref={input} aria-label="Your onboarding message" placeholder={answerMode ? "I'd say…" : scenarioMode ? "A client tells me…" : callActive ? "Your call is in progress…" : "Message…"} value={sending && restoreRequest.current?.sentText === text.trim() ? "" : text} maxLength={4000} rows={1} disabled={!state.permissions.coaching || callActive} onChange={e => setText(e.target.value)} onPaste={e => { const pasted = Array.from(e.clipboardData.files); if (pasted.length) { e.preventDefault(); filePicker.current?.add(pasted); } }} onKeyDown={e => {
               if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && window.matchMedia("(pointer: fine)").matches) { e.preventDefault(); void send(); }
             }} />
-            <button type="submit" className="onboarding-send" aria-label="Send message" disabled={busy || !text.trim()}><ArrowUp size={22} /></button>
+            <button type="submit" className="onboarding-send" aria-label="Send message" disabled={busy || uploading || (!text.trim() && !files.length)}>{appearance === "ios" ? <ArrowUp size={22} /> : <Send size={19} />}</button>
           </form>
           <div className="onboarding-utilities"><span>{text ? "Draft saved on this device" : "A few words is enough"}</span><button className="text-link" disabled={busy} onClick={() => void act(state.paused ? "resume" : "pause")}><Pause size={13} />{state.paused ? "Continue" : "Save for later"}</button>{!state.paused && field && !["review", "teaching"].includes(field) && <button className="text-link" disabled={busy} onClick={() => void act("skip")}>Ask later</button>}</div>
         </>}

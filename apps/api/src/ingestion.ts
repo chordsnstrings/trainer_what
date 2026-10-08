@@ -32,6 +32,12 @@ const supported = [
   ".pdf",
   ".docx",
   ".xlsx",
+  ".doc",
+  ".xls",
+  ".rtf",
+  ".odt",
+  ".ods",
+  ".pptx",
   ".jpg",
   ".jpeg",
   ".png",
@@ -74,7 +80,7 @@ function validateFile(fileName: string, bytes: Buffer) {
     throw fail(
       415,
       "FILE_TYPE",
-      "Use PDF, DOCX, XLSX, CSV/TSV, program JSON, text, Markdown, JPEG, PNG or WebP.",
+      "Use PDF, Word, Excel, PowerPoint, OpenDocument, RTF, CSV/TSV, program JSON, text, Markdown, JPEG, PNG or WebP.",
     );
   if (
     extension === ".pdf" &&
@@ -82,7 +88,7 @@ function validateFile(fileName: string, bytes: Buffer) {
   )
     throw fail(400, "FILE_SIGNATURE", "The PDF signature is invalid.");
   if (
-    [".docx", ".xlsx"].includes(extension) &&
+    [".docx", ".xlsx", ".odt", ".ods", ".pptx"].includes(extension) &&
     !bytes.subarray(0, 4).equals(Buffer.from([80, 75, 3, 4]))
   )
     throw fail(
@@ -90,6 +96,8 @@ function validateFile(fileName: string, bytes: Buffer) {
       "FILE_SIGNATURE",
       "The office document signature is invalid.",
     );
+  if ([".doc", ".xls"].includes(extension) && !bytes.subarray(0, 8).equals(Buffer.from("d0cf11e0a1b11ae1", "hex")))
+    throw fail(400, "FILE_SIGNATURE", "This is not a valid legacy Word or Excel file. Try saving it as DOCX or XLSX.");
   return extension;
 }
 export type Extraction = {
@@ -206,6 +214,14 @@ export async function extractDocumentDetailed(
           "Local English OCR may misread names, numbers, tables and handwriting. Check all extracted text before approval.",
         ],
       };
+    }
+    if (extension === ".doc") {
+      const { stdout } = await execute("antiword", ["-m", "UTF-8.txt", file], options);
+      return { text: validateText(stdout), extraction: "doc-local-text-v1", warnings: ["Only document text is read. Check tables and layout against your original."] };
+    }
+    if ([".xls", ".rtf", ".odt", ".ods", ".pptx"].includes(extension)) {
+      const { stdout } = await execute("python3", [fileURLToPath(new URL("../../../scripts/extract-office-extra.py", import.meta.url)), file], options);
+      return { text: validateText(stdout), extraction: extension.slice(1) + "-local-text-v1", warnings: ["Only saved text and values are read; calculations and embedded content are not run. Check the extracted text against your original."] };
     }
     if (extension !== ".pdf") {
       const script =
