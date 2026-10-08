@@ -41,9 +41,13 @@ try {
     await expect(page.getByLabel("Files ready to send")).toContainText(name);
     await page.locator(".onboarding-file-tray .onboarding-file-title").click();
     await expect(page.locator(".onboarding-file-tray pre")).toContainText(text);
-    const sent = page.waitForResponse(r => r.url().endsWith("/onboarding-chat/messages") && r.request().method() === "POST");
-    await page.getByRole("button", { name: "Send message", exact: true }).click();
-    assert.equal((await (await sent).json()).error, undefined);
+    const send = page.getByRole("button", { name: "Send message", exact: true });
+    await expect(send).toBeEnabled();
+    const [sent] = await Promise.all([
+      page.waitForResponse(r => r.url().endsWith("/onboarding-chat/messages") && r.request().method() === "POST", { timeout: 20000 }),
+      send.click({ timeout: 15000 }),
+    ]);
+    assert.equal((await sent.json()).error, undefined);
     await expect(page.getByLabel("Files ready to send")).toHaveCount(0);
     await expect(page.locator(".onboarding-message.person").last()).toContainText(name);
   }
@@ -138,6 +142,12 @@ try {
   await android.close();
   report.checks.push("Private file previews and attachment-only sends for both roles; desktop, iPhone, Android and reduced-motion layouts");
   assert.deepEqual(report.errors, []);
+} catch (error) {
+  for (const context of browser.contexts()) for (const page of context.pages()) {
+    console.error("Onboarding browser failure", JSON.stringify({ url: page.url(), errors: report.errors, text: (await page.locator("body").innerText().catch(() => "")).slice(-8000), buttons: await page.locator(".onboarding-composer button").evaluateAll(es => es.map(e => ({ label: e.getAttribute("aria-label"), disabled: e.disabled, box: e.getBoundingClientRect().toJSON() }))).catch(() => []) }));
+    await page.screenshot({ path: folder + "/failure.png", fullPage: true }).catch(() => {});
+  }
+  throw error;
 } finally {
   await writeFile(folder + "/report.json", JSON.stringify(report, null, 2));
   await browser.close();
