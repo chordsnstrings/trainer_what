@@ -2,10 +2,11 @@ import { z } from "zod";
 import { groundSetupDraft, mentionsModelVendor, setupFields, type Specialty } from "./setup-assistant.ts";
 import { givesMedicalAdvice } from "./text-screen.ts";
 
-export const CHAT_VERSION = "onboarding-chat-v2";
+export const CHAT_VERSION = "onboarding-chat-v3";
 export type ChatAudience = "coach" | "member";
 export type ChatMode = "setup" | "teach";
-export type ChatMessage = { id: string; from: "person" | "assistant"; text: string; at: string };
+export type OnboardingAttachment = { id: string; name: string; bytes: number; format: string; characters: number; warnings: string[]; image: boolean; preview?: string };
+export type ChatMessage = { id: string; from: "person" | "assistant"; text: string; at: string; attachments?: OnboardingAttachment[]; source?: "voice" };
 export type ChatMemory = Record<string, { evidence: string; messageId: string; at: string }>;
 export type ChatData = {
   audience: ChatAudience; mode: ChatMode; messages: ChatMessage[];

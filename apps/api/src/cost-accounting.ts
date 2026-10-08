@@ -26,6 +26,7 @@ export type CostProduct =
  * set-up work (teaching, compiling and qualifying their Brain, voice clones).
  */
 export function costProduct(task: string, billing?: string | null): CostProduct {
+  if (task.startsWith("voice.onboarding_setup.")) return "trainer_setup";
   if (task === "voice.clone" || task === "voice.preview") return "trainer_setup";
   if (isVoiceTask(task)) return "voice_addon";
   if (task === "nutrition_week" || task === "meal_photo_estimate")
@@ -318,6 +319,8 @@ export type PeriodUsage = {
 export const PLATFORM_BORNE_SETUP_TASKS = [
   "setup_assistant",
   "setup.transcription",
+  "voice.onboarding_setup.transcription",
+  "voice.onboarding_setup.speech",
   "site_builder_starter",
   "brain_compilation",
   "brain_quiz",

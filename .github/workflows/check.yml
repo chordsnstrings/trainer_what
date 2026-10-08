@@ -24,7 +24,7 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - name: Deployment boundary checks
         run: python3 -m unittest discover -s tests -p 'test_*deployment.py' -v
-      - run: sudo apt-get update && sudo apt-get install -y python3 poppler-utils tesseract-ocr ffmpeg
+      - run: sudo apt-get update && sudo apt-get install -y python3 python3-xlrd antiword poppler-utils tesseract-ocr ffmpeg
       - run: npm run check
       - run: npx playwright install --with-deps chromium --only-shell
       - run: npm run seed:demo
@@ -128,7 +128,7 @@ jobs:
           node-version: 24.19.0
           cache: npm
       - run: npm ci --no-audit --no-fund
-      - run: sudo apt-get update && sudo apt-get install -y python3 poppler-utils tesseract-ocr ffmpeg
+      - run: sudo apt-get update && sudo apt-get install -y python3 python3-xlrd antiword poppler-utils tesseract-ocr ffmpeg
       - run: npm run db:migrate
       - run: node scripts/prepare-ci-postgres.mjs
       - name: Verify non-owner runtime grants and migration completeness

@@ -1,13 +1,13 @@
 name: Onboarding conversation
 on:
   pull_request:
-    paths: ["apps/api/src/onboarding-chat.ts", "apps/web/components/onboarding-chat.tsx", "packages/domain/src/onboarding-chat.ts", "packages/providers/src/onboarding-chat.ts", "tests/onboarding-chat.test.ts", "tests/onboarding-models.test.ts", "scripts/onboarding-chat-check.mjs"]
+    paths: ["apps/api/src/onboarding-*.ts", "apps/api/src/voice-clones.ts", "apps/web/components/onboarding-*.tsx", "apps/web/app/onboarding-chat.css", "apps/web/lib/conversation-audio.ts", "apps/web/public/onboarding-audio-worklet.js", "tests/onboarding-media.test.ts", "scripts/extract-office-extra.py", "apps/api/src/onboarding-chat.ts", "apps/web/components/onboarding-chat.tsx", "packages/domain/src/onboarding-chat.ts", "packages/providers/src/onboarding-chat.ts", "tests/onboarding-chat.test.ts", "tests/onboarding-models.test.ts", "scripts/onboarding-chat-check.mjs"]
 permissions:
   contents: read
 jobs:
   conversation:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -15,8 +15,9 @@ jobs:
           node-version: 24.19.0
           cache: npm
       - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update && sudo apt-get install -y python3 python3-xlrd antiword poppler-utils tesseract-ocr ffmpeg
       - run: npm run typecheck
-      - run: node --import tsx --test --test-concurrency=1 tests/onboarding-chat.test.ts tests/onboarding-models.test.ts tests/logical-css.test.ts tests/bounded-bootstrap.test.ts
+      - run: node --import tsx --test --test-concurrency=1 tests/onboarding-chat.test.ts tests/onboarding-models.test.ts tests/onboarding-media.test.ts tests/logical-css.test.ts tests/bounded-bootstrap.test.ts
       - run: npm run build
       - run: npx playwright install --with-deps chromium --only-shell
       - name: Phone and desktop onboarding journeys
