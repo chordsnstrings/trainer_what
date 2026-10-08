@@ -16,6 +16,8 @@ runner, CLI); `apps/web/components/model-profiles.tsx` (`/admin/model-profiles`)
 
 ## Profiles
 
+8 October owner update: Seed 2.0 is classified as frontier by its resolved model ID, including the inherited `current-settings` profile. Its default “Standard model” label becomes “Frontier model”; custom labels remain. This affects presentation/runtime tier only, not keys, pricing, request fingerprints or passing switch-check requirements. Other model families retain their configured tier. Conversational onboarding now supports the `onboarding_reply` per-task budget (default 4,096 tokens; automatic model-family timeouts).
+
 Table `model_profiles` (service only, forced row security; the runtime verifier lists it): admin-only
 `name` (may name the vendor), coach-facing `label` (2-40 characters; a label naming a model, vendor or
 platform is refused: Seed, ByteDance, BytePlus, ModelArk, OpenAI, ChatGPT, GPT, o-series, Anthropic,

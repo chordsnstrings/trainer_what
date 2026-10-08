@@ -4,6 +4,8 @@ Trainer setup, continued Brain teaching and client intake now default to a share
 
 ## Engine
 
+Each turn uses the app's active model profile and its existing compatible/native adapter. `onboarding_reply` is a configurable profile budget: default 4,096 tokens, 30 seconds (60 for Seed; request-style time multipliers still apply). Nullable optional fields, omitted empty maps, fenced JSON and compatible text blocks are normalized before schema validation. Invalid facts/evidence, empty replies, reasoning-only output and truncated JSON remain withheld; no automatic paid retry repairs output. Public wording remains model-neutral. New conversations open with one question.
+
 - GET /api/v1/onboarding-chat resumes the signed-in person's workspace conversation. No model call on load.
 - POST /messages accepts a stable request UUID and conversation version. Persist first; at most one bounded inference for free text. Exact quick choices use code. Evidence-grounded fields retain source message and quote.
 - POST /actions handles pause, resume, ask later, reviewed profile/page and offer drafts, food preferences, batched teaching compilation, rule approval, practice answers, authored situations and supervised publication.

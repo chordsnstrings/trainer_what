@@ -8,6 +8,7 @@ import {
   profileReady, missingFacts, trainingFields, quickChatReply, type ChatData,
 } from "../../../packages/domain/src/onboarding-chat.ts";
 import { onboardingReply } from "../../../packages/providers/src/onboarding-chat.ts";
+import { MODEL_CALL_TIMEOUT_CAP_MS } from "../../../packages/providers/src/model-request.ts";
 import { brainTrainingState } from "./brain-training-state.ts";
 import { modelAccounting } from "./model-accounting.ts";
 import { memberAccess } from "./entitlements.ts";
@@ -98,7 +99,7 @@ async function initialize(tx: Tx, a: Actor, mode: "setup" | "teach", p: Awaited<
   }
   const at = new Date().toISOString();
   for (const k of Object.keys(data.facts)) data.memory[k] = { evidence: "Previously saved profile or teaching", messageId: "saved", at };
-  appendChatMessage(data, { id: randomUUID(), from: "assistant", text: a.role === "owner" ? (mode === "teach" ? "Let's pick up where you left off. Tell me something you'd like your Brain to handle better." : "Hey. Let's get to know how you coach. Tell me who you help and how you work with them.") : "Hey. Let's make this fit your life. We'll talk through your goals and what works for you.", at });
+  appendChatMessage(data, { id: randomUUID(), from: "assistant", text: a.role === "owner" ? (mode === "teach" ? "Let's keep building on what you've taught your Brain, one message at a time." : "Hey. Let's get to know how you coach, one message at a time.") : "Hey. Let's make this fit your life. We'll talk through your goals and what works for you.", at });
   data.lastQuestion = nextChatQuestion(data, specialties, p.nutrition);
   appendChatMessage(data, { id: randomUUID(), from: "assistant", text: data.lastQuestion.text, at });
   row = await putRecord(tx, a, "onboarding_chat", data, { status: "active" }) as Row;
@@ -120,7 +121,7 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
       await lock(tx, a);
       const p = await permissions(tx, a);
       let row = await initialize(tx, a, mode ?? "setup", p);
-      if (row.data.pending && Date.now() - Date.parse(row.data.pending.at) > 180000) {
+      if (row.data.pending && Date.now() - Date.parse(row.data.pending.at) > MODEL_CALL_TIMEOUT_CAP_MS + 30000) {
         await tx.query("UPDATE records SET status='interrupted',updated_at=now() WHERE id=$1 AND kind='onboarding_chat_request'", [row.data.pending.id]);
         const data = structuredClone(row.data);
         delete data.pending;

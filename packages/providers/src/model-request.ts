@@ -769,6 +769,8 @@ export function familyTimeoutMs(baseMs: number, config: RuntimeConfig) {
  * nutritionBudget, which apply the same family multiplier).
  */
 export const MODEL_CALL_BUDGETS = {
+  /** Trainer/member onboarding: room for structured facts plus reasoning, configurable per active profile. */
+  onboarding_reply: { maxTokens: 4096, timeoutMs: 30000 },
   /** Coaching chat: pick one trainer-approved action (selectCoachAction). */
   coach_selection: { maxTokens: 800, timeoutMs: 30000 },
   /** Coaching drafts and held-out release evaluation (modelDecision). */
@@ -811,7 +813,7 @@ export const MODEL_FAMILY_TIMEOUT_MS: ReadonlyArray<{
   {
     family: "seed",
     pattern: /(?:^|[^a-z0-9])seed(?:[^a-z0-9]|$)/i,
-    timeoutMs: Object.freeze({ rule_compilation: 90000, meal_photo: 60000, brain_quiz: 90000, brain_correction: 60000, brain_edits: 90000, voice_narration: 30000, voice_style: 60000 }),
+    timeoutMs: Object.freeze({ onboarding_reply: 60000, rule_compilation: 90000, meal_photo: 60000, brain_quiz: 90000, brain_correction: 60000, brain_edits: 90000, voice_narration: 30000, voice_style: 60000 }),
   },
 ]);
 /**

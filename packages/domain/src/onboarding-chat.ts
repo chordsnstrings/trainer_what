@@ -2,7 +2,7 @@ import { z } from "zod";
 import { groundSetupDraft, mentionsModelVendor, setupFields, type Specialty } from "./setup-assistant.ts";
 import { givesMedicalAdvice } from "./text-screen.ts";
 
-export const CHAT_VERSION = "onboarding-chat-v1";
+export const CHAT_VERSION = "onboarding-chat-v2";
 export type ChatAudience = "coach" | "member";
 export type ChatMode = "setup" | "teach";
 export type ChatMessage = { id: string; from: "person" | "assistant"; text: string; at: string };
@@ -15,13 +15,25 @@ export type ChatData = {
   error?: string; archived?: number;
 };
 export const replySchema = z.object({
-  reply: z.string().max(700),
+  reply: z.string().trim().min(1).max(700),
   patch: z.record(z.string(), z.unknown()).default({}),
   evidence: z.record(z.string(), z.string().max(1000)).default({}),
   question: z.string().max(220).optional(),
   questionField: z.string().max(50).optional(),
 }).strict();
 export type ChatReply = z.infer<typeof replySchema>;
+/** Normalize transport differences only; facts still require field validation and quoted evidence. */
+export function parseChatReply(raw: unknown): ChatReply {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return replySchema.parse(raw);
+  const value = raw as Record<string, unknown>;
+  return replySchema.parse({
+    reply: value.reply,
+    patch: value.patch ?? {},
+    evidence: value.evidence ?? {},
+    question: value.question ?? undefined,
+    questionField: value.questionField ?? undefined,
+  });
+}
 export const memberFieldSchemas: Record<string, z.ZodType> = {
   age: z.number().int().min(18).max(100), goal: z.string().min(3).max(1000),
   experience: z.enum(["beginner", "intermediate", "advanced"]),

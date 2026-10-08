@@ -27,6 +27,7 @@ import {
   modelProfileInputSchema,
   modelProfileSettingsSchema,
   profileRuntimeKeys,
+  profilePresentation,
 } from "../../../packages/providers/src/model-profiles.ts";
 import { ANTHROPIC_VERSION } from "../../../packages/providers/src/anthropic-messages.ts";
 import { sealContexts, sealValue } from "./sealing.ts";
@@ -122,8 +123,7 @@ function view(row: Row, check: any, base: Record<string, string | undefined>) {
     id: row.id,
     slug: row.slug,
     name: row.name,
-    label: row.label,
-    tier: row.tier,
+    ...profilePresentation(row, base.MODEL_NAME),
     adapter: row.inherit_settings ? "openai_compatible" : row.adapter,
     role: row.role,
     inheritSettings: row.inherit_settings,
