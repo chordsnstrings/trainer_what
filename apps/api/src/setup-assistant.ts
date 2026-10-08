@@ -38,7 +38,7 @@ import {
   notifyImportReview,
 } from "./source-review-notifications.ts";
 import { loadPlanSettings } from "./brain-plans.ts";
-import { HOST_HEADERS } from "./host-routing.ts";
+import { forwardWorkspaceRequest as forward } from "./internal-request.ts";
 import { billableSpeechMs, decodeSpeech } from "./voice-session.ts";
 import {
   costEstimated,
@@ -143,47 +143,6 @@ async function material(tx: Tx, ids: string[]) {
 }
 
 /** Runs an existing endpoint as the same signed-in coach, so it keeps its own checks. */
-async function forward(
-  app: FastifyInstance,
-  req: FastifyRequest,
-  method: "GET" | "PUT" | "POST",
-  url: string,
-  payload?: unknown,
-) {
-  const pass = [
-    "cookie",
-    "authorization",
-    "origin",
-    "host",
-    "user-agent",
-    ...Object.values(HOST_HEADERS),
-  ];
-  const headers: Record<string, string> = {};
-  for (const h of pass) {
-    const v = req.headers[h];
-    if (typeof v === "string") headers[h] = v;
-  }
-  const res = await app.inject({
-    method,
-    url,
-    headers,
-    ...(payload === undefined ? {} : { payload: payload as any }),
-  });
-  let body: any = null;
-  try {
-    body = res.json();
-  } catch {
-    body = null;
-  }
-  if (res.statusCode >= 400)
-    throw fail(
-      res.statusCode,
-      body?.code ?? "APPLY_FAILED",
-      body?.message ?? "This draft could not be saved.",
-    );
-  return body;
-}
-
 // --------------------------------------------------------------- website text
 const SOCIAL =
   /(?:^|\.)(?:instagram\.com|facebook\.com|fb\.com|tiktok\.com|x\.com|twitter\.com|snapchat\.com|threads\.net|linktr\.ee|youtube\.com|youtu\.be|wa\.me|whatsapp\.com)$/i;

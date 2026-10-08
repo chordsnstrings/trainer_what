@@ -1,7 +1,5 @@
 name: Onboarding conversation
 on:
-  push:
-    branches: [feat/conversational-onboarding-2026-10-08]
   pull_request:
     paths: ["apps/api/src/onboarding-chat.ts", "apps/web/components/onboarding-chat.tsx", "packages/domain/src/onboarding-chat.ts", "packages/providers/src/onboarding-chat.ts", "tests/onboarding-chat.test.ts", "scripts/onboarding-chat-check.mjs"]
 permissions:

@@ -40,6 +40,7 @@ export function MemberSetupChecklist({ steps }: { steps?: SetupStep[] }) {
             : "Based on what your membership includes"}
         </p>
       </div>
+      <details className="member-setup-details"><summary>{ar ? "تفاصيل البداية" : "See setup details"}</summary>
       <ol className="setup-checklist">
         {steps.map((s) => (
           <li key={s.key}>
@@ -63,12 +64,15 @@ export function MemberSetupChecklist({ steps }: { steps?: SetupStep[] }) {
           </li>
         ))}
       </ol>
+      </details>
       <Link className="button" href={next.href}>
         {next.owner === "coach"
           ? ar
             ? "متابعة مع مدربك"
             : "Check with your coach"
-          : labels[next.key]?.[ar ? 1 : 0]}{" "}
+          : ["training_profile", "food_profile"].includes(next.key)
+            ? ar ? "متابعة المحادثة" : "Continue your setup chat"
+            : labels[next.key]?.[ar ? 1 : 0]}{" "}
         <ArrowRight size={16} aria-hidden="true" />
       </Link>
     </section>

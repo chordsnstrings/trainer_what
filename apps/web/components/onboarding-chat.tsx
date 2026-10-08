@@ -214,7 +214,7 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
           </div>}
           {!teaching && state.applied.profile && <>
             {state.permissions.nutritionIncluded && !state.permissions.nutrition && <div className="onboarding-inline-card"><p>Your membership includes nutrition. Want to talk through food preferences too?</p><label className="onboarding-choice"><input type="checkbox" checked={nutritionConsent} onChange={e => setNutritionConsent(e.target.checked)} /> I allow nutrition data processing and AI meal planning.</label><button className="button secondary" disabled={!nutritionConsent || busy} onClick={() => void allow(true)}>Continue with food preferences</button><Link className="text-link" href="/app/nutrition">Review nutrition permissions</Link></div>}
-            <Link className="button secondary" href="/app/training">{state.programReady ? "Open my workout" : "Check my training plan"}</Link>
+            <Link className="button secondary" href="/app/program">{state.programReady ? "Open my workout" : "Check my training plan"}</Link>
             {state.applied.nutrition && <Link className="text-link" href="/app/nutrition">Open Nutrition</Link>}
           </>}
           {state.ready && !review && <button className="button secondary" disabled={busy} onClick={() => setReview(true)}>Review my {teaching ? "profile and page" : "answers"}</button>}

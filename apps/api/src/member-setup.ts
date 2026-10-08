@@ -49,7 +49,7 @@ export async function memberSetup(
           allowed("nutrition") &&
           allowed("nutrition_model"),
         owner: "member",
-        href: "/app/nutrition",
+        href: "/app/intake",
       },
       {
         key: "food_plan",

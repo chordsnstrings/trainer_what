@@ -1,3 +1,4 @@
+import { HOST_HEADERS, signHostRequest } from "../apps/api/src/host-routing.ts";
 import { before, after, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -203,5 +204,46 @@ test("reviewed trainer profile and offer save through the existing draft workflo
     assert.equal(again.json().error, undefined, again.body);
     const products = await ctx.db.tenant({ userId: owner.userId, tenantId: owner.tenantId, role: "owner" }, tx => tx.query("SELECT status,data FROM records WHERE kind='product'"));
     assert.equal(products.length, 1); assert.equal(products[0].status, "draft"); assert.equal(products[0].data.priceMinor, 30000);
+  });
+});
+
+test("nutrition needs entitlement plus both permissions, then saves the real food profile", async () => {
+  const owner = await ctx.person({ role: "owner" }), member = await ctx.person({ role: "subscriber", tenantId: owner.tenantId });
+  await ctx.db.tenant({ userId: owner.userId, tenantId: owner.tenantId, role: "owner" }, tx => tx.query("INSERT INTO complimentary_access(id,tenant_id,user_id,tier,reason,granted_by) VALUES($1,$2,$3,'workout_nutrition','Synthetic onboarding fixture',$4)", [randomUUID(), owner.tenantId, member.userId, owner.userId]));
+  await grant(member); await grant(member, "nutrition");
+  let c = await snapshot(member);
+  assert.equal(c.permissions.nutritionIncluded, true); assert.equal(c.permissions.nutrition, false);
+  const foodText = "I eat vegetarian food. No food allergies or other exclusions. Stove and oven. 20 minutes cooking, moderate budget. General meal planning.";
+  const patch = { diet: "vegetarian", allergyStatus: "none_reported", allergens: [], exclusions: [], kitchenEquipment: ["stove", "oven"], cookingMinutes: 20, foodBudget: "moderate", nutritionScope: "general_wellness" };
+  await model(input => input.conversation.at(-1).text === trainingText ? trainingReply : { reply: "Saved that.", patch, evidence: Object.fromEntries(Object.keys(patch).map(k => [k, foodText])) }, async sent => {
+    const trainingResult = await call(member, "/onboarding-chat/messages", { id: randomUUID(), version: c.version, text: trainingText });
+    c = trainingResult.json();
+    const ignoredFood = await call(member, "/onboarding-chat/messages", { id: randomUUID(), version: c.version, text: foodText });
+    c = ignoredFood.json(); assert.equal(c.facts.diet, undefined);
+    assert.equal(sent.at(-1).nutritionIncluded, false);
+    await grant(member, "nutrition_model");
+    const food = await call(member, "/onboarding-chat/messages", { id: randomUUID(), version: c.version, text: foodText });
+    assert.deepEqual(food.json().missing, [], food.body);
+    const saved = await call(member, "/onboarding-chat/actions", { id: randomUUID(), version: food.json().version, action: "nutrition", timezone: "Asia/Dubai" });
+    assert.equal(saved.json().error, undefined, saved.body); assert.ok(saved.json().applied.nutrition);
+    const rows = await ctx.db.tenant({ userId: member.userId, tenantId: member.tenantId, role: "subscriber" }, tx => tx.query("SELECT data FROM records WHERE kind='nutrition_profile' AND status='current'"));
+    assert.equal(rows.length, 1); assert.deepEqual(rows[0].data.profile.equipment, ["stove", "oven"]);
+    assert.equal(rows[0].data.profile.allergyStatus, "none_reported");
+  });
+  await call(member, "/privacy/consent", { type: "nutrition_model", granted: false });
+  const cleared = await snapshot(member);
+  assert.equal(cleared.permissions.nutrition, false); assert.equal(cleared.facts.diet, undefined);
+  assert.ok(!JSON.stringify(cleared.messages).includes("vegetarian"));
+});
+
+test("verified edge requests keep host and identity across the internal setup routes", async () => {
+  const owner = await ctx.person({ role: "owner" }), secret = "synthetic-onboarding-proof-only-0000000000";
+  await withEnv({ INTERNAL_PROXY_SECRET: secret }, async () => {
+    const time = String(Date.now()), url = "/api/v1/onboarding-chat";
+    const headers = { [HOST_HEADERS.host]: "localhost:3000", [HOST_HEADERS.time]: time, [HOST_HEADERS.clientIp]: "127.0.0.1", [HOST_HEADERS.signature]: signHostRequest("localhost:3000", "GET", url, time, secret, "127.0.0.1") };
+    const valid = await ctx.call("/onboarding-chat", { cookie: owner.cookie, headers });
+    assert.equal(valid.statusCode, 200, valid.body); assert.ok(valid.json().setup);
+    const invalid = await ctx.call("/onboarding-chat", { cookie: owner.cookie, headers: { ...headers, [HOST_HEADERS.host]: "wrong.example.test" } });
+    assert.equal(invalid.statusCode, 400);
   });
 });

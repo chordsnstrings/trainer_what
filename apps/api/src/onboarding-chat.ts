@@ -10,7 +10,7 @@ import {
 import { onboardingReply } from "../../../packages/providers/src/onboarding-chat.ts";
 import { modelAccounting } from "./model-accounting.ts";
 import { memberAccess } from "./entitlements.ts";
-import { HOST_HEADERS } from "./host-routing.ts";
+import { forwardWorkspaceRequest as forward } from "./internal-request.ts";
 import { privacyMatches } from "./ingestion.ts";
 import { lockTraining, openTrainingHold } from "./coaching-completion.ts";
 import { openPersonalReview, screenForSafety } from "./safety-policy.ts";
@@ -35,17 +35,6 @@ const actionSchema = z.object({
   ruleId: z.string().uuid().optional(), escalate: z.boolean().optional(),
 }).strict();
 
-async function forward(app: FastifyInstance, req: FastifyRequest, method: "GET" | "PUT" | "POST", url: string, payload?: unknown) {
-  const headers: Record<string, string> = {};
-  for (const key of ["cookie", "authorization", "origin", "host", "user-agent", ...Object.values(HOST_HEADERS)]) {
-    const value = req.headers[key];
-    if (typeof value === "string") headers[key] = value;
-  }
-  const response = await app.inject({ method, url, headers, ...(payload === undefined ? {} : { payload: payload as any }) });
-  const body = response.json();
-  if (response.statusCode >= 400) throw fail(response.statusCode, body.code ?? "CHAT_ACTION_FAILED", body.message ?? "This could not be saved.");
-  return body;
-}
 async function lock(tx: Tx, a: Actor) {
   await workspaceLock(tx, a.tenantId);
   if (a.role === "subscriber") await lockTraining(tx, a);
@@ -97,6 +86,7 @@ async function initialize(tx: Tx, a: Actor, mode: "setup" | "teach", p: Awaited<
   } else if (p.coaching) {
     const [intake] = await tx.query("SELECT data FROM records WHERE kind='intake' AND owner_user_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1", [a.userId]);
     if (intake?.data.allowedUses?.includes("model_prompt")) for (const k of trainingFields) if (intake.data[k] !== undefined) data.facts[k] = intake.data[k];
+    if (profileReady(data)) data.applied.profile = digest(pick(data.facts, trainingFields));
     if (p.nutrition) {
       const [food] = await tx.query("SELECT data FROM records WHERE kind='nutrition_profile' AND status='current' AND owner_user_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1", [a.userId]);
       if (food?.data.allowedUses?.includes("model_prompt")) {
