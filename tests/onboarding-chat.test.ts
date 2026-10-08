@@ -1,0 +1,162 @@
+import { before, after, test } from "node:test";
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { accountsContext, withEnv } from "./accounts-fixtures.ts";
+import { OFFERED_DIRECTORY_SPECIALTIES } from "@trainer/contracts";
+import { emptyChat, mergeChatFacts, nextChatQuestion, profileReady, chatText } from "../packages/domain/src/onboarding-chat.ts";
+
+const specialties = OFFERED_DIRECTORY_SPECIALTIES.map(({ id, label }) => ({ id, label }));
+let ctx: Awaited<ReturnType<typeof accountsContext>>;
+before(async () => { ctx = await accountsContext(); });
+after(async () => { await ctx.close(); });
+const call = (person: { cookie: string }, path: string, body?: any) => ctx.call(path, { cookie: person.cookie, body });
+const snapshot = async (person: { cookie: string }) => {
+  const r = await call(person, "/onboarding-chat");
+  assert.equal(r.statusCode, 200, r.body); return r.json();
+};
+async function model<T>(answer: (input: any) => any | Promise<any>, run: (sent: any[]) => Promise<T>) {
+  const original = globalThis.fetch, sent: any[] = [];
+  return withEnv({ MODEL_BASE_URL: "https://onboarding-chat.invalid/v1", MODEL_API_KEY: "fixture", MODEL_NAME: "fixture-chat", MODEL_MAX_DAILY_CALLS: "1000" }, async () => {
+    globalThis.fetch = async (url, init) => {
+      if (!String(url).startsWith("https://onboarding-chat.invalid")) return original(url, init);
+      const request = JSON.parse(String(init?.body)), input = JSON.parse(request.messages[1].content);
+      sent.push(input);
+      const reply = await answer(input);
+      return Response.json({ usage: { prompt_tokens: 12, completion_tokens: 8 }, choices: [{ message: { content: typeof reply === "string" ? reply : JSON.stringify(reply) } }] });
+    };
+    try { return await run(sent); } finally { globalThis.fetch = original; }
+  });
+}
+const training = { age: 28, goal: "Build sustainable strength", experience: "beginner", daysPerWeek: 3, availableWeekdays: [1, 3, 5], maxSessionMinutes: 45, equipment: "Dumbbells", limitations: "No injuries or limitations" };
+const trainingText = "I'm 28, a beginner. Build sustainable strength. 3 days a week: Monday, Wednesday, Friday. 45 minutes. Dumbbells. No injuries or limitations.";
+const trainingReply = { reply: "That gives us a good starting point.", patch: training, evidence: Object.fromEntries(Object.keys(training).map(k => [k, k === "limitations" ? training.limitations : trainingText])) };
+async function grant(person: any, type = "coaching") {
+  const r = await call(person, "/privacy/consent", { type, granted: true });
+  assert.equal(r.statusCode, 200, r.body);
+}
+
+test("grounded multi-answer memory rejects invented age, weekdays and undisclosed food fields", () => {
+  const c = emptyChat("member"), at = new Date().toISOString();
+  const reply = { reply: "OK", patch: { age: 27, daysPerWeek: 3, availableWeekdays: [1, 4], diet: "vegan" }, evidence: { age: "28", daysPerWeek: "three", availableWeekdays: "Monday and Friday", diet: "vegan" } };
+  const saved = mergeChatFacts(c, reply, "I'm 28. I train three times, Monday and Friday. I'm vegan.", "one", at, specialties);
+  assert.deepEqual(saved.facts, { daysPerWeek: 3 });
+  assert.equal(saved.memory.daysPerWeek.messageId, "one");
+  assert.deepEqual(c.facts, {});
+  const ready = mergeChatFacts(c, trainingReply, trainingText, "two", at, specialties);
+  assert.equal(profileReady(ready), true);
+  assert.equal(nextChatQuestion(ready, specialties).field, "review");
+  assert.equal(ready.facts.limitations, "No injuries or limitations");
+});
+test("phone copy is bounded and stripped of Markdown or vendor names", () => {
+  assert.equal(chatText("**Got it.**"), "Got it.");
+  assert.equal(chatText("Powered by OpenAI"), "Got it.");
+  assert.ok(chatText("a".repeat(600)).length <= 360);
+});
+test("opening, resuming and pausing use no model calls", async () => {
+  const owner = await ctx.person({ role: "owner", name: "Synthetic Chat Coach" });
+  await model(() => { throw Error("Unexpected call"); }, async sent => {
+    const a = await snapshot(owner), b = await snapshot(owner);
+    assert.equal(a.id, b.id); assert.equal(a.version, b.version);
+    const pause = await call(owner, "/onboarding-chat/actions", { id: randomUUID(), version: a.version, action: "pause" });
+    assert.equal(pause.statusCode, 200, pause.body);
+    assert.equal(pause.json().paused, true); assert.equal(sent.length, 0);
+  });
+});
+test("one answer records several grounded coach facts and one billed request; replay is idempotent", async () => {
+  const owner = await ctx.person({ role: "owner" }), c = await snapshot(owner);
+  const text = "I'm Alex and I coach busy beginners in Dubai.";
+  const body = { id: randomUUID(), version: c.version, text };
+  await model(() => ({ reply: "Busy weeks need something realistic.", patch: { publicName: "Alex", audience: "busy beginners", city: "Dubai" }, evidence: { publicName: "Alex", audience: "busy beginners", city: "Dubai" } }), async sent => {
+    const r = await call(owner, "/onboarding-chat/messages", body); assert.equal(r.statusCode, 200, r.body);
+    assert.equal(r.json().facts.city, "Dubai", r.body);
+    assert.equal(r.json().memory.publicName.evidence, "Alex");
+    const again = await call(owner, "/onboarding-chat/messages", body);
+    assert.equal(again.statusCode, 200, again.body); assert.equal(sent.length, 1);
+    assert.equal(again.json().messages.filter((m: any) => m.id === body.id).length, 1);
+    const changed = await call(owner, "/onboarding-chat/messages", { ...body, text: "Different answer" });
+    assert.equal(changed.statusCode, 409);
+  });
+});
+test("Brain teaching is saved for batch review and does not approve or compile per message", async () => {
+  const owner = await ctx.person({ role: "owner" }), c = await snapshot(owner);
+  await model(() => ({ reply: "I've kept that with your teaching.", patch: {}, evidence: {}, questionField: "teaching", question: "How would you adapt that for someone training twice a week?" }), async sent => {
+    const r = await call(owner, "/onboarding-chat/messages", { id: randomUUID(), version: c.version, mode: "teach", text: "I increase the load only after clients complete all prescribed reps with good form." });
+    assert.equal(r.statusCode, 200, r.body); assert.equal(r.json().teachingIds.length, 1);
+    assert.equal(r.json().compiledIds.length, 0); assert.equal(r.json().brain.rules.length, 0); assert.equal(sent.length, 1);
+    const saved = await snapshot(owner);
+    assert.equal(saved.teachingIds[0], r.json().teachingIds[0]);
+  });
+});
+test("concurrent resend sees the pending turn without another model call", async () => {
+  const owner = await ctx.person({ role: "owner" }), c = await snapshot(owner);
+  const body = { id: randomUUID(), version: c.version, text: "I help beginners become confident in the gym." };
+  let enter!: () => void, release!: () => void;
+  const entered = new Promise<void>(resolve => { enter = resolve; });
+  const held = new Promise<void>(resolve => { release = resolve; });
+  await model(async () => { enter(); await held; return { reply: "Got it.", patch: {}, evidence: {} }; }, async sent => {
+    const first = call(owner, "/onboarding-chat/messages", body);
+    await entered;
+    try {
+      const second = await call(owner, "/onboarding-chat/messages", body);
+      assert.equal(second.statusCode, 200, second.body); assert.equal(second.json().pending.id, body.id); assert.equal(sent.length, 1);
+    } finally { release(); }
+    assert.equal((await first).statusCode, 200);
+  });
+});
+test("malformed model output retains the saved message and exposes a recoverable error", async () => {
+  const owner = await ctx.person({ role: "owner" }), c = await snapshot(owner), id = randomUUID();
+  await model(() => "unreadable fixture", async sent => {
+    const r = await call(owner, "/onboarding-chat/messages", { id, version: c.version, text: "I coach beginners." });
+    assert.equal(r.statusCode, 200, r.body); assert.ok(r.json().error); assert.equal(r.json().pending, undefined);
+    assert.ok(r.json().messages.some((m: any) => m.id === id)); assert.equal(sent.length, 1);
+  });
+});
+test("member consent precedes messages; one conversation completes the real intake", async () => {
+  const owner = await ctx.person({ role: "owner" }), member = await ctx.person({ role: "subscriber", tenantId: owner.tenantId });
+  const before = await snapshot(member);
+  const denied = await call(member, "/onboarding-chat/messages", { id: randomUUID(), version: before.version, text: trainingText });
+  assert.equal(denied.statusCode, 403);
+  await grant(member); const c = await snapshot(member);
+  await model(() => trainingReply, async sent => {
+    const r = await call(member, "/onboarding-chat/messages", { id: randomUUID(), version: c.version, text: trainingText });
+    assert.equal(r.statusCode, 200, r.body); assert.equal(r.json().ready, true, r.body); assert.equal(sent.length, 1);
+    assert.deepEqual(sent[0].brainRules, []);
+    const saved = await call(member, "/onboarding-chat/actions", { id: randomUUID(), version: r.json().version, action: "profile", timezone: "Asia/Dubai" });
+    assert.equal(saved.statusCode, 200, saved.body); assert.equal(saved.json().error, undefined, saved.body); assert.ok(saved.json().applied.profile);
+    const records = await ctx.db.tenant({ userId: member.userId, tenantId: owner.tenantId, role: "subscriber" }, tx => tx.query("SELECT data FROM records WHERE kind='intake'"));
+    assert.equal(records.length, 1); assert.equal(records[0].data.age, 28);
+    assert.deepEqual(records[0].data.availableWeekdays, [1, 3, 5]);
+    const again = await call(member, "/onboarding-chat/actions", { id: randomUUID(), version: saved.json().version, action: "profile", timezone: "Asia/Dubai" });
+    assert.equal(again.json().error, undefined, again.body);
+    const count = await ctx.db.tenant({ userId: member.userId, tenantId: owner.tenantId, role: "subscriber" }, tx => tx.query("SELECT count(*)::int AS n FROM records WHERE kind='intake'"));
+    assert.equal(count[0].n, 1);
+  });
+  const forbidden = await call(member, "/onboarding-chat/actions", { id: randomUUID(), version: (await snapshot(member)).version, action: "compile" });
+  assert.equal(forbidden.statusCode, 403);
+});
+test("private conversations are isolated from another tenant, members and team roles", async () => {
+  const owner = await ctx.person({ role: "owner" }), stranger = await ctx.person({ role: "owner" });
+  const member = await ctx.person({ role: "subscriber", tenantId: owner.tenantId }), staff = await ctx.person({ role: "staff", tenantId: owner.tenantId });
+  await grant(member); const privateChat = await snapshot(member);
+  assert.notEqual((await snapshot(stranger)).id, privateChat.id);
+  assert.equal((await call(staff, "/onboarding-chat")).statusCode, 403);
+  for (const person of [owner, stranger, staff]) {
+    const rows = await ctx.db.tenant({ userId: person.userId, tenantId: person.tenantId, role: person === staff ? "staff" : "owner" }, tx => tx.query("SELECT id FROM records WHERE id=$1", [privateChat.id]));
+    assert.equal(rows.length, 0);
+  }
+});
+test("withdrawal during inference removes private messages and rejects the late reply", async () => {
+  const owner = await ctx.person({ role: "owner" }), member = await ctx.person({ role: "subscriber", tenantId: owner.tenantId });
+  await grant(member); const c = await snapshot(member);
+  let enter!: () => void, release!: () => void;
+  const entered = new Promise<void>(resolve => { enter = resolve; }), held = new Promise<void>(resolve => { release = resolve; });
+  await model(async () => { enter(); await held; return trainingReply; }, async sent => {
+    const running = call(member, "/onboarding-chat/messages", { id: randomUUID(), version: c.version, text: trainingText });
+    await entered;
+    try { const withdrawn = await call(member, "/privacy/consent", { type: "coaching", granted: false }); assert.equal(withdrawn.statusCode, 200, withdrawn.body); } finally { release(); }
+    const result = await running;
+    assert.equal(result.statusCode, 200, result.body); assert.equal(result.json().permissions.coaching, false);
+    assert.deepEqual(result.json().facts, {}); assert.ok(!JSON.stringify(result.json().messages).includes("Dumbbells")); assert.equal(sent.length, 1);
+    await grant(member); const fresh = await snapshot(member); assert.deepEqual(fresh.facts, {});
+  });
+});

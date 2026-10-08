@@ -1,0 +1,21 @@
+name: Onboarding conversation
+on:
+  push:
+    branches: [feat/conversational-onboarding-2026-10-08]
+  pull_request:
+    paths: ["apps/api/src/onboarding-chat.ts", "apps/web/components/onboarding-chat.tsx", "packages/domain/src/onboarding-chat.ts", "packages/providers/src/onboarding-chat.ts", "tests/onboarding-chat.test.ts", "scripts/onboarding-chat-check.mjs"]
+permissions:
+  contents: read
+jobs:
+  conversation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: node --import tsx --test tests/onboarding-chat.test.ts

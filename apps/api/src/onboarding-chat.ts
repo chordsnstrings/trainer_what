@@ -128,7 +128,7 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
     const state = await db.tenant(a, async tx => {
       await lock(tx, a);
       const p = await permissions(tx, a);
-      let row = await initialize(tx, a, mode, p);
+      let row = await initialize(tx, a, mode ?? "setup", p);
       if (row.data.pending && Date.now() - Date.parse(row.data.pending.at) > 180000) {
         await tx.query("UPDATE records SET status='interrupted',updated_at=now() WHERE id=$1 AND kind='onboarding_chat_request'", [row.data.pending.id]);
         const data = structuredClone(row.data);
@@ -163,7 +163,7 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
     });
   });
   // The request row makes retries/reloads idempotent, including after a process restart.
-  async function claim(a: Actor, b: { id: string; version: number }, type: string, fingerprint: string, mode: "setup" | "teach" = "setup") {
+  async function claim(a: Actor, b: { id: string; version: number }, type: string, fingerprint: string, mode?: "setup" | "teach") {
     return db.tenant(a, async tx => {
       await lock(tx, a);
       const p = await permissions(tx, a);
@@ -179,7 +179,7 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
       await putRecord(tx, a, "onboarding_chat_request", { fingerprint, type, conversationId: row.id }, { id: b.id, status: "processing" });
       const data = structuredClone(row.data);
       data.pending = { id: b.id, at: new Date().toISOString() };
-      data.mode = a.role === "owner" ? mode : "setup";
+      data.mode = a.role === "owner" ? mode ?? data.mode : "setup";
       delete data.error;
       row = await save(tx, a, row, data);
       return { row, p };
@@ -342,6 +342,7 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
         }
         if (applied) c.applied[applied[0]] = applied[1];
         c.compiledIds = [...new Set([...c.compiledIds, ...compiled])];
+        if (b.text && ["quiz-answer", "scenario"].includes(b.action)) appendChatMessage(c, { id: b.id, from: "person", text: b.text, at: new Date().toISOString() });
         if (line) say(c, line);
         if (["resume", "skip"].includes(b.action)) {
           c.lastQuestion = nextChatQuestion(c, specialties, claimed.p.nutrition);

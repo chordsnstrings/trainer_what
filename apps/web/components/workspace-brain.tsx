@@ -2,6 +2,8 @@
 import { Field } from "./field";
 import { KnowledgeImportReview } from "./ingestion-review";
 import { SourceCompilation } from "./source-compilation";
+import { OnboardingChat } from "./onboarding-chat";
+import { useWorkspaceValue } from "./workspace-continuity";
 import { useState } from "react";
 import Link from "next/link";
 import { KEEP_TRAINING, setupHref } from "./setup-wizard-model";
@@ -48,7 +50,13 @@ export const questions = [
   "How much explanation do your clients need?",
   "What distinguishes your method from generic coaching?",
 ];
-export function BrainView({
+export function BrainView(props: ViewProps) {
+  const [details, setDetails] = useWorkspaceValue("brain:onboarding-details", false, true);
+  const conversation = ["/trainer/brain", "/trainer/brain/interview"].includes(props.path) && props.state.user.role === "owner";
+  if (conversation && !details) return <OnboardingChat audience="coach" mode="teach" onSaved={props.onSaved} onDetails={() => setDetails(true)} />;
+  return <>{conversation && <button className="button secondary" onClick={() => setDetails(false)}>Back to conversation</button>}<BrainDetails {...props} /></>;
+}
+function BrainDetails({
   state,
   records,
   action,

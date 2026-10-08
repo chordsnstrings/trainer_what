@@ -53,6 +53,7 @@ import "./analytics-consent.css";
 import "./motion.css";
 import "./workspace-system.css";
 import "./affiliates.css";
+import "./onboarding-chat.css";
 
 // The trainsyou typeface: Inter (SIL OFL 1.1, app/fonts/Inter-OFL.txt), the
 // variable-weight files of @fontsource-variable/inter 5.3.0 kept in the
