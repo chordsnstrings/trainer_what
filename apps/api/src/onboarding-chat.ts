@@ -8,6 +8,7 @@ import {
   profileReady, missingFacts, trainingFields, quickChatReply, type ChatData,
 } from "../../../packages/domain/src/onboarding-chat.ts";
 import { onboardingReply } from "../../../packages/providers/src/onboarding-chat.ts";
+import { brainTrainingState } from "./brain-training-state.ts";
 import { modelAccounting } from "./model-accounting.ts";
 import { memberAccess } from "./entitlements.ts";
 import { forwardWorkspaceRequest as forward } from "./internal-request.ts";
@@ -81,8 +82,8 @@ async function initialize(tx: Tx, a: Actor, mode: "setup" | "teach", p: Awaited<
     if (spec) data.facts.specialty = spec.id;
     const product = rows.find(r => r.kind === "product");
     if (product) Object.assign(data.facts, { name: product.data.name, priceAed: product.data.priceMinor / 100, billing: product.data.billing ?? "monthly", programmeDays: product.data.programmeDays });
-    const uncompiled = await tx.query("SELECT id FROM records WHERE kind='interview' AND status='answered' AND owner_user_id=$1 ORDER BY created_at,id LIMIT 100", [a.userId]);
-    data.teachingIds = uncompiled.map(r => r.id);
+    const teaching = await brainTrainingState(tx);
+    data.teachingIds = teaching.uncompiledTeaching.map(r => r.id);
   } else if (p.coaching) {
     const [intake] = await tx.query("SELECT data FROM records WHERE kind='intake' AND owner_user_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1", [a.userId]);
     if (intake?.data.allowedUses?.includes("model_prompt")) for (const k of trainingFields) if (intake.data[k] !== undefined) data.facts[k] = intake.data[k];
@@ -125,6 +126,15 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
         delete data.pending;
         data.error = "That reply was interrupted. Your message is saved. Check the saved changes before trying again.";
         row = await save(tx, a, row, data);
+      }
+      if (a.role === "owner") {
+        const teaching = await brainTrainingState(tx);
+        const available = new Set(teaching.uncompiledTeaching.map(r => r.id));
+        const data = structuredClone(row.data);
+        data.teachingIds = [...new Set([...data.teachingIds, ...available])];
+        data.compiledIds = [...new Set([...data.compiledIds, ...data.teachingIds.filter(id => !available.has(id))])];
+        if (data.teachingIds.length !== row.data.teachingIds.length || data.compiledIds.length !== row.data.compiledIds.length)
+          row = await save(tx, a, row, data);
       }
       const data = p.coaching ? row.data : { ...emptyChat("member"), messages: row.data.messages.filter(m => m.from === "assistant").slice(0, 1) };
       const [program] = a.role === "subscriber" ? await tx.query("SELECT id,status FROM records WHERE owner_user_id=$1 AND kind='program' AND status='assigned' ORDER BY created_at DESC LIMIT 1", [a.userId]) : [];
@@ -243,7 +253,7 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
           const p = await permissions(tx, a);
           const merged = mergeChatFacts(data, answer, b.text, b.retryOf ?? b.id, new Date().toISOString(), specialties, p.nutrition);
           Object.assign(data, merged);
-          if (a.role === "owner" && !b.retryOf && prepared.data.teachingIds.length === claimed.row.data.teachingIds.length &&
+          if (a.role === "owner" && !b.retryOf && !privacyMatches(b.text).length && prepared.data.teachingIds.length === claimed.row.data.teachingIds.length &&
               ["approach", "alwaysDo", "neverDo", "referOut", "maxLoadJumpPct", "maxWeeklyVolumeIncreasePct"].some(k => data.memory[k]?.messageId === b.id)) {
             const source = await putRecord(tx, a, "interview", { question: prepared.q.text, answer: b.text, origin: "onboarding_chat", allowedUses: ["model_prompt", "trainer_specific_learning"] }, { status: "answered" });
             data.teachingIds.push(source.id);
@@ -322,7 +332,9 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
         }
         line = "Your food preferences are saved. Open Nutrition to see your plan's status.";
       } else if (b.action === "compile") {
-        compiled = data.teachingIds.filter(id => !data.compiledIds.includes(id)).slice(0, 20);
+        const teaching = await db.tenant(a, tx => brainTrainingState(tx));
+        const available = new Set(teaching.uncompiledTeaching.map(r => r.id));
+        compiled = data.teachingIds.filter(id => !data.compiledIds.includes(id) && available.has(id)).slice(0, 20);
         if (!compiled.length) throw fail(409, "NO_NEW_TEACHING", "Tell me something about how you coach first.");
         await forward(app, req, "POST", "/api/v1/brain/compile", { sourceIds: compiled });
         line = "I've drafted rules from what you taught me. Review them below before approving.";

@@ -2,6 +2,7 @@ import { HOST_HEADERS, signHostRequest } from "../apps/api/src/host-routing.ts";
 import { before, after, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { putRecord } from "@trainer/db";
 import { accountsContext, withEnv } from "./accounts-fixtures.ts";
 import { OFFERED_DIRECTORY_SPECIALTIES } from "@trainer/contracts";
 import { emptyChat, mergeChatFacts, nextChatQuestion, profileReady, chatText, quickChatReply } from "../packages/domain/src/onboarding-chat.ts";
@@ -246,4 +247,21 @@ test("verified edge requests keep host and identity across the internal setup ro
     const invalid = await ctx.call("/onboarding-chat", { cookie: owner.cookie, headers: { ...headers, [HOST_HEADERS.host]: "wrong.example.test" } });
     assert.equal(invalid.statusCode, 400);
   });
+});
+
+test("resume excludes previously compiled teaching and includes new practice corrections", async () => {
+  const owner = await ctx.person({ role: "owner" }), a = { userId: owner.userId, tenantId: owner.tenantId, role: "owner" };
+  let compiledId = "", correctionId = "";
+  await ctx.db.tenant(a, async tx => {
+    const source = await putRecord(tx, a, "interview", { origin: "onboarding_chat", question: "Progression", answer: "Wait for all reps", allowedUses: ["model_prompt", "trainer_specific_learning"] }, { status: "answered" });
+    compiledId = source.id;
+    await putRecord(tx, a, "rule", { title: "Progression", condition: "All reps complete", directive: "Review before increasing", compilationCoverage: { sources: [{ sourceId: source.id }] } }, { status: "draft" });
+  });
+  let c = await snapshot(owner); assert.ok(!c.teachingIds.includes(compiledId));
+  await ctx.db.tenant(a, async tx => {
+    const correction = await putRecord(tx, a, "interview", { origin: "quiz", source: "rule", verdict: "change", question: "What would you say?", answer: "Let's hold the load this week.", allowedUses: ["model_prompt", "trainer_specific_learning"] }, { status: "answered" });
+    correctionId = correction.id;
+  });
+  c = await snapshot(owner); assert.ok(c.teachingIds.includes(correctionId));
+  assert.ok(!c.compiledIds.includes(correctionId)); assert.equal(c.brain.suggestions.teaching, 1);
 });

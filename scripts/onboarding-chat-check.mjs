@@ -47,7 +47,7 @@ try {
   await page.reload();
   await expect(page.locator(".onboarding-message.person")).toContainText("busy beginners", { timeout: 30000 });
   await page.getByRole("button", { name: "View saved details", exact: true }).click();
-  await expect(page.getByLabel("Saved details")).toContainText("Alex");
+  await expect(page.getByLabel("Saved details", { exact: true })).toContainText("Alex");
   await capture(page, "trainer-desktop");
   report.checks.push("Trainer multi-answer message, persisted resume and grounded review");
   await page.getByRole("button", { name: "Close review", exact: true }).click();
@@ -79,7 +79,7 @@ try {
   assert.equal(memberReply.error, undefined, JSON.stringify({ error: memberReply.error }));
   await expect(phone.getByRole("button", { name: "Review my answers", exact: true })).toBeVisible({ timeout: 60000 });
   await phone.getByRole("button", { name: "Review my answers", exact: true }).click();
-  await expect(phone.getByLabel("Saved details")).toContainText("Monday, Wednesday, Friday");
+  await expect(phone.getByLabel("Saved details", { exact: true })).toContainText("Monday, Wednesday, Friday");
   await capture(phone, "client-review-phone");
   await phone.getByRole("button", { name: "Confirm my coaching profile", exact: true }).click();
   await expect(phone.locator(".onboarding-message.assistant").filter({ hasText: "Your profile is" })).toHaveCount(1, { timeout: 30000 });
