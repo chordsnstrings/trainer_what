@@ -16,7 +16,7 @@ jobs:
           cache: npm
       - run: npm ci --no-audit --no-fund
       - run: npm run typecheck
-      - run: node --import tsx --test tests/onboarding-chat.test.ts
+      - run: node --import tsx --test --test-concurrency=1 tests/onboarding-chat.test.ts tests/logical-css.test.ts tests/bounded-bootstrap.test.ts
       - run: npm run build
       - run: npx playwright install --with-deps chromium --only-shell
       - name: Phone and desktop onboarding journeys

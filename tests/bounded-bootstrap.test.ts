@@ -42,6 +42,7 @@ before(async () => {
   db = await createDatabase({ memory: true });
   app = await buildApp({ db, testing: true });
   w = await largeWorkspace(db);
+  app.addHook("preHandler", async req => { if (req.url.includes("/workspace/pages/members") && req.url.includes("q=")) console.log("Synthetic member search query", req.url, JSON.stringify(req.query)); });
 });
 after(async () => {
   await app?.close();
