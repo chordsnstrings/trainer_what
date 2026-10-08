@@ -34,7 +34,7 @@
 .onboarding-message p { white-space: pre-wrap; margin: 0; }
 .onboarding-message.person { align-self: flex-end; background: var(--chat-outgoing); color: var(--chat-outgoing-ink); border-radius: 15px; border-end-end-radius: 4px; }
 .onboarding-message.grouped { margin-top: -9px; }
-.onboarding-compose-area { flex-shrink: 0; padding: 14px 22px 12px; background: #fff; border-top: 1px solid var(--chat-border); }
+.onboarding-compose-area { position: relative; flex-shrink: 0; padding: 14px 22px 12px; background: #fff; border-top: 1px solid var(--chat-border); }
 .onboarding-composer { display: flex; align-items: flex-end; gap: 10px; padding-block: 8px; padding-inline: 14px 8px; border: 1px solid #cddbd3; border-radius: 22px; background: #fff; }
 .onboarding-composer:focus-within { outline: 2px solid #155c4926; border-color: var(--chat-accent); }
 .onboarding-composer textarea { flex: 1; min-width: 0; resize: none; min-height: 40px; max-height: 150px; border: 0; box-shadow: none; outline: none; background: transparent; padding: 7px 0; line-height: 1.5; font-size: 16px; color: var(--chat-ink); width: 100%; border-radius: 0; }
@@ -117,7 +117,7 @@
 .onboarding-chat :is(.onboarding-icon,.onboarding-send,.onboarding-chip,.onboarding-start-call):active:not(:disabled) { transform: scale(.95); }
 .onboarding-chip { color: var(--chat-accent); border-color: var(--chat-border); }
 .onboarding-chip:hover, .onboarding-chip[aria-pressed="true"], .onboarding-icon:hover { background: color-mix(in srgb, var(--chat-accent) 9%, white); }
-.onboarding-latest { position: absolute; inset-inline-end: 20px; bottom: 145px; z-index: 2; display: flex; align-items: center; gap: 6px; padding: 10px 14px; border: 1px solid var(--chat-border); background: #fff; border-radius: 25px; box-shadow: 0 3px 16px #0002; color: var(--chat-accent); font-size: 12px !important; }
+.onboarding-latest { position: absolute; inset-inline-end: 20px; bottom: calc(100% + 10px); z-index: 2; display: flex; align-items: center; gap: 6px; padding: 10px 14px; border: 1px solid var(--chat-border); background: #fff; border-radius: 25px; box-shadow: 0 3px 16px #0002; color: var(--chat-accent); font-size: 12px !important; }
 .onboarding-chat.drag-over { outline: 3px solid var(--chat-accent); outline-offset: -3px; }
 .onboarding-file-tray { max-height: 230px; overflow: auto; display: flex; flex-direction: column; gap: 8px; padding-bottom: 10px; }
 .onboarding-file-tray > small { font-size: 11px; color: var(--chat-muted); }

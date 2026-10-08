@@ -261,8 +261,8 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
         </div></div>}
         <div ref={end} />
       </div>
-      {newMessages && <button type="button" className="onboarding-latest" onClick={() => { nearBottom.current = true; thread.current?.scrollTo({ top: thread.current.scrollHeight, behavior: prefersReducedMotion() ? "auto" : "smooth" }); setNewMessages(false); }}><ArrowDown size={16} /> Latest messages</button>}
       <footer className="onboarding-compose-area">
+      {newMessages && <button type="button" className="onboarding-latest" onClick={() => { nearBottom.current = true; thread.current?.scrollTo({ top: thread.current.scrollHeight, behavior: prefersReducedMotion() ? "auto" : "smooth" }); setNewMessages(false); }}><ArrowDown size={16} /> Latest messages</button>}
         {state.permissions.coaching && <>
           {(answerMode || scenarioMode) && <div className="onboarding-compose-context"><span>{answerMode ? "Write the reply you'd use." : "Describe a client situation in your own words."}</span><button className="text-link" onClick={() => { setAnswerMode(false); setScenarioMode(false); }}>Cancel</button>
             {scenarioMode && <><label>Rule to check<select value={ruleId} onChange={e => setRuleId(e.target.value)}>{confirmed.map((r: any) => <option value={r.id} key={r.id}>{r.title}</option>)}</select></label><label className="onboarding-choice"><input type="checkbox" checked={escalate} onChange={e => setEscalate(e.target.checked)} /> This needs referral or human review</label></>}
