@@ -39,8 +39,13 @@ export function PreviewUnavailable({ message }: { message: string }) {
 export function TrainerPreviewBar() {
   const path = usePathname();
   const [status, setStatus] = useState<any>(null), [error, setError] = useState(""), [busy, setBusy] = useState(false), [notice, setNotice] = useState("");
+  const [controlsOpen, setControlsOpen] = useState(false);
+  const reviewReady = !!status?.decisions?.length || status?.generation?.status === "pending_review";
+  useEffect(() => {
+    if (reviewReady || path.endsWith("/program") && status && !status.workout) setControlsOpen(true);
+  }, [reviewReady, path, status?.workout]);
   const load = useCallback(async () => {
-    try { setStatus(await control()); }
+    try { setStatus(await control()); setError(""); }
     catch (e) { setError((e as Error).message); }
   }, []);
   useEffect(() => { void load(); }, [path, load]);
@@ -59,7 +64,7 @@ export function TrainerPreviewBar() {
   const generation = status?.generation;
   return <aside className="trainer-preview-bar" aria-label="Trainer test controls">
     <div className="trainer-preview-top"><div><strong>Subscriber preview</strong><small>Your private test profile · progress stays saved</small></div><button type="button" className="button secondary button-small" disabled={busy} onClick={() => void act(endTrainerPreview)}>Back to My Brain</button></div>
-    <details open={!!status?.decisions?.length || generation?.status === "pending_review" || path.endsWith("/program") && !status?.workout}>
+    <details open={controlsOpen} onToggle={e => setControlsOpen(e.currentTarget.open)}>
       <summary>Test controls{status?.decisions?.length ? " · reply ready to review" : ""}{generation?.status === "pending_review" ? " · workout ready to review" : ""}</summary>
       <p>This uses your published Brain and the subscriber app. Test activity stays separate from your customers. Trainer approval here applies only to this test profile.</p>
       {status && !status.brain && <p className="notice">Publish your Brain in My Brain before asking your digital coach for advice or a workout.</p>}
