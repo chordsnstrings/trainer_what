@@ -245,6 +245,41 @@ try {
   await expect(page.getByLabel("Your onboarding message")).toBeVisible();
   assert.equal(await page.evaluate(() => window.__onboardingMotion.length), 0, "My Brain history must stay still on reopen");
   report.checks.push("Exact My Brain teach route: visible desktop send/receive pops, on-screen animated pending dots, no replay of saved history");
+  await page.getByRole("button", { name: "Conversation options", exact: true }).click();
+  await page.getByRole("button", { name: /Brain review/ }).click();
+  await page.getByText("Compare my replies", { exact: true }).click();
+  const fidelity = page.getByRole("region", { name: "Compare your coaching replies" });
+  await expect(fidelity.getByRole("heading", { name: "Does it sound like you?" })).toBeVisible();
+  await fidelity.getByRole("button", { name: "New situation", exact: true }).click();
+  await fidelity.getByLabel("Situation name", { exact: true }).fill("Working around a changed commute");
+  await fidelity.getByLabel("Subscriber's earlier message 1", { exact: true }).fill("My commute moved to the evening, which disrupted the routine.");
+  await fidelity.getByLabel("Your earlier reply 1", { exact: true }).fill("Tell me which part of the routine now gets in the way.");
+  await fidelity.getByLabel("Subscriber's new message", { exact: true }).fill("It is that same change again today. Can we figure out a practical way forward?");
+  await fidelity.getByLabel("The exact reply you would send", { exact: true }).fill("Keep it practical. What time do you have around the new commute?");
+  await fidelity.getByLabel("Why would you answer that way?", { exact: true }).fill("Use the earlier context and ask what is possible before adapting.");
+  await fidelity.getByRole("checkbox", { name: /made-up situation/ }).check();
+  await fidelity.getByRole("button", { name: "Save my reference reply", exact: true }).click();
+  await expect(fidelity.getByRole("button", { name: "Compare with current Brain", exact: true })).toBeEnabled();
+  await fidelity.getByRole("button", { name: "Compare with current Brain", exact: true }).click();
+  await expect(fidelity.getByRole("button", { name: "Save ratings and reveal sources", exact: true })).toBeVisible({ timeout: 30000 });
+  await expect(fidelity.locator("legend")).toHaveText(["Reply A", "Reply B"]);
+  for (const label of ["A", "B"]) for (const dimension of ["Coaching decision", "Tone and wording", "Use of conversation"])
+    await fidelity.getByLabel(`${dimension} — reply ${label}`, { exact: true }).selectOption("4");
+  for (const width of [1280, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    await capture(page, "fidelity-unrevealed-" + width);
+  }
+  await fidelity.getByRole("button", { name: "Save ratings and reveal sources", exact: true }).click();
+  await expect(fidelity.locator("legend").filter({ hasText: "Your Brain" })).toBeVisible();
+  await expect(fidelity.getByText("1 rated situation still separate from teaching.", { exact: true })).toBeVisible();
+  await fidelity.getByText("Teach from this review", { exact: true }).click();
+  await fidelity.getByLabel("The lesson to teach", { exact: true }).fill("Ask about practical availability before changing the next session.");
+  await fidelity.getByRole("checkbox", { name: /Use this for teaching/ }).check();
+  await fidelity.getByRole("button", { name: "Save as teaching", exact: true }).click();
+  await expect(fidelity.getByText(/Correction saved as a teaching note/)).toBeVisible();
+  await expect(fidelity.getByText(/No ratings for the current Brain/)).toBeVisible();
+  await capture(page, "fidelity-rated-and-retired-phone");
+  report.checks.push("Real API/database fidelity journey: saved fictional turns and reference, generated reply, hidden labels, separate ratings, reveal and explicit correction-to-teaching; 1280/390/320 px layouts");
   await coach.close();
   const { context: brainPhone, page: brainPhonePage } = await login("coach@example.test", 390, "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1", true);
   await go(brainPhonePage, "/trainer/brain");

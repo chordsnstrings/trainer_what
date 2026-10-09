@@ -18,7 +18,7 @@ export const confirmedRulesDigest = (rules: Array<Record<string, any>>) =>
     )
     .digest("hex");
 
-const TEACHING_ORIGINS = new Set(["quiz", "keep_training_chat", "reply_correction", "onboarding_chat", "setup_assistant"]);
+const TEACHING_ORIGINS = new Set(["quiz", "keep_training_chat", "reply_correction", "onboarding_chat", "setup_assistant", "fidelity_review"]);
 
 /**
  * Everything the teaching screens and the automation gate read, from the

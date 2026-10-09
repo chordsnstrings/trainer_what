@@ -1,5 +1,6 @@
 "use client";
 import { VoiceOneOnOne } from "./voice-one-on-one";
+import { BrainFidelity } from "./brain-fidelity";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { useConversationMotion } from "./onboarding-motion";
 import Link from "next/link";
@@ -250,6 +251,7 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
           </div>}
           {panel === "brain" && teaching && <div className="onboarding-brain" aria-label="Brain review">
             <details className="onboarding-inline-card"><summary>Your communication style</summary><VoiceOneOnOne /></details>
+            <details className="onboarding-inline-card"><summary>Compare my replies</summary><BrainFidelity /></details>
             {state.coachingCoverage && <details className="onboarding-inline-card onboarding-coverage">
               <summary>{state.coachingCoverage.covered} of {state.coachingCoverage.total} coaching topics covered</summary>
               <p>These are the details you've explained. Your draft rules still need review and practice checks before your Brain uses them.</p>

@@ -26,6 +26,13 @@ const server = createServer({ key: tls.key, cert: tls.cert }, async (req, res) =
   if (req.url === "/voices/clone") { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify({ id: "synthetic-call-voice", name: "Synthetic trainer clone", is_public: false })); return; }
   if (req.url?.startsWith("/voices/synthetic-call-voice")) { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify({ id: "synthetic-call-voice", name: "Synthetic trainer clone", is_public: false })); return; }
   const payload = JSON.parse(raw), context = JSON.parse(payload.messages[1].content);
+  if (context.task === "coaching") {
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify({ usage: { prompt_tokens: 20, completion_tokens: 30 }, choices: [{ message: { content: JSON.stringify({
+      type: "message", message: "Let's work around that change. What time do you have available?", reason: "Ask about availability before suggesting a change.",
+      evidenceIds: [context.evidence[0].id], requiresHumanReview: true,
+    }) } }] })); return;
+  }
   const text = context.conversation.at(-1).text, patch = replies[context.audience];
   const evidence = Object.fromEntries(Object.keys(patch).map(key => [key, key === "limitations" ? "No injuries or limitations" : text]));
   const coaching = context.audience === "coach" && text.includes("simple strength sessions")
@@ -37,6 +44,7 @@ await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
 const port = server.address().port;
 Object.assign(process.env, {
   TRAINER_PROVIDER_SANDBOX: "mock", NODE_EXTRA_CA_CERTS: tls.caFile,
+  ONBOARDING_FIDELITY_FIXTURE: "true",
   MODEL_BASE_URL: "https://127.0.0.1:" + port + "/v1", MODEL_API_KEY: "synthetic-local-fixture", MODEL_NAME: "seed-2-0-pro-260328",
   RTL_CHECK_MODULE: "./onboarding-chat-check.mjs", ONBOARDING_MICROPHONE_FIXTURE: microphone,
   FILE_IMPORTS_APPROVED: "true", SECURITY_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString("base64"),
