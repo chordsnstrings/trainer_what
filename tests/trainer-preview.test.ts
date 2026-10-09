@@ -77,6 +77,9 @@ test("preview runs real intake, reviewed chat, generated workouts and saved logs
       assert.equal(result.statusCode, 200, path + ": " + result.body); return result.json();
     }
     const member = (await ok("/bootstrap")).user;
+    const beforePlan = await ok("/programme/today");
+    assert.equal(beforePlan.planState, "awaiting_coach");
+    assert.equal(beforePlan.programme.billing, "preview");
     await ok("/intake", previewIntake);
     const queued: any[] = [];
     await withEnv({ MODEL_BASE_URL: "https://preview-fixture.invalid/v1", MODEL_API_KEY: "synthetic-preview", MODEL_NAME: "preview-fixture", MODEL_PRICE_VERSION: "fixture", MODEL_INPUT_USD_PER_MILLION: "1", MODEL_OUTPUT_USD_PER_MILLION: "2", MODEL_MAX_DAILY_CALLS: "1000" }, async () => {
@@ -104,6 +107,11 @@ test("preview runs real intake, reviewed chat, generated workouts and saved logs
       assert.equal(approve.statusCode, 200, approve.body);
       const plan = await ok("/brain/plans/mine");
       assert.equal(plan.status.state, "delivered");
+      const today = await ok("/programme/today");
+      assert.equal(today.planState, "ready");
+      assert.deepEqual(today.access.sources, ["preview"]);
+      assert.equal(today.programme.billing, "preview");
+      assert.equal(today.endOfProgramme.renewProductId, null);
       const overview = await ok("/training/overview"), session = overview.records.find((r: any) => r.kind === "planned_session" && r.status === "planned");
       assert.ok(session);
       const workout = await ok("/workouts/start", { programId: session.data.programId, plannedSessionId: session.id });

@@ -11,6 +11,10 @@ GRANT USAGE ON SCHEMA public TO trainer_service;
 GRANT trainer_app TO trainer_service;
 GRANT SELECT ON schema_migrations TO trainer_service;
 GRANT SELECT,INSERT,UPDATE,DELETE ON users,tenants,memberships,sessions,one_time_tokens,user_security,provider_events,provider_objects,domain_mappings TO trainer_service;
+-- Private subscriber previews (094): created through checked owner routes.
+GRANT SELECT,INSERT,UPDATE,DELETE ON trainer_preview_profiles,trainer_preview_sessions TO trainer_service;
+-- RLS predicates also run while the service role plans ordinary user reads.
+GRANT EXECUTE ON FUNCTION trainer_preview_member(uuid),trainer_preview_active(uuid) TO trainer_service;
 GRANT SELECT,INSERT,UPDATE ON platform_settings TO trainer_service;
 GRANT SELECT,INSERT ON platform_settings_audit TO trainer_service;
 -- Set trainer_service's password with the database console's password workflow.

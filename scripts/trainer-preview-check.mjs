@@ -11,7 +11,7 @@ const report = { checks: [], errors: [], captures: [] };
 try {
   for (const width of [1280, 390]) {
     const context = await browser.newContext({ viewport: { width, height: 900 }, permissions: ["microphone"], serviceWorkers: "block" });
-    const login = await context.request.post(base + "/api/v1/auth/login", { headers: { origin: base }, data: { email: "coach@example.test", password: "TrainerDemo2026!" } });
+    const login = await context.request.post(base + "/api/v1/auth/login", { headers: { origin: base }, data: { email: `preview-${width}@example.test`, password: "TrainerDemo2026!" } });
     assert.equal(login.status(), 200);
     const before = (await context.cookies()).find(c => c.name === "session").value;
     // A fresh test profile for each screen size; its actual entry stays UI-tested.

@@ -20,7 +20,7 @@ export type TodayProgramme = {
   setup?: Array<{ key: string; done: boolean; owner: string; href: string }>;
   programme?: {
     state: "not_started" | "active" | "complete";
-    billing: "monthly" | "upfront" | "complimentary";
+    billing: "monthly" | "upfront" | "complimentary" | "preview";
     day: number;
     of: number;
     block: number;

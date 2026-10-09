@@ -79,6 +79,19 @@ async function programmeSource(
   userId: string,
   access: Awaited<ReturnType<typeof memberAccess>>,
 ): Promise<ProgrammeSource | null> {
+  if (access.sources.includes("preview")) {
+    // The first confirmed coaching profile starts the private programme. Until
+    // then, Today offers setup; no commercial membership is invented.
+    const [first] = await tx.query(
+      "SELECT min(created_at) AS starts_at FROM records WHERE kind='intake' AND owner_user_id=$1",
+      [userId],
+    );
+    return {
+      billing: "preview", programmeDays: null,
+      startsAt: first?.starts_at ? new Date(first.starts_at).toISOString() : new Date().toISOString(),
+      endsAt: null, accessActive: true, cancelAtPeriodEnd: false, productId: null,
+    };
+  }
   const [s] = await tx.query(
     "SELECT status,period_end,cancel_at_period_end,data FROM subscriptions WHERE user_id=$1",
     [userId],

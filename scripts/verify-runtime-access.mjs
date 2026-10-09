@@ -67,6 +67,8 @@ export async function verifyRuntimeAccess(client) {
     tenants: ["SELECT", "INSERT", "UPDATE", "DELETE"],
     memberships: ["SELECT", "INSERT", "UPDATE", "DELETE"],
     sessions: ["SELECT", "INSERT", "UPDATE", "DELETE"],
+    trainer_preview_profiles: ["SELECT", "INSERT", "UPDATE", "DELETE"],
+    trainer_preview_sessions: ["SELECT", "INSERT", "UPDATE", "DELETE"],
     one_time_tokens: ["SELECT", "INSERT", "UPDATE", "DELETE"],
     user_security: ["SELECT", "INSERT", "UPDATE", "DELETE"],
     provider_events: ["SELECT", "INSERT", "UPDATE", "DELETE"],
@@ -328,6 +330,8 @@ export async function verifyRuntimeAccess(client) {
     "voice_provider_deletions must not be deletable by the runtime roles",
   );
   const functions = [
+    "trainer_preview_member(uuid)",
+    "trainer_preview_active(uuid)",
     "trainer_media_brand_reference(uuid,uuid)",
     "trainer_brand_tenant()",
     "training_actor_is_current(uuid,uuid,text)",
@@ -393,7 +397,7 @@ export async function verifyRuntimeAccess(client) {
     );
     assert.equal(
       r.service,
-      name.startsWith("trainer_media_brand_reference"),
+      name.startsWith("trainer_media_brand_reference") || name.startsWith("trainer_preview_"),
       `${name}: unexpected direct service access`,
     );
     assert.equal(r.tenant, true, `${name}: tenant helper grant missing`);
@@ -507,6 +511,8 @@ export async function verifyRuntimeAccess(client) {
   // Service tables that carry a workspace deny the tenant role every row and
   // honour a service transaction's workspace binding (app.service_tenant_id).
   const boundTables = [
+    "trainer_preview_profiles",
+    "trainer_preview_sessions",
     "sessions",
     "one_time_tokens",
     "provider_objects",
@@ -600,6 +606,8 @@ export async function verifyRuntimeAccess(client) {
     await client.query("SET LOCAL ROLE trainer_app");
     for (const table of [
       "schema_migrations",
+      "trainer_preview_profiles",
+      "trainer_preview_sessions",
       "tenants",
       "provider_objects",
       "provider_events",

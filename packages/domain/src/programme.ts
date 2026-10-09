@@ -11,7 +11,7 @@ export const RENEWAL_WINDOW_DAYS = 7;
 /** Days before an upfront programme ends when the member is told it is ending. */
 export const ENDING_NOTICE_DAYS = 3;
 
-export type ProgrammeBilling = "monthly" | "upfront" | "complimentary";
+export type ProgrammeBilling = "monthly" | "upfront" | "complimentary" | "preview";
 export type ProgrammeState = "not_started" | "active" | "complete";
 
 export function validTimeZone(value: unknown): value is string {
@@ -285,7 +285,7 @@ export function endOfProgramme(input: {
       };
     return { state: "renews", at: end ? end.toISOString() : null };
   }
-  if (input.billing === "complimentary" && input.position)
+  if ((input.billing === "complimentary" || input.billing === "preview") && input.position)
     return { state: "next_block", at: addDays(input.position.blockEndDate, 1) };
   return { state: "none" };
 }
