@@ -380,7 +380,7 @@ export async function businessAnalytics(db: Database, a: Actor) {
   // transactions cannot read; subscription state stays tenant-scoped.
   const joined = await db.system((tx) =>
     tx.query(
-      "SELECT m.user_id,to_char(u.created_at,'YYYY-MM') AS cohort FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.tenant_id=$1 AND m.role='subscriber'",
+      "SELECT m.user_id,to_char(u.created_at,'YYYY-MM') AS cohort FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.tenant_id=$1 AND m.role='subscriber' AND NOT u.is_trainer_preview",
       [a.tenantId],
     ),
   );

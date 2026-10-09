@@ -18,6 +18,7 @@ try {
     const reset = await context.request.post(base + "/api/v1/trainer-preview/start", { headers: { origin: base }, data: { reset: true } });
     assert.equal(reset.status(), 200, await reset.text());
     await context.request.post(base + "/api/v1/trainer-preview/end", { headers: { origin: base }, data: {} });
+    const journeyStarted = Date.now();
     const page = await context.newPage(), escaped = [];
     page.on("pageerror", error => report.errors.push(error.message));
     page.on("request", request => {
@@ -67,6 +68,10 @@ try {
       await page.screenshot({ path: folder + "/" + name + ".png", fullPage: true }); report.captures.push(name);
     }
     await page.goto(base + "/trainer/preview/app/chat");
+    // The rapid screenshot reloads and complete setup journey share the real
+    // trainer's 120/minute budget. Start voice/exit/resume in its next window,
+    // rather than weakening the application limit for this synthetic run.
+    await page.waitForTimeout(Math.max(0, 61_000 - (Date.now() - journeyStarted)));
     await page.getByRole("button", { name: "Talk to my digital coach", exact: true }).click();
     await page.getByLabel("I allow my speech to be processed for this AI call.").check();
     await page.getByRole("button", { name: "Start call", exact: true }).click();
@@ -74,7 +79,7 @@ try {
     await expect.poll(async () => {
       const data = await (await context.request.get(base + "/api/v1/trainer-preview/run/messages/thread")).json();
       return data.messages.filter(m => /Spoken answer/.test(m.data.text)).length;
-    }, { timeout: 45000 }).toBeGreaterThanOrEqual(2);
+    }, { timeout: 45000, intervals: [1000] }).toBeGreaterThanOrEqual(2);
     await page.getByRole("button", { name: "End call", exact: true }).click();
     await page.getByRole("button", { name: "Close voice call", exact: true }).click();
     await page.getByLabel("Trainer test controls").getByRole("button", { name: "Back to My Brain", exact: true }).click();

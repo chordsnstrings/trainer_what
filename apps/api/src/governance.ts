@@ -502,7 +502,7 @@ export function registerGovernance(
       .parse(req.query);
     return db.system(async (tx) => {
       const rows = await tx.query(
-        "SELECT t.id,t.slug,t.name,t.published,t.lifecycle_state,t.created_at,(SELECT jsonb_build_object('id',u.id,'name',u.name,'email',u.email) FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.tenant_id=t.id AND m.role='owner' ORDER BY m.user_id LIMIT 1) AS owner,(SELECT count(*)::int FROM memberships m WHERE m.tenant_id=t.id AND m.role='subscriber') AS followers," +
+        "SELECT t.id,t.slug,t.name,t.published,t.lifecycle_state,t.created_at,(SELECT jsonb_build_object('id',u.id,'name',u.name,'email',u.email) FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.tenant_id=t.id AND m.role='owner' ORDER BY m.user_id LIMIT 1) AS owner,(SELECT count(*)::int FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.tenant_id=t.id AND m.role='subscriber' AND NOT u.is_trainer_preview) AS followers," +
           platformWorkspaceSql("t.id") +
           " AS platform_workspace,(SELECT jsonb_build_object('id',s.id,'revision',s.revision,'reason',s.reason,'notice',s.notice,'suspendedAt',s.suspended_at,'suspendedBy',s.suspended_by,'heldPayouts',jsonb_array_length(s.held_payouts),'financeFollowupId',s.finance_followup_id) FROM workspace_suspensions s WHERE s.tenant_id=t.id AND s.status='active') AS suspension FROM tenants t WHERE ($1='' OR position(lower($1) in lower(t.name))>0 OR position(lower($1) in lower(t.slug))>0) AND ($2='' OR t.lifecycle_state=$2) ORDER BY t.created_at DESC,t.id LIMIT 51 OFFSET $3",
         [q.q, q.state, q.page * 50],
