@@ -549,10 +549,10 @@ const trialRuleRecords = (t: TrialTrainer) =>
   );
 
 test("the selector states the evidence contract and sends short references", async () => {
-  assert.equal(coachingPromptVersion, "coach-action-selector-v5");
+  assert.equal(coachingPromptVersion, "coach-action-selector-v6");
   assert.match(
     selectorSystemPrompt,
-    /^Coach action selector coach-action-selector-v5\./,
+    /^Coach action selector coach-action-selector-v6\./,
   );
   assert.match(
     selectorSystemPrompt,
@@ -707,11 +707,11 @@ const draftEvidence = (memberKey: string) => {
 };
 
 test("the draft prompt states the exact JSON contract and a version", () => {
-  assert.equal(coachDecisionPromptVersion, "coach-decision-v3");
+  assert.equal(coachDecisionPromptVersion, "coach-decision-v4");
   // The e2e model double classifies by these opening words.
   assert.ok(
     coachDecisionSystemPrompt.startsWith(
-      "You are a governed digital coaching assistant (coach-decision-v3).",
+      "You are a governed digital coaching assistant (coach-decision-v4).",
     ),
   );
   for (const type of [
@@ -791,7 +791,7 @@ test("a valid Arabic draft decodes its evidence and records the prompt version",
         evidence,
         accounting,
       );
-      assert.equal(result.promptVersion, "coach-decision-v3");
+      assert.equal(result.promptVersion, "coach-decision-v4");
       assert.equal(result.decision.type, "message");
       assert.equal(writtenInArabic(result.decision.message), true);
       assert.equal(result.decision.requiresHumanReview, true);
@@ -1103,7 +1103,7 @@ test("an invalid draft reaches the trainer as a review item; the member never se
   assert.equal(valid.json().pendingReview, true);
   const stored = (await decisions()).at(-1)!;
   assert.equal(stored.status, "pending_review");
-  assert.equal(stored.data.promptVersion, "coach-decision-v3");
+  assert.equal(stored.data.promptVersion, "coach-decision-v4");
   assert.equal(stored.data.request, message("T2S03/chat2"));
   assert.equal(writtenInArabic(stored.data.message), true);
 });
@@ -1149,7 +1149,7 @@ test("qualified routine replies are delivered in the member's language, and with
   const workspace = (
     await req("/brain/coaching-workspace", "GET", undefined, coach)
   ).json();
-  assert.equal(workspace.modelPin.promptVersion, "coach-action-selector-v5");
+  assert.equal(workspace.modelPin.promptVersion, "coach-action-selector-v6");
   // Qualification is exercised elsewhere (tests/coaching-runtime.test.ts);
   // here the current contract is published directly.
   const runtime = await db.tenant(coach, (tx) =>
@@ -1390,7 +1390,7 @@ test("qualified routine replies are delivered in the member's language, and with
   assert.equal(evaluated.json().status, "failed");
   assert.equal(
     evaluated.json().data.pin.promptVersion,
-    "coach-action-selector-v5",
+    "coach-action-selector-v6",
   );
   // Arabic teaching with an outcome context is accepted next to Arabic
   // held-out questions (before, "" matched every held-out Arabic question).

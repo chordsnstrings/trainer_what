@@ -1,6 +1,8 @@
 import { workMeasure } from "../../../packages/domain/src/prescription.ts";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { loadMemberMemory } from "./member-memory.ts";
+import { loadConversationContext } from "./conversation-context.ts";
+import { CONVERSATION_CONTEXT_VERSION } from "../../../packages/domain/src/conversation-context.ts";
 import { trainerBrainContext } from "../../../packages/domain/src/trainer-brain.ts";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -786,7 +788,7 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
         [a.userId],
       );
       if (!safety && !hold) await activeMembership(tx, a);
-      await putRecord(
+      const currentMessage = await putRecord(
         tx,
         a,
         "message",
@@ -878,12 +880,15 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
       // Code-built facts from the member's own logs (member-memory.ts); only
       // drafts the coach reviews use it, never the automatic routine replies.
       const memory = await loadMemberMemory(tx, a.userId);
-      return { release, intake, twin, memory };
+      const conversation = await loadConversationContext(tx, a.userId, currentMessage.id);
+      return { release, intake, twin, memory, conversation, requestMessageId: currentMessage.id };
     });
     if (material.response) return material.response;
     const qualified = await tryQualifiedCoaching(db, a, b.message, {
       release: material.release!,
       twin: material.twin!,
+      conversation: material.conversation!,
+      requestMessageId: material.requestMessageId!,
     });
     if (qualified) return qualified;
     const evidence = [
@@ -903,7 +908,7 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
         b.message,
         evidence,
         modelAccounting(db, a, "coaching"),
-        { trainerBrain: trainerBrainContext(material.release) },
+        { trainerBrain: trainerBrainContext(material.release), conversation: material.conversation!.context },
       );
     } catch (error) {
       if (!(error instanceof ModelOutputInvalid)) throw error;
@@ -958,6 +963,8 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
           "COACHING_CHANGED",
           "Your profile or training record changed during generation; the response was withheld",
         );
+      if ((await loadConversationContext(tx, a.userId, material.requestMessageId!)).digest !== material.conversation!.digest)
+        throw fail(409, "COACHING_CHANGED", "Your conversation changed while the reply was being prepared. Ask again using the latest messages; the earlier reply was withheld.");
       const [{ takeover }] = await tx.query(
         "SELECT member_takeover_active() AS takeover",
       );
@@ -970,6 +977,10 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
           ...generated.decision,
           promptVersion: generated.promptVersion,
           request: b.message,
+          requestMessageId: material.requestMessageId,
+          conversationContextVersion: CONVERSATION_CONTEXT_VERSION,
+          conversationDigest: material.conversation!.digest,
+          conversationMessageIds: material.conversation!.messageIds,
           brainVersionId: material.release!.id,
           clientSnapshotId: material.twin!.id,
         },

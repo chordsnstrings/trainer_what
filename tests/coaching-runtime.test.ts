@@ -32,6 +32,7 @@ const original = Object.fromEntries(
     Object.keys(config).map((key) => [key, process.env[key]]),
   ),
   originalFetch = globalThis.fetch;
+const capturedInputs: any[] = [];
 let calls = 0,
   afterGeneration: (() => Promise<void>) | undefined,
   /** Replaces the action-selection answer (a string is sent as raw content). */
@@ -87,6 +88,7 @@ before(async () => {
     calls++;
     const payload = JSON.parse(String(init?.body)),
       input = JSON.parse(payload.messages[1].content);
+    capturedInputs.push(input);
     const unsupported = /\b(tax|legal)\b/i.test(input.request ?? "");
     const result = input.actions
       ? {
@@ -746,6 +748,36 @@ test("complimentary access passes the digital coach membership gate; ending it d
     afterGeneration = undefined;
     await setPaid("active");
   }
+});
+test("qualified replies use recent conversation without replaying old requests, and reject concurrent messages", async () => {
+  const message = "I missed Monday's planned session while travelling. How can I stay consistent now?";
+  const sent = await req("/messages", "POST", { subscriberId: client.userId, text: "We discussed a steady routine earlier. Keep the current plan in mind." }, coach);
+  assert.equal(sent.statusCode, 200, sent.body);
+  const answered = await req("/coaching/ask", "POST", { message: message }, client);
+  assert.equal(answered.statusCode, 200, answered.body);
+  assert.equal(answered.json().automatic, true);
+  assert.ok(capturedInputs.at(-1).conversation.turns.some((turn: any) => turn.text === sent.json().data.text));
+  assert.equal(capturedInputs.at(-1).request, message);
+  const [decision] = await db.tenant(coach, tx => tx.query("SELECT data FROM records WHERE id=$1", [answered.json().decisionId]));
+  assert.equal(decision.data.conversationContextVersion, "subscriber-conversation-v1");
+  assert.ok(decision.data.conversationMessageIds.includes(sent.json().id));
+  const unrelated = await req("/coaching/ask", "POST", { message: "Thanks. That is all for now." }, client);
+  assert.equal(unrelated.statusCode, 200, unrelated.body);
+  assert.equal(unrelated.json().automatic, undefined, "A past request cannot make a new action eligible");
+  assert.equal(unrelated.json().pendingReview, true);
+  const count = async () => (await db.tenant(coach, tx => tx.query("SELECT count(*)::int n FROM records WHERE kind='decision' AND owner_user_id=$1", [client.userId])))[0].n;
+  const before = await count();
+  afterGeneration = async () => {
+    afterGeneration = undefined;
+    const response = await req("/messages", "POST", { subscriberId: client.userId, text: "I have a follow-up question before we continue." }, coach);
+    assert.equal(response.statusCode, 200, response.body);
+  };
+  try {
+    const stale = await req("/coaching/ask", "POST", { message: message }, client);
+    assert.equal(stale.statusCode, 409, stale.body);
+    assert.match(stale.json().message, /conversation changed/);
+    assert.equal(await count(), before, "No automatic response or outdated decision is stored");
+  } finally { afterGeneration = undefined; }
 });
 test("takeover, profile edits and erased membership during generation cannot produce an automatic response", async () => {
   afterGeneration = async () => {

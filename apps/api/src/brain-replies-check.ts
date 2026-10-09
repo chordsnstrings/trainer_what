@@ -24,7 +24,7 @@ import {
 import { loadPlanSettings } from "./brain-plans.ts";
 import { modelAccounting } from "./model-accounting.ts";
 import { candidateCommunication, communicationDigest } from "./trainer-brain.ts";
-import { trainerBrainContext } from "../../../packages/domain/src/trainer-brain.ts";
+import { trainerBrainContext, conversationExampleOverlaps } from "../../../packages/domain/src/trainer-brain.ts";
 
 const fail = (statusCode: number, code: string, message: string) =>
   Object.assign(new Error(message), { statusCode, code });
@@ -73,6 +73,8 @@ export async function evaluateBrainReplies(db: Database, a: Actor) {
       `Evaluation covers at most ${HELD_OUT_SCENARIO_LIMIT} held-out scenarios; nothing has been evaluated`,
     );
   assertReleaseRuleLimit(material.rules.length);
+  if (material.cases.some(c => conversationExampleOverlaps(material.communication, c.data.prompt)))
+    throw fail(409, "EVAL_EXAMPLE_OVERLAP", "Keep practice questions separate from your conversation examples. Replace the overlapping practice question before checking your Brain.");
   // The setup wizard's minimum (8 confirmed quiz answers and 3 cases the
   // coach wrote) or the earlier 20; "Sends automatically" keeps its own
   // full check in coaching-runtime.ts.

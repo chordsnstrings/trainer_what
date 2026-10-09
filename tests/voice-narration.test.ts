@@ -131,7 +131,7 @@ before(async () => {
       const system = String(body.messages?.[0]?.content ?? ""),
         user = String(body.messages?.[1]?.content ?? "");
       prompts.push({ system, user });
-      const reply = system.includes("voice-one-on-one-v1") ? draftReply : narrationReply;
+      const reply = system.includes("voice-one-on-one-v2") ? draftReply : narrationReply;
       if (reply === null) return new Response("unavailable", { status: 503 });
       return Response.json({
         id: "chatcmpl-fixture",
@@ -207,7 +207,7 @@ test("the coach answers, the Brain drafts, the coach confirms once; nothing reac
   };
   const drafted = await ok("/voice-sessions/one-on-one/draft", "POST", { revision: 1 }, coach);
   const call = prompts.at(-1)!;
-  assert.match(call.system, /voice-one-on-one-v1/);
+  assert.match(call.system, /voice-one-on-one-v2/);
   assert.equal(JSON.parse(call.user).coachAnswers.neverSay[0], "beast mode");
   assert.equal(drafted.version, 2);
   assert.equal(drafted.droppedLines, 1, "the line with a never-say phrase and an invented number is dropped");
@@ -254,7 +254,7 @@ test("each new session gets Brain lines from one call, kept with the session; fa
   const sent = JSON.parse(prompts.at(-1)!.user);
   assert.equal(sent.member.firstName, "Sara");
   assert.deepEqual(sent.today.exercises[0].lastTime, { sets: 2, reps: 8, loadKg: 55, daysAgo: 0 });
-  assert.match(prompts.at(-1)!.system, /voice-narration-v2/);
+  assert.match(prompts.at(-1)!.system, /voice-narration-v3/);
   const s = session.script;
   assert.deepEqual(s.intro.map((l: any) => l.id), ["intro:0", "brain:open", "safety"]);
   assert.equal(s.exercises[0].brain.lead.text, "Last time 55 kilograms for 8, today 60.");

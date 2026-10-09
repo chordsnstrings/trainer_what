@@ -136,6 +136,10 @@ test("a style edit stays private until checked, failure preserves the live Brain
     return release;
   });
   const newAnswers = words("Good to see you. What went well this week?");
+  newAnswers.examples = [{ situation: "A subscriber missed a workout after a difficult workday.",
+    reply: "A difficult day does not undo your work. What got in the way?",
+    reasoning: "Start with understanding before considering a change to the plan." }];
+
   const changed = {
     ...oldStyle,
     oneOnOne: { ...oldStyle.oneOnOne, answers: newAnswers, draft: {
@@ -163,6 +167,7 @@ test("a style edit stays private until checked, failure preserves the live Brain
   const published = await db.tenant(trainer, publishedTrainerBrain);
   assert.notEqual(published.releaseId, first.id);
   assert.equal(published.communication.oneOnOne!.answers.open, newAnswers.open);
+  assert.deepEqual(published.communication.oneOnOne!.answers.examples, newAnswers.examples);
   assert.equal((await request(trainer, "/voice-sessions/one-on-one")).json().publication.pending, false);
   assert.equal((await db.tenant(foreign, publishedTrainerBrain)).releaseId, null, "another trainer cannot inherit this identity");
 

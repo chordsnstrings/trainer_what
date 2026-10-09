@@ -48,6 +48,7 @@ import {
 } from "../../../packages/domain/src/voice-session.ts";
 import { speechLanguage } from "../../../packages/domain/src/speech-language.ts";
 import { modelAccounting } from "./model-accounting.ts";
+import { privacyMatches } from "./ingestion.ts";
 import { costEstimated, costNotSent, reserveVoiceCost } from "./cost-accounting.ts";
 
 const fail = (statusCode: number, code: string, message: string) =>
@@ -221,11 +222,13 @@ export function registerVoiceNarration(app: FastifyInstance, db: Database) {
     const a = coach(req),
       b = z.object({ revision, answers: oneOnOneAnswersSchema }).strict().parse(req.body);
     const issues = oneOnOneIssues(b.answers);
+    if (b.answers.examples.some(example => privacyMatches(Object.values(example).join("\n")).length))
+      throw fail(400, "PERSONAL_DATA_REMAINS", "Remove client names, contact details and account details from your examples.");
     if (issues.length)
       throw fail(
         400,
         "ONE_ON_ONE_WORDING",
-        "Remove links, phone numbers, email addresses and app or AI names from: " +
+        "Remove links, contact details, unsupported characters, app or AI names, and replies using your never-say phrases from: " +
           [...new Set(issues.map((i) => i.field.split(".")[0]))].join(", "),
       );
     return db.tenant(a, async (tx) => {
