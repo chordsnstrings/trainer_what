@@ -524,6 +524,7 @@ export async function eraseMember(
         "SELECT role FROM memberships WHERE tenant_id=$1 AND user_id=$2 FOR UPDATE",
         [a.tenantId, r.owner_user_id],
       );
+      const previews = await tx.query("SELECT p.id,p.user_id,u.email FROM trainer_preview_profiles p JOIN users u ON u.id=p.user_id WHERE p.tenant_id=$1 AND p.trainer_user_id=$2", [a.tenantId, r.owner_user_id]);
       await tx.tenant(
         asOwner(a),
         async (tx) => {
@@ -546,6 +547,8 @@ export async function eraseMember(
           const knownProviders = hooks.providerInventory
             ? await hooks.providerInventory(tx, r.owner_user_id)
             : [];
+          for (const preview of previews)
+            if (hooks.providerInventory) knownProviders.push(...await hooks.providerInventory(tx, preview.user_id));
           const evidence = {
             ...b,
             providers: [
@@ -561,6 +564,7 @@ export async function eraseMember(
             ],
           };
           await erasePersonalData(tx, a, r.owner_user_id, u.email, hooks);
+          for (const preview of previews) await erasePersonalData(tx, a, preview.user_id, preview.email, hooks);
           await createPrivacyFollowups(tx, a, r.id, r.owner_user_id, evidence);
           await tx.query(
             "UPDATE records SET status='local_erasure_completed',version=version+1,data=$2,updated_at=now() WHERE id=$1",
@@ -599,6 +603,13 @@ export async function eraseMember(
           b.evidenceReference,
         ],
       );
+      for (const preview of previews) {
+        // The stable profile ID is its erasure intent, so restore tooling also
+        // removes this internal identity after the parent trainer is erased.
+        await tx.query("INSERT INTO privacy_erasure_registry(id,tenant_id,user_id,request_id,scope,retention_policy_version,evidence_reference) VALUES($1,$2,$3,$4,'member',$5,$6)", [randomUUID(), a.tenantId, preview.user_id, preview.id, b.retentionPolicyVersion, b.evidenceReference + " (trainer preview; parent request " + r.id + ")"]);
+        await tx.query("DELETE FROM memberships WHERE tenant_id=$1 AND user_id=$2", [a.tenantId, preview.user_id]);
+        await tx.acrossWorkspaces(scoped => scrubUnusedAccount(scoped, preview.user_id));
+      }
       await tx.query(
         "DELETE FROM memberships WHERE tenant_id=$1 AND user_id=$2",
         [a.tenantId, r.owner_user_id],

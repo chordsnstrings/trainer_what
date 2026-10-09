@@ -1,6 +1,7 @@
 "use client";
+import { memberApiUrl } from "../lib/trainer-preview-routing";
 import { useRef, useState, type FormEvent } from "react";
-import Link from "next/link";
+import Link from "./preview-navigation";
 import { Field } from "./field";
 import { DrawnCheck, NumberStepper, StickyActionBar } from "./phone-ui";
 import { PlanIntakeNotice } from "./brain-plans";
@@ -42,7 +43,7 @@ const EXPERIENCE = [
 ] as const;
 
 async function saveIntake(body: unknown) {
-  const r = await fetch("/api/v1/intake", {
+  const r = await fetch(memberApiUrl("/api/v1/intake"), {
     method: "POST",
     credentials: "same-origin",
     headers: { "Content-Type": "application/json" },

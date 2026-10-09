@@ -1,4 +1,5 @@
 "use client";
+import { memberApiUrl } from "../lib/trainer-preview-routing";
 import { useT } from "../lib/i18n/react";
 /**
  * Light, dark or the device's setting for subscriber surfaces
@@ -100,7 +101,7 @@ const pending = new Map<string, Promise<Preferences | null>>();
 export function memberPreferences(member: string) {
   let request = pending.get(member);
   if (!request) {
-    request = fetch("/api/v1/notifications/preferences", {
+    request = fetch(memberApiUrl("/api/v1/notifications/preferences"), {
       credentials: "same-origin",
     })
       .then((r) => (r.ok ? (r.json() as Promise<Preferences>) : null))
@@ -259,7 +260,7 @@ export function DisplayPreferences() {
     setBusy(true);
     setStatus(null);
     try {
-      const response = await fetch("/api/v1/preferences/appearance", {
+      const response = await fetch(memberApiUrl("/api/v1/preferences/appearance"), {
         method: "PUT",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },

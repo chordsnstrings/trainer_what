@@ -1,6 +1,7 @@
 "use client";
+import { memberApiUrl } from "../lib/trainer-preview-routing";
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import Link from "./preview-navigation";
 import { useLocale, useT } from "../lib/i18n/react";
 import { formatDate, formatDateRange, formatNumber } from "../lib/format";
 import type { Locale } from "../lib/i18n/core";
@@ -14,7 +15,7 @@ import { MOTION } from "./motion";
  * member's language (docs/features/arabic.md).
  */
 async function api(path: string, method = "GET", body?: unknown) {
-  const r = await fetch("/api/v1" + path, {
+  const r = await fetch(memberApiUrl("/api/v1" + path), {
     method,
     credentials: "same-origin",
     headers:

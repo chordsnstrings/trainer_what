@@ -1,5 +1,5 @@
 "use client";
-import Link from "next/link";
+import Link from "./preview-navigation";
 import { Check, ArrowRight } from "lucide-react";
 import { useLocale } from "../lib/i18n/react";
 

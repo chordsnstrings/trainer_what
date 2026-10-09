@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import Link from "./preview-navigation";
 import { Mic, MicOff, Phone, PhoneOff, MessageCircle, X, ArrowDown } from "lucide-react";
 import { ConversationAudio, pcmWav } from "../lib/conversation-audio";
 import { SpeechGate, speechBand } from "../lib/speech-gate";
@@ -8,13 +8,15 @@ import { setAudioSessionType } from "../lib/audio-session";
 import { fileBase64, onboardingRequest as request } from "../lib/onboarding-http";
 
 type Phase = "off" | "connecting" | "listening" | "hearing" | "thinking" | "speaking" | "paused" | "ended";
-const words: Record<Phase, string> = { off: "A conversation, at your pace", connecting: "Connecting…", listening: "I'm listening", hearing: "Listening…", thinking: "Thinking about that…", speaking: "Kamran's AI is speaking", paused: "Call paused", ended: "Your conversation is saved" };
+const words: Record<Phase, string> = { off: "A conversation, at your pace", connecting: "Connecting…", listening: "I'm listening", hearing: "Listening…", thinking: "Thinking about that…", speaking: "Your AI coach is speaking", paused: "Call paused", ended: "Your conversation is saved" };
 const clock = (n: number) => Math.floor(n / 60).toString().padStart(2, "0") + ":" + (n % 60).toString().padStart(2, "0");
 type Resources = { context: AudioContext; stream: MediaStream; node: AudioWorkletNode; analyser: AnalyserNode; capture: ConversationAudio; player?: AudioBufferSourceNode };
-export function OnboardingCall({ audience, mode, open, onOpenChange, onConversation, onActiveChange }: {
+export function OnboardingCall({ audience, mode, purpose = "onboarding", coachName = "Kamran", open, onOpenChange, onConversation, onActiveChange }: {
+  purpose?: "onboarding" | "coaching"; coachName?: string;
   audience: "coach" | "member"; mode: "setup" | "teach"; open: boolean; onOpenChange: (v: boolean) => void;
   onConversation: (state: any) => void; onActiveChange: (active: boolean) => void;
 }) {
+  const prefix = purpose === "coaching" ? "/coaching/calls" : "/onboarding-chat/calls";
   const [options, setOptions] = useState<any>(null), [phase, setPhase] = useState<Phase>("off"), [error, setError] = useState("");
   const [consent, setConsent] = useState(false), [makeVoice, setMakeVoice] = useState(false), [cloneConsent, setCloneConsent] = useState(false);
   const [language, setLanguage] = useState<"en" | "ar">("en"), [seconds, setSeconds] = useState(0), [muted, setMuted] = useState(false);
@@ -31,7 +33,7 @@ export function OnboardingCall({ audience, mode, open, onOpenChange, onConversat
   useEffect(() => {
     if (!open || options) return;
     let cancelled = false;
-    void request("/onboarding-chat/calls/options").then(value => { if (!cancelled) setOptions(value); }).catch(e => { if (!cancelled) setError(e.message); });
+    void request(prefix + "/options").then(value => { if (!cancelled) setOptions(value); }).catch(e => { if (!cancelled) setError(e.message); });
     return () => { cancelled = true; };
   }, [open, options]);
   useEffect(() => {
@@ -68,7 +70,7 @@ export function OnboardingCall({ audience, mode, open, onOpenChange, onConversat
     const old = call.current; call.current = null;
     epoch.current++; abort.current?.abort(); closeAudio(); samples.current = []; cloning.current = false;
     latest.current.onActiveChange(false);
-    if (old) void request("/onboarding-chat/calls/" + old.id + "/end", {}, { keepalive: true }).catch(() => {});
+    if (old) void request(prefix + "/" + old.id + "/end", {}, { keepalive: true }).catch(() => {});
     if (alive.current) { change("ended"); setMuted(false); } else phaseRef.current = "ended";
   }
   async function createVoice() {
@@ -107,7 +109,7 @@ export function OnboardingCall({ audience, mode, open, onOpenChange, onConversat
   async function exchange(body: any, token: number) {
     if (!current(token)) return;
     change("thinking");
-    const path = "/onboarding-chat/calls/" + call.current.id + "/turns";
+    const path = prefix + "/" + call.current.id + "/turns";
     let result;
     try { result = await request(path, body, { signal: abort.current?.signal }); }
     catch (e) {
@@ -161,12 +163,12 @@ export function OnboardingCall({ audience, mode, open, onOpenChange, onConversat
       const r = { context: context!, stream, node, analyser, capture: new ConversationAudio(context!.sampleRate) }; resources.current = r; sampleRate.current = context!.sampleRate;
       setAudioSessionType("play-and-record");
       const callId = crypto.randomUUID(); call.current = { id: callId };
-      const session = await request("/onboarding-chat/calls", { id: callId, language, mode, consent: true, ...(makeVoice ? { cloneConsent: { ownVoice: true, cloning: true, subscriberUse: true, deletion: true } } : {}) }, { signal: abort.current.signal });
-      if (epoch.current !== token || !alive.current) { void request("/onboarding-chat/calls/" + session.id + "/end", {}).catch(() => {}); closeAudio(); return; }
+      const session = await request(prefix, { id: callId, language, mode, consent: true, ...(makeVoice ? { cloneConsent: { ownVoice: true, cloning: true, subscriberUse: true, deletion: true } } : {}) }, { signal: abort.current.signal });
+      if (epoch.current !== token || !alive.current) { void request(prefix + "/" + session.id + "/end", {}).catch(() => {}); closeAudio(); return; }
       call.current = session;
       if (makeVoice) {
         setCloneState("Collecting only your side of the call");
-        void request("/onboarding-chat/calls/" + session.id + "/clone", {}, { signal: abort.current.signal }).then(value => { if (current(token)) { clone.current = value; if (samples.current.reduce((n, s) => n + s.length, 0) / sampleRate.current >= 45) void createVoice(); } }).catch(e => { if (current(token)) { cloning.current = false; samples.current = []; setCloneError(e.message); setCloneState("Voice creation paused"); } });
+        void request(prefix + "/" + session.id + "/clone", {}, { signal: abort.current.signal }).then(value => { if (current(token)) { clone.current = value; if (samples.current.reduce((n, s) => n + s.length, 0) / sampleRate.current >= 45) void createVoice(); } }).catch(e => { if (current(token)) { cloning.current = false; samples.current = []; setCloneError(e.message); setCloneState("Voice creation paused"); } });
       }
       const gate = new SpeechGate(), spectrum = new Float32Array(analyser.frequencyBinCount);
       node.port.onmessage = event => {
@@ -196,12 +198,12 @@ export function OnboardingCall({ audience, mode, open, onOpenChange, onConversat
     if (["listening", "hearing", "paused"].includes(phaseRef.current)) change(mute.current ? "paused" : "listening");
   }
   return <>
-    {active && !open && <div className="onboarding-call-bar"><button type="button" onClick={() => onOpenChange(true)}><Phone size={16} /> Kamran · AI · {clock(seconds)} <span>{muted ? "Muted" : words[phase]}</span></button><button type="button" aria-label="End call" onClick={() => stop()}><PhoneOff size={19} /></button></div>}
+    {active && !open && <div className="onboarding-call-bar"><button type="button" onClick={() => onOpenChange(true)}><Phone size={16} /> {options?.name ?? coachName} · AI · {clock(seconds)} <span>{muted ? "Muted" : words[phase]}</span></button><button type="button" aria-label="End call" onClick={() => stop()}><PhoneOff size={19} /></button></div>}
     {!active && cloneState && <div className="onboarding-clone-note"><span>{cloneState}</span><Link href="/trainer/voice">Preview and manage my voice</Link>{cloneError && <small>{cloneError}</small>}</div>}
     <dialog ref={dialog} className="onboarding-call-dialog" aria-labelledby="onboarding-call-title" onCancel={e => { e.preventDefault(); stop(); onOpenChange(false); }}>
       <div className="onboarding-call-top"><span>trainsyou · Voice conversation</span><button type="button" className="onboarding-icon" aria-label={active ? "Show conversation" : "Close voice call"} onClick={() => onOpenChange(false)}>{active ? <ArrowDown size={21} /> : <X size={21} />}</button></div>
-      <div className={"onboarding-call-avatar " + phase} aria-hidden="true">K</div>
-      <h2 id="onboarding-call-title">Kamran <span>AI</span></h2>
+      <div className={"onboarding-call-avatar " + phase} aria-hidden="true">{(options?.name ?? coachName).slice(0, 1)}</div>
+      <h2 id="onboarding-call-title">{options?.name ?? coachName} <span>AI</span></h2>
       <p className="onboarding-call-status" role="status">{muted ? "Microphone muted" : words[phase]}</p>
       {active ? <>
         <time className="onboarding-call-time">{clock(seconds)}</time>
@@ -212,7 +214,7 @@ export function OnboardingCall({ audience, mode, open, onOpenChange, onConversat
         <div className="onboarding-call-controls"><button type="button" onClick={toggleMute} aria-pressed={muted} aria-label={muted ? "Unmute microphone" : "Mute microphone"}>{muted ? <MicOff /> : <Mic />}<span>{muted ? "Unmute" : "Mute"}</span></button><button type="button" className="end-call" onClick={() => stop()} aria-label="End call"><PhoneOff /><span>End</span></button><button type="button" onClick={() => onOpenChange(false)}><MessageCircle /><span>Messages</span></button></div>
         {phase === "speaking" && <button type="button" className="text-link" onClick={() => { try { resources.current?.player?.stop(); } catch {} }}>Skip this reply</button>}
       </> : <>
-        <p className="onboarding-call-hint">{audience === "coach" ? "Talk through how you coach. Your answers become saved teaching for your Brain." : "Talk through your goals and what works for you. Your answers stay in this conversation."}</p>
+        <p className="onboarding-call-hint">{purpose === "coaching" ? "Talk to your digital coach about your training. Replies follow the same Brain and review rules as your written conversation." : audience === "coach" ? "Talk through how you coach. Your answers become saved teaching for your Brain." : "Talk through your goals and what works for you. Your answers stay in this conversation."}</p>
         {(!options || !options.available) && <p role="status">{options?.reason ?? "Checking the voice connection…"}</p>}
         {options?.available && <div className="onboarding-call-choices">
           <label>Conversation language<select value={language} onChange={e => setLanguage(e.target.value as "en" | "ar")}><option value="en">English</option><option value="ar">العربية</option></select></label>

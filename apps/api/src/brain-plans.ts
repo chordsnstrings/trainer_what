@@ -518,6 +518,7 @@ const isoDate = (value: unknown) => {
  */
 export async function nextBlockAllowed(tx: Tx, userId: string, nextStart: string) {
   const access = await memberAccess(tx, userId);
+  if (access.sources.includes("preview")) return true;
   if (access.grant) {
     const end = isoDate(access.grant.ends_at);
     if (!access.grant.ends_at || (end && end >= nextStart)) return true;
@@ -1718,6 +1719,8 @@ async function recordLearning(
   decision: "approved" | "edited" | "rejected",
   input: { diff?: unknown[]; note?: string; final?: any },
 ) {
+  // Trying a draft on yourself is not approval to teach or qualify it for customers.
+  if (a.previewMemberId) return null;
   const profile = gen.data.inputs?.profile;
   const segment = gen.data.inputs?.segment ?? (profile ? planSegment(profile) : null);
   if (!segment) return null;

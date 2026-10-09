@@ -436,7 +436,7 @@ test("the shell, the controls and the screens play their microanimations", async
   assert.match(shell, /useLayoutEffect\(\(\) => \{\s*document\.documentElement\.dataset\.vt = "nav-" \+ direction;/);
   assert.match(shell, /<ViewTransition enter=\{motion\} exit=\{motion\} update="none" default="none">/);
   const page = await source("apps/web/app/[[...path]]/page.tsx");
-  assert.match(page, /if \(path\[0\] === "app"\)\s*return \(\s*<MemberPageTransition>\s*<Workspace/);
+  assert.match(page, /if \(path\[0\] === "app" \|\| path\[0\] === "trainer" && path\[1\] === "preview" && path\[2\] === "app"\)\s*return \(\s*<MemberPageTransition>\s*<Workspace/);
   // First views settle in; without View Transitions a new page fades in.
   // First view of a screen settles in, but never on top of a navigation's
   // View Transition (no second arrival after the crossfade).

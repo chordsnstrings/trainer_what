@@ -659,7 +659,7 @@ test("public galleries remain readable by the non-owner runtime database role on
         "GRANT SELECT ON tenants,coach_sites,coach_galleries,coach_gallery_photos,brand_media TO brand_fixture_service",
       );
       await tx.query(
-        "GRANT EXECUTE ON FUNCTION trainer_media_brand_reference(uuid,uuid) TO brand_fixture_service",
+        "GRANT EXECUTE ON FUNCTION trainer_media_brand_reference(uuid,uuid),trainer_preview_member(uuid) TO brand_fixture_service",
       );
     });
   const serviceDb: Database = {

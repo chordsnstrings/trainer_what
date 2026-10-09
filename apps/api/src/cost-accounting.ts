@@ -52,6 +52,8 @@ export async function costTags(
 ): Promise<CostTags> {
   if (!memberId)
     return { memberId: null, product: costProduct(task), complimentary: false };
+  const [preview] = await tx.query("SELECT trainer_preview_member($1) AS preview", [memberId]);
+  if (preview?.preview) return { memberId: null, product: "trainer_setup", complimentary: false };
   const access = await memberAccess(tx, memberId);
   return {
     memberId,

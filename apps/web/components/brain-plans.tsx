@@ -1,4 +1,5 @@
 "use client";
+import { memberApiUrl } from "../lib/trainer-preview-routing";
 import { useLocale, useT } from "../lib/i18n/react";
 import { formatDate, formatDateRange, formatSetsReps } from "../lib/format";
 import { Field } from "./field";
@@ -16,7 +17,7 @@ import {
  * qualification; the subscriber's generated plan; the intake notice.
  */
 async function api(path: string, method = "GET", body?: unknown) {
-  const r = await fetch("/api/v1" + path, {
+  const r = await fetch(memberApiUrl("/api/v1" + path), {
     method,
     credentials: "same-origin",
     headers:
@@ -244,7 +245,7 @@ function ExerciseRows({
   );
 }
 
-function ProgrammeDraft({
+export function ProgrammeDraft({
   draft,
   names,
   onChange,

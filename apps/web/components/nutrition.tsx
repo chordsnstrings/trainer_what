@@ -1,4 +1,5 @@
 "use client";
+import { memberApiUrl, memberHref } from "../lib/trainer-preview-routing";
 import { confirmWorkspace } from "./workspace-feedback";
 import { queuedLabel, queuedSummary, unsavedMark } from "./pwa";
 import {
@@ -31,7 +32,7 @@ import {
   type ReactNode,
   type FormEvent,
 } from "react";
-import Link from "next/link";
+import Link from "./preview-navigation";
 import {
   nutritionPrinciples,
   principleForCategory,
@@ -59,7 +60,7 @@ async function api(
   body?: unknown,
   headers?: Record<string, string>,
 ) {
-  const r = await fetch("/api/v1" + path, {
+  const r = await fetch(memberApiUrl("/api/v1" + path), {
     method,
     credentials: "same-origin",
     headers:
@@ -2099,7 +2100,7 @@ export function WeekView({
         <p>{formatDateRange(view.weekStart, view.weekEnd, { locale })}</p>
         <p className="muted">{t("approxDay", { kcal: view.targetKcal })}</p>
         <p className="muted">{plan.data.targetId ? (t("individualTargetSource")) : (t("policyTargetSource"))}</p>
-        {!plan.data.targetId && <a className="text-link" href="/app/chat">{t("discussTarget")}</a>}
+        {!plan.data.targetId && <a className="text-link" href={memberHref("/app/chat")}>{t("discussTarget")}</a>}
 
       </div>
       {/* A made-up week's description is test data: the page labels it
@@ -2861,7 +2862,7 @@ export function NutritionSubscriber({
                 {!coachView && (
                   <a
                     className="button secondary"
-                    href={"/api/v1/nutrition/groceries/" + plan.id}
+                    href={memberApiUrl("/api/v1/nutrition/groceries/" + plan.id)}
                   >
                     {t("downloadList")}
                   </a>

@@ -1,10 +1,13 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { HOST_HEADERS, signHostRequest } from "./host-routing.ts";
+import { PREVIEW_API } from "./trainer-preview-access.ts";
 
 /** Re-enter existing routes as the same person and the same verified host. */
 export async function forwardWorkspaceRequest(
   app: FastifyInstance, req: FastifyRequest, method: "GET" | "PUT" | "POST", url: string, payload?: unknown,
 ) {
+  if (req.trainerPreview && url.startsWith("/api/v1/") && !url.startsWith(PREVIEW_API + "/"))
+    url = PREVIEW_API + url.slice("/api/v1".length);
   const headers: Record<string, string> = {};
   for (const key of ["cookie", "authorization", "origin", "host", "user-agent"]) {
     const value = req.headers[key];

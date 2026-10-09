@@ -1,4 +1,5 @@
 "use client";
+import { memberApiUrl } from "../lib/trainer-preview-routing";
 import { pageKey } from "./workspace-paging";
 import { useId, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { Layers, Brain } from "lucide-react";
@@ -12,6 +13,7 @@ export type Row = {
   version: number;
 };
 export type State = {
+  trainerPreview?: { profileId: string; userId: string; trainerUserId: string; trainerName: string };
   user: any;
   tenant: any;
   records: Row[];
@@ -79,7 +81,7 @@ export async function api(
   body?: unknown,
   headers?: Record<string, string>,
 ) {
-  const r = await fetch("/api/v1" + path, {
+  const r = await fetch(memberApiUrl("/api/v1" + path), {
     method,
     headers:
       body !== undefined

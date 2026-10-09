@@ -128,6 +128,7 @@ async function recordTeaching(tx: Tx, a: Actor, data: ChatData, messageId: strin
 export function onboardingChatRoutes(app: FastifyInstance, db: Database, identity: (req: FastifyRequest) => Actor) {
   onboardingAttachmentRoutes(app, db);
   onboardingCallRoutes(app, db);
+  onboardingCallRoutes(app, db, "coaching");
   const actor = (req: FastifyRequest) => {
     const a = identity(req);
     if (!["owner", "subscriber"].includes(a.role)) throw fail(403, "ROLE_REQUIRED", "This conversation belongs to the trainer or client signing in.");

@@ -219,7 +219,7 @@ export async function computeBusinessMetrics(
   );
   const [followers] = await db.system((tx) =>
     tx.query(
-      "SELECT count(DISTINCT m.user_id)::int AS n FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.role='subscriber' AND t.lifecycle_state<>'closed' AND NOT " +
+      "SELECT count(DISTINCT m.user_id)::int AS n FROM memberships m JOIN tenants t ON t.id=m.tenant_id JOIN users u ON u.id=m.user_id WHERE m.role='subscriber' AND NOT u.is_trainer_preview AND t.lifecycle_state<>'closed' AND NOT " +
         platformWorkspaceSql("t.id"),
     ),
   );

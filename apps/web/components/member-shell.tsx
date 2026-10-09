@@ -9,7 +9,8 @@
  *   links to other sites opened outside the app.
  * The navigation rules live in member-nav.ts; the styles in phone-first.css.
  */
-import Link from "next/link";
+import Link from "./preview-navigation";
+import { isTrainerPreview, previewDestinationAllowed } from "../lib/trainer-preview-routing";
 import {
   ViewTransition,
   useEffect,
@@ -335,13 +336,14 @@ export function MemberShell({
     t = useT("shell"),
     common = useT("common"),
     navText = useT("nav");
+  const preview = isTrainerPreview();
   nav = { ...nav, locale };
   const page = useRef<HTMLDivElement>(null),
     tabbar = useRef<HTMLElement>(null);
   const unread = useUnreadChat(path, messages, user.tenantId, user.userId);
   const slowRefresh = useSlowRefresh(refreshing);
   // The installed app's icon shows unread coach messages, where supported.
-  useEffect(() => setAppBadge(unread), [unread]);
+  useEffect(() => { if (!preview) setAppBadge(unread); }, [unread, preview]);
   const tabs = memberTabs(nav),
     tab = activeTab(path, nav),
     current = activeDestination(path),
@@ -433,13 +435,13 @@ export function MemberShell({
           <CoachIdentity name={tenant.name} theme={tenant.theme} compact />
         </Link>
         <nav aria-label={t("mainNavigation")}>
-          {sideNavigation(nav).map((group, index) => (
+          {sideNavigation(nav).filter(group => group.items.some(item => !preview || previewDestinationAllowed(item.href))).map((group, index) => (
             <div className="member-sidenav-group" key={group.title ?? index}>
               {group.title && (
                 <p className="member-sidenav-heading">{group.title}</p>
               )}
               <ul>
-                {group.items.map((item) => {
+                {group.items.filter(item => !isTrainerPreview() || previewDestinationAllowed(item.href)).map((item) => {
                   const Icon = MEMBER_ICONS[item.icon];
                   const active = item.id === current;
                   return (
@@ -481,7 +483,7 @@ export function MemberShell({
         </div>
         <button type="button" className="member-signout" onClick={onSignOut}>
           <LogOut size={16} aria-hidden="true" />
-          {common("signOut")}
+          {common(isTrainerPreview() ? "backToBrain" : "signOut")}
         </button>
       </aside>
       <div className="member-frame">
@@ -618,11 +620,11 @@ export function MoreScreen({
   return (
     <div className="more-screen">
       <h1 className="more-title">{navText("more")}</h1>
-      {moreGroups({ ...nav, locale }).map((group) => (
+      {moreGroups({ ...nav, locale }).filter(group => group.items.some(item => !isTrainerPreview() || previewDestinationAllowed(item.href))).map((group) => (
         <section className="more-group" key={group.title}>
           <h2>{group.title}</h2>
           <ul className="more-list">
-            {group.items.map((item) => {
+            {group.items.filter(item => !isTrainerPreview() || previewDestinationAllowed(item.href)).map((item) => {
               const Icon = MEMBER_ICONS[item.icon];
               return (
                 <li key={item.id}>
@@ -647,9 +649,9 @@ export function MoreScreen({
         </section>
       ))}
       {/* Hidden in the installed app (docs/features/pwa.md). */}
-      {coachName && <InstallAppRow coachName={coachName} />}
+      {!isTrainerPreview() && coachName && <InstallAppRow coachName={coachName} />}
       {/* Shown only to someone coached by more than one coach. */}
-      <CoachSwitcher current={tenantId} userId={userId} />
+      {!isTrainerPreview() && <CoachSwitcher current={tenantId} userId={userId} />}
       <section className="more-group">
         <ul className="more-list">
           <li>
@@ -658,7 +660,7 @@ export function MoreScreen({
                 <LogOut size={20} aria-hidden="true" />
               </span>
               <span className="more-text">
-                <strong>{common("signOut")}</strong>
+                <strong>{common(isTrainerPreview() ? "backToBrain" : "signOut")}</strong>
               </span>
             </button>
           </li>

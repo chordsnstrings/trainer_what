@@ -84,7 +84,7 @@ export async function accountsContext(
     );
     for (const key of ["terms", "privacy", "ai-disclosure"])
       await tx.query(
-        "INSERT INTO admin_documents(id,kind,key,version,title,content,status,effective_at,created_by,published_by,published_at) VALUES($1,'legal',$2,1,$3,'Synthetic fixture text.','published',now()-interval '1 day',$4,$4,now())",
+        "INSERT INTO admin_documents(id,kind,key,version,title,content,status,effective_at,created_by,published_by,published_at) VALUES($1,'legal',$2,1,$3,'Synthetic fixture text.','published',now()-interval '1 day',$4,$4,now()) ON CONFLICT(kind,key,version) DO NOTHING",
         [randomUUID(), key, "Fixture " + key, author],
       );
   });

@@ -1,5 +1,6 @@
+import { memberApiUrl } from "./trainer-preview-routing";
 export async function onboardingRequest(path: string, body?: unknown, options: { method?: string; signal?: AbortSignal; keepalive?: boolean } = {}) {
-  const response = await fetch("/api/v1" + path, {
+  const response = await fetch(memberApiUrl("/api/v1" + path), {
     method: options.method ?? (body === undefined ? "GET" : "POST"), cache: "no-store", credentials: "same-origin", signal: options.signal, keepalive: options.keepalive,
     ...(body === undefined ? {} : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
   });

@@ -1,4 +1,5 @@
 "use client";
+import { memberApiUrl } from "../lib/trainer-preview-routing";
 import { useErrorText, useT } from "../lib/i18n/react";
 import { FileInput } from "./phone-ui";
 import { useRef, useState } from "react";
@@ -15,7 +16,7 @@ export type ChatAttachment = {
   pages?: number;
 };
 async function request(path: string, method: string, body?: unknown) {
-  const response = await fetch("/api/v1/chat/attachments" + path, {
+  const response = await fetch(memberApiUrl("/api/v1/chat/attachments" + path), {
     method,
     credentials: "same-origin",
     headers:
@@ -76,13 +77,13 @@ export function ChatAttachmentList({
       {files.map((file) => (
         <figure key={file.id} style={{ margin: "12px 0", maxWidth: 340 }}>
           <a
-            href={"/api/v1/chat/attachments/" + file.id}
+            href={memberApiUrl("/api/v1/chat/attachments/" + file.id)}
             target="_blank"
             rel="noreferrer"
           >
             {file.mime === "image/jpeg" ? (
               <img
-                src={"/api/v1/chat/attachments/" + file.id}
+                src={memberApiUrl("/api/v1/chat/attachments/" + file.id)}
                 alt={file.fileName}
                 loading="lazy"
                 style={{

@@ -1,6 +1,7 @@
 "use client";
+import { memberApiUrl } from "../lib/trainer-preview-routing";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import Link from "next/link";
+import Link from "./preview-navigation";
 import { StickyActionBar, useTakingLong } from "./phone-ui";
 import { unsavedMark } from "./pwa";
 import { formatDate, humanize, recentDays } from "../lib/format";
@@ -47,7 +48,7 @@ const total = (
     ? Math.round(items.reduce((sum, i) => sum + (i[key] ?? 0), 0) * 100) / 100
     : null;
 async function api(path: string, method = "GET", body?: unknown) {
-  const response = await fetch("/api/v1" + path, {
+  const response = await fetch(memberApiUrl("/api/v1" + path), {
     method,
     credentials: "same-origin",
     headers:

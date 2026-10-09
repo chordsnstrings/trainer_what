@@ -1,4 +1,5 @@
 "use client";
+import { memberApiUrl } from "../lib/trainer-preview-routing";
 import {
   useCallback,
   useEffect,
@@ -6,7 +7,9 @@ import {
   useRef,
   useState,
 } from "react";
-import { Paperclip, Send } from "lucide-react";
+import { previewChanged } from "./trainer-preview";
+import { OnboardingCall } from "./onboarding-call";
+import { Paperclip, Send, Phone } from "lucide-react";
 import {
   ChatAttachmentList,
   ChatAttachmentPicker,
@@ -45,8 +48,8 @@ async function api(path: string, method = "GET", body?: unknown) {
     body: body === undefined ? undefined : JSON.stringify(body),
   };
   const r = method === "GET"
-    ? await fetchWithin("/api/v1" + path, init, ACCOUNT_READ_TIMEOUT_MS)
-    : await fetch("/api/v1" + path, init);
+    ? await fetchWithin(memberApiUrl("/api/v1" + path), init, ACCOUNT_READ_TIMEOUT_MS)
+    : await fetch(memberApiUrl("/api/v1" + path), init);
   const d = await r.json().catch(() => ({}));
   if (!r.ok)
     throw Object.assign(new Error(d.message ?? "Something went wrong"), {
@@ -81,6 +84,7 @@ export function MemberChat({ state }: { state: any }) {
   const t = useT("chat"),
     common = useT("common"),
     locale = useLocale();
+  const [callOpen, setCallOpen] = useState(false), [callActive, setCallActive] = useState(false);
   const userId: string = state.user.userId;
   const coach: string = state.tenant.name;
   const coachFirst = coach.split(" ")[0];
@@ -184,7 +188,7 @@ export function MemberChat({ state }: { state: any }) {
     });
   }, [latest]);
   async function send(digital: boolean) {
-    if (busy || uploading || (!text.trim() && !attachments.length) || (digital && attachments.length)) return;
+    if (callActive || busy || uploading || (!text.trim() && !attachments.length) || (digital && attachments.length)) return;
     setBusy(true);
     setError("");
     setNotice("");
@@ -215,6 +219,7 @@ export function MemberChat({ state }: { state: any }) {
         );
       // A failed refresh must never turn a committed send into a retry.
       await refresh();
+      if (state.trainerPreview) previewChanged();
     } catch (e: any) {
       setError(e.status === 429 ? t("tooMany") : t("notSent"));
     } finally {
@@ -222,14 +227,22 @@ export function MemberChat({ state }: { state: any }) {
       setSending(null);
     }
   }
+  useEffect(() => {
+    if (!state.trainerPreview) return;
+    const update = () => void refresh();
+    window.addEventListener("trainer-preview-changed", update);
+    return () => window.removeEventListener("trainer-preview-changed", update);
+  }, [state.trainerPreview, refresh]);
   const canSend =
-    !busy && !uploading && (!!text.trim() || attachments.length > 0);
+    !callActive && !busy && !uploading && (!!text.trim() || attachments.length > 0);
   return (
     <div className="member-chat">
       <header className="member-chat-intro">
         <h1 className="sr-only">{t("title")}</h1>
-        <p className="muted">{t("intro", { coach })}</p>
+        <p className="muted">{state.trainerPreview ? t("previewIntro") : t("intro", { coach })}</p>
+        <button type="button" className="button secondary button-small" disabled={busy} onClick={() => setCallOpen(true)}><Phone size={16} />{t(callActive ? "returnToCall" : "talkToCoach")}</button>
       </header>
+      <OnboardingCall audience="member" mode="setup" purpose="coaching" coachName={coach} open={callOpen} onOpenChange={setCallOpen} onActiveChange={setCallActive} onConversation={() => { void refresh(); if (state.trainerPreview) previewChanged(); }} />
       {personal && (
         <p className="notice" role="status">
           {t("personal", { coach: coachFirst })}
@@ -435,7 +448,7 @@ export function MemberChat({ state }: { state: any }) {
               type="button"
               className="button secondary chat-send"
               disabled={
-                !text.trim() || busy || uploading || attachments.length > 0
+                !text.trim() || callActive || busy || uploading || attachments.length > 0
               }
               onClick={() => void send(true)}
             >

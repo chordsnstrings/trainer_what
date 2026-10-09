@@ -1,5 +1,7 @@
 "use client";
 import dynamic from "next/dynamic";
+import { isTrainerPreview, subscriberPath, previewDestinationAllowed } from "../lib/trainer-preview-routing";
+import { TrainerPreviewBar, PreviewUnavailable, endTrainerPreview, previewChanged } from "./trainer-preview";
 import { Inbox, Chats, ChatThread } from "./workspace-inbox";
 import {
   TrainerMore,
@@ -115,8 +117,9 @@ import {
   useRef,
   type ReactNode,
 } from "react";
-import { usePathname, useRouter } from "next/navigation";
-import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useRouter } from "./preview-navigation";
+import Link from "./preview-navigation";
 import { WorkspaceNavigation } from "./workspace-navigation";
 import { WorkspaceScope, WorkspaceContinuity, clearWorkspaceViews, flushWorkspaceEdits } from "./workspace-continuity";
 import { WorkspaceFeedback, confirmWorkspace } from "./workspace-feedback";
@@ -303,7 +306,7 @@ export default function Workspace({
   /** The member's appearance mirrored on this device (the server's cookie). */
   colorScheme?: ColorSchemeChoice;
 }) {
-  const path = usePathname(),
+  const actualPath = usePathname(), preview = isTrainerPreview(actualPath), path = subscriberPath(actualPath),
     router = useRouter();
   // Subscriber surfaces follow the member's Light, Dark or System choice
   // (components/appearance.tsx); the backend uses an explicit white palette.
@@ -351,7 +354,7 @@ export default function Workspace({
   const shownState = useRef(state);
   shownState.current = state;
   // This release's service worker; members choose when a new one reloads.
-  const serviceWorker = useAppServiceWorker(path.startsWith("/app"));
+  const serviceWorker = useAppServiceWorker(!preview && path.startsWith("/app"));
   // Open inbox items for the Inbox tab and the app icon (coaches only);
   // refreshed with every workspace reload.
   const inboxCount = useInboxCount(
@@ -389,10 +392,11 @@ export default function Workspace({
       generation.current++;
       setExtra({});
       setState(next);
+      if (next.trainerPreview) previewChanged();
       setSuspended(false);
       setBootstrapError("");
       setOfflineScreen(false);
-      if (next.user.role === "subscriber")
+      if (next.user.role === "subscriber" && !preview)
         localStorage.setItem(
           OFFLINE_STATE_KEY,
           JSON.stringify({
@@ -433,6 +437,7 @@ export default function Workspace({
         if (!publicPath) router.replace("/login");
         return;
       }
+      if (preview) { setState(null); setBootstrapError((e as Error).message || "Your test session could not be opened."); return; }
       const cached = localStorage.getItem(OFFLINE_STATE_KEY);
       // No connection: a failed fetch, not an answer from the server.
       const noConnection = !navigator.onLine || e instanceof TypeError;
@@ -477,7 +482,7 @@ export default function Workspace({
     } finally {
       if (epoch === sessionEpoch) setLoading(false);
     }
-  }, [publicPath, router, path]);
+  }, [publicPath, router, path, preview]);
   useEffect(() => {
     setError("");
     setBootstrapError("");
@@ -589,6 +594,7 @@ export default function Workspace({
         }}
       />
     );
+  if (preview && !loading && !state) return <PreviewUnavailable message={bootstrapError || "Your test session ended. Open Try my AI again from My Brain."} />;
   if (suspended)
     return memberScreen(
       <WorkspaceSuspended
@@ -691,6 +697,7 @@ export default function Workspace({
   // in the platform's white workspace.
   const platformName = state.platform?.name || DEFAULT_PLATFORM_NAME;
   const signOut = async () => {
+    if (preview) { await endTrainerPreview(); return; }
     if (!(await flushWorkspaceEdits())) return;
     const { tenantId, userId } = state.user;
     const left = await leaveSession(localStorage, tenantId, userId, {
@@ -1073,7 +1080,7 @@ export default function Workspace({
             subscriber ? (
               <>
                 {/* A coach's reply is the moment to offer notifications. */}
-                {records("message").some((m) =>
+                {!preview && records("message").some((m) =>
                   ["trainer", "digital_qualified", "digital_reviewed"].includes(
                     m.data?.author,
                   ),
@@ -1163,7 +1170,7 @@ export default function Workspace({
           theme={state.tenant.theme}
           choice={scheme}
         />
-        <MemberAppManifest tenantId={state.tenant.id} role={state.user.role} />
+        {!preview && <MemberAppManifest tenantId={state.tenant.id} role={state.user.role} />}
         <MemberShell
           path={path}
           tenant={state.tenant}
@@ -1196,8 +1203,9 @@ export default function Workspace({
             ) : null
           }
         >
+          {preview && <TrainerPreviewBar />}
           {notices}
-          {page}
+          {preview && !previewDestinationAllowed(path) ? <section className="card"><h1>Your private subscriber experience</h1><p>Try chat, workouts, nutrition and your coaching profile using the navigation below.</p><Link className="button secondary" href="/app">Go to Today</Link></section> : page}
         </MemberShell>
       </TrainerTheme>
       </WorkspaceScope.Provider>
@@ -1209,9 +1217,7 @@ export default function Workspace({
       <WorkspaceFeedback />
       <a href="#workspace-content" className="workspace-skip">Skip to content</a>
       <MemberLanguage member={`${state.user.tenantId}:${state.user.userId}`} />
-      {!path.startsWith("/admin") && (
-        <MemberAppManifest tenantId={state.tenant.id} role={state.user.role} />
-      )}
+      {!path.startsWith("/admin") && <MemberAppManifest tenantId={state.tenant.id} role={state.user.role} />}
       <aside className={"sidebar " + (mobile ? "is-open" : "")} inert={compactNav && !mobile} aria-label="Workspace navigation">
         <Link href={path.startsWith("/admin") || state.platformWorkspace ? "/admin" : "/trainer"} className="wordmark">
           {subscriber ? (

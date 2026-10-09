@@ -1,4 +1,5 @@
 "use client";
+import { isTrainerPreview } from "../lib/trainer-preview-routing";
 import { TrainingPrograms } from "./training-workspace";
 import { confirmWorkspace } from "./workspace-feedback";
 import { Field } from "./field";
@@ -35,8 +36,8 @@ import {
   type WorkoutQueueItem,
 } from "./offline-queue";
 import { useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
+import { useRouter } from "./preview-navigation";
+import Link from "./preview-navigation";
 import {
   Plus,
   Check,
@@ -253,7 +254,7 @@ export function Workout({ state, records, action, busy, path }: ViewProps) {
     return () => window.removeEventListener("online", online);
   }, [sync, refreshQueue]);
   useEffect(() => {
-    if (!workout || !navigator.onLine || !("caches" in window)) return;
+    if (isTrainerPreview() || !workout || !navigator.onLine || !("caches" in window)) return;
     let active = true;
     void (async () => {
       try {

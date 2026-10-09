@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createServer } from "node:https";
+import { classifyPrompt, ruleBasedAnswer } from "../tests/e2e/mocks/model-rules.ts";
 import { createMockTls } from "../tests/e2e/mocks/tls.ts";
 if (process.env.NODE_ENV === "production") throw Error("Synthetic development checks only");
 const replies = {
@@ -26,6 +27,11 @@ const server = createServer({ key: tls.key, cert: tls.cert }, async (req, res) =
   if (req.url === "/voices/clone") { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify({ id: "synthetic-call-voice", name: "Synthetic trainer clone", is_public: false })); return; }
   if (req.url?.startsWith("/voices/synthetic-call-voice")) { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify({ id: "synthetic-call-voice", name: "Synthetic trainer clone", is_public: false })); return; }
   const payload = JSON.parse(raw), context = JSON.parse(payload.messages[1].content);
+  if (["plan_generation", "plan_adaptation", "nutrition"].includes(classifyPrompt(payload).kind)) {
+    const scripted = ruleBasedAnswer(payload);
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify({ usage: { prompt_tokens: 20, completion_tokens: 30 }, choices: [{ message: { content: JSON.stringify(scripted.content) } }] })); return;
+  }
   if (context.task === "coaching") {
     res.setHeader("Content-Type", "application/json");
     res.end(JSON.stringify({ usage: { prompt_tokens: 20, completion_tokens: 30 }, choices: [{ message: { content: JSON.stringify({

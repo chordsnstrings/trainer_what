@@ -1,0 +1,22 @@
+# Try my AI — private subscriber experience
+
+Every trainer owner can open **My Brain → Try my AI** with the current login. A private, persistent subscriber profile opens the real intake, chat, programme, workout log and nutrition screens. **Back to My Brain** returns to the trainer workspace without logging out. **Test controls → Start a new test profile** starts onboarding again; the previous profile is archived.
+
+Chat uses the published Brain, the member's own context and the same safety and review rules as subscriber chat. Test controls expose a pending reply to its owning trainer with an explicit private approval action. Workout preparation uses the existing plan generator and validator; a supervised draft requires approval before the dated programme appears. This approval does not publish teaching or qualify automation. Nutrition uses the existing profile, permissions, released policy, recipes, generation, swaps, groceries and diary services. Missing Brain, library, nutrition release or platform approval stays visible rather than being replaced with demo output.
+
+**Talk to my digital coach** is also available in ordinary subscriber chat. It reuses the existing hands-free capture, sequential turns, mute, hangup, durable receipts and budget accounting, but routes through real coaching chat and the workspace's verified trainer voice. It requires voice access and provider/voice permissions. Onboarding continues to use its existing Kamran setup assistant. Guided workouts retain their existing trainer voice and consent rules. Production Cartesia/model connections and physical-device acceptance are not established by synthetic tests.
+
+## Identity and isolation
+
+- Migration 094 creates an internal subscriber user and private profile for each trainer. The internal user cannot receive an authentication session, subscription or complimentary grant.
+- The trainer's session cookie stays unchanged. A separate HttpOnly preview cookie is bound to that session, workspace, trainer and active profile. The page and API namespaces are `/trainer/preview/app` and `/api/v1/trainer-preview/run`. Only enumerated subscriber endpoints receive aliases, using the original handlers, schemas and limits. Commercial, account and trainer editing endpoints are not aliased.
+- Ordinary tabs retain the owner identity. Missing, expired, foreign or revoked preview credentials fail closed. Shared API helpers, links and navigation keep subscriber requests inside the preview namespace. Exit stops private live calls. Preview does not install a member app or save the ordinary offline bootstrap/page cache.
+- Restrictive row policies hide test users and their records from customer lists and ordinary tenant/worker scopes. An owner's explicit `previewMemberId` review scope is checked against the private profile at DB scope entry; it does not change elevation rules. Narration workers can prepare explicitly requested preview audio in this validated scope, with existing permission and budget checks.
+- Notifications and outreach are suppressed. Provider costs remain recorded as trainer setup, with no subscriber billing. A durable private workout intent prevents repeated HTTP requests from paying for the same generation. Unknown outcomes are retained for review.
+- Former-trainer erasure includes their test profiles and adds separate restore evidence for internal users. Workspace closure includes test rows through the existing explicit erasure scope. User-facing test data never becomes shared trainer teaching automatically.
+
+## Verification and release
+
+Local TypeScript and production build passed. The affected-domain run passed 118 tests; final preview/erasure checks passed 14 tests after the last isolation changes. Coverage includes same-login entry/exit/resume, foreign sessions, RLS, private review, generated programmes, set logging, retry accounting, nutrition generation/groceries, own-voice calls, duplicate turns and erasure. All model and speech requests used isolated fixtures.
+
+The conversation CI includes real API/database journeys at 1280 and 390 px for entry, consent/intake, chat review, programme review, workout logging, nutrition screens, repeated hands-free turns, exit/resume and namespace checks. Local Chromium installation returned an invalid download, so fresh CI browser evidence is required before merge. PR/main checks and serving verification are pending; this feature is not yet deployed.

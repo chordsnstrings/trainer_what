@@ -1,6 +1,7 @@
 "use client";
+import { memberApiUrl } from "../lib/trainer-preview-routing";
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import Link from "./preview-navigation";
 import { parseLanguage } from "../document-language";
 import { rememberMemberLanguage } from "./document-direction";
 import { PREFERENCES_SAVED_EVENT } from "./appearance";
@@ -45,7 +46,7 @@ export function notificationCategory(key: string, locale: Locale = "en") {
 export const NOTIFICATION_CATEGORIES: Record<string, string> =
   Object.fromEntries(CATEGORIES.map((key) => [key, notificationCategory(key)]));
 async function api(path: string, method = "GET", body?: unknown) {
-  const r = await fetch("/api/v1" + path, {
+  const r = await fetch(memberApiUrl("/api/v1" + path), {
     method,
     credentials: "same-origin",
     headers:

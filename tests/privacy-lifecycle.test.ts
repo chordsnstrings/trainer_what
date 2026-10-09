@@ -693,3 +693,27 @@ test("former owners and staff can erase their accounts without removing the work
   const exported = await exportPersonalData(db, client);
   assert.ok(exported.records.some((r) => r.kind === "planned_session"));
 });
+
+test("erasing a former trainer also erases their private subscriber profiles and records restore evidence", async () => {
+  const former = await tenant(), preview = await person(former.tenantId), admin = await person(former.tenantId, "staff", "admin");
+  await db.system(async tx => {
+    await tx.query("UPDATE users SET is_trainer_preview=true WHERE id=$1", [preview.userId]);
+    await tx.query("INSERT INTO trainer_preview_profiles(id,tenant_id,trainer_user_id,user_id) VALUES($1,$2,$3,$4)", [randomUUID(), former.tenantId, former.userId, preview.userId]);
+  });
+  await db.tenant(preview, tx => putRecord(tx, preview, "intake", { goal: "Private synthetic preview goal" }, { status: "submitted" }));
+  const retainedOwner = await person(former.tenantId, "owner");
+  await db.system(tx => tx.query("UPDATE memberships SET role='staff' WHERE tenant_id=$1 AND user_id=$2", [former.tenantId, former.userId]));
+  former.role = "staff";
+  const request = await deletion(former);
+  const result = await req(admin, `/admin/tenants/${former.tenantId}/privacy/${request.id}/erase`, proof());
+  assert.equal(result.statusCode, 200, result.body);
+  await db.tenant(retainedOwner, async tx => {
+    assert.equal((await tx.query("SELECT id FROM records WHERE owner_user_id=$1", [preview.userId])).length, 0);
+  }, { privacyErasure: true });
+  await db.system(async tx => {
+    assert.equal((await tx.query("SELECT user_id FROM memberships WHERE user_id=$1", [preview.userId])).length, 0);
+    assert.equal((await tx.query("SELECT id FROM trainer_preview_profiles WHERE trainer_user_id=$1", [former.userId])).length, 0);
+    assert.equal((await tx.query("SELECT name FROM users WHERE id=$1", [preview.userId]))[0].name, "Deleted member");
+    assert.equal((await tx.query("SELECT user_id FROM privacy_erasure_registry WHERE tenant_id=$1 AND user_id=ANY($2::uuid[])", [former.tenantId, [former.userId, preview.userId]])).length, 2);
+  });
+});

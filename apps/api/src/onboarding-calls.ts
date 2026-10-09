@@ -12,8 +12,9 @@ import { reserveVoiceCost, costEstimated, costNotSent } from "./cost-accounting.
 import { forwardWorkspaceRequest as forward } from "./internal-request.ts";
 import { onboardingActor as actor, onboardingError as fail, permitOnboarding, lockOnboarding, onboardingConsentEpoch } from "./onboarding-access.ts";
 import { encryptionReady } from "./sealing.ts";
+import { memberAccess } from "./entitlements.ts";
+import { audioReadiness } from "./service-readiness.ts";
 
-const prefix = "/api/v1/onboarding-chat/calls";
 const uuid = z.string().uuid();
 const cloneConsent = z.object({ ownVoice: z.literal(true), cloning: z.literal(true), subscriberUse: z.literal(true), deletion: z.literal(true) }).strict();
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -23,19 +24,43 @@ function contracts() {
     throw fail(503, "CALL_UNAVAILABLE", "Voice calls aren't ready just now. Your text conversation is still available.");
   return { voice, speech, signature: hash([voice.provider, voice.base, voice.key, voice.model, speech.provider, speech.base, speech.key, speech.model, c.MARKETING_ASSISTANT_VOICE_ID]) };
 }
-async function ownCall(tx: Tx, a: Actor, id: string, active = true) {
-  await permitOnboarding(tx, a);
+const callView = (row: any) => ({ id: row.id, name: row.data.name ?? "Kamran", isAI: true, status: row.status, language: row.data.language, cloneId: row.data.cloneId ?? null, expiresAt: row.data.expiresAt });
+
+export function onboardingCallRoutes(app: FastifyInstance, db: Database, purpose: "onboarding" | "coaching" = "onboarding") {
+  const coaching = purpose === "coaching", prefix = coaching ? "/api/v1/coaching/calls" : "/api/v1/onboarding-chat/calls";
+  async function permit(tx: Tx, a: Actor) {
+    await permitOnboarding(tx, a);
+    if (!coaching) return;
+    if (a.role !== "subscriber") throw fail(403, "SUBSCRIBER_REQUIRED", "Open the subscriber conversation to call your digital coach.");
+    const access = await memberAccess(tx, a.userId);
+    if (!access.active || !access.premiumVoice) throw fail(403, "VOICE_ACCESS", "Your membership does not include voice coaching.");
+  }
+  async function selectedVoice(tx: Tx, a: Actor) {
+    if (!coaching) return { id: await assistantVoiceId(), name: "Kamran" };
+    await permit(tx, a);
+    const ready = await audioReadiness(tx);
+    if (!ready.ready) throw fail(409, "TRAINER_VOICE_UNAVAILABLE", ready.issues.join(" "));
+    const [voice] = await tx.query("SELECT provider_voice_id FROM guided_voice()");
+    return { id: voice.provider_voice_id as string };
+  }
+  async function selection(a: Actor) {
+    const voice = await db.tenant(a, tx => selectedVoice(tx, a));
+    const name = coaching ? await db.system(async tx => (await tx.query("SELECT name FROM tenants WHERE id=$1", [a.tenantId]))[0]?.name ?? "Your coach", { tenantId: a.tenantId }) : "Kamran";
+    return { ...voice, name };
+  }
+  async function ownCall(tx: Tx, a: Actor, id: string, active = true) {
+  await permit(tx, a);
   const [row] = await tx.query("SELECT * FROM records WHERE id=$1 AND kind='onboarding_call' AND owner_user_id=$2 FOR UPDATE", [id, a.userId]);
-  if (!row || (active && (row.status !== "active" || Date.parse(row.data.expiresAt) <= Date.now())))
+  if (!row || (row.data.purpose ?? "onboarding") !== purpose || (active && (row.status !== "active" || Date.parse(row.data.expiresAt) <= Date.now())))
     throw fail(409, "CALL_ENDED", "This call has ended. Your messages are saved; start another call whenever you're ready.");
   if (active && row.data.signature !== contracts().signature)
     throw fail(409, "CALL_SETTINGS_CHANGED", "The voice connection changed. Start a new call to continue.");
+  if (active && coaching && (await selectedVoice(tx, a)).id !== row.data.voiceId)
+    throw fail(409, "CALL_VOICE_CHANGED", "Your trainer changed their voice. Start a new call to continue.");
   return row;
 }
-const callView = (row: any) => ({ id: row.id, name: "Kamran", isAI: true, status: row.status, language: row.data.language, cloneId: row.data.cloneId ?? null, expiresAt: row.data.expiresAt });
 
-export function onboardingCallRoutes(app: FastifyInstance, db: Database) {
-  const snapshot = (req: FastifyRequest, mode: string) => forward(app, req, "GET", "/api/v1/onboarding-chat?mode=" + mode);
+  const snapshot = (req: FastifyRequest, mode: string) => forward(app, req, "GET", coaching ? "/api/v1/messages/thread" : "/api/v1/onboarding-chat?mode=" + mode);
   async function reserve(a: Actor, callId: string, usageId: string, kind: "speech" | "transcription", estimate: number, pricing: Record<string, unknown>) {
     const c = contracts(), p = kind === "speech" ? c.voice : c.speech;
     await db.tenant(a, async tx => {
@@ -44,7 +69,7 @@ export function onboardingCallRoutes(app: FastifyInstance, db: Database) {
       const [spent] = await tx.query("SELECT voice_guidance_spent_today() AS total");
       if (Number(spent.total) + estimate > c.voice.cap) throw fail(429, "VOICE_BUDGET", "Today's voice allowance is used up. You can keep chatting by text.");
       await reserveVoiceCost(tx, { id: usageId, tenantId: a.tenantId, userId: a.userId, memberId: a.role === "subscriber" ? a.userId : null,
-        task: "voice." + (a.role === "owner" ? "onboarding_setup." : "onboarding.") + kind,
+        task: "voice." + (coaching ? "coaching." : a.role === "owner" ? "onboarding_setup." : "onboarding.") + kind,
         provider: p.provider, model: p.model, priceVersion: p.priceVersion, pricing: { ...pricing, reservedCostUsd: estimate }, traceId: callId });
     });
   }
@@ -76,31 +101,31 @@ export function onboardingCallRoutes(app: FastifyInstance, db: Database) {
   app.get(prefix + "/options", async (req, reply) => {
     const a = actor(req);
     reply.header("Cache-Control", "private, no-store");
-    await db.tenant(a, tx => permitOnboarding(tx, a));
+    await db.tenant(a, tx => permit(tx, a));
     try {
-      const c = contracts(), voiceId = await assistantVoiceId();
-      return { available: !!voiceId, name: "Kamran", isAI: true, reason: voiceId ? null : "Kamran's AI voice hasn't been connected yet. You can continue by message.",
+      const c = contracts(), selected = await selection(a), voiceId = selected.id;
+      return { available: !!voiceId, name: selected.name, isAI: true, reason: voiceId ? null : "Kamran's AI voice hasn't been connected yet. You can continue by message.",
         speechProvider: c.speech.provider === "cartesia" ? "Cartesia" : "ElevenLabs", zeroRetention: c.speech.provider === "elevenlabs" && c.speech.zeroRetention,
         cloning: a.role === "owner" && c.voice.cloning.quick && encryptionReady(), cloneConsent: CLONE_CONSENT, cloneConsentVersion: CLONE_CONSENT_VERSION,
         providerTrainingOptOut: c.voice.cloning.providerTrainingOptOut };
-    } catch { return { available: false, name: "Kamran", isAI: true, reason: "Voice calls aren't enabled yet. Keep going by message, or ask the platform to connect voice and speech recognition.", cloning: false }; }
+    } catch (e) { return { available: false, name: coaching ? "Your coach" : "Kamran", isAI: true, reason: coaching ? (e as Error).message : "Voice calls aren't enabled yet. Keep going by message, or ask the platform to connect voice and speech recognition.", cloning: false }; }
   });
   app.post(prefix, { config: { rateLimit: { max: 8, timeWindow: "10 minutes" } } }, async (req, reply) => {
     reply.header("Cache-Control", "private, no-store");
     const a = actor(req), b = z.object({ id: uuid, language: z.enum(["en", "ar"]), mode: z.enum(["setup", "teach"]).default("setup"), consent: z.literal(true), cloneConsent: cloneConsent.optional() }).strict().parse(req.body);
     if (b.cloneConsent && a.role !== "owner") throw fail(403, "OWNER_REQUIRED", "Only a trainer can create their own voice.");
-    const consentEpoch = await db.tenant(a, async tx => { await permitOnboarding(tx, a); return onboardingConsentEpoch(tx, a); });
-    const c = contracts(), voiceId = await assistantVoiceId();
+    const consentEpoch = await db.tenant(a, async tx => { await permit(tx, a); return onboardingConsentEpoch(tx, a); });
+    const c = contracts(), selected = await selection(a), voiceId = selected.id;
     if (!voiceId) throw fail(503, "KAMRAN_VOICE_UNAVAILABLE", "Kamran's AI voice isn't connected yet. Continue by message for now.");
     if (b.cloneConsent && (!c.voice.cloning.quick || !encryptionReady())) throw fail(503, "CLONING_UNAVAILABLE", "Voice creation isn't ready. You can start a call without creating a voice.");
     return db.tenant(a, async tx => {
-      await permitOnboarding(tx, a);
+      await permit(tx, a);
       if (await onboardingConsentEpoch(tx, a) !== consentEpoch) throw fail(409, "CONSENT_CHANGED", "Your permissions changed. Start the call again when you're ready.");
       const [old] = await tx.query("SELECT * FROM records WHERE id=$1 AND kind='onboarding_call' AND owner_user_id=$2", [b.id, a.userId]);
-      if (old) { if (old.status !== "active") throw fail(409, "CALL_ENDED", "This call has ended."); if (old.data.fingerprint !== hash(b)) throw fail(409, "CALL_CHANGED", "Start a new call with these choices."); return callView(old); }
+      if (old) { await ownCall(tx, a, old.id); if (old.status !== "active") throw fail(409, "CALL_ENDED", "This call has ended."); if (old.data.fingerprint !== hash(b)) throw fail(409, "CALL_CHANGED", "Start a new call with these choices."); return callView(old); }
       await tx.query("UPDATE records SET status='ended',data=data-'cloneConsent',updated_at=now() WHERE kind='onboarding_call' AND owner_user_id=$1 AND status='active'", [a.userId]);
       await tx.query("UPDATE records SET data=data-'audio',updated_at=now() WHERE kind='onboarding_voice_request' AND owner_user_id=$1 AND data ? 'audio'", [a.userId]);
-      const row = await putRecord(tx, a, "onboarding_call", { fingerprint: hash(b), language: b.language, mode: a.role === "owner" ? b.mode : "setup", voiceId, model: c.voice.model, signature: c.signature, consentAt: new Date().toISOString(), cloneConsent: b.cloneConsent ?? null, cloneConsentVersion: CLONE_CONSENT_VERSION, turns: 0, expiresAt: new Date(Date.now() + 30 * 60000).toISOString() }, { id: b.id, status: "active" });
+      const row = await putRecord(tx, a, "onboarding_call", { purpose, name: selected.name, fingerprint: hash(b), language: b.language, mode: a.role === "owner" ? b.mode : "setup", voiceId, model: c.voice.model, signature: c.signature, consentAt: new Date().toISOString(), cloneConsent: b.cloneConsent ?? null, cloneConsentVersion: CLONE_CONSENT_VERSION, turns: 0, expiresAt: new Date(Date.now() + 30 * 60000).toISOString() }, { id: b.id, status: "active" });
       await event(tx, a, "onboarding_chat.call_started", row.id, { cloneOptIn: !!b.cloneConsent });
       return callView(row);
     });
@@ -158,12 +183,17 @@ export function onboardingCallRoutes(app: FastifyInstance, db: Database) {
           if (!r) throw fail(409, "CALL_ENDED", "The call ended.");
           return r.data;
         });
-        conversation = await forward(app, req, "POST", "/api/v1/onboarding-chat/messages", { id: request.messageId, version: conversation.version, mode: claimed.data.mode, text: transcript, source: "voice", callId: id });
-        if (conversation.error || conversation.pending) throw fail(502, "CALL_REPLY_FAILED", conversation.error ?? "Your reply is still being prepared. Check the saved conversation.");
+        if (coaching) {
+          const result = await forward(app, req, "POST", "/api/v1/coaching/ask", { message: transcript });
+          conversation = { ...(await snapshot(req, claimed.data.mode)), spokenReply: result.message ?? "Your message is saved. Check the conversation for your trainer's response." };
+        } else {
+          conversation = await forward(app, req, "POST", "/api/v1/onboarding-chat/messages", { id: request.messageId, version: conversation.version, mode: claimed.data.mode, text: transcript, source: "voice", callId: id });
+          if (conversation.error || conversation.pending) throw fail(502, "CALL_REPLY_FAILED", conversation.error ?? "Your reply is still being prepared. Check the saved conversation.");
+        }
       }
       const messages = conversation.messages ?? [], lastPerson = messages.findLastIndex((m: any) => m.from === "person");
       const words = messages.slice(Math.max(lastPerson + 1, messages.length - 3)).filter((m: any) => m.from === "assistant").map((m: any) => m.text).join(" ");
-      audio = await speak(a, claimed, words);
+      audio = await speak(a, claimed, coaching ? b.greeting ? "Hello, this is your digital coach. What would you like to work on today?" : conversation.spokenReply : words);
     } catch (e) {
       error = (e as any).statusCode && (e as any).statusCode < 500 ? (e as Error).message : "That reply couldn't be completed. Your saved conversation is below; you can continue by text.";
     }
@@ -175,7 +205,7 @@ export function onboardingCallRoutes(app: FastifyInstance, db: Database) {
   });
   // The same clone workflow used by Trainer voice. The call only supplies the
   // trainer's microphone sample; preview/rights checks still gate activation.
-  app.post(prefix + "/:id/clone", async (req) => {
+  if (!coaching) app.post(prefix + "/:id/clone", async (req) => {
     const a = actor(req), id = uuid.parse((req.params as any).id);
     if (a.role !== "owner") throw fail(403, "OWNER_REQUIRED", "Trainer access is required.");
     const call = await db.tenant(a, tx => ownCall(tx, a, id));
