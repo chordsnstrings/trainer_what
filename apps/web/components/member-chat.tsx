@@ -239,8 +239,8 @@ export function MemberChat({ state }: { state: any }) {
     <div className="member-chat">
       <header className="member-chat-intro">
         <h1 className="sr-only">{t("title")}</h1>
-        <p className="muted">{state.trainerPreview ? "Use Ask digital coach or start a voice call to try your own Brain." : t("intro", { coach })}</p>
-        <button type="button" className="button secondary button-small" disabled={busy} onClick={() => setCallOpen(true)}><Phone size={16} />{callActive ? "Return to voice call" : "Talk to my digital coach"}</button>
+        <p className="muted">{state.trainerPreview ? t("previewIntro") : t("intro", { coach })}</p>
+        <button type="button" className="button secondary button-small" disabled={busy} onClick={() => setCallOpen(true)}><Phone size={16} />{t(callActive ? "returnToCall" : "talkToCoach")}</button>
       </header>
       <OnboardingCall audience="member" mode="setup" purpose="coaching" coachName={coach} open={callOpen} onOpenChange={setCallOpen} onActiveChange={setCallActive} onConversation={() => { void refresh(); if (state.trainerPreview) previewChanged(); }} />
       {personal && (

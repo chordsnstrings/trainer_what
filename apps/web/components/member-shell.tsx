@@ -483,7 +483,7 @@ export function MemberShell({
         </div>
         <button type="button" className="member-signout" onClick={onSignOut}>
           <LogOut size={16} aria-hidden="true" />
-          {isTrainerPreview() ? "Back to My Brain" : common("signOut")}
+          {common(isTrainerPreview() ? "backToBrain" : "signOut")}
         </button>
       </aside>
       <div className="member-frame">
@@ -660,7 +660,7 @@ export function MoreScreen({
                 <LogOut size={20} aria-hidden="true" />
               </span>
               <span className="more-text">
-                <strong>{isTrainerPreview() ? "Back to My Brain" : common("signOut")}</strong>
+                <strong>{common(isTrainerPreview() ? "backToBrain" : "signOut")}</strong>
               </span>
             </button>
           </li>

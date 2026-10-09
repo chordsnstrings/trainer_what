@@ -4,6 +4,9 @@ import { defineMessages } from "../core";
 export default defineMessages(
   {
     title: "Coach chat",
+    previewIntro: "Use Ask digital coach or start a voice call to try your own Brain.",
+    returnToCall: "Return to voice call",
+    talkToCoach: "Talk to my digital coach",
     intro: "Messages with {coach}. Replies from the digital coach are labelled. With your digital coaching permission, it uses recent messages to follow the conversation.",
     you: "You",
     digital: "Digital coach",
@@ -51,6 +54,9 @@ export default defineMessages(
   },
   {
     title: "محادثة المدرب",
+    previewIntro: "يمكنك تجربة معرفتك التدريبية عبر المدرب الرقمي أو ببدء مكالمة صوتية.",
+    returnToCall: "العودة إلى المكالمة الصوتية",
+    talkToCoach: "التحدث مع مدربي الرقمي",
     intro: "رسائلك مع {coach}. تُميَّز ردود المدرب الرقمي. بموافقتك على التدريب الرقمي، يستخدم الرسائل الأخيرة لمتابعة المحادثة.",
     you: "أنت",
     digital: "المدرب الرقمي",

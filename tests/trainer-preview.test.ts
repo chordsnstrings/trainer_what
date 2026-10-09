@@ -52,8 +52,10 @@ test("trainer preview uses a bound private member without replacing the trainer 
     assert.equal(directory.json().workspaces.find((r: any) => r.id === owner.tenantId).followers, 1);
     const notification = await ctx.db.tenant({ ...a, userId: member.userId, role: "subscriber" }, tx => notifyUser(tx, { ...a, userId: member.userId, role: "subscriber" }, { userId: owner.userId, category: "coaching", dedupeKey: "preview-test", title: "Test", body: "Test", href: "/trainer" }));
     assert.equal(notification, null);
-    const [counts] = await ctx.db.system(tx => tx.query("SELECT (SELECT count(*)::int FROM sessions WHERE user_id=$1) AS sessions,(SELECT count(*)::int FROM subscriptions WHERE user_id=$1) AS subscriptions,(SELECT count(*)::int FROM complimentary_access WHERE user_id=$1) AS grants", [member.userId]));
-    assert.deepEqual(counts, { sessions: 0, subscriptions: 0, grants: 0 });
+    const [sessions] = await ctx.db.system(tx => tx.query("SELECT count(*)::int AS n FROM sessions WHERE user_id=$1", [member.userId]));
+    assert.equal(sessions.n, 0);
+    const [counts] = await ctx.db.tenant(previewReviewer(a, member.userId), tx => tx.query("SELECT (SELECT count(*)::int FROM subscriptions WHERE user_id=$1) AS subscriptions,(SELECT count(*)::int FROM complimentary_access WHERE user_id=$1) AS grants", [member.userId]));
+    assert.deepEqual(counts, { subscriptions: 0, grants: 0 });
     await assert.rejects(ctx.db.system(tx => tx.query("INSERT INTO sessions(token_hash,user_id,tenant_id,expires_at) VALUES($1,$2,$3,now()+interval '1 hour')", [randomUUID(), member.userId, owner.tenantId])), /preview cannot have a login session/);
     const ended = await ctx.call("/trainer-preview/end", { cookie, body: {} });
     assert.equal(ended.statusCode, 200, ended.body);
@@ -134,9 +136,9 @@ test("preview runs real intake, reviewed chat, generated workouts and saved logs
     assert.equal(hidden.length, 0);
     const workerRows = await ctx.db.tenant(elevated("worker", { tenantId: a.tenantId, role: "owner" }), tx => tx.query("SELECT id FROM records WHERE owner_user_id=$1", [member.userId]));
     assert.equal(workerRows.length, 0);
-    const [counts] = await ctx.db.system(tx => tx.query("SELECT (SELECT count(*)::int FROM records WHERE tenant_id=$1 AND kind='plan_learning') AS learning,(SELECT count(*)::int FROM notifications WHERE tenant_id=$1) AS notices", [a.tenantId]));
+    const [counts] = await ctx.db.tenant(previewReviewer(a, member.userId), tx => tx.query("SELECT (SELECT count(*)::int FROM records WHERE tenant_id=$1 AND kind='plan_learning') AS learning,(SELECT count(*)::int FROM notifications WHERE tenant_id=$1) AS notices", [a.tenantId]));
     assert.deepEqual(counts, { learning: 0, notices: 0 });
-    const costs = await ctx.db.system(tx => tx.query("SELECT product,member_id FROM cost_events WHERE tenant_id=$1", [a.tenantId]));
+    const costs = await ctx.db.tenant(a, tx => tx.query("SELECT product,member_id FROM cost_events WHERE tenant_id=$1", [a.tenantId]));
     assert.ok(costs.length >= 2); assert.ok(costs.every(c => c.product === "trainer_setup" && c.member_id === null));
     assert.deepEqual(queued, ["coach_decision", "plan_generation"]);
     await ctx.call("/trainer-preview/end", { cookie, body: {} });

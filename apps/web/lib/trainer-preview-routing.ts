@@ -1,13 +1,13 @@
 export const PREVIEW_PAGE = "/trainer/preview";
 export const PREVIEW_RUN = "/api/v1/trainer-preview/run";
 const currentPath = () => typeof window === "undefined" ? "" : window.location.pathname;
-export function isTrainerPreview(path = currentPath()) {
-  return path === PREVIEW_PAGE + "/app" || path.startsWith(PREVIEW_PAGE + "/app/");
+export function isTrainerPreview(path: string | null = currentPath()) {
+  return typeof path === "string" && (path === PREVIEW_PAGE + "/app" || path.startsWith(PREVIEW_PAGE + "/app/"));
 }
 export function subscriberPath(path: string) {
   return isTrainerPreview(path) ? path.slice(PREVIEW_PAGE.length) : path;
 }
-export function memberHref(href: string, path = currentPath()) {
+export function memberHref(href: string, path: string | null = currentPath()) {
   return isTrainerPreview(path) && /^\/app(?:[/?#]|$)/.test(href) ? PREVIEW_PAGE + href : href;
 }
 export function memberApiUrl(url: string, path = currentPath()) {
