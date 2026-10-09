@@ -1,5 +1,6 @@
 "use client";
 import { VoiceOneOnOne } from "./voice-one-on-one";
+import { BrainFidelity } from "./brain-fidelity";
 import { Field } from "./field";
 import { KnowledgeImportReview } from "./ingestion-review";
 import { SourceCompilation } from "./source-compilation";
@@ -122,6 +123,7 @@ function BrainDetails({
           ["sources", "Knowledge"],
           ["rules", "My rules"],
           ["communication", "Communication style"],
+          ["fidelity", "Compare my replies"],
           ["scenarios", "Quiz questions"],
           ["releases", "Check my Brain"],
         ].map(([id, label]) => (
@@ -135,6 +137,7 @@ function BrainDetails({
         ))}
       </div>
       {tab === "communication" && <VoiceOneOnOne />}
+      {tab === "fidelity" && <BrainFidelity />}
       {tab === "interview" && (
         <div className="two-columns wide-left">
           <Card>
