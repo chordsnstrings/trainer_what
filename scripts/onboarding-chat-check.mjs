@@ -8,13 +8,25 @@ const folder = "test-results/onboarding-chat";
 await mkdir(folder, { recursive: true });
 const browser = await chromium.launch({ headless: true, args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", "--use-file-for-fake-audio-capture=" + process.env.ONBOARDING_MICROPHONE_FIXTURE] });
 const report = { checks: [], errors: [], captures: [], motion: [] };
-async function login(email, width, userAgent) {
-  const context = await browser.newContext({ viewport: { width, height: 900 }, ...(userAgent ? { userAgent } : {}), permissions: ["microphone"], serviceWorkers: "block" });
+async function login(email, width, userAgent, recordMotion = false) {
+  const context = await browser.newContext({ viewport: { width, height: 900 }, reducedMotion: "no-preference", ...(userAgent ? { userAgent } : {}), ...(recordMotion ? { recordVideo: { dir: folder + "/my-brain-video", size: { width, height: 900 } } } : {}), permissions: ["microphone"], serviceWorkers: "block" });
   await context.addInitScript(() => {
     window.__onboardingMotion = [];
     document.addEventListener("animationstart", event => {
       const element = event.target;
-      if (element instanceof HTMLElement && element.dataset.messageId) window.__onboardingMotion.push({ id: element.dataset.messageId, animation: event.animationName });
+      if (!(element instanceof HTMLElement) || !element.dataset.messageId) return;
+      const bounds = element.getBoundingClientRect(), clip = element.closest(".onboarding-thread").getBoundingClientRect();
+      const entry = { id: element.dataset.messageId, animation: event.animationName, duration: getComputedStyle(element).animationDuration,
+        visible: Math.min(bounds.bottom, clip.bottom, innerHeight) - Math.max(bounds.top, clip.top, 0) > 16, frames: [] };
+      window.__onboardingMotion.push(entry);
+      const start = performance.now();
+      function frame() {
+        if (!element.isConnected) return;
+        const style = getComputedStyle(element);
+        entry.frames.push({ transform: style.transform, opacity: style.opacity });
+        if (performance.now() - start < 230) requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
     });
   });
   const result = await context.request.post(base + "/api/v1/auth/login", { headers: { origin: base }, data: { email, password: "TrainerDemo2026!" } });
@@ -42,7 +54,7 @@ async function capture(page, name) {
 }
 // Hold only this fixture request so real CSS frames can be observed under a
 // genuinely pending request. Production replies never wait for this test timing.
-async function messageMotion(page, text, reduced = false) {
+async function messageMotion(page, text, { reduced = false, name = "trainer", systemChoice = true } = {}) {
   const pattern = "**/api/v1/onboarding-chat/messages";
   let release;
   const gate = new Promise(resolve => { release = resolve; });
@@ -55,19 +67,27 @@ async function messageMotion(page, text, reduced = false) {
     await expect(page.locator(".onboarding-typing")).toBeVisible();
     const samples = [];
     for (let i = 0; i < 4; i++) {
-      samples.push(await page.locator(".onboarding-typing i").evaluateAll(dots => dots.map(dot => { const style = getComputedStyle(dot); return { transform: style.transform, opacity: style.opacity, animation: style.animationName }; })));
+      samples.push(await page.locator(".onboarding-typing i").evaluateAll(dots => dots.map(dot => {
+        const style = getComputedStyle(dot), bounds = dot.getBoundingClientRect(), clip = dot.closest(".onboarding-thread").getBoundingClientRect();
+        return { transform: style.transform, opacity: style.opacity, animation: style.animationName,
+          visible: Math.min(bounds.bottom, clip.bottom, innerHeight) > Math.max(bounds.top, clip.top, 0) };
+      })));
       await page.waitForTimeout(150);
     }
     assert.equal(samples[0].length, 3);
+    assert.ok(samples.every(frame => frame.every(dot => dot.visible)), "Pending dots must be inside the visible thread, not animating off screen");
     if (reduced) assert.ok(samples.every(frame => frame.every(dot => dot.animation === "none" && dot.transform === "none")));
     else {
       for (let i = 0; i < 3; i++) assert.ok(new Set(samples.map(frame => frame[i].transform + frame[i].opacity)).size > 1, "Each typing dot visibly moves");
       assert.ok(samples.some(frame => new Set(frame.map(dot => dot.transform + dot.opacity)).size > 1), "Dots have distinct phases");
-      await page.evaluate(() => document.documentElement.setAttribute("data-reduce-motion", "on"));
-      assert.deepEqual(await page.locator(".onboarding-typing i").evaluateAll(dots => dots.map(dot => getComputedStyle(dot).animationName)), ["none", "none", "none"]);
-      await page.evaluate(() => document.documentElement.removeAttribute("data-reduce-motion"));
+      if (systemChoice) {
+        await page.evaluate(() => document.documentElement.setAttribute("data-reduce-motion", "on"));
+        await expect.poll(() => page.locator(".onboarding-typing i").evaluateAll(dots => dots.map(dot => getComputedStyle(dot).animationName))).toEqual(["none", "none", "none"]);
+        await page.evaluate(() => document.documentElement.removeAttribute("data-reduce-motion"));
+        await expect(page.locator(".onboarding-chat")).toHaveAttribute("data-chat-motion", "on");
+      }
     }
-    await capture(page, reduced ? "reduced-motion-pending" : "trainer-typing-motion");
+    await capture(page, name + (reduced ? "-reduced-motion-pending" : "-typing-motion"));
     release();
     const response = await reply, data = await response.json();
     assert.equal(response.status(), 200, JSON.stringify(data));
@@ -81,8 +101,15 @@ async function messageMotion(page, text, reduced = false) {
       await expect.poll(() => page.evaluate(id => window.__onboardingMotion.filter(event => event.id === id).length, incoming.id)).toBe(1);
       await expect.poll(() => page.locator('[data-message-id="' + incoming.id + '"]').evaluate(element => element.getAnimations().filter(animation => animation.playState === "running").length)).toBe(0);
       assert.equal(await page.evaluate(id => window.__onboardingMotion.filter(event => event.id === id).length, own.id), 1, "Acknowledgement must not replay the outgoing bubble");
+      const arrivals = await page.evaluate(ids => window.__onboardingMotion.filter(event => ids.includes(event.id)), [own.id, incoming.id]);
+      for (const arrival of arrivals) {
+        assert.ok(arrival.visible, "The bubble must be in view when its pop begins: " + JSON.stringify(arrival));
+        assert.ok(parseFloat(arrival.duration) >= .28, "A global reduced-motion rule must not collapse an explicitly enabled pop");
+        assert.ok(new Set(arrival.frames.map(frame => frame.transform + frame.opacity)).size > 1, "The bubble must move through visibly different frames");
+      }
+      report.motion.push({ name, arrivals });
     }
-    report.motion.push({ reduced, samples, own: own.id, incoming: incoming.id });
+    report.motion.push({ name, path: new URL(page.url()).pathname, reduced, samples, own: own.id, incoming: incoming.id });
     return data;
   } finally { release(); await page.unroute(pattern); }
 }
@@ -209,7 +236,21 @@ try {
   await page.getByLabel("Your onboarding message").fill("A draft survives the call");
   await voice(page, true);
   await expect(page.getByLabel("Your onboarding message")).toHaveValue("A draft survives the call");
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await go(page, "/trainer/brain");
+  await expect(page.locator(".onboarding-chat")).toHaveAttribute("data-chat-mode", "teach");
+  await expect(page.locator(".onboarding-chat")).toHaveAttribute("data-chat-motion", "on");
+  await messageMotion(page, "I adapt a busy client's week while keeping the main strength sessions consistent.", { name: "my-brain-desktop" });
+  await page.reload();
+  await expect(page.getByLabel("Your onboarding message")).toBeVisible();
+  assert.equal(await page.evaluate(() => window.__onboardingMotion.length), 0, "My Brain history must stay still on reopen");
+  report.checks.push("Exact My Brain teach route: visible desktop send/receive pops, on-screen animated pending dots, no replay of saved history");
   await coach.close();
+  const { context: brainPhone, page: brainPhonePage } = await login("coach@example.test", 390, "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1", true);
+  await go(brainPhonePage, "/trainer/brain");
+  await expect(brainPhonePage.locator(".onboarding-chat")).toHaveAttribute("data-chat-style", "ios");
+  await messageMotion(brainPhonePage, "I ask what changed this week before adapting the next session.", { name: "my-brain-iphone" });
+  await brainPhone.close();
   const { context: member, page: phone } = await login("sam.taylor@example.test", 390, "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1");
   // The demo has a complete profile; withdraw its synthetic permission to start fresh.
   const withdrawn = await member.request.post(base + "/api/v1/privacy/consent", { headers: { origin: base }, data: { type: "coaching", granted: false } });
@@ -243,9 +284,28 @@ try {
   await androidPage.emulateMedia({ reducedMotion: "reduce" }); await go(androidPage, "/setup");
   await expect(androidPage.locator(".onboarding-chat")).toHaveAttribute("data-chat-style", "android");
   assert.equal(await androidPage.locator(".onboarding-message").last().evaluate(e => getComputedStyle(e).animationName), "none");
-  await messageMotion(androidPage, "I keep sessions consistent and progress one small step at a time.", true);
+  await messageMotion(androidPage, "I keep sessions consistent and progress one small step at a time.", { reduced: true, name: "trainer-android" });
   await capture(androidPage, "trainer-android-reduced-motion");
   await androidPage.setViewportSize({ width: 320, height: 740 }); await capture(androidPage, "trainer-320px");
+  await android.addCookies([{ name: "trainer_member_motion", value: "reduce", url: base }]);
+  await go(androidPage, "/trainer/brain");
+  await expect(androidPage.locator(".onboarding-chat")).toHaveAttribute("data-chat-motion", "off");
+  await androidPage.getByRole("button", { name: "Conversation options", exact: true }).click();
+  await expect(androidPage.locator("#conversation-motion-detail")).toContainText("reducing motion");
+  await androidPage.getByLabel("Message animations", { exact: true }).selectOption("on");
+  await capture(androidPage, "my-brain-motion-options-320px");
+  await androidPage.getByRole("button", { name: "Close conversation options", exact: true }).click();
+  await expect(androidPage.getByRole("dialog")).not.toBeVisible();
+  await androidPage.reload();
+  await expect(androidPage.locator(".onboarding-chat")).toHaveAttribute("data-chat-motion", "on");
+  assert.equal(await androidPage.evaluate(() => matchMedia("(prefers-reduced-motion: reduce)").matches && document.documentElement.getAttribute("data-reduce-motion") === "on"), true, "Chat choice must preserve device and app-wide reduction");
+  await messageMotion(androidPage, "I keep my coaching clear and ask one useful follow-up at a time.", { name: "my-brain-explicit-on", systemChoice: false });
+  await androidPage.getByRole("button", { name: "Conversation options", exact: true }).click();
+  await androidPage.getByLabel("Message animations", { exact: true }).selectOption("off");
+  await androidPage.getByRole("button", { name: "Close conversation options", exact: true }).click();
+  await expect(androidPage.getByRole("dialog")).not.toBeVisible();
+  await messageMotion(androidPage, "A smaller consistent plan is better than repeatedly missing a bigger one.", { reduced: true, name: "my-brain-explicit-off" });
+  report.checks.push("My Brain phone pop video; device and app reduction respected by default, explicit conversation On persists and restores visible motion, Off stops it");
   await android.close();
   report.checks.push("Private file previews and attachment-only sends for both roles; desktop, iPhone, Android and reduced-motion layouts");
   assert.deepEqual(report.errors, []);

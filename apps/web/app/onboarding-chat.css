@@ -74,8 +74,8 @@
 .onboarding-rule p { margin: 6px 0; overflow-wrap: anywhere; }
 .onboarding-warning { color: #8a4b16; }
 .onboarding-pending { font-size: 13px; color: var(--chat-muted); display: flex; align-items: center; gap: 8px; }
-.onboarding-typing { display: inline-flex; align-items: center; gap: 4px; padding: 15px 17px; background: var(--chat-incoming); border-radius: 16px; }
-.onboarding-typing i { width: 7px; height: 7px; border-radius: 50%; background: var(--chat-muted); }
+.onboarding-typing { position: relative; display: inline-flex; align-items: center; gap: 4px; padding: 15px 17px; background: var(--chat-incoming); border-radius: 16px; }
+.onboarding-typing i { display: block; width: 8px; height: 8px; border-radius: 50%; background: var(--chat-muted); }
 .onboarding-error { border: 1px solid #edd3c8; border-radius: 14px; padding: 14px; background: #fff6f1; color: #783c25; font-size: 14px; }
 .onboarding-error p { margin: 0 0 5px; overflow-wrap: anywhere; }
 .onboarding-compose-context { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; font-size: 13px; padding-bottom: 12px; }
@@ -220,37 +220,42 @@ html[data-reduce-motion="on"] .onboarding-chat * { animation: none !important; t
   .onboarding-compose-area { padding-block-end: max(10px, env(safe-area-inset-bottom)); }
 }
 
-/* Only new content moves. Persisted history never replays on refresh or polling. */
-@media (prefers-reduced-motion: no-preference) {
-  .onboarding-message.arriving { transform-origin: 12% 100%; animation: onboarding-receive var(--motion-emphasis, 420ms) var(--ease-out, ease-out) var(--chat-arrival-delay, 0ms) both; }
-  .onboarding-message.person.arriving { transform-origin: 90% 100%; animation: onboarding-send-bubble var(--motion-slow, 280ms) var(--ease-out, ease-out) both; }
-  .onboarding-message.assistant.arriving .onboarding-message-content { animation: onboarding-text var(--motion-base, 200ms) var(--ease-out, ease-out) calc(var(--chat-arrival-delay, 0ms) + 60ms) both; }
-  .onboarding-message[data-sent-here="true"] .onboarding-saved-check :is(path,polyline) { stroke-dasharray: 30; animation: onboarding-check var(--motion-base, 200ms) var(--ease-out, ease-out) both; }
-  .onboarding-typing { animation: onboarding-typing-enter var(--motion-base, 200ms) var(--ease-out, ease-out) both; }
-  .onboarding-typing i { animation: onboarding-dot var(--motion-loop-typing, 1200ms) ease-in-out infinite; }
-  .onboarding-typing i:nth-child(1) { animation-delay: -.32s; }
-  .onboarding-typing i:nth-child(2) { animation-delay: -.16s; }
-  .onboarding-presence, .onboarding-saving { animation: onboarding-text var(--motion-fast, 140ms) var(--ease-out, ease-out) both; }
-  .onboarding-latest, .onboarding-file-tray, .onboarding-file-preview, .onboarding-attach-menu, .onboarding-compose-context { animation: onboarding-typing-enter var(--motion-slow, 280ms) var(--ease-out, ease-out) both; }
-  .onboarding-composer::before { transition: opacity var(--motion-fast, 140ms); }
-  .onboarding-chat :is(.onboarding-icon,.onboarding-send,.onboarding-chip,.onboarding-start-call,.onboarding-tool-action,.onboarding-reply) { transition: transform var(--motion-fast, 140ms) var(--ease-out, ease-out), opacity var(--motion-fast, 140ms); }
-  .onboarding-chat :is(.onboarding-icon,.onboarding-send,.onboarding-chip,.onboarding-start-call,.onboarding-tool-action,.onboarding-reply):active:not(:disabled) { transform: scale(.94); }
-  .onboarding-send[data-sending="true"] svg { animation: onboarding-send-press var(--motion-base, 200ms) var(--ease-out, ease-out) both; }
-  .onboarding-tools[open], .onboarding-call-dialog[open] { animation: onboarding-tools-enter var(--motion-slow, 280ms) var(--ease-out, ease-out) both; }
-  .onboarding-tools[open]::backdrop { animation: onboarding-fade var(--motion-fast, 140ms) ease-out both; }
-  .onboarding-tools-content { animation: onboarding-text var(--motion-base, 200ms) var(--ease-out, ease-out) both; }
-  .onboarding-tools.closing { animation: onboarding-tools-exit var(--motion-fast, 140ms) ease-in both; }
-  .onboarding-tools.closing::backdrop { animation: onboarding-fade var(--motion-fast, 140ms) ease-in reverse both; }
-  .onboarding-call-avatar.speaking { animation: onboarding-voice 2s ease-in-out infinite; }
-  .onboarding-call-wave[data-live="true"] i { animation: onboarding-wave .9s ease-in-out infinite alternate; }
-  .onboarding-call-wave i:nth-child(3n) { animation-delay: -.35s; }
-  .onboarding-call-wave i:nth-child(2n) { animation-delay: -.7s; }
-}
-@keyframes onboarding-send-bubble { from { opacity: .25; transform: translateY(12px) scale(.96); } to { opacity: 1; transform: none; } }
-@keyframes onboarding-receive { from { opacity: 0; transform: translateY(10px) scale(.97); } to { opacity: 1; transform: none; } }
+/* Only new content moves. The conversation hook follows device/display
+   preferences by default; an explicit On opts this conversation into motion.
+   Scoped important declarations let that choice override global reductions
+   without changing any other screen. History never replays on refresh. */
+.onboarding-chat[data-chat-motion="off"] *,
+.onboarding-chat[data-chat-motion="off"] *::before,
+.onboarding-chat[data-chat-motion="off"] *::after,
+.onboarding-chat[data-chat-motion="off"] *::backdrop { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+.onboarding-chat[data-chat-motion="on"] .onboarding-message.arriving { transform-origin: 12% 100%; animation: onboarding-receive var(--motion-emphasis, 420ms) var(--ease-out, ease-out) var(--chat-arrival-delay, 0ms) both !important; }
+.onboarding-chat[data-chat-motion="on"] .onboarding-message.person.arriving { transform-origin: 90% 100%; animation: onboarding-send-bubble var(--motion-emphasis, 420ms) var(--ease-out, ease-out) both !important; }
+.onboarding-chat[data-chat-motion="on"] .onboarding-message.assistant.arriving .onboarding-message-content { animation: onboarding-text var(--motion-base, 200ms) var(--ease-out, ease-out) calc(var(--chat-arrival-delay, 0ms) + 60ms) both !important; }
+.onboarding-chat[data-chat-motion="on"] .onboarding-message[data-sent-here="true"] .onboarding-saved-check :is(path,polyline) { stroke-dasharray: 30; animation: onboarding-check var(--motion-base, 200ms) var(--ease-out, ease-out) both !important; }
+.onboarding-chat[data-chat-motion="on"] .onboarding-typing { animation: onboarding-typing-enter var(--motion-base, 200ms) var(--ease-out, ease-out) both !important; }
+.onboarding-chat[data-chat-motion="on"] .onboarding-typing i { animation: onboarding-dot var(--motion-loop-typing, 1200ms) ease-in-out infinite !important; }
+.onboarding-chat[data-chat-motion="on"] .onboarding-typing i:nth-child(1) { animation-delay: -.32s !important; }
+.onboarding-chat[data-chat-motion="on"] .onboarding-typing i:nth-child(2) { animation-delay: -.16s !important; }
+.onboarding-chat[data-chat-motion="on"] .onboarding-presence, .onboarding-chat[data-chat-motion="on"] .onboarding-saving { animation: onboarding-text var(--motion-fast, 140ms) var(--ease-out, ease-out) both !important; }
+.onboarding-chat[data-chat-motion="on"] .onboarding-latest, .onboarding-chat[data-chat-motion="on"] .onboarding-file-tray, .onboarding-chat[data-chat-motion="on"] .onboarding-file-preview, .onboarding-chat[data-chat-motion="on"] .onboarding-attach-menu, .onboarding-chat[data-chat-motion="on"] .onboarding-compose-context { animation: onboarding-typing-enter var(--motion-slow, 280ms) var(--ease-out, ease-out) both !important; }
+.onboarding-chat[data-chat-motion="on"] .onboarding-composer::before { transition: opacity var(--motion-fast, 140ms) !important; }
+.onboarding-chat[data-chat-motion="on"] :is(.onboarding-icon,.onboarding-send,.onboarding-chip,.onboarding-start-call,.onboarding-tool-action,.onboarding-reply) { transition: transform var(--motion-fast, 140ms) var(--ease-out, ease-out), opacity var(--motion-fast, 140ms) !important; }
+.onboarding-chat[data-chat-motion="on"] :is(.onboarding-icon,.onboarding-send,.onboarding-chip,.onboarding-start-call,.onboarding-tool-action,.onboarding-reply):active:not(:disabled) { transform: scale(.94); }
+.onboarding-chat[data-chat-motion="on"] .onboarding-send[data-sending="true"] svg { animation: onboarding-send-press var(--motion-base, 200ms) var(--ease-out, ease-out) both !important; }
+.onboarding-chat[data-chat-motion="on"] .onboarding-tools[open], .onboarding-chat[data-chat-motion="on"] .onboarding-call-dialog[open] { animation: onboarding-tools-enter var(--motion-slow, 280ms) var(--ease-out, ease-out) both !important; }
+.onboarding-chat[data-chat-motion="on"] .onboarding-tools[open]::backdrop { animation: onboarding-fade var(--motion-fast, 140ms) ease-out both !important; }
+.onboarding-chat[data-chat-motion="on"] .onboarding-tools-content { animation: onboarding-text var(--motion-base, 200ms) var(--ease-out, ease-out) both !important; }
+.onboarding-chat[data-chat-motion="on"] .onboarding-tools.closing { animation: onboarding-tools-exit var(--motion-fast, 140ms) ease-in both !important; }
+.onboarding-chat[data-chat-motion="on"] .onboarding-tools.closing::backdrop { animation: onboarding-fade var(--motion-fast, 140ms) ease-in reverse both !important; }
+.onboarding-chat[data-chat-motion="on"] .onboarding-call-avatar.speaking { animation: onboarding-voice 2s ease-in-out infinite !important; }
+.onboarding-chat[data-chat-motion="on"] .onboarding-call-wave[data-live="true"] i { animation: onboarding-wave .9s ease-in-out infinite alternate !important; }
+.onboarding-chat[data-chat-motion="on"] .onboarding-call-wave i:nth-child(3n) { animation-delay: -.35s !important; }
+.onboarding-chat[data-chat-motion="on"] .onboarding-call-wave i:nth-child(2n) { animation-delay: -.7s !important; }
+@keyframes onboarding-send-bubble { 0% { opacity: 0; transform: translateY(18px) scale(.88); } 65% { opacity: 1; transform: translateY(-1px) scale(1.015); } 100% { opacity: 1; transform: none; } }
+@keyframes onboarding-receive { 0% { opacity: 0; transform: translateY(14px) scale(.9); } 65% { opacity: 1; transform: translateY(-1px) scale(1.015); } 100% { opacity: 1; transform: none; } }
 @keyframes onboarding-text { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
 @keyframes onboarding-typing-enter { from { opacity: 0; transform: translateY(5px) scale(.92); } to { opacity: 1; transform: none; } }
-@keyframes onboarding-dot { 0%, 65%, 100% { transform: translateY(0) scale(.84); opacity: .4; } 30% { transform: translateY(-4px) scale(1); opacity: .95; } }
+@keyframes onboarding-dot { 0%, 65%, 100% { transform: translateY(1px) scale(.78); opacity: .4; } 30% { transform: translateY(-5px) scale(1); opacity: 1; } }
 @keyframes onboarding-check { from { stroke-dashoffset: 30; } to { stroke-dashoffset: 0; } }
 @keyframes onboarding-send-press { 40% { transform: translateY(-3px) scale(.88); } 100% { transform: none; } }
 @keyframes onboarding-tools-enter { from { opacity: 0; transform: translateY(12px) scale(.98); } to { opacity: 1; transform: none; } }
@@ -258,6 +263,11 @@ html[data-reduce-motion="on"] .onboarding-chat * { animation: none !important; t
 @keyframes onboarding-fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes onboarding-voice { 50% { transform: scale(1.035); } }
 @keyframes onboarding-wave { from { transform: scaleY(1); } to { transform: scaleY(4); } }
-html[dir="rtl"] .onboarding-message.arriving { transform-origin: 88% 100%; }
-html[dir="rtl"] .onboarding-message.person.arriving { transform-origin: 10% 100%; }
+html[dir="rtl"] .onboarding-chat[data-chat-motion="on"] .onboarding-message.arriving { transform-origin: 88% 100%; }
+html[dir="rtl"] .onboarding-chat[data-chat-motion="on"] .onboarding-message.person.arriving { transform-origin: 10% 100%; }
 html[data-reduce-motion="on"] .onboarding-chat *::before, html[data-reduce-motion="on"] .onboarding-chat *::after { animation: none !important; transition: none !important; }
+
+.onboarding-motion-choice { display: grid; grid-template-columns: 1fr auto; gap: 7px 14px; align-items: center; padding: 8px 8px 16px; margin-block-end: 4px; border-block-end: 1px solid var(--chat-border); font-size: 14px; }
+.onboarding-chat .onboarding-motion-choice select { width: auto; max-width: 180px; min-height: 40px; }
+.onboarding-motion-choice small { grid-column: 1 / -1; color: var(--chat-muted); font-size: 12px; line-height: 1.5; }
+@media (max-width: 420px) { .onboarding-motion-choice { grid-template-columns: minmax(0, 1fr); } .onboarding-chat .onboarding-motion-choice select { width: 100%; max-width: none; } }
