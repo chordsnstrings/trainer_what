@@ -1,5 +1,6 @@
 "use client";
 import { VoiceOneOnOne } from "./voice-one-on-one";
+import { TryMyAI } from "./trainer-preview";
 import { BrainFidelity } from "./brain-fidelity";
 import { Field } from "./field";
 import { KnowledgeImportReview } from "./ingestion-review";
@@ -55,8 +56,8 @@ export const questions = [
 export function BrainView(props: ViewProps) {
   const [details, setDetails] = useWorkspaceValue("brain:onboarding-details", false, true);
   const conversation = ["/trainer/brain", "/trainer/brain/interview"].includes(props.path) && props.state.user.role === "owner";
-  if (conversation && !details) return <OnboardingChat audience="coach" mode="teach" onSaved={props.onSaved} onDetails={() => setDetails(true)} />;
-  return <>{conversation && <button className="button secondary" onClick={() => setDetails(false)}>Back to conversation</button>}<BrainDetails {...props} /></>;
+  if (conversation && !details) return <><TryMyAI /><OnboardingChat audience="coach" mode="teach" onSaved={props.onSaved} onDetails={() => setDetails(true)} /></>;
+  return <>{props.state.user.role === "owner" && <TryMyAI />}{conversation && <button className="button secondary" onClick={() => setDetails(false)}>Back to conversation</button>}<BrainDetails {...props} /></>;
 }
 function BrainDetails({
   state,

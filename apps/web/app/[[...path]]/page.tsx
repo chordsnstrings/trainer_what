@@ -394,7 +394,7 @@ export default async function Page({
   const { coachSlug } = await requestOrigin();
   // Member pages move between each other with a View Transition
   // (docs/features/motion.md "c"); the boundary sits around the workspace.
-  if (path[0] === "app")
+  if (path[0] === "app" || path[0] === "trainer" && path[1] === "preview" && path[2] === "app")
     return (
       <MemberPageTransition>
         <Workspace

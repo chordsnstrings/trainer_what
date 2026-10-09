@@ -1,8 +1,9 @@
 "use client";
+import { memberApiUrl } from "../lib/trainer-preview-routing";
 import { useWorkspaceQuery, useWorkspaceValue } from "./workspace-continuity";
 
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
-import Link from "next/link";
+import Link from "./preview-navigation";
 import {
   ArrowDown,
   ArrowRight,
@@ -519,7 +520,7 @@ export function TrainerDesign({
     setDraft((old) => ({ ...old, design: { ...old.design, [key]: value } }));
 
   async function call(path: string, method: string, body?: unknown) {
-    const response = await fetch("/api/v1" + path, {
+    const response = await fetch(memberApiUrl("/api/v1" + path), {
       method,
       credentials: "same-origin",
       headers:

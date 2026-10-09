@@ -16,7 +16,7 @@ import { useT } from "../lib/i18n/react";
 import { DisplayPreferences } from "./appearance";
 import { MemberOnboarding } from "./onboarding-chat";
 import { InstallAppRow } from "./pwa-ui";
-import Link from "next/link";
+import Link from "./preview-navigation";
 import { ArrowUpRight, Download } from "lucide-react";
 import {
   type More,

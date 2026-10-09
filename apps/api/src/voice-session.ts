@@ -1846,11 +1846,17 @@ async function stopSessionAudio(
 export async function processVoiceSessionAudio(
   db: Database,
   tenantId: string,
-  options: { limit?: number } = {},
+  options: { limit?: number; previewMemberId?: string } = {},
 ) {
   const pricing = voicePricing();
   if (!pricing) return { generated: 0, reused: 0, capped: false };
-  const actor = workerActor(tenantId);
+  let actor = workerActor(tenantId);
+  if (options.previewMemberId) {
+    const [profile] = await db.system(tx => tx.query("SELECT p.trainer_user_id FROM trainer_preview_profiles p JOIN memberships m ON m.tenant_id=p.tenant_id AND m.user_id=p.trainer_user_id AND m.role='owner' WHERE p.tenant_id=$1 AND p.user_id=$2 AND p.archived_at IS NULL", [tenantId, options.previewMemberId]), { tenantId });
+    if (!profile) return { generated: 0, reused: 0, capped: false };
+    actor = { tenantId, userId: profile.trainer_user_id, role: "owner", previewMemberId: options.previewMemberId };
+  }
+  const previewMemberId = options.previewMemberId ?? null;
   let generated = 0,
     reused = 0,
     capped = false;
@@ -1858,7 +1864,7 @@ export async function processVoiceSessionAudio(
     // A clip left reserved by a crash between its reservation and the send is
     // ambiguous: it becomes unknown (never re-sent) with its cost row.
     const stuck = await tx.query(
-      "UPDATE voice_session_clips SET status='unknown',updated_at=now() WHERE status='reserved' AND updated_at<now()-interval '5 minutes' RETURNING session_id,usage_id",
+      "UPDATE voice_session_clips SET status='unknown',updated_at=now() WHERE status='reserved' AND updated_at<now()-interval '5 minutes' AND ($1::uuid IS NULL OR user_id=$1) RETURNING session_id,usage_id", [previewMemberId],
     );
     if (stuck.length)
       await tx.query(
@@ -1867,12 +1873,12 @@ export async function processVoiceSessionAudio(
       );
     // Sessions with nothing left to make are closed, so none stays "preparing".
     const idle = await tx.query(
-      "SELECT s.id FROM voice_sessions s WHERE s.audio_status='generating' AND NOT EXISTS(SELECT 1 FROM voice_session_clips c WHERE c.status IN ('pending','reserved') AND (c.session_id=s.id OR (c.session_id IS NULL AND c.voice_id=s.voice_id AND c.voice_version=s.voice_version))) ORDER BY s.updated_at LIMIT 50",
+      "SELECT s.id FROM voice_sessions s WHERE s.audio_status='generating' AND NOT EXISTS(SELECT 1 FROM voice_session_clips c WHERE c.status IN ('pending','reserved') AND (c.session_id=s.id OR (c.session_id IS NULL AND c.voice_id=s.voice_id AND c.voice_version=s.voice_version))) AND ($1::uuid IS NULL OR s.user_id=$1) ORDER BY s.updated_at LIMIT 50", [previewMemberId],
     );
     for (const r of idle) await settleSessionAudio(tx, r.id);
     // Least recently served first, so a stuck or large session cannot starve others.
     return tx.query(
-      "SELECT s.id,s.user_id,s.workout_id,s.planned_session_id,s.script,s.voice_id,s.voice_version FROM voice_sessions s WHERE s.audio_status='generating' AND s.status IN ('ready','running') AND EXISTS(SELECT 1 FROM voice_session_clips c WHERE c.status='pending' AND (c.session_id=s.id OR (c.session_id IS NULL AND c.voice_id=s.voice_id AND c.voice_version=s.voice_version))) ORDER BY s.updated_at,s.created_at LIMIT 5",
+      "SELECT s.id,s.user_id,s.workout_id,s.planned_session_id,s.script,s.voice_id,s.voice_version FROM voice_sessions s WHERE s.audio_status='generating' AND s.status IN ('ready','running') AND EXISTS(SELECT 1 FROM voice_session_clips c WHERE c.status='pending' AND (c.session_id=s.id OR (c.session_id IS NULL AND c.voice_id=s.voice_id AND c.voice_version=s.voice_version))) AND ($1::uuid IS NULL OR s.user_id=$1) ORDER BY s.updated_at,s.created_at LIMIT 5", [previewMemberId],
     );
   });
   let budget = options.limit ?? 20;
@@ -2133,6 +2139,10 @@ export async function processVoiceSessions(db: Database) {
   for (const tenant of tenants)
     try {
       await processVoiceSessionAudio(db, tenant.id);
+      // Only explicitly requested workout narration runs for test subscribers;
+      // ordinary member schedules/outreach remain excluded by RLS.
+      const previews = await db.system(tx => tx.query("SELECT DISTINCT p.user_id FROM trainer_preview_profiles p JOIN voice_sessions s ON s.tenant_id=p.tenant_id AND s.user_id=p.user_id JOIN memberships m ON m.tenant_id=p.tenant_id AND m.user_id=p.trainer_user_id AND m.role='owner' WHERE p.tenant_id=$1 AND p.archived_at IS NULL AND s.audio_status='generating' AND s.status IN ('ready','running') LIMIT 10", [tenant.id]), { tenantId: tenant.id });
+      for (const p of previews) await processVoiceSessionAudio(db, tenant.id, { previewMemberId: p.user_id, limit: 10 });
     } catch {
       console.error("Voice session audio preparation needs review");
     }

@@ -1,9 +1,10 @@
 "use client";
+import { memberApiUrl } from "../lib/trainer-preview-routing";
 import { useWorkspaceValue } from "./workspace-continuity";
 import { promptWorkspace } from "./workspace-feedback";
 import { Field } from "./field";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "./preview-navigation";
 import { TrainingHoldNotice } from "./coaching-completion";
 import { ChatAttachmentList, ChatAttachmentPicker, type ChatAttachment } from "./chat-attachments";
 import { CoachingFollowups } from "./coaching-followups";
@@ -34,7 +35,7 @@ function pageLocale(): Locale {
 }
 
 async function api(path: string, method = "GET", body?: unknown) {
-  const r = await fetch("/api/v1" + path, { method, credentials: "same-origin", headers: body === undefined ? undefined : { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const r = await fetch(memberApiUrl("/api/v1" + path), { method, credentials: "same-origin", headers: body === undefined ? undefined : { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
   const d = await r.json(); if (!r.ok) throw new Error(d.message ?? "Request failed"); return d;
 }
 

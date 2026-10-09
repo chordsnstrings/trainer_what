@@ -87,6 +87,8 @@ import {
 } from "./integrations-completion.ts";
 import { registerWorkoutMusic } from "./workout-music.ts";
 import { registerVoiceSessions } from "./voice-session.ts";
+import { aliasPreviewRoutes, resolveTrainerPreview } from "./trainer-preview-access.ts";
+import { registerTrainerPreview } from "./trainer-preview.ts";
 import { registerVoiceNarration } from "./voice-narration.ts";
 import { registerVoiceClones } from "./voice-clones.ts";
 import { assertSlugAvailable, registerWebAddresses } from "./web-addresses.ts";
@@ -415,6 +417,7 @@ export async function buildApp(
   });
   // Before any route: records operator routes for the step-up coverage test.
   trackOperatorRoutes(app);
+  aliasPreviewRoutes(app);
   await app.register(cookie);
   await app.register(rateLimit, {
     max: options.testing ? 10000 : 120,
@@ -427,7 +430,7 @@ export async function buildApp(
     // fall back to the socket address when no signed address is present.
     keyGenerator: (request) =>
       request.identity
-        ? `user:${request.identity.userId}`
+        ? `user:${request.trainerPreview?.trainerUserId ?? request.identity.userId}`
         : `ip:${clientSource(request)}`,
   });
   app.removeContentTypeParser("application/json");
@@ -548,6 +551,7 @@ export async function buildApp(
           }
       }
     }
+    await resolveTrainerPreview(db, req, reply);
     // A device queue replays only under the member who saved it (web
     // offline-queue.ts). A tab left open after another person signs in must
     // not write into their record; the queue stays on the device instead.
@@ -1124,6 +1128,7 @@ export async function buildApp(
         environment: strictSecurity() ? "production" : "development",
         providerSandbox: providerSandboxStatus().providerSandbox,
         user: a,
+        ...(req.trainerPreview ? { trainerPreview: req.trainerPreview } : {}),
         platform: {
           name: platformName(runtimeConfig().APP_NAME),
           supportEmail: runtimeConfig().SUPPORT_EMAIL || null,
@@ -1152,6 +1157,7 @@ export async function buildApp(
     return { ok: true, theme, brandVersion: theme.brandVersion };
   });
   onboardingRoutes(app, db, owner);
+  registerTrainerPreview(app, db);
   setupAssistantRoutes(app, db, owner);
   onboardingChatRoutes(app, db, identity);
   app.post("/api/v1/tenant/publish", (req) =>

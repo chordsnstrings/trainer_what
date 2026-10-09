@@ -1,4 +1,5 @@
 "use client";
+import { memberApiUrl } from "../lib/trainer-preview-routing";
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { FileText, Paperclip, Plus, X, Image as ImageIcon } from "lucide-react";
 import type { OnboardingAttachment } from "../../../packages/domain/src/onboarding-chat";
@@ -15,7 +16,7 @@ export function OnboardingFile({ file, remove, disabled = false }: { file: Onboa
     catch (e) { setError((e as Error).message); }
   }
   return <div className={"onboarding-file" + (file.image ? " photo" : "")}>
-    {file.image && <img src={"/api/v1/onboarding-chat/attachments/" + file.id + "?image=1"} alt={file.name} loading="lazy" width={280} height={180} />}
+    {file.image && <img src={memberApiUrl("/api/v1/onboarding-chat/attachments/" + file.id + "?image=1")} alt={file.name} loading="lazy" width={280} height={180} />}
     <div className="onboarding-file-row">
       <span className="onboarding-file-symbol" aria-hidden="true">{file.image ? <ImageIcon size={20} /> : <FileText size={22} />}</span>
       <button type="button" className="onboarding-file-title" onClick={() => void preview()} aria-expanded={open}><strong dir="auto">{file.name}</strong><small>{file.format} · {Math.max(1, Math.round(file.bytes / 1024))} KB · {open ? "Close preview" : "Preview"}</small></button>

@@ -1,10 +1,11 @@
+import { seedPreviewBrain, previewIntake } from "./trainer-preview-fixtures.ts";
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { promisify } from "node:util";
 import { execFile } from "node:child_process";
 import sharp from "sharp";
-import { accountsContext, withEnv } from "./accounts-fixtures.ts";
+import { accountsContext, withEnv, cookieValue } from "./accounts-fixtures.ts";
 import { withIntegrationFixtureTransport } from "../packages/providers/src/integrations.ts";
 import { ConversationAudio, pcmWav } from "../apps/web/lib/conversation-audio.ts";
 import { chatAppearance } from "../apps/web/lib/onboarding-http.ts";
@@ -33,6 +34,8 @@ async function providers(run: (calls: { stt: number; tts: any[]; models: any[] }
     globalThis.fetch = async (url, init) => {
       if (!String(url).startsWith(env.MODEL_BASE_URL)) throw Error("Unexpected fixture request: " + url);
       const sent = JSON.parse(String(init?.body)); calls.models.push(sent);
+      const context = typeof sent.messages[1].content === "string" ? JSON.parse(sent.messages[1].content) : {};
+      if (context.task === "coaching") return Response.json({ usage: { prompt_tokens: 10, completion_tokens: 10 }, choices: [{ message: { content: JSON.stringify({ type: "message", message: "What time do you have available?", reason: "Clarify availability before changing the plan.", evidenceIds: [context.evidence[0].id], requiresHumanReview: true }) } }] });
       return Response.json({ usage: { prompt_tokens: 10, completion_tokens: 10 }, choices: [{ message: { content: JSON.stringify({ reply: "Short sessions can fit a busy week.", patch: {}, evidence: {}, questionField: "teaching", question: "How do you decide when to progress?" }) } }] });
     };
     try { await withIntegrationFixtureTransport(async (url, init) => {
@@ -216,5 +219,38 @@ test("concurrent delivery of one spoken turn transcribes only once and preserves
     const running = ok(p, path, body); await ready;
     try { assert.equal((await ok(p, path, body)).pending, true); assert.equal(calls.stt, 1); } finally { release(); }
     const done = await running; assert.equal(done.error, null); assert.equal((await ok(p, path + "/" + body.id)).audio, done.audio); assert.equal(calls.models.length, 1); assert.equal(calls.tts.length, 1);
+  });
+});
+
+test("subscriber preview calls the trainer's own verified voice, persists the real chat and rejects duplicate or ended turns", async () => {
+  const owner = await ctx.person({ role: "owner" });
+  await seedPreviewBrain(ctx.db, { ...owner, role: "owner" });
+  await ctx.db.tenant({ ...owner, role: "owner" }, async tx => {
+    await tx.query("INSERT INTO trainer_voices(id,tenant_id,user_id,status,provider,provider_voice_id,evidence,consent_version,verified_at) VALUES($1,$2,$3,'verified','cartesia','preview-trainer-voice','{}','fixture',now())", [randomUUID(), owner.tenantId, owner.userId]);
+    await tx.query("INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,'voice','fixture',true)", [randomUUID(), owner.tenantId, owner.userId]);
+  });
+  const entry = await api(owner, "/trainer-preview/start", {});
+  assert.equal(entry.statusCode, 200, entry.body);
+  const p = { ...owner, cookie: owner.cookie + "; " + cookieValue(entry, "trainer_preview") };
+  const base = "/trainer-preview/run";
+  await ok(p, base + "/intake", previewIntake);
+  await providers(async (calls, control) => {
+    control.transcript = "How should I approach my strength training this week?";
+    const options = await ok(p, base + "/coaching/calls/options");
+    assert.equal(options.available, true, JSON.stringify(options)); assert.equal(options.cloning, false);
+    const session = await ok(p, base + "/coaching/calls", { id: randomUUID(), language: "en", consent: true });
+    assert.notEqual(session.name, "Kamran");
+    const body = await spokenBody(), path = base + "/coaching/calls/" + session.id + "/turns";
+    const result = await ok(p, path, body);
+    assert.equal(result.error, null, JSON.stringify(result));
+    assert.ok(result.conversation.messages.some((m: any) => m.data.text === control.transcript));
+    assert.equal(calls.stt, 1); assert.equal(calls.models.length, 1); assert.equal(calls.tts.length, 1);
+    assert.equal(calls.tts[0].voice.id, "preview-trainer-voice");
+    assert.match(calls.tts[0].transcript, /trainer to review/);
+    assert.equal((await ok(p, path, body)).audio, result.audio);
+    assert.equal(calls.stt, 1); assert.equal(calls.tts.length, 1);
+    await ok(p, "/trainer-preview/end", {});
+    assert.equal((await api(p, path, await spokenBody())).statusCode, 409);
+    assert.equal((await ok(owner, "/bootstrap")).user.role, "owner");
   });
 });

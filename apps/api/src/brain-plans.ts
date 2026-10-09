@@ -1718,6 +1718,8 @@ async function recordLearning(
   decision: "approved" | "edited" | "rejected",
   input: { diff?: unknown[]; note?: string; final?: any },
 ) {
+  // Trying a draft on yourself is not approval to teach or qualify it for customers.
+  if (a.previewMemberId) return null;
   const profile = gen.data.inputs?.profile;
   const segment = gen.data.inputs?.segment ?? (profile ? planSegment(profile) : null);
   if (!segment) return null;

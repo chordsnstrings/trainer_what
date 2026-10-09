@@ -45,6 +45,8 @@ export type Actor = {
   userId: string;
   role: string;
   elevation?: Elevation;
+  /** Owner-only review of this owner's private test subscriber, verified at scope entry. */
+  previewMemberId?: string;
 };
 /** A service identity acting in one workspace for an allowlisted reason. */
 export function elevated(
@@ -208,18 +210,28 @@ export async function createDatabase(
         [scope.tenantId, scope.userId],
       );
       scopeDecision(scope, row.member_role ?? null);
+      if (scope.previewMemberId !== undefined) {
+        if (scope.role !== "owner" || row.member_role !== "owner" || scope.elevation)
+          throw new ScopeError("PREVIEW_SCOPE", "Only the workspace owner may review their test subscriber");
+        const [preview] = await raw(
+          "SELECT id FROM trainer_preview_profiles WHERE tenant_id=$1 AND trainer_user_id=$2 AND user_id=$3 AND archived_at IS NULL",
+          [scope.tenantId, scope.userId, scope.previewMemberId],
+        );
+        if (!preview) throw new ScopeError("PREVIEW_SCOPE", "This test subscriber does not belong to this trainer");
+      }
       // Still the service role: trainer_app cannot call set_config at all
       // (migration 061), so the scope is fixed once SET ROLE runs. The
       // erasure flag is always set explicitly: only the privacyErasure
       // option turns it on inside a scope.
       await raw(
-        "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role',$3,true),set_config('app.elevation',$4,true),set_config('app.privacy_erasure',$5,true)",
+        "SELECT set_config('app.tenant_id',$1,true),set_config('app.user_id',$2,true),set_config('app.role',$3,true),set_config('app.elevation',$4,true),set_config('app.privacy_erasure',$5,true),set_config('app.preview_member_id',$6,true)",
         [
           scope.tenantId,
           scope.userId,
           scope.role,
           scope.elevation ?? "",
           opts.privacyErasure ? "true" : "",
+          scope.previewMemberId ?? "",
         ],
       );
       await raw("SET LOCAL ROLE trainer_app");
@@ -236,7 +248,7 @@ export async function createDatabase(
     }) {
       await raw("RESET ROLE");
       await raw(
-        "SELECT set_config('app.tenant_id','',true),set_config('app.user_id','',true),set_config('app.role','',true),set_config('app.elevation','',true),set_config('app.privacy_erasure',$1,true)",
+        "SELECT set_config('app.tenant_id','',true),set_config('app.user_id','',true),set_config('app.role','',true),set_config('app.elevation','',true),set_config('app.preview_member_id','',true),set_config('app.privacy_erasure',$1,true)",
         [prior.prior_erasure],
       );
       // A test may run the service transaction as a non-bypassing fixture role.

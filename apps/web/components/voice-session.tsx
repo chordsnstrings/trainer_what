@@ -1,4 +1,5 @@
 "use client";
+import { memberApiUrl, memberHref } from "../lib/trainer-preview-routing";
 import { sessionOrder } from "../../../packages/domain/src/session-structure.ts";
 // Hands-free, voice-led workout session. The pure state machine
 // (packages/domain/src/voice-runner.ts) decides what happens; this component
@@ -66,7 +67,7 @@ async function api<T = any>(
   body?: unknown,
   headers?: Record<string, string>,
 ): Promise<T> {
-  const response = await fetch("/api/v1" + path, {
+  const response = await fetch(memberApiUrl("/api/v1" + path), {
     method,
     signal: AbortSignal.timeout(20000),
     credentials: "same-origin",
@@ -342,7 +343,7 @@ export function VoiceSessionRunner({
         programId: planned.programId,
         plannedSessionId: planned.id,
       });
-      window.location.assign(`/app/voice-session/${workout.id}`);
+      window.location.assign(memberHref(`/app/voice-session/${workout.id}`));
     } catch (e) {
       setNotice(message(e));
       setBusy(false);
@@ -536,7 +537,7 @@ export function VoiceSessionRunner({
           {t("openLog")}
         </a>
       ) : (
-        <a className="text-link" href="/app/program">
+        <a className="text-link" href={memberHref("/app/program")}>
           {t("backCalendar")}
         </a>
       )}

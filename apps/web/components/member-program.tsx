@@ -1,7 +1,8 @@
 "use client";
+import { memberApiUrl } from "../lib/trainer-preview-routing";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import Link from "./preview-navigation";
+import { useRouter } from "./preview-navigation";
 import { ArrowRight } from "lucide-react";
 import { Field } from "./field";
 import { BottomSheet } from "./phone-ui";
@@ -31,7 +32,7 @@ import { Skeleton } from "./phone-ui";
  * (`data-stagger`) and the loading state is a skeleton.
  */
 async function api(path: string, method = "GET", body?: unknown) {
-  const r = await fetch("/api/v1" + path, {
+  const r = await fetch(memberApiUrl("/api/v1" + path), {
     method,
     credentials: "same-origin",
     headers:

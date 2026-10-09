@@ -1,9 +1,10 @@
 "use client";
+import { memberApiUrl, memberHref } from "../lib/trainer-preview-routing";
 import { useT } from "../lib/i18n/react";
 import { useEffect, useState } from "react";
 
 async function api(path: string, method = "GET", body?: unknown) {
-  const response = await fetch("/api/v1" + path, {
+  const response = await fetch(memberApiUrl("/api/v1" + path), {
     method,
     credentials: "same-origin",
     headers:
@@ -117,7 +118,7 @@ export function TrainingHoldNotice({ records }: { records: any[] }) {
       <strong>{t("holdTitle")}</strong>
       <p dir="auto">{hold.data.reason}</p>
       <p>{t("holdText")}</p>
-      <a href="/app/chat">{t("messageTrainer")}</a>
+      <a href={memberHref("/app/chat")}>{t("messageTrainer")}</a>
     </section>
   );
 }

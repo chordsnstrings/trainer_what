@@ -343,6 +343,7 @@ try {
   report.checks.push("My Brain phone pop video; device and app reduction respected by default, explicit conversation On persists and restores visible motion, Off stops it");
   await android.close();
   report.checks.push("Private file previews and attachment-only sends for both roles; desktop, iPhone, Android and reduced-motion layouts");
+  await import("./trainer-preview-check.mjs");
   assert.deepEqual(report.errors, []);
 } catch (error) {
   for (const context of browser.contexts()) for (const page of context.pages()) {

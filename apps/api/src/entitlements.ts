@@ -18,7 +18,7 @@ import { voiceAddOnEntitled, voiceIncluded } from "./voice-addon.ts";
  * Call inside a tenant transaction; row-level security scopes both tables.
  */
 export type ComplimentaryTier = "workout" | "workout_nutrition";
-export type AccessSource = "paid" | "complimentary";
+export type AccessSource = "paid" | "complimentary" | "preview";
 export type MemberAccess = {
   active: boolean;
   sources: AccessSource[];
@@ -28,7 +28,7 @@ export type MemberAccess = {
    * (voice-addon.ts), or an older offer that included voice in its price.
    */
   premiumVoice: boolean;
-  voiceSource: "add_on" | "included" | null;
+  voiceSource: "add_on" | "included" | "preview" | null;
   subscription?: any;
   grant?: any;
 };
@@ -69,6 +69,12 @@ export async function memberAccess(
   userId: string,
   options: { grace?: boolean } = {},
 ): Promise<MemberAccess> {
+  const [preview] = await tx.query("SELECT trainer_preview_active($1) AS active", [userId]);
+  if (preview?.active) return {
+    active: true, sources: ["preview"],
+    modules: complimentaryNutritionApproved() ? ["training", "nutrition"] : ["training"],
+    premiumVoice: true, voiceSource: "preview",
+  };
   const [s] = await tx.query("SELECT * FROM subscriptions WHERE user_id=$1", [
     userId,
   ]);

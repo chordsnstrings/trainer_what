@@ -1,3 +1,4 @@
+import { memberApiUrl } from "../lib/trainer-preview-routing";
 import { formatDateTime } from "../lib/format";
 // JSON request helper shared by the account self-service components.
 import { translator, type Locale } from "../lib/i18n/core";
@@ -58,11 +59,11 @@ export async function accountRequest<T = any>(
     r =
       method === "GET"
         ? await fetchWithin(
-            "/api/v1" + path,
+            memberApiUrl("/api/v1" + path),
             init,
             options.timeoutMs ?? ACCOUNT_READ_TIMEOUT_MS,
           )
-        : await fetch("/api/v1" + path, init);
+        : await fetch(memberApiUrl("/api/v1" + path), init);
   } catch {
     throw Object.assign(new Error(ACCOUNT_UNREACHABLE), {
       status: 0,

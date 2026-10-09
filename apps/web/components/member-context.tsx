@@ -1,6 +1,7 @@
 "use client";
+import { memberApiUrl } from "../lib/trainer-preview-routing";
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
+import Link from "./preview-navigation";
 import { ClientContext } from "./client-context";
 import { formatDate, formatDateTime, formatList } from "../lib/format";
 import { useLocale, useT } from "../lib/i18n/react";
@@ -31,7 +32,7 @@ export function MemberCoachingContext({ userId }: { userId: string }) {
   const load = useCallback(async () => {
     setFailed(false);
     try {
-      const r = await fetch(`/api/v1/clients/${userId}/twin`, {
+      const r = await fetch(memberApiUrl(`/api/v1/clients/${userId}/twin`), {
         credentials: "same-origin",
       });
       const data = await r.json();

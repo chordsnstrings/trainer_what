@@ -1,4 +1,5 @@
 "use client";
+import { memberApiUrl } from "../lib/trainer-preview-routing";
 import { useLocale } from "../lib/i18n/react";
 import { translator, type Locale } from "../lib/i18n/core";
 import contextMessages from "../lib/i18n/messages/context";
@@ -36,7 +37,7 @@ export function ClientContext({
     setError("");
     setNotice("");
     try {
-      const r = await fetch(`/api/v1/clients/${userId}/context`, {
+      const r = await fetch(memberApiUrl(`/api/v1/clients/${userId}/context`), {
         cache: "no-store",
       });
       const body = await r.json();
@@ -63,7 +64,7 @@ export function ClientContext({
     setError("");
     setNotice("");
     try {
-      const r = await fetch(`/api/v1/clients/${userId}/context`, {
+      const r = await fetch(memberApiUrl(`/api/v1/clients/${userId}/context`), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ version: saved.version, data: draft }),

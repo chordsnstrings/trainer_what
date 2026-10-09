@@ -1,3 +1,4 @@
+import { cookieValue } from "./accounts-fixtures.ts";
 import { principleForCategory } from "../packages/domain/src/nutrition-learning.ts";
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -527,6 +528,26 @@ test("held-out evaluation and a sample week qualify automatic nutrition independ
     ).length,
     0,
   );
+});
+test("trainer preview uses the published nutrition service without joining or changing customer plans", async () => {
+  const start = await req("/trainer-preview/start", "POST", {}, owner);
+  assert.equal(start.statusCode, 200, start.body);
+  const testMember = { cookie: owner.cookie + "; " + cookieValue(start, "trainer_preview") };
+  const boot = await ok("/trainer-preview/run/bootstrap", "GET", undefined, testMember);
+  assert.equal(boot.user.role, "subscriber");
+  await ok("/trainer-preview/run/nutrition/profile", "POST", { profile: fixtureProfile, processingConsent: true, modelConsent: true, version: 0 }, testMember);
+  const requestKey = randomUUID(), before = modelCalls;
+  const result = await ok("/trainer-preview/run/nutrition/generate", "POST", { requestKey, weekStart: today }, testMember);
+  assert.equal(result.plan.status, "delivered");
+  assert.equal(result.plan.owner_user_id, boot.user.userId);
+  const replay = await ok("/trainer-preview/run/nutrition/generate", "POST", { requestKey, weekStart: today }, testMember);
+  assert.equal(replay.plan.id, result.plan.id); assert.equal(modelCalls, before + 1);
+  const hidden = await db.tenant(owner, tx => tx.query("SELECT id FROM records WHERE kind='nutrition_plan' AND owner_user_id=$1", [boot.user.userId]));
+  assert.equal(hidden.length, 0);
+  const groceries = await req("/trainer-preview/run/nutrition/groceries/" + result.plan.id, "GET", undefined, testMember);
+  assert.equal(groceries.statusCode, 200, groceries.body);
+  await ok("/trainer-preview/end", "POST", {}, testMember);
+  assert.equal((await ok("/bootstrap", "GET", undefined, owner)).user.userId, owner.userId);
 });
 test("in-scope plans deliver automatically once; quantities and cooking swaps stay connected", async () => {
   await ok(

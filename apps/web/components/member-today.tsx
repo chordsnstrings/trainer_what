@@ -1,7 +1,8 @@
 "use client";
+import { memberApiUrl, isTrainerPreview } from "../lib/trainer-preview-routing";
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import Link from "./preview-navigation";
+import { useRouter } from "./preview-navigation";
 import { ArrowRight, ChevronRight } from "lucide-react";
 import { resolveBrandDesign } from "@trainer/contracts";
 import { calendarDate, formatDate } from "../lib/format";
@@ -34,7 +35,7 @@ import {
  * streak counts up once.
  */
 async function api(path: string, method = "GET", body?: unknown) {
-  const r = await fetch("/api/v1" + path, {
+  const r = await fetch(memberApiUrl("/api/v1" + path), {
     method,
     credentials: "same-origin",
     headers:
@@ -318,10 +319,10 @@ export function MemberToday({
         </ul>
       )}
       {data && !active && <EndOfProgramme data={data} />}
-      <CoachSwitcher current={state.user.tenantId} userId={state.user.userId} />
+      {!isTrainerPreview() && <CoachSwitcher current={state.user.tenantId} userId={state.user.userId} />}
       <CoachNote name={state.tenant.name} theme={state.tenant.theme} />
       {/* Last on Today: the day's work and the coach's note come first. */}
-      <InstallCard
+      {!isTrainerPreview() && <InstallCard
         coachName={state.tenant.name}
         tenantId={state.user.tenantId}
         userId={state.user.userId}
@@ -331,7 +332,7 @@ export function MemberToday({
             (r) => r.kind === "workout" && r.status === "completed",
           )
         }
-      />
+      />}
     </div>
   );
 }

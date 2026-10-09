@@ -154,6 +154,9 @@ export function nextNotificationTime(p: Preferences, now = new Date()): Date {
   return new Date(now.getTime() + 26 * 3600000);
 }
 export async function notifyUser(tx: Tx, a: Actor, input: NotificationInput) {
+  if (a.previewMemberId) return null;
+  const [preview] = await tx.query("SELECT trainer_preview_member($1) OR trainer_preview_member($2) AS preview", [a.userId, input.userId]);
+  if (preview?.preview) return null;
   if (
     a.role === "subscriber" &&
     input.userId !== a.userId &&

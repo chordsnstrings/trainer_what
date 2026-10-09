@@ -107,8 +107,10 @@ try {
     root,
     seedEnv,
   );
-  if (process.env.ONBOARDING_FIDELITY_FIXTURE === "true")
+  if (process.env.ONBOARDING_FIDELITY_FIXTURE === "true") {
     await run(["--import", "tsx", "scripts/seed-brain-fidelity.ts"], root, seedEnv);
+    await run(["--import", "tsx", "scripts/seed-trainer-preview.ts"], root, seedEnv);
+  }
   start(["--import", "tsx", "src/server.ts"], root + "apps/api", {
     NODE_ENV: "development",
     API_HOST: "127.0.0.1",

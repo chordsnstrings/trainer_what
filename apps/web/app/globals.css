@@ -2100,3 +2100,13 @@ blockquote {
 .member-setup-checklist .setup-checklist li > span { display: inline-flex; align-items: center; gap: .5rem; }
 .intake-weekdays { display: flex; flex-wrap: wrap; gap: .75rem; margin-block: .75rem 1rem; }
 .intake-weekdays label { display: inline-flex; align-items: center; gap: .4rem; }
+
+/* A trainer's private subscriber preview, sharing the member app. */
+.trainer-preview-entry,.trainer-preview-top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.trainer-preview-entry{padding:14px 18px;margin-block-end:16px;border:1px solid var(--line,#dfe3e6);border-radius:14px;background:var(--surface,#fff)}
+.trainer-preview-entry p{margin:4px 0 0;color:var(--muted,#616b75);font-size:.875rem}
+.trainer-preview-bar{border:1px solid var(--line,#dfe3e6);border-radius:12px;background:var(--surface,#fff);padding:12px 14px;margin-block-end:16px;font-size:.875rem}
+.trainer-preview-top small{display:block;margin-block-start:3px;color:var(--muted,#616b75)}
+.trainer-preview-bar details{margin-block-start:10px}.trainer-preview-bar summary{cursor:pointer;font-weight:600}
+.preview-review{border-block-start:1px solid var(--line,#dfe3e6);padding:12px 0;margin-block-start:12px}.preview-review p{white-space:pre-wrap;overflow-wrap:anywhere}
+@media(max-width:480px){.trainer-preview-entry>div{flex:1 1 180px}.trainer-preview-top{align-items:flex-start}.trainer-preview-bar{padding:10px}}
