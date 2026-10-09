@@ -1,9 +1,6 @@
 "use client";
-// "Your one-on-one sessions" (Keep training, under Trainer voice): how the
-// coach runs a session. The Brain drafts a style summary and a sample
-// session; the coach confirms the style once, and every new voice session
-// then gets a few extra lines in it, personal to each client. Numbers, counts
-// and the safety line stay code's (docs/features/voice-session.md).
+// The shared communication editor: one-on-one manner and trainer-authored
+// examples are drafted, confirmed and checked before the next Brain release.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { VOICE_STYLE_SAVED } from "./voice-session-style";
 
@@ -17,10 +14,11 @@ type Answers = {
   close: string;
   always: string[];
   never: string[];
+  examples: Array<{ situation: string; reply: string; reasoning: string }>;
 };
 type View = {
   version: number;
-  topics: Array<{ key: Exclude<keyof Answers, "always" | "never">; label: string; hint: string }>;
+  topics: Array<{ key: Exclude<keyof Answers, "always" | "never" | "examples">; label: string; hint: string }>;
   answers: Answers;
   answered: number;
   minimumAnswered: number;
@@ -66,7 +64,7 @@ export function VoiceOneOnOne() {
   const audio = useRef<HTMLAudioElement | null>(null);
   const show = useCallback((v: View) => {
     setView(v);
-    setAnswers(v.answers);
+    setAnswers({ ...v.answers, examples: v.answers.examples ?? [] });
     setAlways(v.answers.always.join("\n"));
     setNever(v.answers.never.join("\n"));
     setDirty(false);
@@ -112,6 +110,7 @@ export function VoiceOneOnOne() {
       }),
     );
   const answered = view.topics.filter((t) => answers[t.key].trim()).length;
+  const examplesReady = answers.examples.every(example => Object.values(example).every(text => text.trim().length >= 10));
   return (
     <section className="card voice-one-on-one" id="one-on-one" aria-labelledby="one-on-one-title">
       <div className="card-heading">
@@ -154,9 +153,39 @@ export function VoiceOneOnOne() {
           <small className="muted">One per line, up to eight. The Brain never uses them.</small>
           <textarea rows={3} value={never} onChange={(e) => (setNever(e.target.value), setDirty(true))} />
         </label>
+        <div className="stack">
+          <h3>Examples of your coaching</h3>
+          <p className="muted">Show the exact reply you would give and why. Add up to six different situations, such as a missed workout, a difficult week or a small win. Use anonymous or made-up situations, without client names or contact details.</p>
+          {answers.examples.map((example, index) => (
+            <fieldset className="stack" key={index} style={{ minWidth: 0 }}>
+              <legend>Example {index + 1}</legend>
+              {([
+                ["situation", "Situation", 240],
+                ["reply", "Your exact reply", 600],
+                ["reasoning", "Why you would reply this way", 240],
+              ] as const).map(([key, label, max]) => (
+                <label className="field" key={key}>
+                  <span>{label} {index + 1}</span>
+                  <textarea rows={key === "reply" ? 3 : 2} minLength={10} maxLength={max} value={example[key]} onChange={e => {
+                    setAnswers({ ...answers, examples: answers.examples.map((item, i) => i === index ? { ...item, [key]: e.target.value } : item) });
+                    setDirty(true);
+                  }} />
+                </label>
+              ))}
+              <button className="text-button" type="button" disabled={!!busy} onClick={() => {
+                setAnswers({ ...answers, examples: answers.examples.filter((_, i) => i !== index) }); setDirty(true);
+              }}>Remove example {index + 1}</button>
+            </fieldset>
+          ))}
+          <button className="button secondary" type="button" disabled={!!busy || answers.examples.length >= 6} onClick={() => {
+            setAnswers({ ...answers, examples: [...answers.examples, { situation: "", reply: "", reasoning: "" }] }); setDirty(true);
+          }}>Add a coaching example</button>
+          <p className="muted">Save, draft and confirm your style to include these examples in your next Brain check. They teach your manner; your published rules and each subscriber’s plan still determine their guidance.</p>
+          {!examplesReady && <p className="notice">Use at least 10 characters in each example field, or remove an unfinished example, before saving.</p>}
+        </div>
       </div>
       <div className="button-row">
-        <button className="button secondary" type="button" disabled={!!busy || !dirty} onClick={() => void save()}>
+        <button className="button secondary" type="button" disabled={!!busy || !dirty || !examplesReady} onClick={() => void save()}>
           {busy === "save" ? "Saving…" : "Save answers"}
         </button>
         <button

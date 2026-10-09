@@ -4,7 +4,7 @@ import { defineMessages } from "../core";
 export default defineMessages(
   {
     title: "Coach chat",
-    intro: "Messages with {coach}. Replies from the digital coach are labelled.",
+    intro: "Messages with {coach}. Replies from the digital coach are labelled. With your digital coaching permission, it uses recent messages to follow the conversation.",
     you: "You",
     digital: "Digital coach",
     update: "Update",
@@ -51,7 +51,7 @@ export default defineMessages(
   },
   {
     title: "محادثة المدرب",
-    intro: "رسائلك مع {coach}. تُميَّز ردود المدرب الرقمي.",
+    intro: "رسائلك مع {coach}. تُميَّز ردود المدرب الرقمي. بموافقتك على التدريب الرقمي، يستخدم الرسائل الأخيرة لمتابعة المحادثة.",
     you: "أنت",
     digital: "المدرب الرقمي",
     update: "تحديث",

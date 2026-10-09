@@ -19,9 +19,9 @@ import { mentionsModelVendor } from "./setup-assistant.ts";
 import type { PlanExercise, ScriptLine, SessionScript } from "./voice-session.ts";
 
 /** The per-session narration prompt. */
-export const NARRATION_PROMPT_VERSION = "voice-narration-v2";
+export const NARRATION_PROMPT_VERSION = "voice-narration-v3";
 /** The coach's style draft: a summary and a sample session. */
-export const ONE_ON_ONE_PROMPT_VERSION = "voice-one-on-one-v1";
+export const ONE_ON_ONE_PROMPT_VERSION = "voice-one-on-one-v2";
 /** A Brain line fits one short clip: about 12 words, 4.5 seconds. */
 export const BRAIN_LINE_MAX_WORDS = 12;
 export const BRAIN_LINE_MAX_CHARS = 90;
@@ -42,6 +42,11 @@ export const ONE_ON_ONE_TOPICS = [
 export type OneOnOneTopic = (typeof ONE_ON_ONE_TOPICS)[number]["key"];
 const answer = z.string().trim().max(300).default("");
 const listItem = z.string().trim().min(2).max(100);
+export const conversationExampleSchema = z.object({
+  situation: z.string().trim().min(10).max(240),
+  reply: z.string().trim().min(10).max(600),
+  reasoning: z.string().trim().min(10).max(240),
+}).strict();
 export const oneOnOneAnswersSchema = z
   .object({
     open: answer,
@@ -55,6 +60,8 @@ export const oneOnOneAnswersSchema = z
     always: z.array(listItem).max(8).default([]),
     /** Things the coach never says. */
     never: z.array(listItem).max(8).default([]),
+    /** Trainer-authored examples, confirmed with the rest of this style. */
+    examples: z.array(conversationExampleSchema).max(6).default([]),
   })
   .strict();
 export type OneOnOneAnswers = z.infer<typeof oneOnOneAnswersSchema>;
@@ -125,6 +132,8 @@ export function oneOnOneFingerprint(answers: OneOnOneAnswers) {
     ...ONE_ON_ONE_TOPICS.map((t) => parsed[t.key]),
     parsed.always,
     parsed.never,
+    // Preserve fingerprints of legacy answers without examples.
+    ...(parsed.examples.length ? [parsed.examples] : []),
   ]);
   // FNV-1a, twice with different seeds: browser-safe, no crypto needed.
   const fnv = (seed: number) => {
@@ -156,6 +165,11 @@ export function oneOnOneIssues(answers: OneOnOneAnswers): Array<{ field: string;
   for (const t of ONE_ON_ONE_TOPICS) check(t.key, answers[t.key]);
   answers.always.forEach((text, i) => check(`always.${i}`, text));
   answers.never.forEach((text, i) => check(`never.${i}`, text));
+  (answers.examples ?? []).forEach((example, i) => {
+    for (const [key, text] of Object.entries(example)) check(`examples.${i}.${key}`, text.replace(/\r?\n/g, " "));
+    if (forbiddenTrainerPhrase(example.reply, answers.never))
+      out.push({ field: `examples.${i}.reply`, issue: "trainer_wording" });
+  });
   return out;
 }
 
@@ -579,16 +593,18 @@ export type NarrationInput = {
   /** The member's language: "en" or "ar". */
   language: "en" | "ar";
 };
-const styleData = (style: NarrationInput["style"]) => ({
+const styleData = (style: NarrationInput["style"], includeExamples = true) => ({
   summary: style.summary.slice(0, ONE_ON_ONE_SUMMARY_MAX),
   ...Object.fromEntries(ONE_ON_ONE_TOPICS.map((t) => [t.key, style.answers[t.key].slice(0, 300)])),
   phrasesTheyAlwaysUse: style.answers.always.slice(0, 8),
   neverSay: style.answers.never.slice(0, 8),
+  ...(includeExamples ? { conversationExamples: style.answers.examples ?? [] } : {}),
 });
 /** The user message: the confirmed style, the member's facts and today's plan, as data. */
 export function narrationUserContent(input: NarrationInput) {
   return JSON.stringify({
-    coachStyle: styleData(input.style),
+    // The shared Brain already carries the examples; do not send them twice.
+    coachStyle: styleData(input.style, !input.trainerBrain),
     trainerBrain: input.trainerBrain,
     member: {
       ...(input.facts.firstName ? { firstName: input.facts.firstName } : {}),
@@ -637,6 +653,7 @@ export function oneOnOneInstruction() {
     `One-on-one session style ${ONE_ON_ONE_PROMPT_VERSION}. A fitness coach described how they run a one-on-one session. ` +
     "First write a summary of their session style for the coach to confirm: second person (\"You open with...\"), at most 80 words, only what the coach said, no praise, no advice, no numbers. " +
     "Then write the sample session's extra spoken lines for the example member and workout in the data, exactly as they would be spoken in a real session in this coach's style. " +
+    "Conversation examples show the coach's exact wording and reasoning in other situations. Learn their manner; never transfer those situations, promises or prescribed numbers to the sample member. " +
     "Moments: open, for each exercise a lead, rest and lastSet, then struggle and close (as in a real session: open greets, lead follows the exercise announcement, rest is small talk in the first rest, lastSet pushes before the final set, struggle supports a set that feels too hard, close ends the session). " +
     LINE_RULES +
     ` Write in the language the coach wrote in. Return only one JSON object with exactly these keys and nothing else: {"summary": "", "sample": ${SHAPE}}.`

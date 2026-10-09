@@ -1,7 +1,9 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
+import { loadConversationContext } from "./conversation-context.ts";
+import { CONVERSATION_CONTEXT_VERSION } from "../../../packages/domain/src/conversation-context.ts";
 import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
 import {
-  trainerBrainContext, trainerWordingIssues,
+  trainerBrainContext, trainerWordingIssues, conversationExampleOverlaps,
 } from "../../../packages/domain/src/trainer-brain.ts";
 import {
   coachFacingPin,
@@ -792,6 +794,8 @@ export async function evaluateCoachingRuntime(
     ...(await runtimeMaterial(tx, options.candidateBrain)),
     scenarios: await heldOutScenarios(tx),
   }));
+  if (material.scenarios.some(c => conversationExampleOverlaps(trainerBrainContext(material.brain).communication, c.data.prompt)))
+    throw fail(409, "Keep practice questions separate from your conversation examples. Replace the overlapping practice question before checking automatic replies.");
   if (!material.brain || !material.actions.length)
     throw fail(
       409,
@@ -1342,7 +1346,7 @@ export async function tryQualifiedCoaching(
   db: Database,
   a: Actor,
   request: string,
-  original: { release: any; twin: any },
+  original: { release: any; twin: any; requestMessageId: string; conversation: Awaited<ReturnType<typeof loadConversationContext>> },
 ) {
   const initial = await db.tenant(a, async (tx) => {
     await lockTraining(tx, a);
@@ -1352,6 +1356,8 @@ export async function tryQualifiedCoaching(
     // The last passing version stays live while newer edits are re-checked.
     const material = runtime && (await liveRuntimeMaterial(tx, runtime));
     if (!material) return undefined;
+    if ((await loadConversationContext(tx, a.userId, original.requestMessageId)).digest !== original.conversation.digest)
+      throw fail(409, "Your conversation changed before the reply could be prepared. Ask again using the latest messages.");
     const facts = await coachingFacts(tx, a.userId),
       eligible = deliverable(material, request, facts);
     if (!eligible.length) return undefined;
@@ -1366,6 +1372,7 @@ export async function tryQualifiedCoaching(
         request,
         facts: initial.facts,
         trainerBrain: trainerBrainContext(initial.material.brain),
+        conversation: original.conversation.context,
         actions: initial.eligible,
         examples: initial.material.examples,
         rules: initial.material.rules,
@@ -1437,6 +1444,8 @@ export async function tryQualifiedCoaching(
         409,
         "The evaluated coaching context changed; the response was withheld",
       );
+    if ((await loadConversationContext(tx, a.userId, original.requestMessageId)).digest !== original.conversation.digest)
+      throw fail(409, "Your conversation changed while the reply was being prepared. Ask again using the latest messages; the earlier reply was withheld.");
     const action = deliverable(material, request, facts).find(
       (r) => r.id === generated.selection.actionId,
     );
@@ -1453,6 +1462,10 @@ export async function tryQualifiedCoaching(
     const proposal = {
       type: action?.data.type ?? "escalation",
       request,
+      requestMessageId: original.requestMessageId,
+      conversationContextVersion: CONVERSATION_CONTEXT_VERSION,
+      conversationDigest: original.conversation.digest,
+      conversationMessageIds: original.conversation.messageIds,
       message: action
         ? coachActionReply(action.data, request)!.text
         : "This request needs your trainer's personal judgment.",

@@ -170,10 +170,17 @@ try {
   await expect(page.getByRole("heading", { name: "How your Brain communicates" })).toBeVisible();
   const opening = page.getByLabel("How you open a session", { exact: false });
   await opening.fill("Welcome back. What felt good this week?");
+  await page.getByRole("button", { name: "Add a coaching example", exact: true }).click();
+  await page.getByLabel("Situation 1", { exact: true }).fill("A subscriber missed a workout after a difficult workday.");
+  await page.getByLabel("Your exact reply 1", { exact: true }).fill("A difficult day does not undo your work. What got in the way?");
+  await page.getByLabel("Why you would reply this way 1", { exact: true }).fill("Start with understanding and ask one useful question before changing the plan.");
+
   await page.getByRole("button", { name: "Save answers", exact: true }).click();
   await expect(page.getByRole("button", { name: "Save answers", exact: true })).toBeDisabled();
   const savedStyle = await (await coach.request.get(base + "/api/v1/voice-sessions/one-on-one")).json();
   assert.equal(savedStyle.answers.open, "Welcome back. What felt good this week?");
+  assert.equal(savedStyle.answers.examples[0].reply, "A difficult day does not undo your work. What got in the way?");
+  assert.equal(savedStyle.confirmed, null, "Saving an example does not confirm or publish it");
   await capture(page, "trainer-shared-communication-desktop");
   await page.setViewportSize({ width: 390, height: 844 });
   await capture(page, "trainer-shared-communication-phone");
