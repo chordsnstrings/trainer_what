@@ -1,7 +1,7 @@
 name: Onboarding conversation
 on:
   pull_request:
-    paths: ["apps/api/src/onboarding-*.ts", "apps/api/src/voice-clones.ts", "apps/web/components/onboarding-*.tsx", "apps/web/app/onboarding-chat.css", "apps/web/lib/conversation-audio.ts", "apps/web/public/onboarding-audio-worklet.js", "tests/onboarding-media.test.ts", "scripts/extract-office-extra.py", "apps/api/src/onboarding-chat.ts", "apps/web/components/onboarding-chat.tsx", "packages/domain/src/onboarding-chat.ts", "packages/domain/src/coaching-interview.ts", "packages/providers/src/onboarding-chat.ts", "tests/onboarding-chat.test.ts", "tests/coaching-interview.test.ts", "tests/onboarding-models.test.ts", "scripts/onboarding-chat-check.mjs", "scripts/run-onboarding-chat-check.mjs"]
+    paths: ["apps/api/src/onboarding-*.ts", "apps/api/src/voice-clones.ts", "apps/web/components/onboarding-*.tsx", "apps/web/components/onboarding-*.ts", "apps/web/app/onboarding-chat.css", "apps/web/lib/conversation-audio.ts", "apps/web/public/onboarding-audio-worklet.js", "tests/onboarding-media.test.ts", "scripts/extract-office-extra.py", "apps/api/src/onboarding-chat.ts", "apps/web/components/onboarding-chat.tsx", "packages/domain/src/onboarding-chat.ts", "packages/domain/src/coaching-interview.ts", "packages/providers/src/onboarding-chat.ts", "tests/onboarding-chat.test.ts", "tests/coaching-interview.test.ts", "tests/onboarding-models.test.ts", "scripts/onboarding-chat-check.mjs", "scripts/run-onboarding-chat-check.mjs"]
 permissions:
   contents: read
 jobs:

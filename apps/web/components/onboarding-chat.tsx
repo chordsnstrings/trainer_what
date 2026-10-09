@@ -1,6 +1,7 @@
 "use client";
 import { VoiceOneOnOne } from "./voice-one-on-one";
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { useConversationMotion } from "./onboarding-motion";
 import Link from "next/link";
 import { ArrowUp, ArrowDown, Send, Check, MessageCircle, Pause, RotateCcw, Phone, Mic, MoreHorizontal, ChevronRight, Sparkles } from "lucide-react";
 import type { ChatData, ChatMessage, OnboardingAttachment } from "../../../packages/domain/src/onboarding-chat";
@@ -11,7 +12,6 @@ import { OnboardingFiles, OnboardingFile, type OnboardingFilesHandle } from "./o
 import { OnboardingCall } from "./onboarding-call";
 import { ConversationTools, type ConversationPanel } from "./onboarding-tools";
 import { chatAppearance, onboardingRequest as request, type ChatAppearance } from "../lib/onboarding-http";
-import { prefersReducedMotion } from "./motion";
 
 type State = ChatData & {
   id: string; version: number; ready: boolean; missing: string[]; programReady?: boolean;
@@ -59,6 +59,7 @@ export function MemberOnboarding({ intake, onSaved }: { intake?: any; onSaved?: 
   </div> : <OnboardingChat audience="member" onSaved={onSaved} onDetails={() => setDetails(true)} />;
 }
 export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }: Props) {
+  const motion = useConversationMotion();
   const [state, setState] = useState<State | null>(null);
   const [text, setText, clearText] = useWorkspaceValue("onboarding:composer:" + audience, "", true);
   const [sending, setSending] = useState(false), [error, setError] = useState("");
@@ -67,7 +68,7 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
   const [uploading, setUploading] = useState(false), [dragging, setDragging] = useState(false);
   const [callOpen, setCallOpen] = useState(false), [callActive, setCallActive] = useState(false);
   const [optimistic, setOptimistic] = useState<ChatMessage | null>(null), [arriving, setArriving] = useState<Set<string>>(new Set()), [newMessages, setNewMessages] = useState(false);
-  const known = useRef<Set<string> | null>(null), scrolled = useRef(false), nearBottom = useRef(true), thread = useRef<HTMLDivElement>(null), filePicker = useRef<OnboardingFilesHandle>(null), textRef = useRef(text);
+  const known = useRef<Set<string> | null>(null), nearBottom = useRef(true), thread = useRef<HTMLDivElement>(null), filePicker = useRef<OnboardingFilesHandle>(null), textRef = useRef(text);
   textRef.current = text;
   const [panel, setPanel] = useState<ConversationPanel>(null), [rulesOpen, setRulesOpen] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -107,13 +108,14 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
     return () => window.clearInterval(id);
   }, [state?.pending?.id, sending, load]);
   useEffect(() => { if (state && !state.permissions.coaching) { setFiles([]); setOptimistic(null); setOlder([]); } }, [state?.permissions.coaching, setFiles]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const root = thread.current;
     if (!root) return;
-    if (nearBottom.current) root.scrollTo({ top: root.scrollHeight, behavior: prefersReducedMotion() || !scrolled.current ? "auto" : "smooth" });
+    // Place new content in view before its first animated frame. Smooth scrolling
+    // here can finish after the bubble's pop and can falsely mark us as reading history.
+    if (nearBottom.current) root.scrollTop = root.scrollHeight;
     else if (state?.messages.at(-1)?.from === "assistant") setNewMessages(true);
-    scrolled.current = true;
-  }, [state?.messages.at(-1)?.id, sending, optimistic?.id]);
+  }, [state?.messages.at(-1)?.id, state?.pending?.id, sending, optimistic?.id]);
   useEffect(() => { if (input.current) { input.current.style.height = "0px"; input.current.style.height = Math.min(input.current.scrollHeight, 144) + "px"; } }, [text, sending]);
   useEffect(() => {
     if (!arriving.size) return;
@@ -207,7 +209,7 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
   const messages = [...older, ...(state?.messages ?? []), ...(optimistic && !state?.messages.some(m => m.id === optimistic.id) ? [optimistic] : [])];
   const lastAssistant = messages.map(message => message.from).lastIndexOf("assistant");
   if (!state) return <section className="onboarding-chat" data-chat-style={appearance} aria-label="Onboarding conversation"><div className="onboarding-loading" role="status">{error || "Opening your conversation…"}</div>{error && <button className="button secondary" onClick={() => void load()}>Try again</button>}</section>;
-  return <section className={"onboarding-chat" + (dragging ? " drag-over" : "")} data-chat-style={appearance} aria-label={teaching ? "Trainer onboarding conversation" : "Your coaching profile conversation"} onDragOver={e => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setDragging(true); } }} onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false); }} onDrop={e => { e.preventDefault(); setDragging(false); filePicker.current?.add(Array.from(e.dataTransfer.files)); }}>
+  return <section className={"onboarding-chat" + (dragging ? " drag-over" : "")} data-chat-style={appearance} data-chat-motion={motion.enabled ? "on" : "off"} data-chat-mode={mode} aria-label={teaching ? "Trainer onboarding conversation" : "Your coaching profile conversation"} onDragOver={e => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setDragging(true); } }} onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false); }} onDrop={e => { e.preventDefault(); setDragging(false); filePicker.current?.add(Array.from(e.dataTransfer.files)); }}>
     <header className="onboarding-chat-header">
       <span className="onboarding-avatar" aria-hidden="true">K</span>
       <div><h1>Kamran <small>AI</small></h1><p><span className="onboarding-presence" key={callActive ? "call" : sending || state.pending ? "reply" : state.paused ? "paused" : "ready"}>{callActive ? "Voice call in progress" : sending || state.pending ? "Replying…" : state.paused ? "Conversation saved · paused" : teaching ? mode === "teach" ? "Your coaching ideas, in your words" : "Your setup conversation" : "Your coaching conversation"}</span></p></div>
@@ -215,8 +217,15 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
       <button type="button" className="onboarding-icon onboarding-more" aria-label="Conversation options" aria-haspopup="dialog" aria-expanded={panel !== null} onClick={() => setPanel("menu")}><MoreHorizontal size={22} />{(uncompiled > 0 || drafts.length > 0 || state.ready && !state.applied.profile) && <span className="onboarding-attention" aria-hidden="true" />}</button>
     </header>
     <OnboardingCall audience={audience} mode={mode} open={callOpen} onOpenChange={setCallOpen} onConversation={receive} onActiveChange={setCallActive} />
-    <ConversationTools panel={panel} onPanel={setPanel}>
+    <ConversationTools panel={panel} onPanel={setPanel} motionEnabled={motion.enabled}>
       {panel === "menu" && <div className="onboarding-tool-menu">
+        <div className="onboarding-motion-choice">
+          <label htmlFor="conversation-motion">Message animations</label>
+          <select id="conversation-motion" value={motion.choice} onChange={e => motion.choose(e.target.value as "system" | "on" | "off")} aria-describedby="conversation-motion-detail">
+            <option value="system">Match this device</option><option value="on">On</option><option value="off">Off</option>
+          </select>
+          <small id="conversation-motion-detail">{motion.enabled ? "New messages pop in and reply dots move." : motion.choice === "system" ? "Your device or display preference is reducing motion. Choose On to animate this conversation." : "Messages appear without movement."}</small>
+        </div>
         <button type="button" className="onboarding-tool-action" onClick={() => setPanel("details")}><Check size={18} /><span>View saved details<small>Review the answers you've shared</small></span><ChevronRight size={16} /></button>
         {teaching && <button type="button" className="onboarding-tool-action" onClick={() => setPanel("brain")}><Sparkles size={18} /><span>Brain review<small>{uncompiled ? uncompiled + " new teaching notes" : drafts.length ? drafts.length + " draft rules" : "Rules, practice and your client situations"}</small></span><ChevronRight size={16} /></button>}
         {state.permissions.coaching && <>
@@ -259,7 +268,7 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
               {!!state.brain.approveAll.length && <button className="button" disabled={busy} onClick={() => void act("approve", { rules: state.brain.approveAll })}>Approve these {state.brain.approveAll.length} clear rules</button>}
               {!!state.brain.flaggedDrafts && <Link className="text-link" href="/trainer/brain/constitution">Review flagged rules</Link>}
             </details>}
-            {confirmed.length > 0 && <button className="button secondary" disabled={busy} onClick={() => { if (currentCase) { setPanel(null); nearBottom.current = true; requestAnimationFrame(() => thread.current?.scrollTo({ top: thread.current.scrollHeight, behavior: prefersReducedMotion() ? "auto" : "smooth" })); } else void act("quiz"); }}>{currentCase ? "Continue practice" : "Try a client situation"}</button>}
+            {confirmed.length > 0 && <button className="button secondary" disabled={busy} onClick={() => { if (currentCase) { setPanel(null); nearBottom.current = true; requestAnimationFrame(() => thread.current?.scrollTo({ top: thread.current.scrollHeight, behavior: motion.enabled ? "smooth" : "auto" })); } else void act("quiz"); }}>{currentCase ? "Continue practice" : "Try a client situation"}</button>}
             {confirmed.length > 0 && <div className="onboarding-inline-card">
               <p>{state.brain.ownCases.count < state.brain.ownCases.forWaitsForMe ? "Let's also check situations you've written yourself." : "Have another situation you'd like to check?"}</p>
               <small>{state.brain.ownCases.count} saved · {state.brain.ownCases.forWaitsForMe} needed for review mode</small>
@@ -318,7 +327,7 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
         <div ref={end} />
       </div>
       <footer className="onboarding-compose-area" ref={composer}>
-      {newMessages && <button type="button" className="onboarding-latest" aria-label="Latest messages" onClick={() => { nearBottom.current = true; thread.current?.scrollTo({ top: thread.current.scrollHeight, behavior: prefersReducedMotion() ? "auto" : "smooth" }); setNewMessages(false); }}><ArrowDown size={16} /><span className="sr-only">Latest messages</span></button>}
+      {newMessages && <button type="button" className="onboarding-latest" aria-label="Latest messages" onClick={() => { nearBottom.current = true; thread.current?.scrollTo({ top: thread.current.scrollHeight, behavior: motion.enabled ? "smooth" : "auto" }); setNewMessages(false); }}><ArrowDown size={16} /><span className="sr-only">Latest messages</span></button>}
         {state.permissions.coaching && <>
           {(answerMode || scenarioMode) && <div className="onboarding-compose-context"><span>{answerMode ? "Write the reply you'd use." : "Describe a client situation in your own words."}</span><button className="text-link" onClick={() => { setAnswerMode(false); setScenarioMode(false); }}>Cancel</button>
             {scenarioMode && <><label>Rule to check<select value={ruleId} onChange={e => setRuleId(e.target.value)}>{confirmed.map((r: any) => <option value={r.id} key={r.id}>{r.title}</option>)}</select></label><label className="onboarding-choice"><input type="checkbox" checked={escalate} onChange={e => setEscalate(e.target.checked)} /> This needs referral or human review</label></>}

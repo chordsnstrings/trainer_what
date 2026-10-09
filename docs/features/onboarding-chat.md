@@ -2,6 +2,16 @@
 
 Trainer setup, continued Brain teaching and client intake now default to a shared text-message interface. Short bubbles, optional quick replies, one current question, inline reviews and a persistent composer replace the default wizard. Detailed forms remain available. Trainer setup, Brain teaching and subscriber intake share private file references and an optional hands-free voice conversation.
 
+## My Brain message motion — 9 October 2026
+
+Status: implemented on `fix/my-brain-message-motion-2026-10-09`; TypeScript and ten CSS/layout checks passed. Exact-route browser checks and release gates remain pending. The owner reported that the trainer's My Brain conversation felt static and requested iPhone-like bubble pops and three animated thinking dots. Earlier motion checks exercised `/setup`, not `/trainer/brain` itself; they did not establish the reporting device's preference or live appearance.
+
+New messages use a clearer 420 ms pop with a small settling movement. The thread follows new messages in a layout effect before their first animated frame, so a smooth scroll cannot reveal a bubble only after its arrival has finished or temporarily misclassify following the conversation as reading history. Reading older messages still preserves position; acknowledgements, polling and reopened history do not replay bubbles. Three independent dots animate only while an actual request or saved pending reply exists. No artificial thinking delay or extra inference is added.
+
+Conversation options contains **Message animations → Match this device / On / Off**. Match this device is the default and respects both OS and app-wide reduced motion. On is an explicit, device-local opt-in for these conversation surfaces only; it does not change system settings or the app's global preference. Off keeps the conversation still. The menu explains when a preference is suppressing motion. New controls stay out of the transcript.
+
+The browser journey now targets `/trainer/brain` in teach mode on desktop and an iPhone-sized viewport, records first-frame visibility and changing transforms/opacity for outgoing and incoming bubbles, checks that moving dots are in the visible thread, and retains a phone video. It also checks saved history, both default reduced-motion paths, persistent explicit On with both reductions active, explicit Off and the options layout at 320 px. These are isolated Chromium fixtures, not physical-device or live-account observations.
+
 ## Engine
 
 Each turn uses the app's active model profile and its existing compatible/native adapter. `onboarding_reply` is a configurable profile budget: default 4,096 tokens, 30 seconds (60 for Seed; request-style time multipliers still apply). Nullable optional fields, omitted empty maps, fenced JSON and compatible text blocks are normalized before schema validation. Invalid facts/evidence, empty replies, reasoning-only output and truncated JSON remain withheld; no automatic paid retry repairs output. Public wording remains model-neutral. New conversations open with one question.

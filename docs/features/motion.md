@@ -11,6 +11,8 @@ website, joining and sign-in pages (the phone-first surfaces in
 text (`docs/features/marketing-site.md`); the trainer workspace is unchanged
 except where it shares a primitive (a bottom sheet, a stepper).
 
+The shared onboarding/My Brain conversation has a separate, explicit owner-requested motion contract (9 October 2026; `features/onboarding-chat.md`). Its clearer message pops may start below this document's 0.97 scale floor and settle within 420 ms. It follows reduced-motion preferences by default. **Conversation options → Message animations → On** is a deliberate local opt-in that animates only that conversation even when the device or global app preference reduces motion; Off always keeps it still. It neither changes those underlying preferences nor enables motion on other screens.
+
 ## Principles
 
 1. **Feedback within 100 ms of every tap.** A press answers in

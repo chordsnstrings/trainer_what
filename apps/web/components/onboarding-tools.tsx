@@ -7,10 +7,11 @@ import { prefersReducedMotion } from "./motion";
 export type ConversationPanel = "menu" | "details" | "brain" | null;
 
 /** Secondary tasks stay out of the transcript. Native modal focus/escape behavior. */
-export function ConversationTools({ panel, onPanel, children }: {
+export function ConversationTools({ panel, onPanel, children, motionEnabled }: {
   panel: ConversationPanel;
   onPanel: (panel: ConversationPanel) => void;
   children: ReactNode;
+  motionEnabled?: boolean;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -25,7 +26,7 @@ export function ConversationTools({ panel, onPanel, children }: {
   }, [panel]);
   function close() {
     if (closing) return;
-    if (prefersReducedMotion()) { onPanel(null); return; }
+    if (!(motionEnabled ?? !prefersReducedMotion())) { onPanel(null); return; }
     setClosing(true);
     timer.current = setTimeout(() => onPanel(null), 140);
   }
