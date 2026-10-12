@@ -462,10 +462,12 @@ test("the shell, the controls and the screens play their microanimations", async
   // Members get a toast for "Saved"; trainers keep their notice.
   assert.match(workspace, /success && !subscriber &&/);
   assert.match(workspace, /<Toast key=\{success\} onDone=\{\(\) => setSuccess\(""\)\}>/);
-  const chat = await source("apps/web/components/training-workspace.tsx");
+  const legacyChat = await source("apps/web/components/training-workspace.tsx");
+  assert.match(legacyChat, /<MemberChat state=\{props.state\}/);
+  const chat = await source("apps/web/components/member-chat.tsx");
   assert.match(chat, /className="chat-typing" role="status"/);
-  assert.match(chat, /chat-message is-new is-sending/);
-  assert.match(chat, /className=\{sub \? "button chat-send" : "button"\}/);
+  assert.match(chat, /chat-message is-mine is-new is-sending/);
+  assert.match(chat, /className="button chat-send"/);
   const consent = await source("apps/web/components/acquisition.tsx");
   assert.match(consent, /\(bar \|\| leaving\) &&/);
   assert.match(consent, /inert=\{leaving \|\| undefined\}/);

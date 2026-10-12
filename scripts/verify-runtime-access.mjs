@@ -69,6 +69,7 @@ export async function verifyRuntimeAccess(client) {
     sessions: ["SELECT", "INSERT", "UPDATE", "DELETE"],
     trainer_preview_profiles: ["SELECT", "INSERT", "UPDATE", "DELETE"],
     trainer_preview_sessions: ["SELECT", "INSERT", "UPDATE", "DELETE"],
+    trainer_photo_jobs: ["SELECT", "UPDATE"],
     one_time_tokens: ["SELECT", "INSERT", "UPDATE", "DELETE"],
     user_security: ["SELECT", "INSERT", "UPDATE", "DELETE"],
     provider_events: ["SELECT", "INSERT", "UPDATE", "DELETE"],
@@ -332,6 +333,7 @@ export async function verifyRuntimeAccess(client) {
   const functions = [
     "trainer_preview_member(uuid)",
     "trainer_preview_active(uuid)",
+    "export_personal_photo_drafts(uuid)",
     "trainer_media_brand_reference(uuid,uuid)",
     "trainer_brand_tenant()",
     "training_actor_is_current(uuid,uuid,text)",
@@ -434,6 +436,7 @@ export async function verifyRuntimeAccess(client) {
   // execute, in a workspace-bound service transaction; never the tenant role
   // or PUBLIC.
   const serviceDefiners = [
+    "finish_trainer_photo_cost(uuid,text,text)",
     "healthkit_device_for_token(text)",
     "integration_oauth_relay(text,text)",
   ];
@@ -458,6 +461,7 @@ export async function verifyRuntimeAccess(client) {
   for (const statement of [
     "SELECT * FROM healthkit_device_for_token(repeat('0',64))",
     "SELECT integration_oauth_relay(repeat('0',64),'whoop')",
+    "SELECT finish_trainer_photo_cost('00000000-0000-0000-0000-000000000000','unknown',NULL)",
   ]) {
     await client.query("BEGIN");
     let refused = false;
@@ -511,6 +515,7 @@ export async function verifyRuntimeAccess(client) {
   // Service tables that carry a workspace deny the tenant role every row and
   // honour a service transaction's workspace binding (app.service_tenant_id).
   const boundTables = [
+    "trainer_photo_jobs",
     "trainer_preview_profiles",
     "trainer_preview_sessions",
     "sessions",
@@ -707,6 +712,7 @@ export async function verifyRuntimeAccess(client) {
     for (const table of [
       ...scopedTables,
       "brand_media",
+      "trainer_photo_jobs",
       "coach_galleries",
       "coach_gallery_photos",
       "coach_sites",

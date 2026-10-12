@@ -670,7 +670,7 @@ export async function checkCompletionFlows({
 
   await subscriber.goto(base + "/app/chat");
   await subscriber
-    .getByRole("heading", { name: "Coach chat", exact: true })
+    .getByRole("heading", { name: "Alex Morgan", exact: true })
     .waitFor();
   // Attachments open in a bottom sheet from the composer (member-chat.tsx).
   await subscriber
@@ -728,7 +728,7 @@ export async function checkCompletionFlows({
   await coach.waitForURL("**/trainer/messages/*");
   const received = coach
     .getByRole("region", { name: "Conversation" })
-    .locator("article")
+    .getByRole("listitem")
     .filter({ hasText: messageText });
   const fileLink = received.getByRole("link", {
     name: `Download ${attachment.fileName}`,

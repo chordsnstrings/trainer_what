@@ -27,8 +27,8 @@ const env = {
   VOICE_CONTRACT_VERIFIED: "true", VOICE_PROVIDER: "cartesia", VOICE_API_KEY: "synthetic", VOICE_BASE_URL: "https://onboarding-media.invalid", VOICE_MODEL: "sonic-3.6", VOICE_PRICE_VERSION: "fixture", VOICE_API_VERSION: "2026-08-14", VOICE_USD_PER_1000_CHARACTERS: "0.05", VOICE_DAILY_USD_LIMIT: "5", VOICE_QUICK_CLONE_ENABLED: "true", VOICE_CLONE_USD: "0", VOICE_TRAINING_OPT_OUT: "true",
   STT_CONTRACT_VERIFIED: "true", STT_PROVIDER: "cartesia", STT_API_KEY: "synthetic", STT_BASE_URL: "https://onboarding-media.invalid", STT_PRICE_VERSION: "fixture", STT_USD_PER_HOUR: "0.1", STT_ZERO_RETENTION: "false", MARKETING_ASSISTANT_VOICE_ID: "kamran-approved-fixture",
 };
-async function providers(run: (calls: { stt: number; tts: any[]; models: any[] }, controls: { transcript: string; stt?: () => Promise<void>; failTts?: boolean }) => Promise<void>) {
-  const calls = { stt: 0, tts: [] as any[], models: [] as any[] }, controls = { transcript: "I coach busy beginners with short strength sessions." } as { transcript: string; stt?: () => Promise<void>; failTts?: boolean };
+async function providers(run: (calls: { stt: number; tts: any[]; models: any[] }, controls: { transcript: string; stt?: () => Promise<void>; tts?: () => Promise<void>; failTts?: boolean }) => Promise<void>) {
+  const calls = { stt: 0, tts: [] as any[], models: [] as any[] }, controls = { transcript: "I coach busy beginners with short strength sessions." } as { transcript: string; stt?: () => Promise<void>; tts?: () => Promise<void>; failTts?: boolean };
   const original = globalThis.fetch;
   await withEnv(env, async () => {
     globalThis.fetch = async (url, init) => {
@@ -40,7 +40,7 @@ async function providers(run: (calls: { stt: number; tts: any[]; models: any[] }
     };
     try { await withIntegrationFixtureTransport(async (url, init) => {
       if (url.endsWith("/stt")) { calls.stt++; await controls.stt?.(); return Response.json({ text: controls.transcript, duration: 1, language: "en", request_id: "stt-fixture" }); }
-      if (url.endsWith("/tts/bytes")) { calls.tts.push(JSON.parse(String(init.body))); if (controls.failTts) throw Error("Uncertain synthetic TTS outcome"); return new Response(new Uint8Array([73, 68, 51, 0]), { headers: { "content-type": "audio/mpeg", "x-request-id": "tts-fixture" } }); }
+      if (url.endsWith("/tts/bytes")) { calls.tts.push(JSON.parse(String(init.body))); await controls.tts?.(); if (controls.failTts) throw Error("Uncertain synthetic TTS outcome"); return new Response(new Uint8Array([73, 68, 51, 0]), { headers: { "content-type": "audio/mpeg", "x-request-id": "tts-fixture" } }); }
       throw Error("Unexpected integration fixture request: " + url);
     }, () => run(calls, controls)); } finally { globalThis.fetch = original; }
   });
@@ -252,8 +252,72 @@ test("subscriber preview calls the trainer's own verified voice, persists the re
       "private preview speaks its automatically delivered reply, not a review placeholder");
     assert.equal((await ok(p, path, body)).audio, result.audio);
     assert.equal(calls.stt, 1); assert.equal(calls.tts.length, 1);
+    const cues = await ok(p, base + "/coaching/calls/" + session.id + "/cues", {});
+    assert.equal(cues.cues.length, 2);
+    assert.equal(calls.tts.length, 3);
+    assert.ok(calls.tts.every(t => t.voice.id === "preview-trainer-voice"));
+    assert.equal(calls.models.length, 1, "Cues do not make another thinking request");
     await ok(p, "/trainer-preview/end", {});
     assert.equal((await api(p, path, await spokenBody())).statusCode, 409);
     assert.equal((await ok(owner, "/bootstrap")).user.role, "owner");
+  });
+});
+
+
+test("waiting cues use the selected voice once per call, stay private, and disappear on hangup", async () => {
+  const p = await ctx.person({ role: "owner" }), other = await ctx.person({ role: "owner" });
+  await providers(async calls => {
+    const session = await start(p, { language: "ar" }), path = root + "/calls/" + session.id + "/cues";
+    const [a, b] = await Promise.all([ok(p, path, {}), ok(p, path, {})]);
+    const cues = a.cues.length ? a.cues : b.cues;
+    assert.equal(cues.length, 2); assert.equal(calls.tts.length, 2);
+    assert.equal(calls.models.length, 0); assert.equal(calls.stt, 0);
+    assert.ok(calls.tts.every(t => t.voice.id === env.MARKETING_ASSISTANT_VOICE_ID && t.language === "ar"));
+    assert.deepEqual((await ok(p, path, {})).cues, cues);
+    assert.equal(calls.tts.length, 2);
+    assert.equal((await api(other, path, {})).statusCode, 409);
+    await ok(p, root + "/calls/" + session.id + "/end", {});
+    assert.equal((await api(p, path, {})).statusCode, 409);
+    const [row] = await ctx.db.tenant({ ...p, role: "owner" }, tx => tx.query("SELECT data FROM records WHERE id=$1", [session.id]));
+    assert.equal(row.data.waitCues, undefined);
+  });
+});
+test("optional waiting cues never repurchase an unknown speech outcome", async () => {
+  const p = await ctx.person({ role: "owner" });
+  await providers(async (calls, controls) => {
+    const session = await start(p), path = root + "/calls/" + session.id + "/cues";
+    controls.failTts = true;
+    assert.deepEqual((await ok(p, path, {})).cues, []);
+    assert.deepEqual((await ok(p, path, {})).cues, []);
+    assert.equal(calls.tts.length, 1);
+    const rows = await ctx.db.tenant({ ...p, role: "owner" }, tx => tx.query("SELECT status FROM cost_events WHERE trace_id=$1", [session.id]));
+    assert.deepEqual(rows.map(r => r.status), ["unknown"]);
+  });
+});
+test("optional cues leave the remaining voice allowance for the actual answer", async () => {
+  const p = await ctx.person({ role: "owner" });
+  await providers(async calls => {
+    await withEnv({ VOICE_DAILY_USD_LIMIT: "0.02" }, async () => {
+      const session = await start(p), path = root + "/calls/" + session.id;
+      assert.deepEqual((await ok(p, path + "/cues", {})).cues, []);
+      assert.equal(calls.tts.length, 0);
+      const greeting = await ok(p, path + "/turns", { id: randomUUID(), greeting: true });
+      assert.ok(greeting.audio); assert.equal(calls.tts.length, 1);
+    });
+  });
+});
+test("hangup while waiting cues are being prepared rejects late audio and further speech spending", async () => {
+  const p = await ctx.person({ role: "owner" });
+  await providers(async (calls, controls) => {
+    const session = await start(p), path = root + "/calls/" + session.id;
+    let release!: () => void, entered!: () => void;
+    const held = new Promise<void>(r => release = r), started = new Promise<void>(r => entered = r);
+    controls.tts = async () => { entered(); await held; };
+    const pending = api(p, path + "/cues", {});
+    await started; await ok(p, path + "/end", {}); release();
+    assert.equal((await pending).statusCode, 409);
+    assert.equal(calls.tts.length, 1);
+    const [row] = await ctx.db.tenant({ ...p, role: "owner" }, tx => tx.query("SELECT data,status FROM records WHERE id=$1", [session.id]));
+    assert.equal(row.status, "ended"); assert.equal(row.data.waitCues, undefined);
   });
 });

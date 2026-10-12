@@ -142,7 +142,7 @@ export function RetentionPanel() {
   }, [reload]);
   const locked = loading || saving || stale || !value;
   return (
-    <section className="card" id="retention" aria-busy={loading || saving}>
+    <section className="card retention-panel" id="retention" aria-busy={loading || saving}>
       <h2>Recorded membership cancellations</h2>
       <p className="muted">
         Review confirmed cancellation instructions and signed billing events for
@@ -269,7 +269,7 @@ export function RetentionPanel() {
       </form>
       {value && (
         <>
-          <p className="muted">
+          <p className="muted retention-saved">
             Saved policy revision {value.policy.version} ·{" "}
             {value.policy.data.enabled ? "Alerts enabled" : "Alerts disabled"} ·
             Checked {when(value.observedAt)}
@@ -287,33 +287,20 @@ export function RetentionPanel() {
               an unresolved current outcome also requires review.
             </p>
           )}
-          <dl>
-            <dt>Currently affected</dt>
-            <dd>
-              {value.counts.affected} ({value.counts.scheduled} scheduled,{" "}
-              {value.counts.ended} ended)
-            </dd>
-            <dt>Recovered / renewal resumed</dt>
-            <dd>{value.counts.recovered}</dd>
-            <dt>Current outcome unverified</dt>
-            <dd>{value.counts.unverified}</dd>
-            <dt>Members with recorded cancellations this elapsed window</dt>
-            <dd>{value.counts.recorded}</dd>
-            <dt>Preceding comparable elapsed window</dt>
-            <dd>
-              {value.previousRecorded === null
-                ? "Comparison unavailable with the recorded coverage"
-                : `${value.previousRecorded} members · ${when(value.period.previous.start)} through ${when(value.period.previous.end)}`}
-            </dd>
+          <dl className="retention-metrics">
+            <div><dt>Currently affected</dt><dd>{value.counts.affected}<small>{value.counts.scheduled} scheduled · {value.counts.ended} ended</small></dd></div>
+            <div><dt>Renewal resumed</dt><dd>{value.counts.recovered}</dd></div>
+            <div><dt>Outcome unverified</dt><dd>{value.counts.unverified}</dd></div>
+            <div><dt>Recorded cancellations</dt><dd>{value.counts.recorded}<small>During this elapsed window</small></dd></div>
+            <div className="retention-comparison"><dt>Previous comparable window</dt><dd>{value.previousRecorded === null
+              ? "Comparison unavailable with the recorded coverage"
+              : `${value.previousRecorded} members · ${when(value.period.previous.start)} through ${when(value.period.previous.end)}`}</dd></div>
           </dl>
-          <p className="muted">{value.basis}</p>
-          <p className="muted">
-            Checked {value.coverage.scannedEvents} source events.{" "}
-            {value.coverage.excludedWithoutPayment} cancellation evidence
-            entries lacked a linked earlier positive invoice and are excluded.{" "}
-            {value.coverage.unverifiableSources} source entries could not be
-            verified.
-          </p>
+          <details className="retention-evidence">
+            <summary>How these figures are counted</summary>
+            <p className="muted">{value.basis}</p>
+            <p className="muted">Checked {value.coverage.scannedEvents} source events. {value.coverage.excludedWithoutPayment} cancellation evidence entries lacked a linked earlier positive invoice and are excluded. {value.coverage.unverifiableSources} source entries could not be verified.</p>
+          </details>
           {value.thresholdMet && (
             <p className="notice">
               The saved threshold is met. Review the recorded business data and

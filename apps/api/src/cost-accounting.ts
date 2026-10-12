@@ -324,6 +324,7 @@ export const PLATFORM_BORNE_SETUP_TASKS = [
   "voice.onboarding_setup.transcription",
   "voice.onboarding_setup.speech",
   "site_builder_starter",
+  "trainer_photo",
   "brain_compilation",
   "brain_quiz",
   "brain_edits",

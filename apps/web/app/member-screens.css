@@ -944,3 +944,73 @@ span.today-coach-photo {
   color: var(--error);
   border-color: var(--error-line);
 }
+
+/* One conversation, with readable authorship on both sides of the workspace. */
+.conversation-heading { display: flex; align-items: center; gap: 12px; margin-block-end: 12px; }
+.conversation-heading > div:nth-child(2) { min-inline-size: 0; flex: 1; }
+.conversation-heading h1 { margin: 0; font-size: clamp(20px, 3vw, 26px); line-height: 1.25; overflow-wrap: anywhere; }
+.conversation-heading p { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
+.conversation-heading > .button { flex-shrink: 0; }
+.conversation-avatar { display: grid; place-items: center; flex: 0 0 44px; block-size: 44px; border-radius: 50%; background: #eef1ea; color: #344b34; font-size: 20px; font-weight: 600; }
+.conversation-tools { min-inline-size: 0; }
+.conversation-tools > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-block-size: 44px; padding-block: 10px; font-size: 13px; color: var(--muted); cursor: pointer; }
+.conversation-tools[open] > summary { color: var(--ink); }
+.conversation-tools[open] > summary > svg { transform: rotate(180deg); }
+.conversation-legend { display: grid; gap: 10px; padding: 12px 0 16px; font-size: 13px; line-height: 1.6; color: var(--muted); }
+.conversation-legend p { margin: 0; }
+.conversation-identity { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 5px 8px; }
+.conversation-source { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 500; white-space: nowrap; }
+.conversation-source > i { inline-size: 6px; block-size: 6px; border-radius: 50%; background: currentColor; }
+.conversation-source.is-assisted { color: #65439c; }
+.conversation-source.is-personal { color: #21664b; }
+.chat-message.is-assisted { border-color: #ded4ed; border-style: solid; background: #f7f3fc; }
+.chat-message.is-personal, .chat-message.is-personal.is-mine { border-color: #c5dece; background: #eff8f2; }
+.chat-message.is-update { border-color: var(--line); background: var(--paper, var(--white)); font-size: 14px; }
+.chat-meta { align-items: baseline; justify-content: space-between; gap: 6px 16px; margin-block-end: 8px; }
+.chat-meta > time, .chat-meta > span:last-child:not(.conversation-identity) { font-size: 11px; }
+.chat-text { line-height: 1.6; }
+.conversation-scroll { display: flex; flex-direction: column; gap: 16px; block-size: clamp(280px, 52dvh, 640px); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-gutter: stable; padding-block: 16px 20px; padding-inline: 0 8px; scroll-padding-block: 16px; }
+.conversation-scroll > .chat-messages { flex: 1; align-content: start; gap: 16px; }
+.conversation-scroll > .chat-empty { margin-block: auto; }
+.conversation-latest { display: flex; margin: 8px auto; position: relative; z-index: 1; }
+.member-chat .chat-composer-actions { grid-template-columns: 44px minmax(0, 1fr) auto; justify-content: stretch; }
+.conversation-route { display: flex; min-inline-size: 0; margin: 0; }
+.member-shell .conversation-route select { inline-size: 100%; min-inline-size: 0; min-block-size: 44px; padding-block: 8px; border-color: transparent; background-color: transparent; font-size: 13px; text-overflow: ellipsis; }
+.conversation-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.conversation-toolbar > div { min-inline-size: 0; }
+.conversation-toolbar p { font-size: 13px; margin: 4px 0 0; max-inline-size: 64ch; }
+.conversation-toolbar .button { flex-shrink: 0; }
+.trainer-chat-card .conversation-tools { border-block-end: 1px solid var(--line); }
+.trainer-chat-composer { display: grid; gap: 12px; padding-block-start: 20px; border-block-start: 1px solid var(--line); }
+.trainer-chat-composer .field { margin: 0; }
+.trainer-chat-composer textarea { resize: vertical; min-block-size: 84px; max-block-size: 240px; }
+.conversation-send-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.conversation-client-picker { max-inline-size: 640px; }
+.conversation-heading { flex-wrap: wrap; }
+.conversation-heading > .button { font-size: 12px; padding-inline: 10px; }
+.conversation-heading p { font-size: 12px; }
+.chat-message { max-inline-size: 94%; padding: 12px; }
+.conversation-toolbar { align-items: flex-start; flex-direction: column; }
+.conversation-toolbar .button { inline-size: 100%; }
+.conversation-scroll { block-size: max(260px, calc(100dvh - 410px)); }
+@media (min-width: 601px) {
+  .conversation-heading { flex-wrap: nowrap; }
+  .conversation-heading > .button { font-size: 14px; padding-inline: 16px; }
+  .conversation-heading p { font-size: 13px; }
+  .chat-message { max-inline-size: min(88%, 560px); padding: 12px 16px; }
+  .conversation-toolbar { align-items: center; flex-direction: row; }
+  .conversation-toolbar .button { inline-size: auto; }
+  .conversation-scroll { block-size: clamp(280px, 52dvh, 640px); }
+}
+.member-shell[data-color-scheme="dark"] .chat-message.is-assisted { background: #332a42; border-color: #695482; }
+.member-shell[data-color-scheme="dark"] .chat-message.is-personal { background: #1e352c; border-color: #496e59; }
+.member-shell[data-color-scheme="dark"] .conversation-source.is-assisted { color: #d4b6fb; }
+.member-shell[data-color-scheme="dark"] .conversation-source.is-personal { color: #a4debc; }
+.member-shell[data-color-scheme="dark"] .conversation-avatar { background: #2d3930; color: #c6e0bf; }
+@media (prefers-color-scheme: dark) {
+  .member-shell[data-color-scheme="system"] .chat-message.is-assisted { background: #332a42; border-color: #695482; }
+  .member-shell[data-color-scheme="system"] .chat-message.is-personal { background: #1e352c; border-color: #496e59; }
+  .member-shell[data-color-scheme="system"] .conversation-source.is-assisted { color: #d4b6fb; }
+  .member-shell[data-color-scheme="system"] .conversation-source.is-personal { color: #a4debc; }
+  .member-shell[data-color-scheme="system"] .conversation-avatar { background: #2d3930; color: #c6e0bf; }
+}

@@ -209,7 +209,7 @@ export function TrainerVoiceClone({ fallback }: { fallback: ReactNode }) {
       <section className="card">
         <h2>Your voice clone</h2>
         <p>
-          Record your own voice and we make a private copy of it with our voice provider, Cartesia. Your subscribers with premium voice then hear
+          Record your own voice and the AI model creates a private voice for your coaching. Your subscribers with premium voice then hear
           you read their assigned workouts. Only your workspace can use it, and you can stop or delete it at any time.
         </p>
         <p>
@@ -509,7 +509,7 @@ function NewClone({ view, busy, run }:{ view: Overview; busy: boolean; run: (fn:
           <p className="muted">
             {view.providerTrainingOptOut
               ? "The platform's provider account has opted out of the provider using recordings to train its own models."
-              : "Cartesia's terms let it use uploaded recordings to improve its models unless the platform opts out; the platform has not opted out."}{" "}
+              : "The AI model provider may use uploaded recordings to improve its models unless the platform opts out; the platform has not opted out."}{" "}
             Your recordings are kept encrypted only until the provider has them, and are never shown to your subscribers.
           </p>
         </fieldset>

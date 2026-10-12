@@ -114,7 +114,7 @@ function member(req: FastifyRequest) {
     throw fail(403, "ROLE_REQUIRED", "Coaching access required");
   return a;
 }
-async function ownerTransaction<T>(
+export async function ownerTransaction<T>(
   db: Database,
   a: Actor,
   fn: (tx: Tx, tenant: any) => Promise<T>,
@@ -227,6 +227,7 @@ export async function eraseOwnedBrandMedia(tx: Tx, userId: string) {
   await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
     tenantId + ":brand",
   ]);
+  await tx.query("UPDATE trainer_photo_jobs SET media=NULL,input='{}',status='deleted',updated_at=now() WHERE owner_user_id=$1", [userId]);
   const owned = await tx.query(
     "SELECT id FROM brand_media WHERE owner_user_id=$1 ORDER BY id FOR UPDATE",
     [userId],
@@ -440,6 +441,50 @@ export async function publicCoachSite(db: Database, slug: string) {
   return { ...data, products };
 }
 
+export async function sanitizeBrandPhoto(raw: Buffer, crop?: { left: number; top: number; width: number; height: number }) {
+  let bytes: Buffer, width: number, height: number;
+  try {
+    let image = sharp(raw, {
+      limitInputPixels: 40_000_000,
+      animated: false,
+    });
+    const meta = await image.metadata();
+    if (
+      !["jpeg", "png", "webp", "heif"].includes(meta.format ?? "") ||
+      (meta.pages ?? 1) > 1
+    )
+      throw Error();
+    if (crop) {
+      if (
+        crop.left + crop.width > (meta.width ?? 0) ||
+        crop.top + crop.height > (meta.height ?? 0)
+      )
+        throw Error();
+      image = image.extract(crop);
+    }
+    const result = await image
+      .rotate()
+      .resize({
+        width: 2400,
+        height: 2400,
+        fit: "inside",
+        withoutEnlargement: true,
+      })
+      .jpeg({ quality: 88 })
+      .toBuffer({ resolveWithObject: true });
+    bytes = result.data;
+    width = result.info.width;
+    height = result.info.height;
+  } catch {
+    throw fail(
+      400,
+      "IMAGE_INVALID",
+      "Choose a still JPEG, PNG or WebP image with a valid crop",
+    );
+  }
+  return { bytes, width, height };
+}
+
 export function registerCoachSite(app: FastifyInstance, db: Database) {
   app.post(
     "/api/v1/tenant/media",
@@ -471,46 +516,7 @@ export function registerCoachSite(app: FastifyInstance, db: Database) {
         throw fail(400, "IMAGE_INVALID", "Choose valid base64 image data");
       if (!raw.length || raw.length > 8 * 1024 * 1024)
         throw fail(400, "IMAGE_SIZE", "Choose an image up to 8 MB");
-      let bytes: Buffer, width: number, height: number;
-      try {
-        let image = sharp(raw, {
-          limitInputPixels: 40_000_000,
-          animated: false,
-        });
-        const meta = await image.metadata();
-        if (
-          !["jpeg", "png", "webp", "heif"].includes(meta.format ?? "") ||
-          (meta.pages ?? 1) > 1
-        )
-          throw Error();
-        if (b.crop) {
-          if (
-            b.crop.left + b.crop.width > (meta.width ?? 0) ||
-            b.crop.top + b.crop.height > (meta.height ?? 0)
-          )
-            throw Error();
-          image = image.extract(b.crop);
-        }
-        const result = await image
-          .rotate()
-          .resize({
-            width: 2400,
-            height: 2400,
-            fit: "inside",
-            withoutEnlargement: true,
-          })
-          .jpeg({ quality: 88 })
-          .toBuffer({ resolveWithObject: true });
-        bytes = result.data;
-        width = result.info.width;
-        height = result.info.height;
-      } catch {
-        throw fail(
-          400,
-          "IMAGE_INVALID",
-          "Choose a still JPEG, PNG or WebP image with a valid crop",
-        );
-      }
+      const { bytes, width, height } = await sanitizeBrandPhoto(raw, b.crop);
       const digest = createHash("sha256").update(bytes).digest("hex");
       return ownerTransaction(db, a, async (tx, tenant) => {
         const [m] = await tx.query(
@@ -541,7 +547,7 @@ export function registerCoachSite(app: FastifyInstance, db: Database) {
     return ownerTransaction(db, a, async (tx, tenant) => ({
       items: (
         await tx.query(
-          "SELECT id,filename,width,height,created_at FROM brand_media ORDER BY created_at DESC,id DESC LIMIT 48 OFFSET $1",
+          "SELECT id,filename,width,height,created_at,generated FROM brand_media ORDER BY created_at DESC,id DESC LIMIT 48 OFFSET $1",
           [q.offset],
         )
       ).map((m) => ({ ...m, url: mediaUrl(m.id) })),
@@ -597,6 +603,7 @@ export function registerCoachSite(app: FastifyInstance, db: Database) {
             ? "This photo is used by your website draft, live website or a retained published version. Keep it available so those versions can be restored."
             : "Remove this photo from your design and galleries before deleting it",
         );
+      await tx.query("UPDATE trainer_photo_jobs SET media=NULL,input='{}',status='deleted',updated_at=now() WHERE input->'referenceIds' ? $1", [mediaId]);
       await tx.query("DELETE FROM brand_media WHERE id=$1", [mediaId]);
       await event(tx, a, "brand.photo_deleted", mediaId);
       return { ok: true };

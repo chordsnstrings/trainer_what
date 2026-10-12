@@ -71,6 +71,7 @@ import {
   readCoachWearablePolicy,
 } from "./healthkit-sync.ts";
 import { registerCoachSite, saveCoachBrand } from "./coach-site.ts";
+import { registerTrainerPhotoStudio } from "./trainer-photo-studio.ts";
 import { registerSiteBuilderStarter } from "./site-builder-starter.ts";
 import { registerDiscovery } from "./discovery.ts";
 import { registerEarlyAccess } from "./early-access.ts";
@@ -743,6 +744,7 @@ export async function buildApp(
   });
   registerCoachSite(app, db);
   registerSiteBuilderStarter(app, db);
+  registerTrainerPhotoStudio(app, db);
   registerDiscovery(app, db);
   registerMarketing(app, db, {
     instagramTransport: options.providers?.instagram,

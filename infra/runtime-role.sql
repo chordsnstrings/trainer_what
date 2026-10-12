@@ -13,6 +13,9 @@ GRANT SELECT ON schema_migrations TO trainer_service;
 GRANT SELECT,INSERT,UPDATE,DELETE ON users,tenants,memberships,sessions,one_time_tokens,user_security,provider_events,provider_objects,domain_mappings TO trainer_service;
 -- Private subscriber previews (094): created through checked owner routes.
 GRANT SELECT,INSERT,UPDATE,DELETE ON trainer_preview_profiles,trainer_preview_sessions TO trainer_service;
+-- Finalize only already-reserved photo requests after owner access changes.
+GRANT SELECT,UPDATE ON trainer_photo_jobs TO trainer_service;
+GRANT EXECUTE ON FUNCTION finish_trainer_photo_cost(uuid,text,text) TO trainer_service;
 -- RLS predicates also run while the service role plans ordinary user reads.
 GRANT EXECUTE ON FUNCTION trainer_preview_member(uuid),trainer_preview_active(uuid) TO trainer_service;
 GRANT SELECT,INSERT,UPDATE ON platform_settings TO trainer_service;

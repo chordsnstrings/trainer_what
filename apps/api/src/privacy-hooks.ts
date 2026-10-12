@@ -188,6 +188,7 @@ export const privacyHooks: PrivacyHooks = {
       notifications: await rows(tx, "notifications", "*", "user_id=$1", [
         userId,
       ]),
+      photoDrafts: await exists(tx, "trainer_photo_jobs") ? await tx.query("SELECT * FROM export_personal_photo_drafts($1)", [userId]) : [],
       uploadedMedia: await rows(
         tx,
         "brand_media",
@@ -258,6 +259,7 @@ export const privacyHooks: PrivacyHooks = {
     // Every clone is queued for provider deletion (the queue stays after
     // closure) before the clones and recordings are removed.
     await closeWorkspaceVoiceClones(tx);
+    if (await exists(tx, "trainer_photo_jobs")) await tx.query("UPDATE trainer_photo_jobs SET status='deleted',media=NULL,input='{}',updated_at=now()");
     for (const table of [
       "voice_session_clips",
       "voice_sessions",

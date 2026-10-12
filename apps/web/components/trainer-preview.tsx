@@ -30,7 +30,7 @@ export function TryMyAI() {
   }
   return <div className="trainer-preview-entry">
     <div><strong>Experience your own coaching</strong><p>Chat, work out and try nutrition as your subscriber.</p></div>
-    <button type="button" className="button secondary" disabled={busy} onClick={() => void start()}>{busy ? "Opening your test profile…" : "Try my AI"}</button>
+    <button type="button" className="button secondary" disabled={busy} onClick={() => void start()}>{busy ? "Opening your test profile…" : "Try client experience"}</button>
     {error && <p role="alert" className="notice error">{error}</p>}
   </div>;
 }

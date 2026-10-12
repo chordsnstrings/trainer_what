@@ -107,6 +107,7 @@
 .workspace.platform-ui :where(input[type=checkbox], input[type=radio]) { accent-color: var(--green); inline-size: 18px; block-size: 18px; flex-shrink: 0; }
 .workspace.platform-ui :where(.field, .grid-form > label) { display: flex; flex-direction: column; gap: 8px; margin-block-end: 16px; font-size: 13px; font-weight: 500; }
 .workspace.platform-ui .field small { font-weight: 400; line-height: 1.5; }
+.workspace.platform-ui .field small { text-transform: none; letter-spacing: normal; font-size: 12px; }
 .workspace.platform-ui .field :where(input, select, textarea) { inline-size: 100%; }
 .workspace.platform-ui :where(.notice, .dev-banner, .provider-sandbox-banner) { padding: 12px 16px; border-radius: 8px; margin-block-end: 20px; font-size: 13px; line-height: 1.6; }
 .workspace.platform-ui .badge { font-size: 12px; line-height: 20px; padding: 2px 8px; border-radius: 6px; }
@@ -180,3 +181,107 @@
 
 .workspace.platform-ui details.card > summary { cursor: pointer; font-weight: 600; min-block-size: 24px; }
 .workspace.platform-ui details.card[open] > summary { margin-block-end: 20px; }
+
+/* Shared spacing for ordinary product forms as well as Field components.
+   Keep website canvases, conversation layouts and specialised players scoped. */
+.workspace.platform-ui .page-heading:has(> h1) {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.workspace.platform-ui .page-heading:has(> h1) > :is(h1, p) { margin-block: 0; }
+.workspace:where(.platform-ui, .member-shell) :where(.stack):not(:where(.sbe *, .sb-site *, .onboarding-chat *, .voice-session *)) {
+  display: grid;
+  gap: 20px;
+  min-inline-size: 0;
+}
+.workspace:where(.platform-ui, .member-shell) .stack > .card { margin-block: 0; }
+.workspace:where(.platform-ui, .member-shell) .card > form:not([class]) {
+  display: grid;
+  gap: 16px;
+  min-inline-size: 0;
+}
+.workspace:where(.platform-ui, .member-shell) .card > form:not([class]) > :is(.field, p, .notice) { margin-block: 0; }
+.workspace:where(.platform-ui, .member-shell) :where(.card, .workspace-dialog) label:not([class]):not(:where(.sbe *, .sb-site *, .onboarding-chat *, .setup-real-preview *)) {
+  display: grid;
+  gap: 8px;
+  line-height: 1.5;
+  min-inline-size: 0;
+}
+.workspace:where(.platform-ui, .member-shell) :where(.card, .workspace-dialog) label:has(> input:is([type=checkbox], [type=radio])):not(:where(.sbe *, .sb-site *, .onboarding-chat *, .setup-real-preview *)) {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 10px;
+  min-block-size: 32px;
+  padding-block: 4px;
+  line-height: 1.5;
+}
+.workspace:where(.platform-ui, .member-shell) label > input:is([type=checkbox], [type=radio]) { margin: 2px 0 0; flex-shrink: 0; }
+.workspace:where(.platform-ui, .member-shell) .card fieldset:not(:where(.sbe *, .sb-site *)) {
+  display: grid;
+  gap: 12px;
+  min-inline-size: 0;
+  margin: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.workspace:where(.platform-ui, .member-shell) .card fieldset legend { padding-inline: 6px; font-weight: 600; }
+.workspace:where(.platform-ui, .member-shell) :where(.actions) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.workspace:where(.platform-ui, .member-shell) .tabs { gap: 4px; flex-wrap: wrap; }
+.workspace:where(.platform-ui, .member-shell) .tabs > a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-block-size: 44px;
+  padding: 10px 16px;
+  border-block-end: 2px solid transparent;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.workspace:where(.platform-ui, .member-shell) .tabs > a:hover { color: var(--ink); background: var(--mint); }
+.workspace:where(.platform-ui, .member-shell) .tabs > a[aria-current=page] { color: var(--ink); border-block-end-color: var(--ink); font-weight: 650; }
+.workspace:where(.platform-ui, .member-shell) .card > :is(h2, h3):first-child { margin-block-start: 0; }
+.domain-connect-form { display: grid; gap: 16px; max-inline-size: 760px; }
+.domain-connect-form > .field, .domain-connect-form > .check-field { margin: 0; }
+.retention-panel > form { max-inline-size: 760px; margin-block: 24px; }
+.retention-saved { padding-block-start: 16px; border-block-start: 1px solid var(--line); }
+.retention-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-block: 24px; }
+.retention-metrics > div { padding: 16px; border: 1px solid var(--line); background: var(--mint); border-radius: 10px; min-inline-size: 0; }
+.retention-metrics dt { color: var(--muted); font-size: 13px; line-height: 1.5; }
+.retention-metrics dd { margin: 8px 0 0; font-size: 26px; font-weight: 600; line-height: 1.25; }
+.retention-metrics dd small { display: block; margin-block-start: 6px; font-size: 12px; font-weight: 400; line-height: 1.5; }
+.retention-metrics .retention-comparison { grid-column: 1 / -1; background: var(--white); }
+.retention-comparison dd { font-size: 14px; font-weight: 400; }
+.retention-evidence { padding-block: 12px; border-block-start: 1px solid var(--line); margin-block: 16px; }
+.retention-evidence summary { padding-block: 8px; cursor: pointer; font-weight: 500; }
+.retention-evidence p { max-inline-size: 85ch; line-height: 1.6; }
+@media (max-width: 800px) {
+  .retention-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 650px) {
+  .workspace:where(.platform-ui, .member-shell) :where(.stack) { gap: 16px; }
+  .workspace:where(.platform-ui, .member-shell) .tabs > a { padding-inline: 12px; }
+  .domain-connect-form { max-inline-size: none; }
+  .domain-connect-form .button-row .button { inline-size: 100%; }
+  .retention-panel .actions { align-items: stretch; }
+  .retention-panel .actions > button { flex: 1 1 180px; }
+  .retention-metrics > div { padding: 12px; }
+}
+/* Radio inputs are compact controls; the legacy generic input rule also
+   selected radios and gave them full-width text-field padding. */
+.workspace.platform-ui input:is([type=checkbox], [type=radio]) { inline-size: 18px; min-inline-size: 18px; max-inline-size: 18px; block-size: 18px; min-block-size: 18px; padding: 0; border-radius: 0; flex: 0 0 18px; }
+.workspace.platform-ui input[type=radio] { border-radius: 50%; }
+.workspace:where(.platform-ui, .member-shell) .stack > :is(.page-heading, .tabs) { margin-block-end: 0; }
+.workspace.platform-ui form small { text-transform: none; letter-spacing: normal; font-size: 12px; line-height: 1.5; }
+.workspace.platform-ui .design-tabs { flex-wrap: wrap; gap: 6px; }
+.workspace.platform-ui .design-tabs button { min-block-size: 42px; white-space: normal; min-inline-size: 0; }
+@media(max-width: 600px) {
+  .workspace.platform-ui .design-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
