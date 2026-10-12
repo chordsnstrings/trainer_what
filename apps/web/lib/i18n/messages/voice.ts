@@ -133,7 +133,7 @@ export default defineMessages(
     voiceOff:
       "Your coach’s voice is off and its stored audio for you was removed. The session continues with text.",
     generating:
-      "Your coach’s voice is being prepared. You can start now; lines that are not ready yet are shown as text.",
+      "Your coach’s voice is being prepared. Playback starts as soon as the opening guidance is ready; the rest loads in the background. Choose Continue with text if you prefer not to wait.",
     capped:
       "Your coach’s voice is paused for now. The rest of this session is shown as text.",
     useApproved: "Use my coach’s approved voice",
@@ -375,7 +375,7 @@ export default defineMessages(
     agreeFirst: "يُرجى الموافقة على التفريغ النصي أولًا.",
     voiceOff: "أُوقف صوت مدربك وحُذف الصوت المخزّن لك. تستمر الجلسة نصيًا.",
     generating:
-      "جارٍ تجهيز صوت مدربك. يمكنك البدء الآن؛ تظهر الجمل غير الجاهزة بعد كنص.",
+      "جارٍ تجهيز صوت مدربك. يبدأ التشغيل فور جاهزية التوجيه الافتتاحي، ويستمر تجهيز الباقي في الخلفية. يمكنك المتابعة بالنص إذا كنت لا ترغب في الانتظار.",
     capped: "صوت مدربك متوقف حاليًا، وتظهر بقية هذه الجلسة كنص.",
     useApproved: "استخدام صوت مدربي المعتمد",
     unmute: "تشغيل الصوت",

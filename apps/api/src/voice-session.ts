@@ -2199,7 +2199,13 @@ export async function processVoiceSessions(db: Database) {
       await processVoiceSessionAudio(db, tenant.id);
       // Only explicitly requested workout narration runs for test subscribers;
       // ordinary member schedules/outreach remain excluded by RLS.
-      const previews = await db.system(tx => tx.query("SELECT DISTINCT p.user_id FROM trainer_preview_profiles p JOIN voice_sessions s ON s.tenant_id=p.tenant_id AND s.user_id=p.user_id JOIN memberships m ON m.tenant_id=p.tenant_id AND m.user_id=p.trainer_user_id AND m.role='owner' WHERE p.tenant_id=$1 AND p.archived_at IS NULL AND s.audio_status='generating' AND s.status IN ('ready','running') LIMIT 10", [tenant.id]), { tenantId: tenant.id });
+      // Discovery may read only service-owned profile metadata. voice_sessions
+      // is a tenant table: joining it here fails under the production runtime
+      // role before any preview clips are made. The verified preview scope in
+      // processVoiceSessionAudio finds pending work and rechecks its authority.
+      // Visit every current owner profile so idle profiles cannot fill a limit
+      // and starve another owner's requested session.
+      const previews = await db.system(tx => tx.query("SELECT p.user_id FROM trainer_preview_profiles p JOIN memberships m ON m.tenant_id=p.tenant_id AND m.user_id=p.trainer_user_id AND m.role='owner' WHERE p.tenant_id=$1 AND p.archived_at IS NULL ORDER BY p.user_id", [tenant.id]), { tenantId: tenant.id });
       for (const p of previews) await processVoiceSessionAudio(db, tenant.id, { previewMemberId: p.user_id, limit: 10 });
     } catch {
       console.error("Voice session audio preparation needs review");

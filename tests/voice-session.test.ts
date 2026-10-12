@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { createDatabase, putRecord, type Database } from "@trainer/db";
 import { buildApp } from "../apps/api/src/app.ts";
-import { processVoiceSessionAudio } from "../apps/api/src/voice-session.ts";
+import { processVoiceSessionAudio, processVoiceSessions } from "../apps/api/src/voice-session.ts";
 import { disableUserIntegrations } from "../apps/api/src/integrations-completion.ts";
 import { testIntegration } from "../packages/providers/src/configuration.ts";
 import { initialRunnerState, stepRunner } from "../packages/domain/src/voice-runner.ts";
@@ -711,8 +711,33 @@ test("a private trainer preview prepares the owner's verified voice in its own w
   const calls = mock.syntheses.length;
   await processVoiceSessionAudio(db, coach.tenantId, { limit: 2 });
   assert.equal(mock.syntheses.length, calls, "ordinary worker scope does not process private test members");
-  const made = await processVoiceSessionAudio(db, coach.tenantId, { previewMemberId: member.userId, limit: 2 });
-  assert.equal(made.generated, 2);
+  // Exercise discovery as well as clip generation. Production's service role
+  // cannot read voice_sessions directly; only verified tenant scopes can.
+  const role = process.env.DATABASE_URL ? "trainer_service" : "voice_worker_fixture_service";
+  if (!process.env.DATABASE_URL)
+    await db.system(async tx => {
+      await tx.query("CREATE ROLE voice_worker_fixture_service NOLOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT");
+      await tx.query("GRANT SELECT ON tenants,memberships,trainer_preview_profiles TO voice_worker_fixture_service");
+      await tx.query("GRANT EXECUTE ON FUNCTION trainer_preview_member(uuid),trainer_preview_active(uuid) TO voice_worker_fixture_service");
+    });
+  const discoveryErrors: string[] = [];
+  const restricted: Database = {
+    ...db,
+    system: (fn, options) => db.system(async tx => {
+      await tx.query(`SET LOCAL ROLE ${role}`);
+      const [permissions] = await tx.query("SELECT rolsuper,rolbypassrls,has_table_privilege(current_user,'voice_sessions','SELECT') AS direct FROM pg_roles WHERE rolname=current_user");
+      assert.equal(permissions.rolsuper, false);
+      assert.equal(permissions.rolbypassrls, false);
+      assert.equal(permissions.direct, false);
+      return fn(tx);
+    }, options).catch(error => {
+      discoveryErrors.push(String(error.message));
+      throw error;
+    }),
+  };
+  await processVoiceSessions(restricted);
+  assert.deepEqual(discoveryErrors, [], "preview discovery must run with the production service grants");
+  assert.ok(mock.syntheses.length >= calls + 2, "the background dispatcher must make the preview's opening cues");
   assert.ok(mock.syntheses.slice(calls).every(s => s.voiceId === "mock-trainer-voice"));
   const view = await ok(`/trainer-preview/run/voice-sessions/${prepared.id}`, "GET", undefined, preview);
   assert.equal(view.audioStatus, "generating");
@@ -727,7 +752,7 @@ test("a private trainer preview prepares the owner's verified voice in its own w
   await ok(`/trainer-preview/run/voice-sessions/${prepared.id}/transcribe`, "POST", { audio: wav("done"), type: "audio/wav", durationMs: 800 }, preview);
   assert.equal((await request(`/voice-sessions/${prepared.id}`, "GET", undefined, alex)).statusCode, 404);
   const costs = await db.tenant(reviewer, tx => tx.query("SELECT product,member_id FROM cost_events WHERE user_id=$1 AND task='voice.session'", [member.userId]));
-  assert.equal(costs.length, 2);
+  assert.equal(costs.length, view.audio.ready);
   assert.ok(costs.every(c => c.product === "trainer_setup" && c.member_id === null));
   await ok("/trainer-preview/end", "POST", {}, preview);
 });

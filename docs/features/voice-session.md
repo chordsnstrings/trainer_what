@@ -1,5 +1,26 @@
 # Voice coach that runs the workout session (package `core/voice-session`)
 
+## Private-preview worker discovery follow-up — 12 October 2026
+
+The owner reported a guided session remaining at `Preparing 0/41`. The top-level
+worker discovered preview work by joining `voice_sessions` in `db.system`, but
+production's restricted service role has no direct access to that tenant table.
+That query failed before entering the preview processing scope. The new regression
+runs `processVoiceSessions` through a restricted service connection, proves it has
+no direct voice-session access, and checks that opening clips are generated and
+billed as trainer setup. It failed before the fix; earlier coverage called the
+per-preview processing function directly and therefore missed discovery.
+
+Discovery now reads current profile/owner metadata only. The existing verified
+preview scope finds actual pending sessions and validates access, consent, rights,
+current prescriptions and each paid-send boundary. All current profiles are visited;
+idle profiles cannot fill a discovery limit and starve another requested session.
+No database permission or migration changes are needed. Already queued active
+sessions remain eligible without recreating them or repeating ambiguous purchases.
+The player copy now explains incremental preparation and explicit text continuation.
+TypeScript and 39 voice/preview/translation tests passed. This follow-up is awaiting
+mandatory release checks; see `CLAUDE_HANDOFF.md`.
+
 ## Guided player recovery and private preview — 12 October 2026
 
 Live in [PR #57](https://github.com/chordsnstrings/trainer_what/pull/57) as `5b1f3d7dd2f91b28661cad60dff70046068ad6f7`; [serving verification](https://github.com/chordsnstrings/trainer_what/actions/runs/38227638129) confirms the release. Private preview registers the real parameterized
