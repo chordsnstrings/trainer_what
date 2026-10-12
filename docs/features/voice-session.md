@@ -2,24 +2,15 @@
 
 ## Private-preview worker discovery follow-up — 12 October 2026
 
-The owner reported a guided session remaining at `Preparing 0/41`. The top-level
-worker discovered preview work by joining `voice_sessions` in `db.system`, but
-production's restricted service role has no direct access to that tenant table.
-That query failed before entering the preview processing scope. The new regression
-runs `processVoiceSessions` through a restricted service connection, proves it has
-no direct voice-session access, and checks that opening clips are generated and
-billed as trainer setup. It failed before the fix; earlier coverage called the
-per-preview processing function directly and therefore missed discovery.
+[PR #58](https://github.com/chordsnstrings/trainer_what/pull/58) is merged and live as `929429654f4b29702f465a6840033ad712803d3b`. Direct readiness confirmed HTTP 200 and that exact release at **11:01:10 UTC / 15:01:10 Dubai on 12 October 2026**; [serving verification](https://github.com/chordsnstrings/trainer_what/actions/runs/38238940114) passed.
 
-Discovery now reads current profile/owner metadata only. The existing verified
-preview scope finds actual pending sessions and validates access, consent, rights,
-current prescriptions and each paid-send boundary. All current profiles are visited;
-idle profiles cannot fill a discovery limit and starve another requested session.
-No database permission or migration changes are needed. Already queued active
-sessions remain eligible without recreating them or repeating ambiguous purchases.
-The player copy now explains incremental preparation and explicit text continuation.
-TypeScript and 39 voice/preview/translation tests passed. This follow-up is awaiting
-mandatory release checks; see `CLAUDE_HANDOFF.md`.
+The owner reported a private preview stuck at `Preparing 0/41`. The top-level worker joined tenant-only `voice_sessions` during service-level profile discovery, which the production runtime correctly rejects. A regression with the matching restricted service grants reproduced `permission denied for table voice_sessions`; earlier tests invoked the per-preview generator directly and missed discovery.
+
+Discovery now reads only current preview profile/owner metadata, then the existing verified owner/preview scope finds and generates pending audio. Every current profile is visited so idle profiles cannot fill a discovery limit and starve another request. No database grants, RLS, consent, voice rights or ambiguous-paid-outcome retry policy changed. Already queued active sessions remain eligible without recreating the workout. English/Arabic preparation copy accurately describes incremental playback and explicit text continuation.
+
+TypeScript and all 39 focused voice/preview/translation tests passed. All five [PR gates](https://github.com/chordsnstrings/trainer_what/actions/runs/38232878082) passed on `1b18fbdda70acdedcc195daef69aed1b8cb32f0d`, and all five [exact-main gates](https://github.com/chordsnstrings/trainer_what/actions/runs/38236190009) passed. Main application: **1,834 passed / 0 failed / 5 skipped**; PostgreSQL: **1,833 passed / 0 failed / 6 skipped**. The checks include the actual background dispatcher under restricted service permissions, setup-cost attribution, private-member isolation, browser guided-workout recovery/music/controls and production containers. No failed gate was bypassed.
+
+This is a reproduced and repaired application defect, not an inspection of the exact production subscriber session or a measured live-provider latency claim. Real trainer-voice quality and physical-phone playback remain unverified here. This receipt covers the verified feature SHA; the documentation-only follow-up changes no application behavior and runs ordinary automatic CI separately.
 
 ## Guided player recovery and private preview — 12 October 2026
 
