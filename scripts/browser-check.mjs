@@ -348,7 +348,9 @@ try {
   await subscriber.waitForURL("**/app");
   await subscriber.goto(base + "/app/program");
   await subscriber
-    .getByRole("button", { name: /^Start (workout|this session)$/ })
+    // This journey verifies the manual log's offline persistence. The main
+    // Training action opens the guided player, which has its own journey.
+    .getByRole("button", { name: "Use workout log", exact: true })
     .first()
     .click();
   await subscriber.waitForURL("**/app/workouts/*");

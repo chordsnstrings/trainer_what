@@ -712,7 +712,7 @@ try {
     waitUntil: "networkidle",
   });
   await subscriber.page
-    .getByRole("button", { name: "Start workout", exact: true })
+    .getByRole("button", { name: "Use workout log", exact: true })
     .first()
     .click();
   await subscriber.page.waitForURL("**/app/workouts/*");
