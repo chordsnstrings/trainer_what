@@ -1777,6 +1777,8 @@ export async function reviewPlanGeneration(db: Database, a: Actor, generationId:
     const { settings } = await loadPlanSettings(tx);
     const material = await trainerMaterial(tx);
     const profile: PlanProfile = gen.data.inputs.profile;
+    if (a.previewMemberId && gen.data.brainReleaseId !== material.release?.id)
+      throw fail(409, "PLAN_BRAIN_CHANGED", "Your published Brain changed; prepare a fresh test plan.");
     if (gen.data.type === "adaptation") return reviewAdaptation(tx, a, gen, b, { settings, material, profile, spot });
     if (b.action === "reject") {
       if (spot) {

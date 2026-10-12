@@ -246,7 +246,10 @@ test("subscriber preview calls the trainer's own verified voice, persists the re
     assert.ok(result.conversation.messages.some((m: any) => m.data.text === control.transcript));
     assert.equal(calls.stt, 1); assert.equal(calls.models.length, 1); assert.equal(calls.tts.length, 1);
     assert.equal(calls.tts[0].voice.id, "preview-trainer-voice");
-    assert.match(calls.tts[0].transcript, /trainer to review/);
+    const delivered = "What time do you have available?";
+    assert.equal(calls.tts[0].transcript, delivered);
+    assert.equal(result.conversation.messages.filter((m: any) => m.data.text === delivered).length, 1,
+      "private preview speaks its automatically delivered reply, not a review placeholder");
     assert.equal((await ok(p, path, body)).audio, result.audio);
     assert.equal(calls.stt, 1); assert.equal(calls.tts.length, 1);
     await ok(p, "/trainer-preview/end", {});

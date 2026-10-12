@@ -3,7 +3,7 @@
 import { before, after, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { createDatabase, type Database } from "@trainer/db";
+import { createDatabase, putRecord, type Database } from "@trainer/db";
 import { buildApp } from "../apps/api/src/app.ts";
 import { processVoiceSessionAudio } from "../apps/api/src/voice-session.ts";
 import { disableUserIntegrations } from "../apps/api/src/integrations-completion.ts";
@@ -12,6 +12,8 @@ import { initialRunnerState, stepRunner } from "../packages/domain/src/voice-run
 import { createMockTls, trustMockCa, type MockTls } from "./e2e/mocks/tls.ts";
 import { VoiceMock } from "./e2e/mocks/voice.ts";
 import { seedScope } from "./scope-fixtures.ts";
+import { cookieValue } from "./accounts-fixtures.ts";
+import { previewReviewer, previewRouteAllowed } from "../apps/api/src/trainer-preview-access.ts";
 
 let db: Database,
   app: Awaited<ReturnType<typeof buildApp>>,
@@ -49,6 +51,7 @@ let modelReply: unknown = null;
 /** When set, the model's reply content as written (for example in a code fence). */
 let modelContent: string | null = null;
 const modelPrompts: any[] = [];
+let afterVoiceResponse: (() => Promise<void>) | undefined;
 
 async function request(url: string, method: any = "GET", body?: any, actor?: any) {
   return app.inject({
@@ -129,7 +132,15 @@ before(async () => {
   await mock.start();
   globalThis.fetch = async (input: any, init?: any) => {
     const url = String(input instanceof Request ? input.url : input);
-    if (url.startsWith("https://voice.test/")) return originalFetch(url.replace("https://voice.test", mock.url), init);
+    if (url.startsWith("https://voice.test/")) {
+      const response = await originalFetch(url.replace("https://voice.test", mock.url), init);
+      if (url.includes("/text-to-speech/") && afterVoiceResponse) {
+        const callback = afterVoiceResponse;
+        afterVoiceResponse = undefined;
+        await callback();
+      }
+      return response;
+    }
     if (url.startsWith("https://model.test/")) {
       modelPrompts.push(JSON.parse(String(init?.body)));
       return Response.json({
@@ -564,6 +575,174 @@ test("a session prepared ahead from a planned session gets its audio before the 
     ),
     { clip: "unknown", cost: "unknown", session: "partial" },
   );
+});
+
+test("an opening cue becomes playable while the remaining audio is preparing; member-stopped guidance resumes without buying or replaying completed sets", async () => {
+  const user = await member("resume-voice@example.test", "Resume Voice");
+  await subscribe(user, ["training", "voice"]);
+  const workoutId = await startWorkout(user);
+  const prepared = await ok("/voice-sessions", "POST", { workoutId, playbackConsent: true }, user);
+  assert.equal(prepared.runRevision, 0);
+  await processVoiceSessionAudio(db, coach.tenantId, { limit: 1 });
+  const opening = await ok(`/voice-sessions/${prepared.id}`, "GET", undefined, user);
+  assert.equal(opening.audioStatus, "generating");
+  assert.ok(opening.audio.readyKeys.includes("l:" + opening.script.intro[0].id));
+  assert.equal((await ok(`/voice-sessions/${prepared.id}/audio?keys=l:${opening.script.intro[0].id}`, "GET", undefined, user)).clips.length, 1);
+  await processVoiceSessionAudio(db, coach.tenantId, { limit: 500 });
+  await ok(`/workouts/${workoutId}/sets`, "POST", { eventKey: randomUUID(), exercise: "Back squat", exerciseIndex: 0, set: 1, reps: 8, loadKg: 60 }, user);
+  const stoppedState = { ...initialRunnerState(prepared.script), phase: "stopped", stopReason: "member" };
+  await ok(`/voice-sessions/${prepared.id}/progress`, "POST", { fingerprint: prepared.scriptFingerprint, version: 0, state: stoppedState }, user);
+  await ok(`/voice-sessions/${prepared.id}/events`, "POST", { status: "stopped" }, user);
+  const stopped = await ok("/voice-sessions", "POST", { workoutId }, user);
+  assert.equal(stopped.runnable, false);
+  assert.equal(stopped.resumeAvailable, true);
+  assert.equal((await request(`/voice-sessions/${prepared.id}/audio`, "GET", undefined, user)).statusCode, 409);
+  const calls = mock.syntheses.length;
+  const resumed = await ok("/voice-sessions", "POST", { workoutId, resumeStopped: true, runRevision: 0 }, user);
+  assert.equal(resumed.id, prepared.id);
+  assert.equal(resumed.status, "ready");
+  assert.equal(resumed.runnable, true);
+  assert.equal(resumed.runRevision, 1);
+  assert.equal(resumed.progressVersion, 2);
+  assert.equal(resumed.audioStatus, "ready");
+  assert.equal(resumed.progress.state.phase, "paused");
+  assert.equal(resumed.progress.state.resume, "setup");
+  assert.equal(resumed.progress.state.set, 2);
+  assert.deepEqual(resumed.progress.state.logged, ["0:1"]);
+  assert.equal(resumed.progress.state.stopReason, undefined);
+  const replay = await ok("/voice-sessions", "POST", { workoutId, resumeStopped: true, runRevision: 0 }, user);
+  assert.equal(replay.runRevision, 1, "a repeated resume request is idempotent");
+  assert.equal((await request(`/voice-sessions/${prepared.id}/events`, "POST", { status: "stopped", runRevision: 0 }, user)).json().code, "GUIDED_PROGRESS_CONFLICT");
+  assert.equal((await request(`/voice-sessions/${prepared.id}/progress`, "POST", { fingerprint: prepared.scriptFingerprint, version: 2, state: stoppedState, runRevision: 0 }, user)).json().code, "GUIDED_PROGRESS_CONFLICT");
+  await processVoiceSessionAudio(db, coach.tenantId, { limit: 500 });
+  assert.equal(mock.syntheses.length, calls);
+  await ok(`/voice-sessions/${prepared.id}/events`, "POST", { status: "stopped", runRevision: 1 }, user);
+  await db.tenant(seedScope(coach), tx => tx.query("UPDATE voice_sessions SET end_reason='pain' WHERE id=$1", [prepared.id]));
+  const blocked = await request("/voice-sessions", "POST", { workoutId, resumeStopped: true, runRevision: 1 }, user);
+  assert.equal(blocked.statusCode, 409);
+  assert.equal(blocked.json().code, "VOICE_SESSION_ENDED");
+  assert.equal((await ok(`/voice-sessions/${prepared.id}`, "GET", undefined, user)).resumeAvailable, false);
+});
+
+test("the audio endpoint refuses stale prescriptions and ended workouts without waiting for another prepare", async () => {
+  const user = await member("current-voice@example.test", "Current Voice");
+  await subscribe(user, ["training", "voice"]);
+  const workoutId = await startWorkout(user);
+  const prepared = await ok("/voice-sessions", "POST", { workoutId, playbackConsent: true }, user);
+  const prior = await scalar("SELECT data FROM records WHERE id=$1", [workoutId]);
+  const changed = structuredClone(prior.data);
+  changed.program.exercises[0].reps = 9;
+  await db.tenant(seedScope(coach), tx => tx.query("UPDATE records SET data=$2 WHERE id=$1", [workoutId, JSON.stringify(changed)]));
+  const stale = await request(`/voice-sessions/${prepared.id}/audio`, "GET", undefined, user);
+  assert.equal(stale.statusCode, 409);
+  assert.equal(stale.json().code, "VOICE_SCRIPT_INVALID");
+  await db.tenant(seedScope(coach), tx => tx.query("UPDATE records SET data=$2,status='completed' WHERE id=$1", [workoutId, JSON.stringify(prior.data)]));
+  assert.equal((await request(`/voice-sessions/${prepared.id}/audio`, "GET", undefined, user)).json().code, "WORKOUT_STATE");
+  const ended = await ok(`/voice-sessions/${prepared.id}`, "GET", undefined, user);
+  assert.equal(ended.runnable, false);
+  assert.equal(ended.resumeAvailable, false);
+});
+
+test("worker rechecks member rights during a batch and does not deliver the in-flight clip or buy later clips after takeover", async () => {
+  const user = await member("held-voice@example.test", "Held Voice");
+  await subscribe(user, ["training", "voice"]);
+  const workoutId = await startWorkout(user);
+  const prepared = await ok("/voice-sessions", "POST", { workoutId, playbackConsent: true }, user);
+  const calls = mock.syntheses.length;
+  afterVoiceResponse = async () => { await ok("/takeover", "POST", { subscriberId: user.userId, active: true }, coach); };
+  try {
+    await processVoiceSessionAudio(db, coach.tenantId, { limit: 500 });
+    assert.equal(mock.syntheses.length, calls + 1);
+    const view = await ok(`/voice-sessions/${prepared.id}`, "GET", undefined, user);
+    assert.equal(view.runnable, false);
+    assert.equal(view.audio.ready, 0);
+    assert.equal(view.unavailableReason.code, "TRAINING_HELD");
+    assert.equal((await scalar("SELECT count(*)::int AS n FROM voice_session_clips WHERE session_id=$1 AND audio IS NOT NULL", [prepared.id])).n, 0);
+  } finally { afterVoiceResponse = undefined; }
+});
+
+test("worker respects consent withdrawn while speech is in flight and does not buy later clips", async () => {
+  const user = await member("withdraw-voice@example.test", "Withdraw Voice");
+  await subscribe(user, ["training", "voice"]);
+  const workoutId = await startWorkout(user);
+  const prepared = await ok("/voice-sessions", "POST", { workoutId, playbackConsent: true }, user);
+  const calls = mock.syntheses.length;
+  afterVoiceResponse = async () => { await ok("/voice-sessions/consent", "POST", { playback: false }, user); };
+  try {
+    await processVoiceSessionAudio(db, coach.tenantId, { limit: 500 });
+    await processVoiceSessionAudio(db, coach.tenantId, { limit: 500 });
+    assert.equal(mock.syntheses.length, calls + 1);
+    const view = await ok(`/voice-sessions/${prepared.id}`, "GET", undefined, user);
+    assert.equal(view.mode, "text");
+    assert.equal(view.audioStatus, "revoked");
+    assert.equal(view.audio.ready, 0);
+    const cost = await scalar("SELECT status FROM cost_events WHERE user_id=$1 AND task='voice.session'", [user.userId]);
+    assert.equal(cost.status, "estimated", "the one actual provider purchase is accounted even when playback is withdrawn");
+  } finally { afterVoiceResponse = undefined; }
+});
+
+test("voice readiness requires the trainer's actual provider voice identifier", async () => {
+  await db.tenant(seedScope(coach), tx => tx.query("UPDATE trainer_voices SET provider_voice_id=NULL WHERE status='verified'"));
+  try {
+    const view = await ok(`/voice-sessions/workout/${alexWorkout}`, "GET", undefined, alex);
+    assert.equal(view.gate.voiceReady, false);
+    assert.equal(view.gate.mode, "text");
+    assert.ok(view.gate.reasons.some((r: any) => r.code === "VOICE_NOT_VERIFIED"));
+  } finally {
+    await db.tenant(seedScope(coach), tx => tx.query("UPDATE trainer_voices SET provider_voice_id='mock-trainer-voice' WHERE status='verified'"));
+  }
+});
+
+test("a private trainer preview prepares the owner's verified voice in its own worker scope without customer billing", async () => {
+  for (const suffix of ["", "/audio", "/utterance", "/transcribe", "/events", "/progress"])
+    assert.equal(previewRouteAllowed("POST", "/api/v1/voice-sessions/:id" + suffix), true);
+  for (const suffix of ["style", "style/suggestions", "one-on-one", "one-on-one/draft", "outcomes"])
+    assert.equal(previewRouteAllowed("POST", "/api/v1/voice-sessions/" + suffix), false);
+  const started = await request("/trainer-preview/start", "POST", {}, coach);
+  assert.equal(started.statusCode, 200, started.body);
+  const preview = { cookie: coach.cookie + "; " + cookieValue(started, "trainer_preview") };
+  const member = (await ok("/trainer-preview/run/bootstrap", "GET", undefined, preview)).user;
+  const reviewer = previewReviewer({ ...coach, role: "owner" }, member.userId);
+  const workout = await db.tenant(reviewer, tx => putRecord(tx, reviewer, "workout", {
+    program: { title: "Private voice workout", goal: "Strength practice", daysPerWeek: 3, exercises: [{ name: "Back squat", sets: 2, reps: 8, loadKg: 20, restSeconds: 30 }] },
+  }, { ownerId: member.userId, status: "active" }));
+  const prepared = await ok("/trainer-preview/run/voice-sessions", "POST", { workoutId: workout.id, playbackConsent: true }, preview);
+  assert.equal(prepared.mode, "voice");
+  const calls = mock.syntheses.length;
+  await processVoiceSessionAudio(db, coach.tenantId, { limit: 2 });
+  assert.equal(mock.syntheses.length, calls, "ordinary worker scope does not process private test members");
+  const made = await processVoiceSessionAudio(db, coach.tenantId, { previewMemberId: member.userId, limit: 2 });
+  assert.equal(made.generated, 2);
+  assert.ok(mock.syntheses.slice(calls).every(s => s.voiceId === "mock-trainer-voice"));
+  const view = await ok(`/trainer-preview/run/voice-sessions/${prepared.id}`, "GET", undefined, preview);
+  assert.equal(view.audioStatus, "generating");
+  assert.ok(view.script.intro.every((line: any) => view.audio.readyKeys.includes("l:" + line.id)));
+  const audio = await ok(`/trainer-preview/run/voice-sessions/${prepared.id}/audio`, "GET", undefined, preview);
+  assert.ok(audio.clips.some((clip: any) => clip.key === prepared.script.intro[0].id));
+  await ok(`/trainer-preview/run/voice-sessions/${prepared.id}/progress`, "POST", { fingerprint: prepared.scriptFingerprint, version: 0, state: initialRunnerState(prepared.script), runRevision: 0 }, preview);
+  await ok(`/trainer-preview/run/voice-sessions/${prepared.id}/events`, "POST", { status: "running", runRevision: 0 }, preview);
+  const heard = await ok(`/trainer-preview/run/voice-sessions/${prepared.id}/utterance`, "POST", { transcript: "ready" }, preview);
+  assert.equal(heard.command.type, "resume");
+  await ok("/trainer-preview/run/voice-sessions/consent", "POST", { transcription: true }, preview);
+  await ok(`/trainer-preview/run/voice-sessions/${prepared.id}/transcribe`, "POST", { audio: wav("done"), type: "audio/wav", durationMs: 800 }, preview);
+  assert.equal((await request(`/voice-sessions/${prepared.id}`, "GET", undefined, alex)).statusCode, 404);
+  const costs = await db.tenant(reviewer, tx => tx.query("SELECT product,member_id FROM cost_events WHERE user_id=$1 AND task='voice.session'", [member.userId]));
+  assert.equal(costs.length, 2);
+  assert.ok(costs.every(c => c.product === "trainer_setup" && c.member_id === null));
+  await ok("/trainer-preview/end", "POST", {}, preview);
+});
+
+test("preparing an existing session selects the trainer's new verified voice version", async () => {
+  const before = await scalar("SELECT voice_id,voice_version FROM voice_sessions WHERE id=$1", [alexSession.id]);
+  const prior = await ok(`/voice-sessions/${alexSession.id}`, "GET", undefined, alex);
+  await db.tenant(seedScope(coach), tx => tx.query("UPDATE trainer_voices SET version=version+1 WHERE id=$1", [before.voice_id]));
+  const upgraded = await ok("/voice-sessions", "POST", { workoutId: alexWorkout }, alex);
+  assert.equal(upgraded.id, alexSession.id);
+  assert.equal(upgraded.mode, "voice");
+  assert.equal(upgraded.audioStatus, "generating");
+  assert.equal(upgraded.audio.ready, 0, "old voice clips are never advertised as the newly activated trainer voice");
+  assert.ok(upgraded.audio.revision && upgraded.audio.revision !== prior.audio.revision, "the player must discard clips from the previous voice version");
+  assert.equal((await scalar("SELECT voice_version FROM voice_sessions WHERE id=$1", [alexSession.id])).voice_version, before.voice_version + 1);
 });
 
 test("withdrawing playback consent or revoking the trainer voice removes stored audio", async () => {

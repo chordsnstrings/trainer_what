@@ -3,7 +3,8 @@ import { VoiceOneOnOne } from "./voice-one-on-one";
 import { BrainFidelity } from "./brain-fidelity";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { useConversationMotion } from "./onboarding-motion";
-import Link from "next/link";
+import Link from "./preview-navigation";
+import { previewChanged } from "./trainer-preview";
 import { ArrowUp, ArrowDown, Send, Check, MessageCircle, Pause, RotateCcw, Phone, Mic, MoreHorizontal, ChevronRight, Sparkles } from "lucide-react";
 import type { ChatData, ChatMessage, OnboardingAttachment } from "../../../packages/domain/src/onboarding-chat";
 import type { CoachingCoverage } from "../../../packages/domain/src/coaching-interview";
@@ -15,7 +16,7 @@ import { ConversationTools, type ConversationPanel } from "./onboarding-tools";
 import { chatAppearance, onboardingRequest as request, type ChatAppearance } from "../lib/onboarding-http";
 
 type State = ChatData & {
-  id: string; version: number; ready: boolean; missing: string[]; programReady?: boolean;
+  id: string; version: number; ready: boolean; missing: string[]; programReady?: boolean; profileDirty?: boolean;
   permissions: { coaching: boolean; nutrition: boolean; nutritionIncluded: boolean; active: boolean };
   setup?: any; brain?: any;
   coachingCoverage?: CoachingCoverage;
@@ -108,6 +109,7 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
     const id = window.setInterval(() => { void load(); }, 4000);
     return () => window.clearInterval(id);
   }, [state?.pending?.id, sending, load]);
+  useEffect(() => { if (state?.applied.profile) previewChanged(); }, [state?.applied.profile]);
   useEffect(() => { if (state && !state.permissions.coaching) { setFiles([]); setOptimistic(null); setOlder([]); } }, [state?.permissions.coaching, setFiles]);
   useLayoutEffect(() => {
     const root = thread.current;
@@ -163,7 +165,10 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
         if (!next.error) { setAnswerMode(false); setScenarioMode(false); }
       }
       // A failed background refresh must never turn a successful save into a resend.
-      if (!next.error && path.endsWith("/actions")) void Promise.resolve(onSaved?.()).catch(() => {});
+      if (!next.error && (path.endsWith("/actions") || next.applied?.profile)) {
+        previewChanged();
+        void Promise.resolve(onSaved?.()).catch(() => {});
+      }
       return next;
     } catch (e) {
       if (mounted.current) {
@@ -180,7 +185,7 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
     if ((!clean && !files.length) || !state || busy || uploading || flight.current) return;
     if (answerMode && currentCase) { await act("quiz-answer", { roundId: state.brain.quiz.open.id, caseId: currentCase.id, verdict: "change", text: clean }); return; }
     if (scenarioMode) { await act("scenario", { text: clean, ruleId, escalate }); return; }
-    await transmit("/onboarding-chat/messages", { id: crypto.randomUUID(), version: state.version, mode, text: clean, ...(files.length ? { attachmentIds: files.map(f => f.id), attachmentRights: true } : {}) }, clean);
+    await transmit("/onboarding-chat/messages", { id: crypto.randomUUID(), version: state.version, mode, text: clean, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, ...(files.length ? { attachmentIds: files.map(f => f.id), attachmentRights: true } : {}) }, clean);
   }
   async function allow(food = false) {
     if (flight.current) return;
@@ -290,9 +295,10 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
             <span className="sr-only">{message.from === "person" ? "You" : "Assistant"}: </span>
             {message.attachments?.map(file => <OnboardingFile file={file} key={file.id} />)}
             <p className="onboarding-message-content" dir="auto">{message.text}</p>
+            {message.destination && <Link className="onboarding-message-link" href={message.destination === "training" ? "/app/program" : "/app/nutrition"}>Open {message.destination === "training" ? "Training" : "Nutrition"}<ChevronRight size={14} /></Link>}
             {i === lastAssistant && !busy && <div className="onboarding-message-actions">
-              {state.ready && !state.applied.profile && <button type="button" className="onboarding-message-link" onClick={() => setPanel("details")}>Review my {teaching ? "profile and page" : "answers"}<ChevronRight size={14} /></button>}
-              {!teaching && state.applied.profile && <Link className="onboarding-message-link" href="/app/program">{state.programReady ? "Open my workout" : "Check my training plan"}<ChevronRight size={14} /></Link>}
+              {state.ready && (!state.applied.profile || state.profileDirty) && <button type="button" className="onboarding-message-link" onClick={() => setPanel("details")}>Review my {teaching ? "profile and page" : "answers"}<ChevronRight size={14} /></button>}
+              {!teaching && state.applied.profile && !message.destination && <Link className="onboarding-message-link" href="/app/program">{state.programReady ? "Open my workout" : "Check my training plan"}<ChevronRight size={14} /></Link>}
             </div>}
             <span className="onboarding-message-meta">{message.source === "voice" && <Mic size={11} aria-label="From your voice conversation" />}<time dateTime={message.at}>{new Date(message.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time>{message.from === "person" && (optimistic?.id === message.id ? <span className="onboarding-saving">{error ? "Not confirmed" : "Sending…"}</span> : <Check className="onboarding-saved-check" size={13} aria-label="Saved" />)}</span>
           </div>)}
@@ -312,6 +318,7 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
             <div className="onboarding-options"><button className="onboarding-reply" disabled={busy} onClick={() => void act("quiz-answer", { roundId: state.brain.quiz.open.id, caseId: currentCase.id, verdict: "yes" })}>Yes, that sounds like me</button><button className="onboarding-reply" disabled={busy} onClick={() => { setAnswerMode(true); setScenarioMode(false); input.current?.focus(); }}>I'd say it differently</button></div>
           </div>}
           {!teaching && state.applied.profile && <>
+            {!state.profileDirty && <div className="onboarding-inline-card"><p>Your profile is saved. Keep chatting to check your plan, ask questions or change what works for you.</p><Link className="button secondary" href="/app/chat">Continue with my coach</Link></div>}
             {state.permissions.nutritionIncluded && !state.permissions.nutrition && <div className="onboarding-inline-card"><p>Your membership includes nutrition. Want to talk through food preferences too?</p><label className="onboarding-choice"><input type="checkbox" checked={nutritionConsent} onChange={e => setNutritionConsent(e.target.checked)} /> I allow nutrition data processing and AI meal planning.</label><button className="button secondary" disabled={!nutritionConsent || busy} onClick={() => void allow(true)}>Continue with food preferences</button><Link className="text-link" href="/app/nutrition">Review nutrition permissions</Link></div>}
           </>}
           {!busy && !state.paused && !answerMode && !scenarioMode && showSuggestions && <div className="onboarding-options" aria-label="Suggested replies">

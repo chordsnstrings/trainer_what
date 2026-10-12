@@ -149,7 +149,10 @@ export function MemberToday({
   });
   const status = todayStatus(data, locale);
   const firstName = String(state.user.name ?? "").split(" ")[0];
-  const start = async (action: Extract<TodayAction, { kind: "start" }>) => {
+  const start = async (
+    action: Extract<TodayAction, { kind: "start" }>,
+    guided = true,
+  ) => {
     setStarting(true);
     setStartError("");
     try {
@@ -159,7 +162,9 @@ export function MemberToday({
           ? { plannedSessionId: action.plannedSessionId }
           : {}),
       });
-      router.push(`/app/workouts/${workout.id}`);
+      router.push(
+        `/app/${guided ? "voice-session" : "workouts"}/${workout.id}`,
+      );
     } catch (e: any) {
       setStartError(
         e.code === "WORKOUT_ACTIVE"
@@ -239,7 +244,15 @@ export function MemberToday({
               <ArrowRight size={18} aria-hidden="true" />
             </Link>
           )}
-          {focus.action?.kind === "start" && (
+          {focus.action?.kind === "start" && focus.action.plannedSessionId && (
+            <Link
+              className="button today-primary"
+              href={`/app/voice-session/planned/${focus.action.plannedSessionId}`}
+            >
+              {t("fOpenGuided")} <ArrowRight size={18} aria-hidden="true" />
+            </Link>
+          )}
+          {focus.action?.kind === "start" && !focus.action.plannedSessionId && (
             <button
               type="button"
               className="button today-primary"
@@ -250,8 +263,23 @@ export function MemberToday({
                 )
               }
             >
-              {starting ? t("fOpening") : focus.action.label}
+              {starting ? t("fOpening") : t("fOpenGuided")}
               <ArrowRight size={18} aria-hidden="true" />
+            </button>
+          )}
+          {focus.action?.kind === "start" && (
+            <button
+              type="button"
+              className="text-button today-secondary"
+              disabled={starting}
+              onClick={() =>
+                void start(
+                  focus.action as Extract<TodayAction, { kind: "start" }>,
+                  false,
+                )
+              }
+            >
+              {t("fWorkoutLog")}
             </button>
           )}
           {startError && (
@@ -319,20 +347,27 @@ export function MemberToday({
         </ul>
       )}
       {data && !active && <EndOfProgramme data={data} />}
-      {!isTrainerPreview() && <CoachSwitcher current={state.user.tenantId} userId={state.user.userId} />}
+      {!isTrainerPreview() && (
+        <CoachSwitcher
+          current={state.user.tenantId}
+          userId={state.user.userId}
+        />
+      )}
       <CoachNote name={state.tenant.name} theme={state.tenant.theme} />
       {/* Last on Today: the day's work and the coach's note come first. */}
-      {!isTrainerPreview() && <InstallCard
-        coachName={state.tenant.name}
-        tenantId={state.user.tenantId}
-        userId={state.user.userId}
-        loggedSession={
-          (state.sets ?? []).length > 0 ||
-          (state.records as Row[]).some(
-            (r) => r.kind === "workout" && r.status === "completed",
-          )
-        }
-      />}
+      {!isTrainerPreview() && (
+        <InstallCard
+          coachName={state.tenant.name}
+          tenantId={state.user.tenantId}
+          userId={state.user.userId}
+          loggedSession={
+            (state.sets ?? []).length > 0 ||
+            (state.records as Row[]).some(
+              (r) => r.kind === "workout" && r.status === "completed",
+            )
+          }
+        />
+      )}
     </div>
   );
 }

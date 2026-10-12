@@ -8,6 +8,28 @@ import { defineMessages } from "../core";
 export default defineMessages(
   {
     actualMetres: "Actual metres; Done confirms the target if left blank",
+    playWorkout: "Play workout",
+    resumeWorkout: "Resume workout",
+    preparingPlayer: "Getting your session ready…",
+    bufferingVoice: "Getting your coach's voice ready…",
+    bufferingHelp:
+      "Your session will continue when this instruction is ready. You can keep going with text if you prefer.",
+    audioTapAgain:
+      "The audio couldn't start. Tap Resume audio to try again, or continue with text.",
+    retryAudio: "Resume audio",
+    continueText: "Continue with text",
+    audioPaused: "Audio paused",
+    coachSpeaking: "Your coach is speaking",
+    playerControls: "Workout player",
+    viewWorkout: "View workout",
+    adjustSet: "Adjust or log this set",
+    workoutProgress: "Workout progress",
+    setProgress: "{done} of {total} sets",
+    loadSessionAgain: "The session isn't ready yet. Tap Play to try again.",
+    stoppedByYou:
+      "You stopped this session. Your logged sets are saved. Resume when you're ready.",
+    stopSaveFailed:
+      "We couldn't confirm that this session stopped. Your progress is kept here. Try Resume workout again when you're connected.",
     holdTalk: "Hold to talk",
     loadProgress: "Load latest progress",
     questionConfirm:
@@ -211,7 +233,8 @@ export default defineMessages(
     musicHelp:
       "Cues play over your music. Keep silent mode off and the screen on. Talking back pauses your music; tap play in your music app to resume.",
     musicAndroid: "Short cues briefly lower your music.",
-    musicLong: "Longer lines are shown on screen so your music keeps playing.",
+    musicLong:
+      "Longer instructions may briefly pause your music so you can hear your coach.",
     talk: "Tap to talk",
     talkOpening: "Opening the microphone…",
     talkListening: "Listening. Tap again when you’re done.",
@@ -220,7 +243,31 @@ export default defineMessages(
       "Tap, then say done, a number of reps, too heavy, pause, skip or pain.",
   },
   {
-    actualMetres: "المسافة الفعلية بالمتر؛ «انتهيت» يؤكد المسافة المستهدفة عند ترك الحقل فارغاً",
+    actualMetres:
+      "المسافة الفعلية بالمتر؛ «انتهيت» يؤكد المسافة المستهدفة عند ترك الحقل فارغاً",
+    playWorkout: "تشغيل التمرين",
+    resumeWorkout: "متابعة التمرين",
+    preparingPlayer: "جارٍ تجهيز جلستك…",
+    bufferingVoice: "جارٍ تجهيز صوت مدربك…",
+    bufferingHelp:
+      "ستتابع الجلسة عندما يصبح هذا التوجيه جاهزًا. يمكنك المتابعة بالنص إذا فضّلت ذلك.",
+    audioTapAgain:
+      "تعذّر بدء الصوت. يمكن استئناف الصوت للمحاولة مجددًا، أو المتابعة بالنص.",
+    retryAudio: "استئناف الصوت",
+    continueText: "المتابعة بالنص",
+    audioPaused: "الصوت متوقف مؤقتًا",
+    coachSpeaking: "مدربك يتحدّث",
+    playerControls: "مشغّل التمرين",
+    viewWorkout: "عرض التمرين",
+    adjustSet: "تعديل المجموعة أو تسجيلها",
+    workoutProgress: "التقدّم في التمرين",
+    setProgress: "{done} من {total} مجموعات",
+    loadSessionAgain:
+      "الجلسة ليست جاهزة بعد. يمكن اختيار تشغيل للمحاولة مجددًا.",
+    stoppedByYou:
+      "تم إيقاف هذه الجلسة. مجموعاتك المسجّلة محفوظة. يمكن المتابعة عندما يناسبك.",
+    stopSaveFailed:
+      "تعذّر تأكيد إيقاف الجلسة. تقدّمك محفوظ هنا. يمكن إعادة محاولة متابعة التمرين عند الاتصال.",
     holdTalk: "الضغط المستمر للتحدث",
     loadProgress: "تحميل أحدث تقدم",
     questionConfirm: "تم التقاط السؤال. راجعه في «اسأل المدرب» قبل إرساله.",
@@ -437,7 +484,7 @@ export default defineMessages(
     musicHelp:
       "تُشغَّل التوجيهات فوق موسيقاك. يُرجى إبقاء الوضع الصامت مغلقًا والشاشة مضاءة. الرد بالكلام يوقف موسيقاك مؤقتًا، ويمكنك استئنافها من زر التشغيل في تطبيق الموسيقى.",
     musicAndroid: "تخفض التوجيهات القصيرة صوت موسيقاك لحظات.",
-    musicLong: "تظهر العبارات الأطول على الشاشة لتستمر موسيقاك.",
+    musicLong: "قد تتوقف موسيقاك قليلًا أثناء التوجيهات الأطول لتسمع مدربك.",
     talk: "التحدث",
     talkOpening: "جارٍ فتح الميكروفون…",
     talkListening: "جارٍ الاستماع. يمكنك الضغط مرة أخرى عند الانتهاء.",

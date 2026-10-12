@@ -1,5 +1,6 @@
 "use client";
 import { memberApiUrl } from "../lib/trainer-preview-routing";
+import { MEMBER_THEME_COLORS } from "../lib/member-appearance";
 import { useT } from "../lib/i18n/react";
 /**
  * Light, dark or the device's setting for subscriber surfaces
@@ -167,9 +168,14 @@ export function useSubscriberThemeColor(
   theme: unknown,
   choice: ColorSchemeChoice,
   enabled = true,
+  memberApp = false,
 ) {
-  const light = resolveBrandDesign(theme).primary,
-    dark = brandDarkPalette(theme).themeColor;
+  const light = memberApp
+      ? MEMBER_THEME_COLORS.light
+      : resolveBrandDesign(theme).primary,
+    dark = memberApp
+      ? MEMBER_THEME_COLORS.dark
+      : brandDarkPalette(theme).themeColor;
   useEffect(() => {
     if (!enabled) return;
     return applyThemeColors(themeColorsFor(choice, { light, dark }));
@@ -201,7 +207,7 @@ export function MemberAppearance({
       active = false;
     };
   }, [member]);
-  useSubscriberThemeColor(theme, choice);
+  useSubscriberThemeColor(theme, choice, true, true);
   return null;
 }
 
@@ -260,12 +266,15 @@ export function DisplayPreferences() {
     setBusy(true);
     setStatus(null);
     try {
-      const response = await fetch(memberApiUrl("/api/v1/preferences/appearance"), {
-        method: "PUT",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ theme: next }),
-      });
+      const response = await fetch(
+        memberApiUrl("/api/v1/preferences/appearance"),
+        {
+          method: "PUT",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ theme: next }),
+        },
+      );
       if (!response.ok) throw new Error("not saved");
       const saved = (await response.json()) as Preferences;
       window.dispatchEvent(

@@ -37,6 +37,7 @@ import {
 } from "@trainer/contracts";
 import { directionOf, type Language } from "../document-language";
 import type { ColorSchemeChoice } from "../color-scheme";
+import { MEMBER_APP_VARIABLES } from "../lib/member-appearance";
 
 import { PhotoUploader, MediaLibrary } from "./coach-site";
 import { useT } from "../lib/i18n/react";
@@ -108,6 +109,7 @@ export function TrainerTheme({
   className = "",
   language,
   colorScheme,
+  memberApp = false,
 }: {
   theme: unknown;
   children: ReactNode;
@@ -122,6 +124,8 @@ export function TrainerTheme({
    * Design Studio preview in the trainer workspace is.
    */
   colorScheme?: ColorSchemeChoice;
+  /** Neutral application controls; the public coach website keeps its brand. */
+  memberApp?: boolean;
 }) {
   const design = resolveBrandDesign(theme);
   return (
@@ -132,10 +136,11 @@ export function TrainerTheme({
         {
           ...brandCssVariables(theme),
           ...(colorScheme ? brandDarkCssVariables(theme) : {}),
+          ...(memberApp ? MEMBER_APP_VARIABLES : {}),
         } as CSSProperties
       }
-      data-brand-buttons={design.buttonStyle}
-      data-brand-density={design.density}
+      data-brand-buttons={memberApp ? "solid" : design.buttonStyle}
+      data-brand-density={memberApp ? "balanced" : design.density}
       {...(colorScheme ? { "data-color-scheme": colorScheme } : {})}
     >
       {children}
@@ -331,7 +336,7 @@ function DesignPreview({
   const theme = { ...draft, design: draft.design };
   return (
     <div className={`design-device ${device}`} data-testid="design-preview">
-      <TrainerTheme theme={theme}>
+      <TrainerTheme theme={theme} memberApp={mode === "app"}>
         <div className="design-preview-top">
           <CoachIdentity
             name={draft.name || "Your coaching"}
@@ -442,12 +447,24 @@ export function TrainerDesign({
   onSaved?: () => void | Promise<void>;
 }) {
   const [saved, setSaved] = useState(() => makeDraft(tenant));
-  const [draft, setDraft, clearDraft] = useWorkspaceValue(`design:${tenant.theme?.brandVersion ?? 0}`, makeDraft(tenant), true);
+  const [draft, setDraft, clearDraft] = useWorkspaceValue(
+    `design:${tenant.theme?.brandVersion ?? 0}`,
+    makeDraft(tenant),
+    true,
+  );
   const [version, setVersion] = useState<number>(
     tenant.theme?.brandVersion ?? 0,
   );
   const [requestedTab, setTab] = useWorkspaceQuery("tab", "Identity");
-  const tab = ["Identity", "Style", "Home layout", "Images", "Preview"].includes(requestedTab) ? requestedTab : "Identity";
+  const tab = [
+    "Identity",
+    "Style",
+    "Home layout",
+    "Images",
+    "Preview",
+  ].includes(requestedTab)
+    ? requestedTab
+    : "Identity";
   const [device, setDevice] = useState<"mobile" | "desktop">("mobile");
   const [mode, setMode] = useState<"app" | "store">("app");
   const [busy, setBusy] = useState(false),
@@ -567,7 +584,7 @@ export function TrainerDesign({
       setVersion(result.brandVersion ?? version + 1);
       clearDraft();
       setNotice(
-        "Client app design saved. Website builder styles remain independent.",
+        "Coach identity and brand saved. Website builder styles remain independent.",
       );
       await onSaved?.();
     } catch (cause) {
@@ -624,9 +641,10 @@ export function TrainerDesign({
       <div className="page-heading">
         <div>
           <p className="eyebrow">YOUR COACHING. YOUR EXPRESSION.</p>
-          <h1>Client app design</h1>
+          <h1>Coach identity and brand</h1>
           <p className="muted">
-            Style the app your clients use every day. Website pages and section styles are managed in the website builder.
+            Set your name, photos and welcome message. The subscriber app uses a
+            consistent, readable layout; public brand colours stay yours.
           </p>
         </div>
         <div className="design-save-actions">
@@ -703,7 +721,7 @@ export function TrainerDesign({
       )}
       {!editable && (
         <div className="notice">
-          Only the workspace owner can change the client app design.
+          Only the workspace owner can change the coach identity and brand.
         </div>
       )}
       <div
@@ -732,7 +750,13 @@ export function TrainerDesign({
               )
                 return;
               event.preventDefault();
-              const tabs = ["Identity", "Style", "Home layout", "Images", "Preview"],
+              const tabs = [
+                  "Identity",
+                  "Style",
+                  "Home layout",
+                  "Images",
+                  "Preview",
+                ],
                 index = tabs.indexOf(tab);
               // The row mirrors right to left, so the next tab is then on the
               // left and ArrowLeft moves forward.
@@ -935,7 +959,8 @@ export function TrainerDesign({
                     <div>
                       <h2>Find your starting point.</h2>
                       <p>
-                        Four considered looks. Every one can become your own.
+                        These colours style your coaching page and joining
+                        screens. The app keeps neutral controls.
                       </p>
                     </div>
                   </div>
@@ -1020,7 +1045,7 @@ export function TrainerDesign({
                       [
                         "surface",
                         "Surface color",
-                        "The canvas of your client app",
+                        "The canvas of your coaching page",
                       ],
                     ] as const
                   ).map(([key, label, note]) => (

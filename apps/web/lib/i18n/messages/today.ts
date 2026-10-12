@@ -3,6 +3,8 @@ import { defineMessages } from "../core";
 /** Today, the day-by-day programme card and the programme timeline. */
 export default defineMessages(
   {
+    fWorkoutLog: "Use workout log",
+    fOpenGuided: "Open guided session",
     greeting: "Good to see you, {name}.",
     subtitle: "One workout. A little progress. Your next step is here.",
     viewProgram: "View my program",
@@ -34,7 +36,8 @@ export default defineMessages(
     viewAll: "View all",
     workoutFallback: "Workout",
     firstSession: "Your first session is ahead",
-    firstSessionDetail: "Once your trainer assigns a program, you can start logging here.",
+    firstSessionDetail:
+      "Once your trainer assigns a program, you can start logging here.",
     // Programme card
     loadFailed: "Today’s programme could not be loaded.",
     tryAgain: "Try again",
@@ -56,7 +59,8 @@ export default defineMessages(
     progressLabel: "Progress through the programme",
     todayOn: "Today · {date}",
     preparing: "Your coach is preparing your plan",
-    preparingText: "Your sessions appear here day by day as soon as it is ready.",
+    preparingText:
+      "Your sessions appear here day by day as soon as it is ready.",
     trainingSession: "Training session",
     done: "Done. Nice work.",
     canceled: "Your coach cancelled today's session.",
@@ -89,7 +93,8 @@ export default defineMessages(
     kcalValue: "{value} kcal",
     allowNutrition: "Allow nutrition coaching to see today’s targets.",
     openNutrition: "Open nutrition",
-    addPreferences: "Add your food preferences so your coach can set your targets.",
+    addPreferences:
+      "Add your food preferences so your coach can set your targets.",
     setUpNutrition: "Set up nutrition",
     caloriesLabel: "Calories logged against today’s target",
     noTarget: "Your coach has not set today’s target yet.",
@@ -111,7 +116,8 @@ export default defineMessages(
     renewsOn: "Your membership renews {date}.",
     renewsMonthly: "Your membership renews monthly.",
     accessEnds: "Your access ends on {date}.",
-    paidInFull: " Your programme was paid in full; nothing renews automatically.",
+    paidInFull:
+      " Your programme was paid in full; nothing renews automatically.",
     renewalOff: " Your membership will not renew.",
     completedProgramme: "You completed this programme. Your access has ended.",
     membershipEnded: "Your membership has ended.",
@@ -270,6 +276,8 @@ export default defineMessages(
     fYourWorkout: "Your workout",
   },
   {
+    fWorkoutLog: "استخدام سجل التمرين",
+    fOpenGuided: "فتح الجلسة الموجّهة",
     greeting: "سعداء برؤيتك، {name}.",
     subtitle: "تمرين واحد وتقدّم صغير. خطوتك التالية هنا.",
     viewProgram: "عرض برنامجي",

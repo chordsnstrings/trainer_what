@@ -36,7 +36,7 @@ export const notificationPreferencesSchema = z
     language: z.enum(["en", "ar"]).default("en"),
     // The member app's appearance (docs/features/dark-mode.md): follow the
     // device, or always light or dark. Mirrored into a cookie by the app.
-    theme: appearanceSchema.default("system"),
+    theme: appearanceSchema.default("light"),
     quietStart: z.number().int().min(0).max(1439).default(1320),
     quietEnd: z.number().int().min(0).max(1439).default(480),
     timezone: z

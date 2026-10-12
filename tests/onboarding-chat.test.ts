@@ -54,6 +54,52 @@ test("phone copy is bounded and stripped of Markdown or vendor names", () => {
   assert.equal(chatText("Powered by OpenAI"), "Got it.");
   assert.ok(chatText("a".repeat(600)).length <= 360);
 });
+
+test("subscriber weekday delegation advances despite a model trying to repeat the old question", async () => {
+  const owner = await ctx.person({ role: "owner" }), member = await ctx.person({ role: "subscriber", tenantId: owner.tenantId });
+  await grant(member); let c = await snapshot(member);
+  await model(input => {
+    if (input.conversation.at(-1).text === "I want to lose fat and gain muscle. Minimal training. 4 days should be fine.") return {
+      reply: "Let's fit that around your week.", patch: { goal: "lose fat and gain muscle", experience: "beginner", daysPerWeek: 4 }, evidence: { goal: "lose fat and gain muscle", experience: "Minimal training", daysPerWeek: "4 days" },
+    };
+    return { reply: "All weekdays are fine.", patch: {}, evidence: {}, questionField: "availableWeekdays", question: "Which days usually work for you?" };
+  }, async sent => {
+    for (const text of ["I want to lose fat and gain muscle. Minimal training. 4 days should be fine.", "weekdays mostly", "you let me know which days i should go"]) {
+      const r = await call(member, "/onboarding-chat/messages", { id: randomUUID(), version: c.version, text });
+      assert.equal(r.statusCode, 200, r.body); c = r.json(); assert.equal(c.error, undefined, r.body);
+    }
+    assert.deepEqual(c.facts.availableWeekdays, [1, 2, 4, 5]);
+    assert.equal(c.lastQuestion.field, "maxSessionMinutes");
+    assert.equal(c.messages.slice(-2).some((m: any) => m.text === "Which days usually work for you?"), false);
+    assert.equal(sent.length, 3);
+    // Inference receives the literal window and delegated authority. The final
+    // schedule is chosen after all of this turn's constraints have been merged.
+    assert.deepEqual(sent[2].understanding.schedule.days, [1, 2, 3, 4, 5]);
+    assert.equal(sent[2].understanding.choices.availableWeekdays.status, "delegated");
+    assert.deepEqual((await snapshot(member)).dialogue, c.dialogue);
+  });
+});
+
+test("let's get started performs the profile handoff once; navigation does not force another intake question", async () => {
+  const owner = await ctx.person({ role: "owner" }), member = await ctx.person({ role: "subscriber", tenantId: owner.tenantId });
+  await grant(member); let c = await snapshot(member);
+  await model(() => trainingReply, async sent => {
+    c = (await call(member, "/onboarding-chat/messages", { id: randomUUID(), version: c.version, text: trainingText })).json();
+    const body = { id: randomUUID(), version: c.version, text: "let's get started.", timezone: "Asia/Dubai" };
+    const saved = await call(member, "/onboarding-chat/messages", body);
+    assert.equal(saved.statusCode, 200, saved.body); c = saved.json(); assert.equal(c.error, undefined, saved.body);
+    assert.ok(c.applied.profile); assert.equal(c.messages.at(-1).destination, "training");
+    const again = await call(member, "/onboarding-chat/messages", body);
+    assert.equal(again.json().messages.length, c.messages.length);
+    const before = c.messages.length;
+    c = (await call(member, "/onboarding-chat/messages", { id: randomUUID(), version: c.version, text: "where is training" })).json();
+    assert.equal(c.messages.length, before + 2);
+    assert.equal(c.messages.at(-1).destination, "training");
+    assert.equal(sent.length, 1);
+    const records = await ctx.db.tenant({ ...member, role: "subscriber" }, tx => tx.query("SELECT id FROM records WHERE kind='intake' AND owner_user_id=$1", [member.userId]));
+    assert.equal(records.length, 1);
+  });
+});
 test("opening, resuming and pausing use no model calls", async () => {
   const owner = await ctx.person({ role: "owner", name: "Synthetic Chat Coach" });
   await model(() => { throw Error("Unexpected call"); }, async sent => {

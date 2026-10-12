@@ -1,5 +1,35 @@
 # Member app screens, phone first
 
+## Current subscriber experience — 12 October 2026
+
+The app now uses the platform's neutral application design: white cards, warm
+light canvas, dark primary actions, consistent typography and quiet borders.
+New or unset appearance preferences start Light. Explicit Light, Dark and
+Match this device preferences stay saved and respected; the app's dark palette
+is neutral charcoal. Coach websites and Design Studio retain their selected
+brand. Coach names, photographs and logos continue to identify the coach inside
+the subscriber app. Browser/status bar colours follow the same app surfaces.
+
+Today and Training lead directly to the guided session. Opening a planned
+session does not log work or start its workout; the player's Play action does
+the preparation and binding. Existing workouts reopen in the player. **Use
+workout log** stays beside the main action for members who prefer manual logging.
+No workout is marked complete merely because its narration finishes.
+
+The private trainer-preview panel is compact and closed on navigation, uses
+paired foreground/background tokens, and never expands over the workout because
+an unrelated reply needs attention. Test controls include saved appearance
+choices. The appearance write is scoped to the private subscriber, not the
+trainer's own preferences. Routine valid preview replies and plans appear
+automatically; blocking reasons remain visible in Test controls.
+
+Checks: appearance/member/translation/logical-layout tests and preview isolation
+coverage; browser contrast checks measure the preview text in saved Light and
+Dark after reload, at desktop and phone widths. See the active handoff for the
+actual release and browser results; these notes do not imply physical-device
+voice acceptance.
+
+
 Owner direction (29 September 2026, after reviewing screenshots of every
 subscriber screen): "FIX all UI issues", "UI subscriber screens should really
 be phone first". This page covers the member screens track (branch

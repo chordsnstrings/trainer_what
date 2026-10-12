@@ -29,20 +29,43 @@ export function previewRouteAllowed(method: string, path: string) {
   if (/^\/nutrition(?:\/(profile|generate|plans|logs|checkins|pantry|groceries|captures|tracker|favorites|purchase-specs|shopping|leftovers|methods)(?:\/[^/]+)*)?$/.test(p)) return ["GET", "HEAD", "POST", "PUT", "DELETE"].includes(method);
   if (method === "POST" && /^\/training\/sessions\/[^/]+\/(reschedule|cancel)$/.test(p)) return true;
   if (/^\/workouts(?:\/[^/]+)*$/.test(p)) return ["GET", "HEAD", "POST"].includes(method);
-  if (/^\/voice-sessions(?:\/(?:consent|workout\/[^/]+|planned\/[^/]+|[0-9a-f-]{36}(?:\/(?:audio|utterance|transcribe|events))?))?$/.test(p)) return ["GET", "HEAD", "POST"].includes(method);
+  // onRoute sees the parameter name, before a real request supplies its UUID.
+  // Match that exact member route as well as concrete URLs; trainer voice
+  // settings and clone actions must remain outside the subscriber preview.
+  if (/^\/voice-sessions(?:\/(?:consent|workout\/[^/]+|planned\/[^/]+|(?:[0-9a-f-]{36}|:id)(?:\/(?:audio|utterance|transcribe|events|progress))?))?$/.test(p)) return ["GET", "HEAD", "POST"].includes(method);
   if (method === "PUT" && /^\/clients\/[^/]+\/context$/.test(p)) return true;
   if (["PUT", "POST"].includes(method) && /^\/notifications\/preferences$/.test(p)) return true;
+  if (method === "PUT" && p === "/preferences/appearance") return true;
   return false;
 }
 
 /** Same handlers, schemas, body limits and permissions as the subscriber route. */
-export function aliasPreviewRoutes(app: FastifyInstance) {
+export function aliasPreviewRoutes(app: FastifyInstance, db: Database) {
   app.addHook("onRoute", options => {
     if (!options.url.startsWith("/api/v1/") || options.url.startsWith("/api/v1/trainer-preview")) return;
     const methods = (Array.isArray(options.method) ? options.method : [options.method])
       .filter(method => previewRouteAllowed(method, options.url));
     if (!methods.length) return;
-    app.route({ ...options, method: methods, url: PREVIEW_API + options.url.slice("/api/v1".length), exposeHeadRoute: false });
+    const handler = options.handler;
+    app.route({ ...options, method: methods, url: PREVIEW_API + options.url.slice("/api/v1".length), exposeHeadRoute: false,
+      handler: async function(req, reply) {
+        const result: any = await handler.call(this, req, reply);
+        if (options.url === "/api/v1/intake" && req.trainerPreview && !result?.trainingHeld && !result?.reviewRequired) {
+          const { ensurePreviewWorkout } = await import("./trainer-preview.ts");
+          const owner = { ...req.identity!, userId: req.trainerPreview.trainerUserId, role: "owner" as const };
+          try { return { ...result, previewWorkout: await ensurePreviewWorkout(db, owner, { id: req.trainerPreview.profileId, user_id: req.trainerPreview.userId }) }; }
+          catch { return { ...result, previewWorkout: { status: "needs_review", message: "Your profile is saved. Workout preparation needs attention; check Training." } }; }
+        }
+        if (options.url !== "/api/v1/coaching/ask" || !req.trainerPreview || !result?.pendingReview || !result.decisionId) return result;
+        const { autoReviewPreviewReply } = await import("./trainer-preview-review.ts");
+        const a = previewReviewer({ ...req.identity!, userId: req.trainerPreview.trainerUserId, role: "owner" }, req.trainerPreview.userId);
+        try { return await autoReviewPreviewReply(db, a, result.decisionId) ?? result; }
+        catch (error) {
+          if (![400, 409].includes(Number((error as any).statusCode))) throw error;
+          return { ...result, messageSaved: true, previewBlocked: true, message: (error as Error).message };
+        }
+      },
+    });
   });
 }
 

@@ -2,20 +2,25 @@ import { z } from "zod";
 import { groundSetupDraft, mentionsModelVendor, setupFields, type Specialty } from "./setup-assistant.ts";
 import { givesMedicalAdvice } from "./text-screen.ts";
 import { coachingUpdateSchema, nextCoachingQuestion, coachingCoverage, type CoachingInterview } from "./coaching-interview.ts";
+import { statedWeekdays, statedMinutes } from "./onboarding-language.ts";
 
-export const CHAT_VERSION = "onboarding-chat-v4";
+export const CHAT_VERSION = "onboarding-chat-v5";
 export type ChatAudience = "coach" | "member";
 export type ChatMode = "setup" | "teach";
 export type OnboardingAttachment = { id: string; name: string; bytes: number; format: string; characters: number; warnings: string[]; image: boolean; preview?: string };
-export type ChatMessage = { id: string; from: "person" | "assistant"; text: string; at: string; attachments?: OnboardingAttachment[]; source?: "voice" };
-export type ChatMemory = Record<string, { evidence: string; messageId: string; at: string }>;
+export type ChatMessage = { id: string; from: "person" | "assistant"; text: string; at: string; attachments?: OnboardingAttachment[]; source?: "voice"; questionField?: string; destination?: "training" | "nutrition" };
+export type ChatMemory = Record<string, { evidence: string; messageId: string; at: string; origin?: "suggested" }>;
+export type ChatPreference = { status: "delegated" | "recommendation" | "accepted" | "deferred" | "unknown"; evidence: string; messageId: string; at: string; available?: number[]; value?: number | number[] };
+export type ChatDialogue = { preferences: Record<string, ChatPreference>; attempts: Record<string, number> };
 export type ChatData = {
   audience: ChatAudience; mode: ChatMode; messages: ChatMessage[];
   facts: Record<string, any>; memory: ChatMemory; skipped: string[];
   teachingIds: string[]; compiledIds: string[]; paused: boolean;
-  applied: Record<string, string>; pending?: { id: string; at: string }; lastQuestion?: { field: string; text: string };
+  applied: Record<string, string>; pending?: { id: string; at: string }; lastQuestion?: { field: string; text: string; proposal?: boolean };
   error?: string; archived?: number;
   interview?: CoachingInterview;
+  dialogue?: ChatDialogue;
+  profileEditing?: boolean;
 };
 export const replySchema = z.object({
   reply: z.string().trim().min(1).max(700),
@@ -24,6 +29,8 @@ export const replySchema = z.object({
   question: z.string().max(220).optional(),
   questionField: z.string().max(50).optional(),
   coaching: coachingUpdateSchema.optional(),
+  intent: z.enum(["answer", "question", "clarify", "correction", "delegate", "recommendation", "defer"]).optional(),
+  preferences: z.array(z.object({ field: z.string().max(50), status: z.enum(["delegated", "recommendation", "deferred", "unknown"]), evidence: z.string().min(1).max(400) }).strict()).max(6).optional(),
 }).strict();
 export type ChatReply = z.infer<typeof replySchema>;
 /** Normalize transport differences only; facts still require field validation and quoted evidence. */
@@ -37,6 +44,8 @@ export function parseChatReply(raw: unknown): ChatReply {
     question: value.question ?? undefined,
     questionField: value.questionField ?? undefined,
     coaching: value.coaching ?? undefined,
+    intent: value.intent ?? undefined,
+    preferences: value.preferences ?? undefined,
   });
 }
 export const memberFieldSchemas: Record<string, z.ZodType> = {
@@ -119,24 +128,25 @@ function numberIn(value: number, evidence: string) {
   const normalized = normal(evidence).replace(/\b(one|two|three|four|five|six|seven)\b/g, w => String(numberWords[w]));
   return [...normalized.matchAll(/\d+(?:\.\d+)?/g)].some(m => Number(m[0]) === value);
 }
-const weekdays = [
-  /\b(sun|sunday)\b|الأحد|الاحد/i, /\b(mon|monday)\b|الإثنين|الاثنين/i,
-  /\b(tue|tues|tuesday)\b|الثلاثاء/i, /\b(wed|wednesday)\b|الأربعاء|الاربعاء/i,
-  /\b(thu|thur|thurs|thursday)\b|الخميس/i, /\b(fri|friday)\b|الجمعة/i,
-  /\b(sat|saturday)\b|السبت/i,
-];
 /** A model proposes facts; only fields tied to the person's current words survive. */
 export function mergeChatFacts(c: ChatData, reply: ChatReply, text: string, messageId: string, at: string, specialties: readonly Specialty[], nutrition = false) {
   const next = structuredClone(c), accepted: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(reply.patch)) {
     const evidence = reply.evidence[key];
     if (!evidence?.trim() || !normal(text).includes(normal(evidence))) continue;
-    if (c.audience === "member" && typeof value === "number" && !numberIn(value, evidence)) continue;
+    if (c.audience === "member" && typeof value === "number" && !numberIn(value, evidence) &&
+      !(["maxSessionMinutes", "cookingMinutes"].includes(key) && statedMinutes(evidence) === value)) continue;
     if (c.audience === "member") {
       if (!nutrition && !trainingFields.includes(key)) continue;
       const checked = memberFieldSchemas[key]?.safeParse(value);
       if (!checked?.success) continue;
-      if (key === "availableWeekdays" && !(checked.data as number[]).every(day => weekdays[day]!.test(evidence) || /\b(every day|any day|all days|daily)\b|كل يوم|جميع الأيام/i.test(evidence))) continue;
+      if (key === "availableWeekdays") {
+        const available = statedWeekdays(evidence, c.dialogue?.preferences.availableWeekdays?.available ?? c.facts.availableWeekdays);
+        if (!available || !(checked.data as number[]).every(day => available.includes(day))) continue;
+        // Preserve the entire stated window. Choosing a subset requires separate delegation.
+        accepted[key] = available;
+        continue;
+      }
       // Preserve the person's health disclosure verbatim, including negations.
       accepted[key] = ["limitations", "nutritionNotes"].includes(key) ? evidence : checked.data;
     } else accepted[key] = value;
@@ -151,9 +161,14 @@ export function mergeChatFacts(c: ChatData, reply: ChatReply, text: string, mess
     }
   }
   for (const [key, value] of Object.entries(accepted)) {
+    if (JSON.stringify(c.facts[key]) === JSON.stringify(value) && c.memory[key] && !c.memory[key]?.origin) continue;
     next.facts[key] = value;
     next.memory[key] = { evidence: reply.evidence[key]!, messageId, at };
     next.skipped = next.skipped.filter(k => k !== key);
+    if (next.dialogue) {
+      delete next.dialogue.preferences[key];
+      delete next.dialogue.attempts[key];
+    }
   }
   return next;
 }

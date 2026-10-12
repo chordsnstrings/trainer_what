@@ -12,6 +12,7 @@ import {
   setAudioSessionType,
   audioSessionSupported,
   silentWav,
+  unlockAudio,
   CUE_BUDGET_MS,
 } from "../apps/web/lib/audio-session.ts";
 import { idleTalk, stepTalk, TALK_LIMITS, type TalkEffect, type TalkEvent, type TalkState } from "../apps/web/lib/tap-to-talk.ts";
@@ -113,6 +114,70 @@ test("the unlock clip is a short silent WAV; the music choice is remembered per 
   assert.equal(savedMusicMode({ getItem: () => "something" }), "off");
   assert.equal(savedMusicMode({ getItem: () => { throw new Error("blocked"); } }), "off");
   assert.equal(savedMusicMode(null), "off");
+});
+
+test("audio unlock finishes before a cue starts and clears old playback handlers", async () => {
+  const calls: string[] = [];
+  const audio = {
+    src: "",
+    onended: () => {
+      throw new Error("stale end handler");
+    },
+    onerror: () => {
+      throw new Error("stale error handler");
+    },
+    play: async () => {
+      calls.push("unlock");
+    },
+    pause: () => {
+      calls.push("pause unlock");
+    },
+  };
+  assert.equal(await unlockAudio(audio as unknown as HTMLAudioElement), true);
+  assert.equal(audio.onended, null);
+  assert.equal(audio.onerror, null);
+  audio.src = "trainer-intro";
+  calls.push("cue");
+  assert.deepEqual(calls, ["unlock", "pause unlock", "cue"]);
+});
+
+test("a late audio unlock cannot pause a newer cue", async () => {
+  let finish!: () => void;
+  let pauses = 0;
+  const audio = {
+    src: "",
+    play: () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+    pause: () => {
+      pauses++;
+    },
+  };
+  const unlocking = unlockAudio(audio as unknown as HTMLAudioElement);
+  audio.src = "trainer-intro";
+  finish();
+  assert.equal(await unlocking, false);
+  assert.equal(pauses, 0);
+  assert.equal(audio.src, "trainer-intro");
+});
+
+test("denied audio unlock reports failure without starting or pausing a cue", async () => {
+  let pauses = 0;
+  assert.equal(
+    await unlockAudio({
+      src: "",
+      play: async () => {
+        throw new Error("NotAllowedError");
+      },
+      pause: () => {
+        pauses++;
+      },
+    } as unknown as HTMLAudioElement),
+    false,
+  );
+  assert.equal(pauses, 0);
+  assert.equal(await unlockAudio(null), false);
 });
 
 function run(events: TalkEvent[], from: TalkState = idleTalk()) {

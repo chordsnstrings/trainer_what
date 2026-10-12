@@ -7,6 +7,7 @@ import { translator, type Locale } from "../lib/i18n/core";
 import consentMessages from "../lib/i18n/messages/consent";
 import { MOTION, prefersReducedMotion } from "./motion";
 import { legalHref } from "./pwa";
+import { subscriberPath } from "../lib/trainer-preview-routing";
 
 /**
  * The privacy policy's address: from the member app it carries ?from=app,
@@ -138,6 +139,12 @@ export function asksForAnalytics(
 ) {
   return !!permission && !permission.granted && choice === null;
 }
+/** Optional prompts wait until the member leaves the workout player. */
+export function defersAnalyticsPrompt(path: string) {
+  return /^\/app\/(?:guided\/[^/]+|voice-session\/(?:planned\/)?[^/]+)\/?$/.test(
+    subscriberPath(path),
+  );
+}
 /**
  * The bar shows while the visitor has not answered and the preferences sheet
  * is closed. On a marketing page it waits for the first scroll, so it never
@@ -149,9 +156,11 @@ export function showsConsentBar(state: {
   marketing: boolean;
   scrolled: boolean;
   sheetOpen: boolean;
+  deferred?: boolean;
 }) {
   return (
     asksForAnalytics(state.permission, state.choice) &&
+    !state.deferred &&
     !state.sheetOpen &&
     (!state.marketing || state.scrolled)
   );
@@ -318,7 +327,10 @@ export function ConsentBar({
    */
   leaving?: boolean;
 }) {
-  const t = translator(consentMessages, audience === "trainers" ? "en" : locale);
+  const t = translator(
+    consentMessages,
+    audience === "trainers" ? "en" : locale,
+  );
   const privacyHref = usePrivacyHref();
   const bar = useRef<HTMLElement>(null);
   const [size, setSize] = useState(0);
@@ -349,7 +361,9 @@ export function ConsentBar({
       />
       <aside
         ref={bar}
-        className={"acquisition-consent consent-bar" + (leaving ? " is-leaving" : "")}
+        className={
+          "acquisition-consent consent-bar" + (leaving ? " is-leaving" : "")
+        }
         data-audience={audience}
         aria-label={t("optionalAnalytics")}
         aria-hidden={leaving || undefined}
@@ -358,7 +372,9 @@ export function ConsentBar({
         <div className="consent-bar-inner">
           <div className="consent-bar-copy">
             <p className="consent-bar-text">
-              {audience === "trainers" ? CONSENT_BAR_TEXT[audience] : t("barText")}{" "}
+              {audience === "trainers"
+                ? CONSENT_BAR_TEXT[audience]
+                : t("barText")}{" "}
               <a className="consent-link" href={privacyHref}>
                 {t("privacyPolicy")}
               </a>
@@ -540,11 +556,7 @@ export function AnalyticsSetting() {
         </a>
       </p>
       <p className="analytics-setting-state" role="status">
-        {!permission
-          ? t("checking")
-          : on
-            ? t("settingOn")
-            : t("settingOff")}
+        {!permission ? t("checking") : on ? t("settingOn") : t("settingOff")}
       </p>
       {error && (
         <p role="alert" className="notice error">
@@ -582,6 +594,7 @@ export function AcquisitionConsent({
 }) {
   const path = usePathname() || "/";
   const marketing = marketingPaths.includes(path);
+  const deferred = defersAnalyticsPrompt(path);
   // The marketing site stays English; subscriber pages follow <html lang>.
   const pageLocale = useLocale();
   const locale = marketing ? "en" : pageLocale;
@@ -596,6 +609,7 @@ export function AcquisitionConsent({
     marketing,
     scrolled,
     sheetOpen,
+    deferred,
   });
   // After an answer on a subscriber page the bar slides away and is then
   // removed from the page (docs/features/motion.md "j"); on the marketing
@@ -650,7 +664,9 @@ export function AcquisitionConsent({
   return (
     <>
       {permission.granted && slot && <ExperimentCopy key={slot} slot={slot} />}
-      {(bar || leaving) && (
+      {/* Route changes also remove an already-visible bar immediately. This
+          defers the question without saving an answer or changing consent. */}
+      {!deferred && (bar || leaving) && (
         <ConsentBar
           audience={marketing ? "trainers" : "people"}
           busy={busy}

@@ -1157,6 +1157,7 @@ export default function Workspace({
         className="workspace member-shell"
         theme={state.tenant.theme}
         colorScheme={scheme}
+        memberApp
       >
         <AppUpdateToast
           path={path}

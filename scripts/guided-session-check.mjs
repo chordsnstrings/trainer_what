@@ -56,15 +56,37 @@ const gate = {
   transcriptionConsent: false,
   speechToText: false,
 };
+const plannedId = "20000000-0000-4000-8000-000000000001";
+let voiceFixture = false,
+  audioReady = false,
+  prepared = false;
+let preparations = 0,
+  workoutStarts = 0;
+const analyticsMutations = [];
+await page.route("**/api/v1/public/acquisition/consent", (route) => {
+  if (route.request().method() !== "GET")
+    analyticsMutations.push(route.request().method());
+  return route.fulfill({ json: { granted: false } });
+});
 const view = () => ({
   id: "fixture-session",
-  mode: "text",
+  workoutId: id,
+  mode: voiceFixture ? "voice" : "text",
   status: "ready",
   runnable: true,
   scriptFingerprint: "fixture-revision",
   script,
-  audioStatus: "unavailable",
-  audio: { readyKeys: [] },
+  audioStatus: voiceFixture
+    ? audioReady
+      ? "ready"
+      : "generating"
+    : "unavailable",
+  audio: {
+    revision: "fixture-voice-1",
+    ready: audioReady ? script.intro.length : 0,
+    total: script.intro.length,
+    readyKeys: audioReady ? script.intro.map((line) => "l:" + line.id) : [],
+  },
   gate,
 });
 let progressVersion = 0;
@@ -75,15 +97,52 @@ let failLoad = false,
   finishes = 0;
 await page.addInitScript(() => {
   window.guidedActions = {};
+  window.guidedAudioEvents = [];
+  window.guidedDocument = crypto.randomUUID();
   navigator.mediaSession.setActionHandler = (name, fn) => {
     window.guidedActions[name] = fn;
   };
   HTMLMediaElement.prototype.play = function () {
+    window.guidedAudioEvents.push({
+      type: "play",
+      cue: !!this.onended,
+      src: this.src,
+    });
     queueMicrotask(() => this.dispatchEvent(new Event("playing")));
     return Promise.resolve();
   };
+  HTMLMediaElement.prototype.pause = function () {
+    window.guidedAudioEvents.push({ type: "pause", src: this.src });
+  };
+});
+await page.route("**/api/v1/voice-sessions", async (route) => {
+  assert.equal(route.request().method(), "POST");
+  preparations++;
+  prepared = true;
+  return route.fulfill({ json: view() });
+});
+await page.route("**/api/v1/workouts/start", async (route) => {
+  workoutStarts++;
+  assert.equal(route.request().postDataJSON().plannedSessionId, plannedId);
+  return route.fulfill({ json: { id } });
 });
 await page.route("**/api/v1/voice-sessions/**", async (route) => {
+  const pathname = new URL(route.request().url()).pathname;
+  if (pathname.endsWith("/audio")) {
+    const keys = new URL(route.request().url()).searchParams
+      .get("keys")
+      .split(",");
+    return route.fulfill({
+      json: {
+        type: "audio/wav",
+        clips: keys.map((key) => ({
+          key: key.slice(2),
+          shared: key.startsWith("s:"),
+          audio: "UklGRiQAAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YQAAAAA=",
+        })),
+      },
+    });
+  }
   if (route.request().url().endsWith("/progress"))
     return route.fulfill({ json: { version: ++progressVersion } });
   if (route.request().method() === "POST")
@@ -96,9 +155,21 @@ await page.route("**/api/v1/voice-sessions/**", async (route) => {
     });
   }
   return route.fulfill({
-    json: new URL(route.request().url()).pathname.includes("/workout/")
-      ? { session: view(), gate }
-      : view(),
+    json: pathname.includes("/planned/")
+      ? {
+          session: prepared ? view() : null,
+          gate,
+          planned: {
+            id: plannedId,
+            status: "planned",
+            programId: "fixture-program",
+            title: "Strength",
+            workoutId: null,
+          },
+        }
+      : pathname.includes("/workout/")
+        ? { session: view(), gate }
+        : view(),
   });
 });
 await page.route("**/api/v1/workouts/*/**", async (route) => {
@@ -147,11 +218,15 @@ await page.route("**/api/v1/music/*/audio", (route) =>
 );
 const root = () => page.locator(".voice-session");
 const primary = () => page.locator(".voice-done");
-async function go() {
-  await page.goto(base + "/app/guided/" + id);
+async function go(planned = false) {
+  await page.goto(
+    base +
+      (planned
+        ? "/app/voice-session/planned/" + plannedId
+        : "/app/guided/" + id),
+  );
   await expect(root()).toBeVisible({ timeout: 45000 });
-  const dismiss = page.getByRole("button", { name: "No thanks", exact: true });
-  if (await dismiss.isVisible()) await dismiss.click();
+  await expect(page.locator(".consent-bar")).toHaveCount(0);
 }
 async function check(name, fn) {
   await fn();
@@ -167,6 +242,44 @@ async function screenshot(name, width) {
     ),
     false,
   );
+  // The controlled clock can leave CSS arrivals half-faded. Capture the
+  // settled interface, while separate motion checks cover the transitions.
+  await page.evaluate(() => {
+    for (const animation of document.getAnimations()) {
+      if (animation.effect?.getTiming().iterations === Infinity) continue;
+      try {
+        animation.finish();
+      } catch {}
+    }
+  });
+  await expect(page.locator(".consent-bar, .consent-bar-space")).toHaveCount(0);
+  assert.equal(
+    await page.evaluate(() => localStorage.getItem("analytics-preference")),
+    null,
+    "playing a workout never answers optional analytics consent",
+  );
+  assert.deepEqual(analyticsMutations, []);
+  if (name === "voice-player") {
+    const controls = root().locator(
+      ".voice-player-controls button, .voice-pain, .voice-done",
+    );
+    assert.equal(await controls.count(), 5);
+    for (const control of await controls.all()) {
+      await expect(control).toBeInViewport({ ratio: 1 });
+      assert.equal(
+        await control.evaluate((element) => {
+          const bounds = element.getBoundingClientRect();
+          const hit = document.elementFromPoint(
+            bounds.left + bounds.width / 2,
+            bounds.top + bounds.height / 2,
+          );
+          return !!hit && (hit === element || element.contains(hit));
+        }),
+        true,
+        "player and safety controls must be visible and unobscured in the captured phone viewport",
+      );
+    }
+  }
   const path = folder + "/" + name + ".png";
   await page.screenshot({ path, fullPage: true });
   report.screenshots.push(path);
@@ -181,18 +294,94 @@ try {
   });
   assert.equal(login.status(), 200, await login.text());
   await check(
+    "one Play prepares a planned workout, binds without reload and waits for its opening audio",
+    async () => {
+      voiceFixture = true;
+      gate.mode = "voice";
+      gate.playbackConsent = true;
+      await go(true);
+      await page.clock.install();
+      const documentId = await page.evaluate(() => window.guidedDocument);
+      await page
+        .getByRole("button", { name: "Play workout", exact: true })
+        .click();
+      await expect(root().locator(".voice-player-state")).toContainText(
+        "Getting your coach's voice ready",
+      );
+      assert.equal(preparations, 1);
+      assert.equal(workoutStarts, 1);
+      assert.equal(
+        await page.evaluate(() => window.guidedDocument),
+        documentId,
+      );
+      assert.equal(
+        new URL(page.url()).pathname,
+        "/app/voice-session/planned/" + plannedId,
+      );
+      await page.clock.runFor(6000);
+      assert.equal(
+        await primary().count(),
+        0,
+        "buffering does not silently consume the introduction",
+      );
+      assert.equal(logs.length, 0);
+      audioReady = true;
+      await page.clock.runFor(4500);
+      await expect(root().locator(".voice-player-state")).toContainText(
+        "Your coach is speaking",
+      );
+      const events = await page.evaluate(() => window.guidedAudioEvents);
+      const cueIndex = events.findIndex(
+        (event) => event.type === "play" && event.cue,
+      );
+      assert.ok(cueIndex > 0, "actual trainer cue begins after audio unlock");
+      assert.ok(
+        events.slice(0, cueIndex).some((event) => event.type === "pause"),
+      );
+      assert.ok(
+        !events.slice(cueIndex + 1).some((event) => event.type === "pause"),
+        "late unlock does not stop the opening cue",
+      );
+      await screenshot("voice-player", 390);
+    },
+  );
+  await check(
+    "failed audio holds the cue and offers deliberate text continuation",
+    async () => {
+      await root()
+        .locator("audio")
+        .first()
+        .evaluate((audio) => audio.dispatchEvent(new Event("error")));
+      await expect(
+        page.getByRole("button", { name: "Resume audio", exact: true }),
+      ).toBeVisible();
+      await page.clock.runFor(12000);
+      assert.equal(logs.length, 0);
+      await page
+        .getByRole("button", { name: "Continue with text", exact: true })
+        .click();
+      await expect(root().locator(".voice-player-state")).toContainText(
+        "Text-guided session",
+      );
+      await page.clock.runFor(20000);
+      assert.equal(logs.length, 0);
+    },
+  );
+  voiceFixture = false;
+  gate.mode = "text";
+  gate.playbackConsent = false;
+  audioReady = false;
+  await page.evaluate(() => localStorage.clear());
+  await check(
     "one guided runner with text, music and recoverable loading",
     async () => {
       await go();
       await expect(
-        page.getByRole("button", { name: "Start session", exact: true }),
+        page.getByRole("button", { name: "Play workout", exact: true }),
       ).toBeVisible();
     },
   );
-  await page.clock.install();
-  await page
-    .getByRole("button", { name: "Start session", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Play workout", exact: true }).click();
   await primary().click();
   await primary().click();
   await check("setup waits for readiness", async () => {
@@ -307,7 +496,7 @@ try {
       logs = [];
       await go();
       await page
-        .getByRole("button", { name: "Start session", exact: true })
+        .getByRole("button", { name: "Play workout", exact: true })
         .click();
       await primary().click();
       await primary().click();
@@ -362,7 +551,7 @@ try {
       }).script;
       await go();
       await page
-        .getByRole("button", { name: "Start session", exact: true })
+        .getByRole("button", { name: "Play workout", exact: true })
         .click();
       await primary().click();
       await primary().click();
@@ -389,8 +578,8 @@ try {
       await expect(primary()).toHaveText("Ready");
       await primary().click();
       await page.clock.runFor(20000);
-    await expect(root()).toContainText("الجولة 2");
-    await expect(root().locator(".voice-now")).not.toContainText("0 reps");
+      await expect(root()).toContainText("الجولة 2");
+      await expect(root().locator(".voice-now")).not.toContainText("0 reps");
       await screenshot("structured-arabic-distance", 390);
     },
   );

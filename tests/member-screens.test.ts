@@ -51,6 +51,8 @@ import {
   CHAT_PROMPTS,
   MemberChat,
   senderName,
+  chatDestinations,
+  chatSuggestions,
 } from "../apps/web/components/member-chat.tsx";
 import {
   MEMBERSHIP_STATUS,
@@ -333,7 +335,7 @@ test("Today follows the plan: waiting, self-paced, not started, planned, started
   assert.deepEqual(started.action, {
     kind: "link",
     label: "Continue workout",
-    href: "/app/workouts/w1",
+    href: "/app/voice-session/w1",
   });
   assert.equal(
     focus(base({ session: { ...session, status: "completed" } })).title,
@@ -377,7 +379,7 @@ test("Today: a workout in progress comes first; status shows only numbers that m
   assert.deepEqual(f.action, {
     kind: "link",
     label: "Continue workout",
-    href: "/app/workouts/w9",
+    href: "/app/voice-session/w9",
   });
   assert.deepEqual(
     todayStatus(
@@ -538,14 +540,23 @@ test("coach chat: senders are the coach's name and You; the composer is pinned; 
   assert.equal(senderName("trainer", "Alex Morgan"), "Alex Morgan");
   assert.equal(senderName(undefined, "Alex Morgan"), "Alex Morgan");
   assert.equal(senderName("digital_qualified", "Alex Morgan"), "Digital coach");
+  assert.equal(senderName("digital_reviewed", "Alex Morgan"), "Digital coach");
   assert.ok(CHAT_PROMPTS.length >= 3);
   const html = render(MemberChat, { state: memberState });
   // Before the thread answers it says so; "no messages" is never assumed.
   assert.match(text(html), /Loading your messages/);
   assert.doesNotMatch(text(html), /No messages yet|Start a conversation/);
   assert.match(html, /role="region" aria-label="Write a message"/);
-  assert.match(text(html), /Send to Alex/);
+  assert.match(text(html), /Send to digital coach/);
+  assert.match(text(html), /Message Alex personally/);
+  assert.match(html, /href="\/app\/intake"/);
+  assert.match(html, /href="\/app\/program"/);
   assert.doesNotMatch(text(html), /\btrainer\b|\bsubscriber\b/);
+});
+test("coach chat actions only open known member destinations and suggestions stay bounded", () => {
+  assert.deepEqual(chatDestinations(["profile", "training", "profile", "https://untrusted.example", { href: "/admin" }, "__proto__"]).map(value => value.href), ["/app/intake", "/app/program"]);
+  assert.deepEqual(chatDestinations(null), []);
+  assert.deepEqual(chatSuggestions(["Save these changes", "Save these changes", "", "x".repeat(201), "Keep my saved profile", "Show my profile", "extra"]), ["Save these changes", "Keep my saved profile", "Show my profile"]);
 });
 
 // ------------------------------------------------------------ membership

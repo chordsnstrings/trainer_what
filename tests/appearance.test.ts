@@ -25,6 +25,10 @@ import {
   parseColorScheme,
   themeColorsFor,
 } from "../apps/web/color-scheme.ts";
+import {
+  MEMBER_APP_VARIABLES,
+  MEMBER_THEME_COLORS,
+} from "../apps/web/lib/member-appearance.ts";
 import { TrainerTheme } from "../apps/web/components/trainer-design.tsx";
 import { DisplayPreferences } from "../apps/web/components/appearance.tsx";
 
@@ -260,7 +264,7 @@ test("only subscriber surfaces follow the appearance choice", async () => {
   );
   // The public website follows it; the Design Studio preview does not.
   assert.match(site, /colorScheme=\{preview \? undefined : scheme\}/);
-  assert.match(design, /<TrainerTheme theme=\{theme\}>/);
+  assert.match(design, /<TrainerTheme theme=\{theme\} memberApp=\{mode === "app"\}>/);
   // The trainer workspace keeps PlainShell with .platform-ui.
   assert.match(workspace, /<PlainShell className=\{`workspace platform-ui/);
 
@@ -279,6 +283,52 @@ test("only subscriber surfaces follow the appearance choice", async () => {
   assert.match(member, /data-color-scheme="system"/);
   assert.match(member, /--dark-paper:#[0-9a-f]{6}/);
   assert.match(member, /--paper:#[0-9a-f]{6}/);
+});
+
+test("member app colours are neutral, readable in both modes, and independent of the coach website", () => {
+  const v = MEMBER_APP_VARIABLES;
+  for (const dark of [false, true]) {
+    const key = (name: string) => v[`--${dark ? "dark-" : ""}${name}`];
+    for (const surface of [
+      key("paper"),
+      key("white"),
+      key(dark ? "tint" : "brand-tint"),
+    ]) {
+      assert.ok(brandContrast(key("ink"), surface) >= 7);
+      assert.ok(brandContrast(key("muted"), surface) >= 4.5);
+      assert.ok(
+        brandContrast(key(dark ? "link" : "brand-link"), surface) >= 4.5,
+      );
+    }
+    assert.ok(brandContrast(key("field-border"), key("white")) >= 3);
+    assert.ok(
+      brandContrast(
+        key(dark ? "on-primary" : "brand-on-primary"),
+        key(dark ? "primary" : "brand-primary"),
+      ) >= 4.5,
+    );
+  }
+  const theme = {
+    design: { primary: "#244c46", surface: "#101418", accent: "#00ffff" },
+  };
+  const member = renderToStaticMarkup(
+    createElement(TrainerTheme, {
+      theme,
+      memberApp: true,
+      colorScheme: "dark",
+      children: "Readable app",
+    }),
+  );
+  const website = renderToStaticMarkup(
+    createElement(TrainerTheme, { theme, children: "Coach site" }),
+  );
+  assert.match(member, /--paper:#f7f8f6/);
+  assert.match(member, /--dark-white:#222527/);
+  assert.match(member, /data-color-scheme="dark"/);
+  assert.match(website, /--paper:#101418/);
+  assert.deepEqual(themeColorsFor("light", MEMBER_THEME_COLORS), [
+    { color: "#ffffff" },
+  ]);
 });
 
 test("the choice: three values, a cookie mirror and the browser colour per scheme", () => {
@@ -325,10 +375,10 @@ test("Display preferences: a labelled group of three choices, the device's first
       /<input type="radio" name="appearance"( checked="")? value="(\w+)"/g,
     ),
   ].map((m) => [m[2], !!m[1]]);
-  // Server render (no cookie): Match this device is chosen.
+  // Server render (no cookie): the subscriber app starts light.
   assert.deepEqual(radios, [
-    ["system", true],
-    ["light", false],
+    ["system", false],
+    ["light", true],
     ["dark", false],
   ]);
   for (const label of ["Match this device", "Light", "Dark"])
@@ -420,7 +470,7 @@ test("the member's appearance is saved per member without touching other prefere
   const initial = (
     await request("/notifications/preferences", "GET", undefined, member.cookie)
   ).json();
-  assert.equal(initial.data.theme, "system");
+  assert.equal(initial.data.theme, "light");
   // The notification form saves something first.
   const edited = await request(
     "/notifications/preferences",
@@ -454,7 +504,7 @@ test("the member's appearance is saved per member without touching other prefere
         other.cookie,
       )
     ).json().data.theme,
-    "system",
+    "light",
   );
   // The notification form's next save keeps the choice when it sends it back.
   const again = await request(

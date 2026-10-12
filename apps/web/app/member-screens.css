@@ -4,6 +4,62 @@
    Motion comes from the shared rules in phone-first.css (presses, page
    arrival, notices, sheets); nothing here animates. */
 
+/* Shared subscriber surfaces: neutral and readable in either appearance.
+   Colours come from member-appearance.ts; coach websites keep their design. */
+.member-shell {
+  line-height: 1.55;
+}
+.member-shell .button {
+  font-weight: 600;
+  box-shadow: none;
+}
+.member-shell .button.secondary {
+  background: var(--white);
+  border-color: var(--line);
+  color: var(--ink);
+}
+.member-shell .button.secondary:hover:not(:disabled) {
+  background: var(--brand-tint);
+  color: var(--ink);
+  border-color: var(--muted);
+}
+.member-shell .card {
+  border-color: var(--line);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.025);
+}
+.member-shell .small-label,
+.member-shell .eyebrow {
+  color: var(--muted);
+  letter-spacing: 0.06em;
+}
+.member-shell .trainer-preview-bar {
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: var(--white);
+  color: var(--ink);
+}
+.trainer-preview-bar details > summary {
+  min-block-size: 44px;
+  align-content: center;
+  color: var(--ink);
+}
+.trainer-preview-bar details[open] > summary {
+  margin-block-end: 8px;
+}
+.trainer-preview-bar details > p {
+  color: var(--muted);
+  max-inline-size: 68ch;
+}
+.member-program .program-next > :is(.text-link, .text-button),
+.today-focus .today-secondary {
+  justify-self: start;
+  text-align: start;
+}
+.member-program .program-plan > .text-button {
+  display: block;
+  margin-block-start: 8px;
+}
+
 /* ------------------------------------------------------------------ */
 /* Today                                                                */
 /* ------------------------------------------------------------------ */
@@ -418,6 +474,15 @@ span.today-coach-photo {
   margin: 0 0 12px;
   font-size: 14px;
 }
+.chat-context-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-block: 8px 12px;
+}
+.chat-context-actions .button {
+  white-space: normal;
+}
 .chat-thread {
   display: grid;
   gap: 12px;
@@ -514,7 +579,7 @@ span.today-coach-photo {
 }
 .chat-composer-actions {
   display: grid;
-  /* Attach, Ask the digital coach (the room left), Send (its own width). */
+  /* Attach, explicit personal message, primary conversation send. */
   grid-template-columns: 44px minmax(0, 1fr) auto;
   gap: 8px;
   align-items: stretch;

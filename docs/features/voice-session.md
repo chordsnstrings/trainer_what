@@ -1,5 +1,69 @@
 # Voice coach that runs the workout session (package `core/voice-session`)
 
+## Guided player recovery and private preview — 12 October 2026
+
+Current working changes (not yet deployed): private preview registers the real parameterized
+member voice routes, including audio, polling, spoken replies, events and progress. The earlier
+allowlist matched a UUID but not the registered `:id` route, leaving those preview requests at
+404 even after audio was prepared. Trainer voice settings remain outside the member alias.
+
+`session.audio.readyKeys` exposes available clips while generation continues. The opening
+instructions can play before the full session is ready. Voice readiness requires an actual
+provider voice identifier, and preparing an existing session selects the trainer's current
+verified voice version. Audio downloads reject changed prescriptions or ended workouts.
+`audio.revision` changes with the trainer's selected voice/version, so a player cannot retain
+cached clips from the previous voice under the same script's line identifiers.
+The worker checks member access, playback consent, trainer rights, the current plan and
+training holds/takeover before each purchase and again before retaining member audio.
+An already-sent, uncertain provider outcome is still never automatically purchased again.
+
+Ending the player does not finish the workout. An explicit
+`POST /voice-sessions { workoutId, resumeStopped: true, runRevision }` can recover a
+member-stopped session while that workout remains active and clear to train. It reuses the
+session and existing audio, preserves validated targets/skips and recorded sets, and writes a
+paused checkpoint at the first unfinished prescribed set. Pain/hold/completed sessions cannot
+use this recovery. `resumeAvailable` describes the current server permission. `runRevision`
+increases on recovery and accompanies event/checkpoint writes, preventing an earlier run's
+late stop from stopping the resumed one. This uses the existing progress JSON; no migration.
+
+Focused API evidence: `tests/voice-session.test.ts` and `tests/trainer-preview.test.ts` passed
+25 tests, including actual preview route/worker/audio calls, cross-member denial, setup cost
+tagging, partial readiness, stop/resume, stale progress, changed plans and consent/takeover
+during speech generation. These use isolated synthetic providers; live account/voice and
+physical-phone playback remain separate acceptance checks.
+
+### Player flow
+
+Today/Training open the guided player directly. One **Play workout** action
+unlocks a persistent audio element, prepares the current script, binds a planned
+session to its workout, waits for the opening cue, then starts playback. It stays
+on the same document so the browser's audio permission is retained. First-use
+playback consent remains explicit. The member can choose text guidance when
+voice is unavailable.
+
+The screen centres the current movement, prescribed target, timer, spoken cue,
+set progress and a large play/pause control. Replay and pacing controls sit beside
+it; music, volume, microphone consent and less-used changes live in expandable
+options. Set completion is still explicit. Full prescribed rests pace subsequent
+sets by default (with an opt-out); a new exercise waits for Ready. No microphone
+permission is requested automatically.
+
+Missing audio is buffered instead of silently consuming its cue. Playback errors
+keep the cue queued with **Resume audio** and an explicit text alternative.
+Long/nonjoinable own-music cues fall back to complete ordinary audio, never silent
+skips. Delayed unlock/cue/poll callbacks cannot pause new audio or overwrite a
+newly resumed session. Resume waits for the previous stop receipt; legacy unsent
+outcomes remain recoverable. A new selected trainer voice discards old clips.
+
+Local checks: production build and TypeScript passed; 35 focused runner/audio/
+i18n checks, 68 voice/narration/programme/music compatibility checks, and the
+server checks above passed. The expanded synthetic browser fixture covers
+planned Play/prepare/bind without reload, delayed opening audio and explicit
+playback failure recovery. Browser execution awaits CI because the local
+Chromium archive could not be downloaded; live speech and physical devices have
+not been accepted by these checks.
+
+
 Status: implemented on branch `core/voice-session` (base `b4ac2b5`, migration 065), then
 revised after review (second commit on the branch; see "Review fixes"). The checks below
 were run exactly as recorded; limits are listed at the end. Nothing was deployed and no
