@@ -4,7 +4,7 @@ Trainer setup, continued Brain teaching and client intake now default to a share
 
 ## Contextual intake and ongoing conversation — 12 October 2026
 
-This update is implemented and awaiting the release checks recorded in `CLAUDE_HANDOFF.md`. Conversation version is `onboarding-chat-v5`. Readiness is distinct from having asked all questions, and saved profiles are distinct from draft edits and assigned workouts.
+This update is live in [PR #57](https://github.com/chordsnstrings/trainer_what/pull/57) as `5b1f3d7dd2f91b28661cad60dff70046068ad6f7`; [serving verification](https://github.com/chordsnstrings/trainer_what/actions/runs/38227638129) confirms the serving release. Conversation version is `onboarding-chat-v5`. Readiness is distinct from having asked all questions, and saved profiles are distinct from draft edits and assigned workouts.
 
 The assistant receives six complete recent turns, compact persisted facts with supporting quotes, unresolved/deferred details, proposed preferences, delegation and repeated-question state. Fact memory survives transcript truncation without an extra summary-model call. Trainer interview instructions are omitted from subscriber prompts. The active model still supplies semantic understanding; code validates evidence, consent, actions and boundaries. Wording asks for specific, varied responses without repetitive praise, unsupported promises or invented certainty.
 

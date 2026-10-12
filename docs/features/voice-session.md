@@ -2,7 +2,7 @@
 
 ## Guided player recovery and private preview — 12 October 2026
 
-Current working changes (not yet deployed): private preview registers the real parameterized
+Live in [PR #57](https://github.com/chordsnstrings/trainer_what/pull/57) as `5b1f3d7dd2f91b28661cad60dff70046068ad6f7`; [serving verification](https://github.com/chordsnstrings/trainer_what/actions/runs/38227638129) confirms the release. Private preview registers the real parameterized
 member voice routes, including audio, polling, spoken replies, events and progress. The earlier
 allowlist matched a UUID but not the registered `:id` route, leaving those preview requests at
 404 even after audio was prepared. Trainer voice settings remain outside the member alias.

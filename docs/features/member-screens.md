@@ -2,6 +2,8 @@
 
 ## Current subscriber experience — 12 October 2026
 
+Live in [PR #57](https://github.com/chordsnstrings/trainer_what/pull/57) as `5b1f3d7dd2f91b28661cad60dff70046068ad6f7`; [serving verification](https://github.com/chordsnstrings/trainer_what/actions/runs/38227638129) confirms the release.
+
 The app now uses the platform's neutral application design: white cards, warm
 light canvas, dark primary actions, consistent typography and quiet borders.
 New or unset appearance preferences start Light. Explicit Light, Dark and
@@ -22,6 +24,10 @@ an unrelated reply needs attention. Test controls include saved appearance
 choices. The appearance write is scoped to the private subscriber, not the
 trainer's own preferences. Routine valid preview replies and plans appear
 automatically; blocking reasons remain visible in Test controls.
+
+Optional analytics prompts wait until the member leaves the guided player, including
+private preview. This defers the prompt without saving an answer or changing
+consent; explicit settings remain available.
 
 Checks: appearance/member/translation/logical-layout tests and preview isolation
 coverage; browser contrast checks measure the preview text in saved Light and
