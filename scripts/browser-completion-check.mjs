@@ -728,7 +728,7 @@ export async function checkCompletionFlows({
   await coach.waitForURL("**/trainer/messages/*");
   const received = coach
     .getByRole("region", { name: "Conversation" })
-    .locator("article")
+    .getByRole("listitem")
     .filter({ hasText: messageText });
   const fileLink = received.getByRole("link", {
     name: `Download ${attachment.fileName}`,
