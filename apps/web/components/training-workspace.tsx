@@ -3,7 +3,7 @@ import { memberApiUrl } from "../lib/trainer-preview-routing";
 import { useWorkspaceValue } from "./workspace-continuity";
 import { promptWorkspace } from "./workspace-feedback";
 import { Field } from "./field";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "./preview-navigation";
 import { TrainingHoldNotice } from "./coaching-completion";
 import { ChatAttachmentList, ChatAttachmentPicker, type ChatAttachment } from "./chat-attachments";
@@ -13,7 +13,10 @@ import { MemberFinder, withPicked, type MemberOption } from "./member-finder";
 import { MemberPlan } from "./brain-plans";
 import { prescriptionText, workMeasure } from "../../../packages/domain/src/prescription.ts";
 import { ResponsiveTable, Skeleton } from "./phone-ui";
-import { MOTION } from "./motion";
+import { MemberChat } from "./member-chat";
+import { ConversationIdentity, ConversationLegend, conversationKind } from "./conversation-identity";
+import { useConversationScroll } from "./use-conversation-scroll";
+import { ArrowDown, Send } from "lucide-react";
 import { useErrorText, useLocale, useT } from "../lib/i18n/react";
 import { errorText } from "../lib/i18n/errors";
 import {
@@ -136,51 +139,87 @@ export function TrainingProgress({ state }: { state: any }) {
   return <><h1>{tr("progressTitle")}</h1><p className="muted">{sub ? tr("progressIntroMember") : tr("progressIntro")}</p>{!sub && <Field label="Client"><select value={selected} onChange={(e) => setSelected(e.target.value)}><option value="">Select a client</option>{withPicked<MemberOption>(state.members?.filter((m: any) => m.role === "subscriber") ?? [], picked).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></Field>}{!sub && <MemberFinder hasMore={!!state.pages?.members?.hasMore} onPick={(m) => { setPicked((v) => [...v, m]); setSelected(m.id); }} />}{t.error && <p role="alert">{t.error}</p>}<section className="card"><h2>{tr("completedSessions", { count: workouts.filter((w: any) => w.status === "completed").length })}</h2><p>{tr("loggedSets", { count: (t.data?.sets ?? []).length })}{(() => { const today = calendarDate(new Date()), left = rows.filter((r: any) => r.kind === "planned_session" && r.status === "planned" && String(r.data?.date ?? "") >= today).length; return left ? tr("plannedToGo", { count: left }) : ""; })()}</p><ResponsiveTable label={tr("byExercise")} columns={[{ key: "exercise", label: tr("colExercise") }, { key: "sets", label: tr("colSets"), numeric: true }, { key: "volume", label: tr("colVolume"), numeric: true }, { key: "max", label: tr("colHeaviest"), numeric: true }, { key: "last", label: tr("colLast") }]} rows={[...byExercise].map(([name, v]) => ({ key: name, cells: { exercise: <bdi>{name}</bdi>, sets: v.sets, volume: Math.round(v.volume * 10) / 10, max: v.maxLoad, last: shortDate(v.last, locale) } }))} empty={<p className="muted">{tr("progressEmpty")}</p>} />{t.data?.partial && <p className="muted">{tr("partial")}</p>}</section><section className="card"><h2>{tr("history")}</h2>{!workouts.length && <p className="muted">{tr("historyEmpty")}</p>}<ul className="session-history">{workouts.map((w: any) => <li key={w.id}>{sub ? <a className="session-history-link" href={`/app/workouts/${w.id}`}><strong dir="auto">{w.data.program.title}</strong><span>{shortDate(w.created_at, locale)} · {sessionStatus(w.status)}</span></a> : <span className="session-history-link"><strong dir="auto">{w.data.program.title}</strong><span>{shortDate(w.created_at, locale)} · {sessionStatus(w.status)}</span></span>}</li>)}</ul></section><HealthKitActivityCard userId={selected || undefined} /></>;
 }
 
-/** A coaching conversation. A trainer opening one client's chat passes
- * `subscriberId` (the chat list and client page do); without it the trainer
- * picks a client here. */
-function coachAuthor(value: string, clientName?: string) {
-  switch (value) {
-    case "subscriber": return clientName ?? "Client";
-    case "trainer": return "You";
-    case "digital_qualified": case "digital": return "Your Brain";
-    case "digital_reviewed": return "Your Brain (you approved)";
-    case "system": return "Automatic notice";
-    default: return value.replaceAll("_", " ");
-  }
+/** The subscriber uses the same chat everywhere, including trainer previews. */
+export function CoachingMessages(props: { state: any; subscriberId?: string; clientName?: string }) {
+  return props.state.user.role === "subscriber" ? <MemberChat state={props.state} /> : <TrainerConversation key={props.subscriberId ?? "client-picker"} {...props} />;
 }
-export function CoachingMessages({ state, subscriberId, clientName }: { state: any; subscriberId?: string; clientName?: string }) {
-  const sub = state.user.role === "subscriber", fixed = !sub && !!subscriberId, [target, setTarget] = useState(sub ? state.user.userId : subscriberId ?? state.members?.find((m: any) => m.role === "subscriber")?.id ?? ""), [picked, setPicked] = useState<MemberOption[]>([]), [messages, setMessages] = useState<any[]>([]), [hasMore, setHasMore] = useState(false), [personal, setPersonal] = useState(false), [text, setText, clearText] = useWorkspaceValue(`chat:${target}:text`, "", !sub), [busy, setBusy] = useState(false), [error, setError] = useState(""), [notice, setNotice] = useState("");
+
+function TrainerConversation({ state, subscriberId, clientName }: { state: any; subscriberId?: string; clientName?: string }) {
+  const [target, setTarget] = useState(subscriberId ?? state.members?.find((m: any) => m.role === "subscriber")?.id ?? "");
+  const [picked, setPicked] = useState<MemberOption[]>([]), [messages, setMessages] = useState<any[]>([]);
+  const [hasMore, setHasMore] = useState(false), [personal, setPersonal] = useState(false), [loaded, setLoaded] = useState(false);
+  const [text, setText] = useWorkspaceValue(`chat:${target}:text`, "", true);
+  const [busy, setBusy] = useState(false), [reading, setReading] = useState(false), [error, setError] = useState(""), [notice, setNotice] = useState("");
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]), [uploading, setUploading] = useState(false), [composerKey, setComposerKey] = useState(0);
-  // Member side (docs/features/motion.md "h"): the first load shows a
-  // skeleton; a message on its way shows at once, faded, marked "Sending";
-  // the digital coach shows typing dots while it prepares a reply; messages
-  // that arrive later slide in. The trainer's view is unchanged.
-  const [loaded, setLoaded] = useState(false), [sending, setSending] = useState<{ text: string; digital: boolean } | null>(null), [fresh, setFresh] = useState<string[]>([]);
-  const known = useRef<{ ids: Set<string>; latest: number } | null>(null), sentText = useRef("");
-  const currentTarget = useRef(target); currentTarget.current = target;
-  const tr = useT("training"), locale = useLocale(), toError = useErrorText();
-  const author = (value?: string) => sub && value && ["subscriber", "trainer", "digital_qualified", "digital_reviewed", "digital", "system"].includes(value) ? tr(`author_${value}` as "author_trainer") : !sub ? coachAuthor(value ?? "", clientName) : (value ?? "").replaceAll("_", " ");
-  const load = useCallback(async (before?: string) => { if (!target) return; const result = await api("/messages/thread?subscriberId=" + target + (before ? "&before=" + before : "")); if (currentTarget.current !== target) return; setMessages((old) => before ? [...result.messages, ...old] : [...old.filter((m) => !result.messages.some((r: any) => r.id === m.id)), ...result.messages].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())); if (before || !messages.length) setHasMore(result.hasMore); setPersonal(result.personalReview); }, [target]);
-  useEffect(() => { setMessages([]); setError(""); setLoaded(false); known.current = null; void load().then(() => setLoaded(true), (e) => { setLoaded(true); setError(errorText(e, pageLocale())); }); const timer = setInterval(() => { if (document.visibilityState === "visible") void load().catch(() => {}); }, 8000); return () => clearInterval(timer); }, [load]);
-  // Messages newer than any seen before slide in (not the first load, not
-  // older pages, not the member's own message that was just shown as sending).
-  useLayoutEffect(() => {
-    if (!sub || !loaded) return;
-    const time = (m: any) => new Date(m.created_at).getTime();
-    if (!known.current) { known.current = { ids: new Set(messages.map((m) => m.id)), latest: Math.max(0, ...messages.map(time)) }; return; }
-    const seen = known.current;
-    const added = messages.filter((m) => !seen.ids.has(m.id));
-    for (const m of added) { seen.ids.add(m.id); seen.latest = Math.max(seen.latest, time(m)); }
-    const arriving = added.filter((m) => !(m.data?.author === "subscriber" && m.data?.text === sentText.current)).filter((m) => time(m) >= seen.latest - 60000).map((m) => m.id);
-    if (!arriving.length) return;
-    setFresh(arriving);
-    const done = window.setTimeout(() => setFresh([]), MOTION.base + 100);
-    return () => window.clearTimeout(done);
-  }, [messages, loaded, sub]);
-  async function send(digital: boolean) { if (busy || uploading || (digital && attachments.length)) return; setBusy(true); setError(""); setNotice(""); if (sub) { sentText.current = text.trim(); setSending({ text: text.trim(), digital }); } try { const result = await api(digital ? "/coaching/ask" : "/messages", "POST", digital ? { message: text } : { text, subscriberId: target, attachmentIds: attachments.map((file) => file.id) }); setText(""); clearText(); setAttachments([]); setComposerKey((v) => v + 1); if (result.pendingReview) setNotice(locale === "en" ? result.message : tr("pendingReview")); await load(); } catch (e) { setError(toError(e)); } finally { setBusy(false); setSending(null); } }
-  return <><h1>{sub ? tr("chatTitle") : fixed ? clientName ?? "Chat" : "Client conversations"}</h1><p className="muted">{sub ? tr("chatIntro") : "New messages show while this page is open. Replies from your Brain are labelled."}</p>{!sub && !fixed && <Field label="Client"><select value={target} disabled={busy || uploading} onChange={(e) => { setTarget(e.target.value); setAttachments([]); setNotice(""); }}><option value="">Choose a client</option>{withPicked<MemberOption>(state.members?.filter((m: any) => m.role === "subscriber") ?? [], picked).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></Field>}{!sub && !fixed && <MemberFinder hasMore={!!state.pages?.members?.hasMore} disabled={busy || uploading} onPick={(m) => { setPicked((v) => [...v, m]); setTarget(m.id); setAttachments([]); setNotice(""); }} />}{error && <p role="alert" className="notice">{error}</p>}{notice && <p role="status" className="notice">{notice}</p>}{personal && <p className="notice">{sub ? tr("personal") : "You are replying yourself. Your Brain will not reply in this chat until you let it."}</p>}{!sub && target && <button className="button secondary" disabled={busy || uploading} onClick={async () => { setBusy(true); try { await api("/takeover", "POST", { subscriberId: target, active: !personal }); await load(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }}>{personal ? "Let my Brain reply" : "I’ll reply myself"}</button>}
-    <section className="card" aria-label={tr("conversation")}><div aria-live="polite">{hasMore && messages.length > 0 && <button className="text-button" onClick={() => void load(messages[0].id).catch((e) => setError(toError(e)))}>{tr("loadEarlier")}</button>}{sub && !loaded && <Skeleton label={tr("loadingChat")} lines={4} />}{messages.map((m) => <article key={m.id} className={sub ? "chat-message" + (fresh.includes(m.id) ? " is-new" : "") : undefined} style={{ borderBottom: "1px solid var(--line)", paddingBlock: 16 }}><small className="muted">{author(m.data.author)}{m.data.scheduled ? tr("scheduled") : ""} · {sub ? formatDateTime(m.created_at, { locale }) : new Date(m.created_at).toLocaleString()}</small><p style={{ whiteSpace: "pre-wrap" }} dir="auto">{m.data.text}</p><ChatAttachmentList files={m.data.attachments ?? []} user={state.user} onRemove={(id) => setMessages((old) => old.map((message) => message.id === m.id ? { ...message, data: { ...message.data, attachments: message.data.attachments.filter((file: ChatAttachment) => file.id !== id) } } : message))} /></article>)}{sending && !messages.some((m) => m.data?.author === "subscriber" && m.data?.text === sending.text && Date.now() - new Date(m.created_at).getTime() < 120000) && <article className="chat-message is-new is-sending" aria-live="off" style={{ borderBottom: "1px solid var(--line)", paddingBlock: 16 }}><small className="chat-sending">{author("subscriber")} · {tr("sending")}</small><p style={{ whiteSpace: "pre-wrap" }} dir="auto">{sending.text}</p></article>}{sending?.digital && <p className="chat-typing" role="status"><span className="chat-typing-dots" aria-hidden="true"><span className="chat-typing-dot" /><span className="chat-typing-dot" /><span className="chat-typing-dot" /></span>{tr("coachTyping")}</p>}{!messages.length && !sending && (!sub || loaded) && <p>{tr("noMessages")}</p>}</div><form onSubmit={(event) => { event.preventDefault(); void send(false); }}><Field label={tr("yourMessage")}><textarea disabled={busy} value={text} onChange={(e) => setText(e.target.value)} required={!attachments.length} maxLength={4000} rows={4} /></Field><ChatAttachmentPicker key={target + ":" + composerKey} subjectId={target} files={attachments} user={state.user} onChange={setAttachments} onBusy={setUploading} disabled={busy} />{sub && <p className="muted">{tr("attachmentsNote")}</p>}<div className="button-row"><button className={sub ? "button chat-send" : "button"} disabled={busy || uploading || !target || (!text.trim() && !attachments.length)} type="submit">{sub ? tr("sendTrainer") : "Send to client"}</button>{sub && <button className="button secondary chat-send" disabled={busy || uploading || !!attachments.length || !text.trim()} type="button" onClick={() => void send(true)}>{tr("askDigital")}</button>}</div></form></section>
-    {!sub && target && <CoachingFollowups key={target} subscriberId={target} user={state.user} />}
-  </>;
+  const [sending, setSending] = useState<string | null>(null);
+  const currentTarget = useRef(target), newest = useRef(""); currentTarget.current = target;
+  const tr = useT("training"), chat = useT("chat"), locale = useLocale(), toError = useErrorText();
+  const clients = withPicked<MemberOption>(state.members?.filter((m: any) => m.role === "subscriber") ?? [], picked);
+  const name = clientName ?? clients.find(m => m.id === target)?.name ?? "Client";
+  const coach = state.tenant.name;
+  const scroll = useConversationScroll(sending ? `sending:${sending}` : messages.at(-1)?.id ?? "", loaded, target);
+  const load = useCallback(async (before?: string) => {
+    if (!target) { setLoaded(true); return; }
+    setReading(true);
+    try {
+      const result = await api("/messages/thread?subscriberId=" + target + (before ? "&before=" + before : ""));
+      if (currentTarget.current !== target) return;
+      const restore = before ? scroll.prependHistory() : undefined;
+      setMessages(old => before ? [...result.messages, ...old] : [...old.filter(m => !result.messages.some((r: any) => r.id === m.id)), ...result.messages].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()));
+      restore?.();
+      if (before || !newest.current) setHasMore(result.hasMore);
+      newest.current = result.messages.at(-1)?.id ?? newest.current;
+      setPersonal(!!result.personalReview);
+      setLoaded(true);
+    } finally { if (currentTarget.current === target) setReading(false); }
+  }, [target]);
+  useEffect(() => {
+    setMessages([]); setError(""); setLoaded(false); setHasMore(false); setPersonal(false); newest.current = "";
+    void load().catch(e => { if (currentTarget.current === target) { setLoaded(true); setError(errorText(e, pageLocale())); } });
+    const timer = setInterval(() => { if (document.visibilityState === "visible") void load().catch(() => {}); }, 8000);
+    return () => clearInterval(timer);
+  }, [load, target]);
+  async function send() {
+    if (busy || uploading || !target || (!text.trim() && !attachments.length)) return;
+    const draft = text, files = attachments;
+    setBusy(true); setError(""); setNotice(""); scroll.followNext(); setSending(draft.trim());
+    try {
+      await api("/messages", "POST", { text: draft, subscriberId: target, attachmentIds: files.map(file => file.id) });
+      setText(current => current === draft ? "" : current);
+      setAttachments(current => current.filter(file => !files.some(sent => sent.id === file.id)));
+      setComposerKey(v => v + 1);
+      // A committed message must not become a retry when refreshing fails.
+      await load().catch(() => setNotice("Your message was sent. Refresh to see the latest conversation."));
+    } catch (e) { setError(toError(e)); }
+    finally { setBusy(false); setSending(null); }
+  }
+  function pick(id: string) { setTarget(id); setAttachments([]); setNotice(""); }
+  return <div className="trainer-conversation stack">
+    <header className="page-heading"><h1>{subscriberId ? name : "Client conversations"}</h1><p className="muted">Stay close to your clients. Step in personally whenever they need you.</p></header>
+    {!subscriberId && <div className="conversation-client-picker"><Field label="Client"><select value={target} disabled={busy || uploading} onChange={e => pick(e.target.value)}><option value="">Choose a client</option>{clients.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select></Field><MemberFinder hasMore={!!state.pages?.members?.hasMore} disabled={busy || uploading} onPick={m => { setPicked(v => [...v, m]); pick(m.id); }} /></div>}
+    {error && <div role="alert" className="notice error"><p>{error}</p><button type="button" className="text-button" disabled={reading} onClick={() => void load().then(() => setError(""), e => setError(toError(e)))}>Refresh conversation</button></div>}
+    {notice && <p role="status" className="notice">{notice}</p>}
+    {target && <section className="card trainer-chat-card">
+      <div className="conversation-toolbar"><div><strong dir="auto">{name}</strong><p className="muted">{personal ? "You’re replying personally. Assisted replies are paused." : "Coaching support is available. Your personal replies appear in a different colour."}</p></div><button className="button secondary" disabled={busy || uploading || !loaded} onClick={async () => { setBusy(true); setError(""); try { await api("/takeover", "POST", { subscriberId: target, active: !personal }); await load(); } catch (e) { setError(toError(e)); } finally { setBusy(false); } }}>{personal ? "Resume assisted replies" : "I’ll reply myself"}</button></div>
+      <details className="conversation-tools"><summary>{chat("conversationDetails")}</summary><ConversationLegend coach={coach} /></details>
+      <section className="chat-thread conversation-scroll" ref={scroll.thread} onScroll={scroll.onScroll} aria-label={tr("conversation")} tabIndex={0}>
+        {hasMore && messages.length > 0 && <button type="button" className="text-button chat-earlier" disabled={reading} onClick={() => void load(messages[0].id).catch(e => setError(toError(e)))}>{tr("loadEarlier")}</button>}
+        {!loaded && <Skeleton label={tr("loadingChat")} lines={4} />}
+        <ol className="chat-messages" aria-live="polite">{messages.map(m => <li key={m.id} className={`chat-message is-${conversationKind(m.data.author)}${m.data.author === "trainer" ? " is-mine" : ""}`}>
+          <p className="chat-meta"><ConversationIdentity author={m.data.author} coach={coach} client={name} trainer /><time dateTime={m.created_at}>{m.data.scheduled ? tr("scheduled") : ""}{formatDateTime(m.created_at, { locale })}</time></p>
+          {m.data.text && <p className="chat-text" dir="auto">{m.data.text}</p>}
+          <ChatAttachmentList files={m.data.attachments ?? []} user={state.user} onRemove={id => setMessages(old => old.map(message => message.id === m.id ? { ...message, data: { ...message.data, attachments: message.data.attachments.filter((file: ChatAttachment) => file.id !== id) } } : message))} />
+        </li>)}
+        {sending !== null && !messages.some(m => m.data?.author === "trainer" && m.data?.text === sending && Date.now() - new Date(m.created_at).getTime() < 120000) && <li className="chat-message is-mine is-personal is-sending"><p className="chat-meta"><ConversationIdentity author="trainer" coach={coach} trainer /><span>{tr("sending")}</span></p><p className="chat-text" dir="auto">{sending}</p></li>}</ol>
+        {loaded && !messages.length && sending === null && <div className="chat-empty"><h2>Start with a check-in</h2><p className="muted">Ask how training is going, share encouragement or help {name.split(" ")[0]} with the next step.</p></div>}
+      </section>
+      {scroll.newMessages && <button className="button secondary conversation-latest" type="button" onClick={scroll.toLatest}><ArrowDown size={16} aria-hidden="true" />{chat("latestMessages")}</button>}
+      <form className="trainer-chat-composer" onSubmit={event => { event.preventDefault(); void send(); }}>
+        <Field label={tr("yourMessage")}><textarea value={text} onChange={e => setText(e.target.value)} required={!attachments.length} maxLength={4000} rows={3} placeholder={`Message ${name.split(" ")[0]}`} /></Field>
+        <details className="conversation-tools"><summary>Photos and files{attachments.length ? ` · ${attachments.length} attached` : ""}</summary><ChatAttachmentPicker key={target + ":" + composerKey} subjectId={target} files={attachments} user={state.user} onChange={setAttachments} onBusy={setUploading} disabled={busy} /></details>
+        <div className="conversation-send-row"><span className="conversation-source is-personal"><i aria-hidden="true" />Personal reply</span><button className="button chat-send" disabled={busy || uploading || (!text.trim() && !attachments.length)} type="submit"><Send size={16} aria-hidden="true" />{busy ? "Sending…" : "Send to client"}</button></div>
+      </form>
+    </section>}
+    {target && <CoachingFollowups key={target} subscriberId={target} user={state.user} />}
+  </div>;
 }

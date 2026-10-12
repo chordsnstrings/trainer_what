@@ -97,9 +97,9 @@ export function authorLabel(author: string) {
       return "You";
     case "digital_qualified":
     case "digital":
-      return "Your Brain";
+      return "Assisted reply";
     case "digital_reviewed":
-      return "Your Brain (you approved)";
+      return "Assisted reply (you approved)";
     case "system":
       return "Automatic notice";
     default:
@@ -214,7 +214,7 @@ function InboxCard({
       )}
       {item.draft && mode !== "edit" && (
         <blockquote className="inbox-draft" dir="auto">
-          <small>Your Brain’s draft</small>
+          <small>Reply draft</small>
           {item.draft}
         </blockquote>
       )}

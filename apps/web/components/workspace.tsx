@@ -594,7 +594,7 @@ export default function Workspace({
         }}
       />
     );
-  if (preview && !loading && !state) return <PreviewUnavailable message={bootstrapError || "Your test session ended. Open Try my AI again from My Brain."} />;
+  if (preview && !loading && !state) return <PreviewUnavailable message={bootstrapError || "Your test session ended. Open Try client experience again from My Brain."} />;
   if (suspended)
     return memberScreen(
       <WorkspaceSuspended

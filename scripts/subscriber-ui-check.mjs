@@ -63,10 +63,10 @@ try {
     const requests = [];
     const reject = route => { requests.push(route.request().postDataJSON()); return unavailable(route); };
     await page.route("**/api/v1/coaching/ask", reject);
-    await page.getByRole("button", { name: "Send to digital coach", exact: true }).click();
+    await page.getByRole("button", { name: "Send for an AI-assisted reply", exact: true }).click();
     await expect(page.locator(".member-shell [role=alert]")).toContainText("We couldn't confirm the reply");
     await expect(page.getByLabel("Your message", { exact: true })).toHaveValue("Synthetic retained draft");
-    await page.getByRole("button", { name: "Send to digital coach", exact: true }).click();
+    await page.getByRole("button", { name: "Send for an AI-assisted reply", exact: true }).click();
     await expect.poll(() => requests.length).toBe(2);
     assert.ok(requests[0].requestId);
     assert.equal(requests[0].requestId, requests[1].requestId);
@@ -76,7 +76,8 @@ try {
     await page.route("**/api/v1/messages", async route => {
       sent++; const response = await route.fetch(); assert.ok(response.ok()); failReads = true; await route.fulfill({ response });
     });
-    await page.getByRole("button", { name: "Message Alex personally", exact: true }).click();
+    await page.getByLabel("Send your message to", { exact: true }).selectOption("personal");
+    await page.getByRole("button", { name: "Send to Alex", exact: true }).click();
     await expect(page.locator(".member-shell [role=alert]")).toContainText("Messages could not be loaded");
     await expect(page.getByLabel("Your message", { exact: true })).toHaveValue("");
     await expect(page.getByText("Your message was not sent", { exact: false })).toHaveCount(0);
@@ -96,16 +97,18 @@ try {
       await held; await route.fulfill({ response });
     });
     await page.getByLabel("Your message", { exact: true }).fill("Synthetic pending send");
-    await page.getByRole("button", { name: "Message Alex personally", exact: true }).click();
+    await page.getByLabel("Send your message to", { exact: true }).selectOption("personal");
+    await page.getByRole("button", { name: "Send to Alex", exact: true }).click();
     await accepted;
     try {
       await page.locator('.member-tabbar a[href="/app"]').click();
       await page.locator('.member-tabbar a[href="/app/chat"]').click();
-      await expect(page.getByRole("button", { name: "Message Alex personally", exact: true })).toBeDisabled();
-      await expect(page.getByLabel("Your message", { exact: true })).toBeDisabled();
+      await expect(page.locator(".chat-composer button[type=submit]")).toBeDisabled();
+      await expect(page.getByLabel("Your message", { exact: true })).toBeEnabled();
+      await page.getByLabel("Your message", { exact: true }).fill("Next message drafted while waiting");
     } finally { release(); }
     await expect(page.getByLabel("Your message", { exact: true })).toBeEnabled({ timeout: 20000 });
-    await expect(page.getByLabel("Your message", { exact: true })).toHaveValue("");
+    await expect(page.getByLabel("Your message", { exact: true })).toHaveValue("Next message drafted while waiting");
     await page.unroute("**/api/v1/messages");
   });
   await check("intake answers and step survive navigation; consent remains explicit", async () => {

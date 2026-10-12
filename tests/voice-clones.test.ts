@@ -473,7 +473,7 @@ test("voice sessions speak with the trainer's active clone; spoken replies go to
   const readAs = await rows(coach, "SELECT pricing->>'language' AS language,pricing->>'screening' AS screening FROM cost_events WHERE task='voice.transcription' ORDER BY pricing->>'language'");
   assert.deepEqual(readAs, [{ language: "ar", screening: "true" }, { language: "en", screening: null }], "an English-speaking member's replies are read as English first");
   const gate = (await ok(`/voice-sessions/workout/${workout}`, "GET", undefined, alex)).gate;
-  assert.deepEqual(gate.speechProvider, { name: "Cartesia", zeroRetention: false }, "the member is told who transcribes and on whose terms");
+  assert.deepEqual(gate.speechProvider, { name: "AI model", zeroRetention: false }, "the member sees the generic model label and accurate retention terms");
   const [stt] = await rows(coach, "SELECT provider,model FROM cost_events WHERE task='voice.transcription' LIMIT 1");
   assert.deepEqual(stt, { provider: "cartesia", model: "ink-whisper" });
 });

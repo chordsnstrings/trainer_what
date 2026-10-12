@@ -10,7 +10,7 @@ import {
 } from "react";
 import { previewChanged } from "./trainer-preview";
 import { OnboardingCall } from "./onboarding-call";
-import { Paperclip, Send, Phone } from "lucide-react";
+import { Paperclip, Send, Phone, ArrowDown } from "lucide-react";
 import {
   ChatAttachmentList,
   ChatAttachmentPicker,
@@ -25,6 +25,8 @@ import chatMessages from "../lib/i18n/messages/chat";
 import { useLocale, useT } from "../lib/i18n/react";
 import { fetchWithin, ACCOUNT_READ_TIMEOUT_MS } from "./account-request";
 import { useWorkspaceValue } from "./workspace-continuity";
+import { ConversationIdentity, ConversationLegend, conversationKind } from "./conversation-identity";
+import { useConversationScroll } from "./use-conversation-scroll";
 
 /**
  * Coach chat for the member, phone first (docs/features/member-screens.md):
@@ -60,7 +62,7 @@ async function api(path: string, method = "GET", body?: unknown) {
   return d;
 }
 
-/** Who wrote a message, in words: the coach's name, "You", "Digital coach". */
+/** Display identity follows the coach; the source is shown separately. */
 export function senderName(
   author: string | undefined,
   coachName: string,
@@ -68,7 +70,6 @@ export function senderName(
 ) {
   const t = translator(chatMessages, locale);
   if (author === "subscriber") return t("you");
-  if (author === "digital_qualified" || author === "digital_reviewed") return t("digital");
   if (author === "system") return t("update");
   return coachName;
 }
@@ -108,6 +109,7 @@ export function MemberChat({ state }: { state: any }) {
     common = useT("common"),
     locale = useLocale();
   const [callOpen, setCallOpen] = useState(false), [callActive, setCallActive] = useState(false);
+  const [replyRoute, setReplyRoute] = useState("assisted");
   const userId: string = state.user.userId;
   const coach: string = state.tenant.name;
   const coachFirst = coach.split(" ")[0];
@@ -130,17 +132,19 @@ export function MemberChat({ state }: { state: any }) {
   const [errorAction, setErrorAction] = useState<"profile" | null>(null);
   const [notice, setNotice] = useWorkspaceValue("member-chat-notice", "");
   const [sending, setSending] = useWorkspaceValue<{ text: string; digital: boolean } | null>("member-chat-sending", null);
-  const end = useRef<HTMLDivElement>(null),
-    input = useRef<HTMLTextAreaElement>(null),
+  const input = useRef<HTMLTextAreaElement>(null),
     seenLatest = useRef(""),
     known = useRef<{ ids: Set<string>; latest: number } | null>(null),
     sentText = useRef("");
+  const latest = messages.at(-1)?.id ?? "";
+  const scroll = useConversationScroll(sending ? `sending:${sending.text}` : latest, loaded, userId);
   const load = useCallback(async (before?: string) => {
     setReading(true);
     try {
       const result = await api(
         "/messages/thread" + (before ? "?before=" + before : ""),
       );
+      const restore = before ? scroll.prependHistory() : undefined;
       setMessages((old) =>
         before
           ? [...result.messages, ...old]
@@ -155,7 +159,9 @@ export function MemberChat({ state }: { state: any }) {
                 new Date(b.created_at).getTime(),
             ),
       );
+      restore?.();
       if (before || !seenLatest.current) setHasMore(result.hasMore);
+      seenLatest.current = result.messages.at(-1)?.id ?? seenLatest.current;
       setPersonal(!!result.personalReview);
       setLoaded(true);
       if (!before) setReadError(false);
@@ -201,17 +207,6 @@ export function MemberChat({ state }: { state: any }) {
     const done = window.setTimeout(() => setFresh([]), MOTION.base + 100);
     return () => window.clearTimeout(done);
   }, [messages, loaded]);
-  // The newest message stays in view when one arrives.
-  const latest = messages.at(-1)?.id ?? "";
-  useEffect(() => {
-    if (!latest || latest === seenLatest.current) return;
-    const first = !seenLatest.current;
-    seenLatest.current = latest;
-    end.current?.scrollIntoView({
-      block: "end",
-      behavior: first ? "auto" : "smooth",
-    });
-  }, [latest]);
   async function send(digital: boolean, suggestion?: string) {
     const draft = suggestion ?? text;
     if (callActive || busy || uploading || (!draft.trim() && !attachments.length) || (digital && attachments.length)) return;
@@ -222,8 +217,9 @@ export function MemberChat({ state }: { state: any }) {
     const requestId = digital ? request?.text === draft.trim() ? request.id : crypto.randomUUID() : undefined;
     if (requestId) setRequest({ id: requestId, text: draft.trim() });
     sentText.current = draft.trim();
+    scroll.followNext();
     setSending({ text: draft.trim(), digital });
-    // Hide the draft while sending, but retain it until the POST succeeds.
+    // Edits made while the request is pending must survive its completion.
     try {
       const result = await api(
         digital ? "/coaching/ask" : "/messages",
@@ -269,18 +265,25 @@ export function MemberChat({ state }: { state: any }) {
   }, [state.trainerPreview, refresh]);
   const canSend =
     !callActive && !busy && !uploading && (!!text.trim() || attachments.length > 0);
-  const sendPersonally = personal || attachments.length > 0;
+  const sendPersonally = personal || attachments.length > 0 || replyRoute === "personal";
   return (
     <div className="member-chat">
       <header className="member-chat-intro">
-        <h1 className="sr-only">{t("title")}</h1>
-        <p className="muted">{state.trainerPreview ? t("previewIntro") : t("intro", { coach })}</p>
-        <nav className="chat-context-actions" aria-label={t("conversationTools")}>
-          <Link className="button secondary button-small" href="/app/intake">{t("viewProfile")}</Link>
-          <Link className="button secondary button-small" href="/app/program">{t("viewTraining")}</Link>
-          {state.memberApp?.nutrition && <Link className="button secondary button-small" href="/app/nutrition">{t("viewNutrition")}</Link>}
-          <button type="button" className="button secondary button-small" disabled={busy} onClick={() => setCallOpen(true)}><Phone size={16} />{t(callActive ? "returnToCall" : "talkToCoach")}</button>
-        </nav>
+        <div className="conversation-heading">
+          <div className="conversation-avatar" aria-hidden="true">{coach.trim().slice(0, 1)}</div>
+          <div><h1 dir="auto">{coach}</h1><p>{t("coachStatus")}</p></div>
+          <button type="button" className="button secondary button-small" disabled={busy} onClick={() => setCallOpen(true)}><Phone size={16} aria-hidden="true" />{t(callActive ? "returnToCall" : "talkToCoach")}</button>
+        </div>
+        {state.trainerPreview && <p className="muted">{t("previewIntro")}</p>}
+        <details className="conversation-tools">
+          <summary>{t("profileTools")}</summary>
+          <nav className="chat-context-actions" aria-label={t("conversationTools")}>
+            <Link className="button secondary button-small" href="/app/intake">{t("viewProfile")}</Link>
+            <Link className="button secondary button-small" href="/app/program">{t("viewTraining")}</Link>
+            {state.memberApp?.nutrition && <Link className="button secondary button-small" href="/app/nutrition">{t("viewNutrition")}</Link>}
+          </nav>
+          <ConversationLegend coach={coach} />
+        </details>
       </header>
       <OnboardingCall audience="member" mode="setup" purpose="coaching" coachName={coach} open={callOpen} onOpenChange={setCallOpen} onActiveChange={setCallActive} onConversation={() => { void refresh(); if (state.trainerPreview) previewChanged(); }} />
       {personal && (
@@ -307,7 +310,7 @@ export function MemberChat({ state }: { state: any }) {
           {notice}
         </p>
       )}
-      <section className="chat-thread" aria-label={t("conversation")}>
+      <section className="chat-thread conversation-scroll" ref={scroll.thread} onScroll={scroll.onScroll} aria-label={t("conversation")} tabIndex={0}>
         {hasMore && messages.length > 0 && (
           <button
             type="button"
@@ -353,14 +356,12 @@ export function MemberChat({ state }: { state: any }) {
                 className={
                   "chat-message" +
                   (mine ? " is-mine" : "") +
-                  (["digital_qualified", "digital_reviewed"].includes(m.data.author) ? " is-digital" : "") +
+                  ` is-${conversationKind(m.data.author)}` +
                   (fresh.includes(m.id) ? " is-new" : "")
                 }
               >
                 <p className="chat-meta">
-                  <strong dir="auto">
-                    {senderName(m.data.author, coach, locale)}
-                  </strong>
+                  <ConversationIdentity author={m.data.author} coach={coach} />
                   <span>
                     {m.data.scheduled
                       ? t("scheduled", {
@@ -436,8 +437,8 @@ export function MemberChat({ state }: { state: any }) {
             {t("typing")}
           </p>
         )}
-        <div ref={end} />
       </section>
+      {scroll.newMessages && <button className="button secondary conversation-latest" type="button" onClick={scroll.toLatest}><ArrowDown size={16} aria-hidden="true" />{t("latestMessages")}</button>}
       <StickyActionBar
         label={t("composer")}
         note={
@@ -463,8 +464,7 @@ export function MemberChat({ state }: { state: any }) {
           <textarea
             id="chat-message"
             ref={input}
-            value={busy ? "" : text}
-            disabled={busy}
+            value={text}
             onChange={(e) => setText(e.target.value)}
             maxLength={4000}
             rows={Math.min(4, Math.max(1, text.split("\n").length))}
@@ -491,14 +491,13 @@ export function MemberChat({ state }: { state: any }) {
                 </span>
               )}
             </button>
-            {!sendPersonally && <button
-              type="button"
-              className="button secondary chat-send"
-              disabled={!canSend}
-              onClick={() => void send(false)}
-            >
-              {t("messagePersonally", { coach: coachFirst })}
-            </button>}
+            <label className="conversation-route">
+              <span className="sr-only">{t("replyRoute")}</span>
+              <select aria-label={t("replyRoute")} value={sendPersonally ? "personal" : "assisted"} disabled={personal || attachments.length > 0 || busy} onChange={e => setReplyRoute(e.target.value)}>
+                <option value="assisted">{t("coachingSupport")}</option>
+                <option value="personal">{t("personalRoute", { coach: coachFirst })}</option>
+              </select>
+            </label>
             <button
               type="submit"
               className="button chat-send"

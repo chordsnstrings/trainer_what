@@ -102,6 +102,39 @@ jobs:
           name: subscriber-ui-evidence
           path: test-results/
           if-no-files-found: ignore
+  ux-spacing:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium --only-shell
+      - name: Trainer and member spacing, identity and scroll audit
+        run: node scripts/run-ux-spacing-check.mjs
+        env:
+          RTL_WEB_MODE: start
+          AUTHENTICATOR_REQUIRED: "false"
+      - name: Narrow English and Arabic chat in light and dark appearance
+        run: node scripts/run-conversation-layout-check.mjs
+        env:
+          RTL_WEB_MODE: start
+          AUTHENTICATOR_REQUIRED: "false"
+      - name: Photo selection, consent, likeness review and library handoff
+        run: node scripts/run-photo-studio-ui-check.mjs
+        env:
+          RTL_WEB_MODE: start
+          AUTHENTICATOR_REQUIRED: "false"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ux-spacing-and-photo-evidence
+          path: test-results/
+          if-no-files-found: ignore
   postgres-and-container:
     runs-on: ubuntu-24.04
     timeout-minutes: 20

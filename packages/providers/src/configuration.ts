@@ -817,6 +817,10 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
       }),
       field("MODEL_API_KEY", "API key", "secret", { required: true }),
       field("MODEL_NAME", "Model ID", "text", { required: true }),
+      field("MODEL_IMAGE_ENABLED", "Trainer photo studio (ModelArk only)", "boolean", { defaultValue: "true", help: "Uses this active ModelArk connection only when a trainer requests a photo. Originals remain private and unchanged; generated drafts require a likeness review before use." }),
+      field("MODEL_IMAGE_NAME", "Trainer photo model", "select", { defaultValue: "dola-seedream-5-0-flash-260915", options: [{ value: "dola-seedream-5-0-flash-260915", label: "Seedream 5.0 Flash (September 2026)" }, { value: "dola-seedream-5-0-pro-260628", label: "Seedream 5.0 Pro (June 2026)" }], help: "Requires this image model to be enabled on the ModelArk account. Uses the documented 2K per-image price, including additional references for Pro." }),
+      field("MODEL_IMAGE_DAILY_CALLS", "Maximum photo requests per workspace per day", "number", { defaultValue: "6", help: "1 to 20, per UAE day. Failed and uncertain requests count too." }),
+      field("MODEL_IMAGE_DAILY_USD_LIMIT", "Daily photo-generation budget per workspace (USD)", "number", { defaultValue: "0.15", help: "Greater than zero, at most USD 10. Unknown outcomes retain their reservation. Pricing reviewed 12 October 2026: Flash USD 0.018; Pro USD 0.09 at 2K plus USD 0.003 for each reference after the first." }),
       field("MODEL_PROVIDER", "Provider name for cost records", "text", {
         help: "Recorded on every AI cost row, for example openai, anthropic or openrouter. Leave blank to use the name read from the API address. Lower-case letters, digits, dots, dashes and underscores.",
       }),
@@ -1717,6 +1721,7 @@ export const INTEGER_SETTING_RANGES: Record<string, readonly [number, number]> =
     COMPLIMENTARY_ACCESS_MAX_ACTIVE: [0, 100000],
     VOICE_PRO_CLONE_SLOTS: [0, 100],
     DNS_RECORD_TTL: [30, 86400],
+    MODEL_IMAGE_DAILY_CALLS: [1, 20],
   };
 /** A YYYY-MM-DD calendar date. */
 function calendarDate(text: string) {
@@ -1749,6 +1754,8 @@ export function validateIntegrationValues(
     )
       throw new ConfigurationError(`${entry.label} must have a single value`);
     const text = String(value).trim();
+    if (key === "MODEL_IMAGE_DAILY_USD_LIMIT" && text && (!Number.isFinite(Number(text)) || Number(text) <= 0 || Number(text) > 10))
+      throw new ConfigurationError("Daily photo-generation budget must be greater than zero and at most USD 10");
     if (
       text.length > (entry.type === "secret" ? 16000 : 2000) ||
       /[\u0000-\u001f\u007f]/.test(text)

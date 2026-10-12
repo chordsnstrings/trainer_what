@@ -8,7 +8,7 @@ import { setAudioSessionType } from "../lib/audio-session";
 import { fileBase64, onboardingRequest as request } from "../lib/onboarding-http";
 
 type Phase = "off" | "connecting" | "listening" | "hearing" | "thinking" | "speaking" | "paused" | "ended";
-const words: Record<Phase, string> = { off: "A conversation, at your pace", connecting: "Connecting…", listening: "I'm listening", hearing: "Listening…", thinking: "Thinking about that…", speaking: "Your AI coach is speaking", paused: "Call paused", ended: "Your conversation is saved" };
+const words: Record<Phase, string> = { off: "A conversation, at your pace", connecting: "Connecting…", listening: "I'm listening", hearing: "Listening…", thinking: "Thinking about that…", speaking: "Speaking…", paused: "Call paused", ended: "Your conversation is saved" };
 const clock = (n: number) => Math.floor(n / 60).toString().padStart(2, "0") + ":" + (n % 60).toString().padStart(2, "0");
 type Resources = { context: AudioContext; stream: MediaStream; node: AudioWorkletNode; analyser: AnalyserNode; capture: ConversationAudio; player?: AudioBufferSourceNode };
 export function OnboardingCall({ audience, mode, purpose = "onboarding", coachName = "Kamran", open, onOpenChange, onConversation, onActiveChange }: {
@@ -198,12 +198,12 @@ export function OnboardingCall({ audience, mode, purpose = "onboarding", coachNa
     if (["listening", "hearing", "paused"].includes(phaseRef.current)) change(mute.current ? "paused" : "listening");
   }
   return <>
-    {active && !open && <div className="onboarding-call-bar"><button type="button" onClick={() => onOpenChange(true)}><Phone size={16} /> {options?.name ?? coachName} · AI · {clock(seconds)} <span>{muted ? "Muted" : words[phase]}</span></button><button type="button" aria-label="End call" onClick={() => stop()}><PhoneOff size={19} /></button></div>}
+    {active && !open && <div className="onboarding-call-bar"><button type="button" onClick={() => onOpenChange(true)}><Phone size={16} /> {options?.name ?? coachName} · Assisted · {clock(seconds)} <span>{muted ? "Muted" : words[phase]}</span></button><button type="button" aria-label="End call" onClick={() => stop()}><PhoneOff size={19} /></button></div>}
     {!active && cloneState && <div className="onboarding-clone-note"><span>{cloneState}</span><Link href="/trainer/voice">Preview and manage my voice</Link>{cloneError && <small>{cloneError}</small>}</div>}
     <dialog ref={dialog} className="onboarding-call-dialog" aria-labelledby="onboarding-call-title" onCancel={e => { e.preventDefault(); stop(); onOpenChange(false); }}>
       <div className="onboarding-call-top"><span>trainsyou · Voice conversation</span><button type="button" className="onboarding-icon" aria-label={active ? "Show conversation" : "Close voice call"} onClick={() => onOpenChange(false)}>{active ? <ArrowDown size={21} /> : <X size={21} />}</button></div>
       <div className={"onboarding-call-avatar " + phase} aria-hidden="true">{(options?.name ?? coachName).slice(0, 1)}</div>
-      <h2 id="onboarding-call-title">{options?.name ?? coachName} <span>AI</span></h2>
+      <h2 id="onboarding-call-title">{options?.name ?? coachName} <span>AI-assisted voice</span></h2>
       <p className="onboarding-call-status" role="status">{muted ? "Microphone muted" : words[phase]}</p>
       {active ? <>
         <time className="onboarding-call-time">{clock(seconds)}</time>
@@ -214,7 +214,7 @@ export function OnboardingCall({ audience, mode, purpose = "onboarding", coachNa
         <div className="onboarding-call-controls"><button type="button" onClick={toggleMute} aria-pressed={muted} aria-label={muted ? "Unmute microphone" : "Mute microphone"}>{muted ? <MicOff /> : <Mic />}<span>{muted ? "Unmute" : "Mute"}</span></button><button type="button" className="end-call" onClick={() => stop()} aria-label="End call"><PhoneOff /><span>End</span></button><button type="button" onClick={() => onOpenChange(false)}><MessageCircle /><span>Messages</span></button></div>
         {phase === "speaking" && <button type="button" className="text-link" onClick={() => { try { resources.current?.player?.stop(); } catch {} }}>Skip this reply</button>}
       </> : <>
-        <p className="onboarding-call-hint">{purpose === "coaching" ? "Talk to your digital coach about your training. Replies follow the same Brain and review rules as your written conversation." : audience === "coach" ? "Talk through how you coach. Your answers become saved teaching for your Brain." : "Talk through your goals and what works for you. Your answers stay in this conversation."}</p>
+        <p className="onboarding-call-hint">{purpose === "coaching" ? "Talk through your training, just as you would by message. This assisted voice follows your coach’s guidance." : audience === "coach" ? "Talk through how you coach. Your answers become saved teaching for your Brain." : "Talk through your goals and what works for you. Your answers stay in this conversation."}</p>
         {(!options || !options.available) && <p role="status">{options?.reason ?? "Checking the voice connection…"}</p>}
         {options?.available && <div className="onboarding-call-choices">
           <label>Conversation language<select value={language} onChange={e => setLanguage(e.target.value as "en" | "ar")}><option value="en">English</option><option value="ar">العربية</option></select></label>
@@ -222,7 +222,7 @@ export function OnboardingCall({ audience, mode, purpose = "onboarding", coachNa
           <small>Audio goes to {options.speechProvider} for transcription. {options.zeroRetention ? "Zero retention is requested." : "The provider's retention terms apply."} We save the conversation text. Your microphone stops when you end the call or leave the app.</small>
           {audience === "coach" && options.cloning && <>
             <label className="onboarding-choice"><input type="checkbox" checked={makeVoice} onChange={e => { setMakeVoice(e.target.checked); setCloneConsent(false); }} /> Create my trainer voice while we talk</label>
-            {makeVoice && <div className="onboarding-clone-consent"><p>We'll collect up to 60 seconds of your replies and make a private Cartesia voice. You'll preview it before activation.</p><ul>{Object.entries(options.cloneConsent as Record<string, string>).map(([key, text]) => <li key={key}>{text}</li>)}</ul>{!options.providerTrainingOptOut && <p>Cartesia may use recordings to improve its models under the account's current terms.</p>}<label className="onboarding-choice"><input type="checkbox" checked={cloneConsent} onChange={e => setCloneConsent(e.target.checked)} /> I agree to these voice permissions.</label></div>}
+            {makeVoice && <div className="onboarding-clone-consent"><p>We'll collect up to 60 seconds of your replies and make a private voice with the AI model. You'll preview it before activation.</p><ul>{Object.entries(options.cloneConsent as Record<string, string>).map(([key, text]) => <li key={key}>{text}</li>)}</ul>{!options.providerTrainingOptOut && <p>The AI model provider may use recordings to improve its models under the account's current terms.</p>}<label className="onboarding-choice"><input type="checkbox" checked={cloneConsent} onChange={e => setCloneConsent(e.target.checked)} /> I agree to these voice permissions.</label></div>}
           </>}
           <button type="button" className="onboarding-start-call" disabled={!consent || (makeVoice && !cloneConsent)} onClick={() => void start()}><Phone size={21} /> {phase === "ended" ? "Call again" : "Start call"}</button>
         </div>}

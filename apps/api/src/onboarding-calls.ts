@@ -104,8 +104,8 @@ export function onboardingCallRoutes(app: FastifyInstance, db: Database, purpose
     await db.tenant(a, tx => permit(tx, a));
     try {
       const c = contracts(), selected = await selection(a), voiceId = selected.id;
-      return { available: !!voiceId, name: selected.name, isAI: true, reason: voiceId ? null : "Kamran's AI voice hasn't been connected yet. You can continue by message.",
-        speechProvider: c.speech.provider === "cartesia" ? "Cartesia" : "ElevenLabs", zeroRetention: c.speech.provider === "elevenlabs" && c.speech.zeroRetention,
+      return { available: !!voiceId, name: selected.name, isAI: true, reason: voiceId ? null : "Kamran's voice hasn't been connected yet. You can continue by message.",
+        speechProvider: "AI model", zeroRetention: c.speech.provider === "elevenlabs" && c.speech.zeroRetention,
         cloning: a.role === "owner" && c.voice.cloning.quick && encryptionReady(), cloneConsent: CLONE_CONSENT, cloneConsentVersion: CLONE_CONSENT_VERSION,
         providerTrainingOptOut: c.voice.cloning.providerTrainingOptOut };
     } catch (e) { return { available: false, name: coaching ? "Your coach" : "Kamran", isAI: true, reason: coaching ? (e as Error).message : "Voice calls aren't enabled yet. Keep going by message, or ask the platform to connect voice and speech recognition.", cloning: false }; }
@@ -116,7 +116,7 @@ export function onboardingCallRoutes(app: FastifyInstance, db: Database, purpose
     if (b.cloneConsent && a.role !== "owner") throw fail(403, "OWNER_REQUIRED", "Only a trainer can create their own voice.");
     const consentEpoch = await db.tenant(a, async tx => { await permit(tx, a); return onboardingConsentEpoch(tx, a); });
     const c = contracts(), selected = await selection(a), voiceId = selected.id;
-    if (!voiceId) throw fail(503, "KAMRAN_VOICE_UNAVAILABLE", "Kamran's AI voice isn't connected yet. Continue by message for now.");
+    if (!voiceId) throw fail(503, "KAMRAN_VOICE_UNAVAILABLE", "Kamran's voice isn't connected yet. Continue by message for now.");
     if (b.cloneConsent && (!c.voice.cloning.quick || !encryptionReady())) throw fail(503, "CLONING_UNAVAILABLE", "Voice creation isn't ready. You can start a call without creating a voice.");
     return db.tenant(a, async tx => {
       await permit(tx, a);

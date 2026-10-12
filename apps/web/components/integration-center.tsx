@@ -21,6 +21,7 @@ import { WebAddressCenter, type WebAddressState } from "./web-address";
 import { WebAddressOperations } from "./web-address-operations";
 import { TrainerVoiceClone, VoiceCloneOperations } from "./trainer-voice-clone";
 import { useErrorText, useLocale, useT } from "../lib/i18n/react";
+import Link from "next/link";
 import {
   formatCountdown,
   formatDate,
@@ -113,14 +114,14 @@ export function IntegrationCenter({
       </div>
       {trainer && (
         <nav className="tabs" aria-label="Integration sections">
-          <a href="/trainer/integrations">Health connections</a>
-          <a href="/trainer/voice">Trainer voice</a>
-          <a href="/trainer/domains">Web address</a>
+          <Link href="/trainer/integrations" aria-current={path.includes("/integrations") ? "page" : undefined}>Health connections</Link>
+          <Link href="/trainer/voice" aria-current={path.includes("/voice") ? "page" : undefined}>Trainer voice</Link>
+          <Link href="/trainer/domains" aria-current={path.includes("/domains") ? "page" : undefined}>Web address</Link>
         </nav>
       )}
       {trainer && path.includes("/voice") ? (
         <>
-          {/* Cartesia: clones made here; ElevenLabs: link an existing voice ID. */}
+          {/* Native clones or a connected provider’s existing voice ID. */}
           <TrainerVoiceClone fallback={<VoiceEnrollment />} />
           <VoiceSessionStyle />
           <VoiceOneOnOne />
@@ -540,7 +541,7 @@ function VoiceEnrollment() {
           }}
         >
           <label>
-            Provider voice ID
+            Voice ID
             <input
               name="providerVoiceId"
               defaultValue={profile?.providerVoiceId ?? ""}
@@ -550,9 +551,8 @@ function VoiceEnrollment() {
             />
           </label>
           <p className="muted">
-            Use an existing voice from the approved ElevenLabs account. With
-            ElevenLabs the app does not make the clone; when the platform uses
-            Cartesia you record your voice here instead.
+            Link a voice you already own using its ID from the connected AI model.
+            To create your voice here, use the recording setup when it is available.
           </p>
           <label>
             Voice type
@@ -655,7 +655,7 @@ function DomainCenter({
             continues to work.
           </p>
         ) : (
-          <form
+          <form className="domain-connect-form"
             onSubmit={(e) => {
               e.preventDefault();
               const f = new FormData(e.currentTarget);
@@ -670,7 +670,7 @@ function DomainCenter({
               );
             }}
           >
-            <label>
+            <label className="field">
               Domain
               <input
                 name="hostname"
@@ -679,15 +679,15 @@ function DomainCenter({
                 maxLength={253}
               />
             </label>
-            <label>
+            <label className="check-field">
               <input name="owned" type="checkbox" required /> I own this domain
               and can edit its DNS.
             </label>
-            <label>
+            <label className="check-field">
               <input name="www" type="checkbox" /> Also connect www and redirect
               it here.
             </label>
-            <button disabled={action.busy}>Add domain</button>
+            <div className="button-row"><button className="button" disabled={action.busy}>Add domain</button></div>
           </form>
         )}
       </Panel>

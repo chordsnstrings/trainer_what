@@ -37,7 +37,7 @@ try {
       if (page.url().includes("/trainer/preview/app") && pathname.startsWith("/api/v1/") && !pathname.startsWith("/api/v1/trainer-preview") && !pathname.startsWith("/api/v1/public/")) escaped.push(pathname);
     });
     await page.goto(base + "/trainer/brain");
-    await page.getByRole("button", { name: "Try my AI", exact: true }).click({ timeout: 45000 });
+    await page.getByRole("button", { name: "Try client experience", exact: true }).click({ timeout: 45000 });
     await expect(page).toHaveURL(/\/trainer\/preview\/app\/intake$/);
     await expect(page.getByLabel("Trainer test controls")).toBeVisible();
     // The reported white-on-white preview panel must stay readable in both
@@ -107,7 +107,7 @@ try {
     // trainer's 120/minute budget. Start voice/exit/resume in its next window,
     // rather than weakening the application limit for this synthetic run.
     await page.waitForTimeout(Math.max(0, 61_000 - (Date.now() - journeyStarted)));
-    await page.getByRole("button", { name: "Talk to my digital coach", exact: true }).click();
+    await page.getByRole("button", { name: "Call coach", exact: true }).click();
     await page.getByLabel("I allow my speech to be processed for this AI call.").check();
     await page.getByRole("button", { name: "Start call", exact: true }).click();
     await expect(page.getByRole("button", { name: "Mute microphone", exact: true })).toBeVisible({ timeout: 30000 });
@@ -120,7 +120,7 @@ try {
     await page.getByLabel("Trainer test controls").getByRole("button", { name: "Back to My Brain", exact: true }).click();
     await expect(page).toHaveURL(/\/trainer\/brain$/);
     assert.equal((await (await context.request.get(base + "/api/v1/bootstrap")).json()).user.role, "owner");
-    await page.getByRole("button", { name: "Try my AI", exact: true }).click();
+    await page.getByRole("button", { name: "Try client experience", exact: true }).click();
     await expect(page).toHaveURL(/\/trainer\/preview\/app$/);
     const resumed = await (await context.request.get(base + "/api/v1/trainer-preview/run/bootstrap")).json();
     assert.equal(resumed.sets.length, 1);

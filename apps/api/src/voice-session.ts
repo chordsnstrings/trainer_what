@@ -239,7 +239,7 @@ async function voiceGate(tx: Tx, a: Actor) {
     speechToText: !!speech && !!pricing && access.premiumVoice,
     speechProvider: speech
       ? {
-          name: speech.provider === "cartesia" ? "Cartesia" : "ElevenLabs",
+          name: "AI model",
           zeroRetention:
             speech.provider === "elevenlabs" && speech.zeroRetention,
         }

@@ -24,6 +24,8 @@ import commonMessages from "../lib/i18n/messages/common";
 import { errorText } from "../lib/i18n/errors";
 import { useErrorText, useLocale } from "../lib/i18n/react";
 
+const TrainerPhotoStudio = dynamic(() => import("./trainer-photo-studio").then(module => module.TrainerPhotoStudio));
+
 // The visitor website does not need the desktop editor's controls or history.
 const SiteBuilderEditor = dynamic(
   () => import("./site-builder-editor").then((module) => module.SiteBuilderEditor),
@@ -196,12 +198,14 @@ export function MediaLibrary({
     <section className="card">
       <h2>Photo library</h2>
       <PhotoUploader onUploaded={() => load()} />
+      <TrainerPhotoStudio photos={items} onKept={async () => { await load(); }} />
       <Notice message={message} />
+      <h3>Your photos</h3>
       <div className="photo-grid">
         {items.map((m) => (
           <figure key={m.id}>
             <img src={m.url} alt={m.filename} loading="lazy" />
-            <figcaption>{m.filename}</figcaption>
+            <figcaption>{m.filename}{m.generated && <small className="photo-origin">Studio photo</small>}</figcaption>
             <div className="actions">
               {onSelect && (
                 <button type="button" onClick={() => onSelect(m)}>
