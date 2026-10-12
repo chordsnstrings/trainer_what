@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "./preview-navigation";
 import { Mic, MicOff, Phone, PhoneOff, MessageCircle, X, ArrowDown } from "lucide-react";
 import { ConversationAudio, pcmWav } from "../lib/conversation-audio";
+import { VoiceWaitCues } from "../lib/voice-wait-cues";
 import { SpeechGate, speechBand } from "../lib/speech-gate";
 import { setAudioSessionType } from "../lib/audio-session";
 import { fileBase64, onboardingRequest as request } from "../lib/onboarding-http";
@@ -10,7 +11,7 @@ import { fileBase64, onboardingRequest as request } from "../lib/onboarding-http
 type Phase = "off" | "connecting" | "listening" | "hearing" | "thinking" | "speaking" | "paused" | "ended";
 const words: Record<Phase, string> = { off: "A conversation, at your pace", connecting: "Connecting…", listening: "I'm listening", hearing: "Listening…", thinking: "Thinking about that…", speaking: "Speaking…", paused: "Call paused", ended: "Your conversation is saved" };
 const clock = (n: number) => Math.floor(n / 60).toString().padStart(2, "0") + ":" + (n % 60).toString().padStart(2, "0");
-type Resources = { context: AudioContext; stream: MediaStream; node: AudioWorkletNode; analyser: AnalyserNode; capture: ConversationAudio; player?: AudioBufferSourceNode };
+type Resources = { context: AudioContext; stream: MediaStream; node: AudioWorkletNode; analyser: AnalyserNode; capture: ConversationAudio; player?: AudioBufferSourceNode; cue?: AudioBufferSourceNode };
 export function OnboardingCall({ audience, mode, purpose = "onboarding", coachName = "Kamran", open, onOpenChange, onConversation, onActiveChange }: {
   purpose?: "onboarding" | "coaching"; coachName?: string;
   audience: "coach" | "member"; mode: "setup" | "teach"; open: boolean; onOpenChange: (v: boolean) => void;
@@ -21,6 +22,8 @@ export function OnboardingCall({ audience, mode, purpose = "onboarding", coachNa
   const [consent, setConsent] = useState(false), [makeVoice, setMakeVoice] = useState(false), [cloneConsent, setCloneConsent] = useState(false);
   const [language, setLanguage] = useState<"en" | "ar">("en"), [seconds, setSeconds] = useState(0), [muted, setMuted] = useState(false);
   const [sampleSeconds, setSampleSeconds] = useState(0), [cloneState, setCloneState] = useState(""), [cloneError, setCloneError] = useState("");
+  const [waitNote, setWaitNote] = useState(""), [cueSpeaking, setCueSpeaking] = useState(false);
+  const cueClips = useRef<string[]>([]), waitCues = useRef<VoiceWaitCues | null>(null), inFlight = useRef(false), interrupted = useRef(false), queued = useRef<Float32Array[] | null>(null);
   const dialog = useRef<HTMLDialogElement>(null), epoch = useRef(0), alive = useRef(true), phaseRef = useRef<Phase>("off"), mute = useRef(false);
   const call = useRef<any>(null), resources = useRef<Resources | null>(null), abort = useRef<AbortController | null>(null), started = useRef(0);
   const cloning = useRef(false), clone = useRef<any>(null), samples = useRef<Float32Array[]>([]), sampleRate = useRef(16000), cloneFlight = useRef(false);
@@ -51,7 +54,34 @@ export function OnboardingCall({ audience, mode, purpose = "onboarding", coachNa
     return () => { alive.current = false; document.removeEventListener("visibilitychange", leave); stop(false); };
   }, []);
 
+  function stopCue() {
+    if (alive.current) setCueSpeaking(false);
+    try { resources.current?.cue?.stop(); } catch {}
+    if (resources.current) resources.current.cue = undefined;
+  }
+  function stopWaiting() { waitCues.current?.end(); if (alive.current) setWaitNote(""); }
+  async function playCue(encoded: string, valid: () => boolean, token: number) {
+    const r = resources.current;
+    if (!r || !valid() || !current(token) || mute.current || interrupted.current) return;
+    const bytes = Uint8Array.from(atob(encoded), c => c.charCodeAt(0));
+    const buffer = await r.context.decodeAudioData(bytes.buffer);
+    await r.context.resume();
+    if (!valid() || !current(token) || resources.current !== r || mute.current || interrupted.current) return;
+    // Cues have a hard length bound even if a provider returns unexpected audio.
+    await new Promise<void>(resolve => {
+      const source = r.context.createBufferSource(); source.buffer = buffer; source.connect(r.context.destination); r.cue = source; setCueSpeaking(true);
+      source.onended = () => { source.disconnect(); if (r.cue === source) { r.cue = undefined; if (alive.current) setCueSpeaking(false); } resolve(); };
+      source.start(); source.stop(r.context.currentTime + Math.min(buffer.duration, 4));
+    });
+  }
+  function drain(token: number) {
+    if (!current(token) || inFlight.current) return;
+    const next = queued.current;
+    if (next) { queued.current = null; void turn(next, token, false); }
+    else change(mute.current ? "paused" : resources.current?.capture.active ? "hearing" : "listening");
+  }
   function closeAudio() {
+    stopWaiting(); cueClips.current = []; queued.current = null; inFlight.current = false;
     const r = resources.current; resources.current = null;
     setAudioSessionType("ambient");
     if (!r) return;
@@ -93,46 +123,57 @@ export function OnboardingCall({ audience, mode, purpose = "onboarding", coachNa
   async function play(encoded: string, token: number) {
     const r = resources.current;
     if (!r || !current(token)) return;
-    change("speaking"); r.capture.reset();
+    stopWaiting(); change("speaking"); r.capture.reset();
     const bytes = Uint8Array.from(atob(encoded), c => c.charCodeAt(0));
     const buffer = await r.context.decodeAudioData(bytes.buffer);
-    if (!current(token) || resources.current !== r) return;
+    if (!current(token) || resources.current !== r || interrupted.current) return;
     await r.context.resume();
+    if (!current(token) || resources.current !== r || interrupted.current) return;
     await new Promise<void>(resolve => {
       const source = r.context.createBufferSource(); source.buffer = buffer; source.connect(r.context.destination); r.player = source;
       source.onended = () => { source.disconnect(); if (r.player === source) r.player = undefined; resolve(); };
       source.start();
     });
     // Avoid collecting the speaker's tail as the trainer's next answer/sample.
-    await new Promise(resolve => setTimeout(resolve, 350));
+    if (!interrupted.current) await new Promise(resolve => setTimeout(resolve, 350));
   }
   async function exchange(body: any, token: number) {
-    if (!current(token)) return;
-    change("thinking");
+    if (!current(token) || inFlight.current) return;
+    inFlight.current = true; interrupted.current = false;
+    change("thinking"); setWaitNote(""); waitCues.current?.begin();
     const path = prefix + "/" + call.current.id + "/turns";
-    let result;
-    try { result = await request(path, body, { signal: abort.current?.signal }); }
-    catch (e) {
-      if (!current(token) || (e as Error).name === "AbortError") return;
-      if ((e as any).status) throw e;
-      // Transport recovery with the same durable ID, never an output-repair call.
-      result = await request(path, body, { signal: abort.current?.signal });
+    let complete = false;
+    try {
+      let result;
+      try { result = await request(path, body, { signal: abort.current?.signal }); }
+      catch (e) {
+        if (!current(token) || (e as Error).name === "AbortError") return;
+        if ((e as any).status) throw e;
+        // Transport recovery keeps the durable ID; no second paid turn.
+        result = await request(path, body, { signal: abort.current?.signal });
+      }
+      for (let i = 0; result.pending && i < 90 && current(token); i++) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        if (current(token)) result = await request(path + "/" + body.id, undefined, { signal: abort.current?.signal });
+      }
+      if (!current(token)) return;
+      stopWaiting();
+      if (result.conversation) latest.current.onConversation(result.conversation);
+      if (result.error || result.pending) throw Error(result.error ?? "Your reply is still being prepared. Check the saved conversation before starting another call.");
+      if (result.audio && !interrupted.current) await play(result.audio, token);
+      complete = true;
+    } finally {
+      if (current(token)) {
+        inFlight.current = false; stopWaiting();
+        if (complete) drain(token);
+      }
     }
-    for (let i = 0; result.pending && i < 90 && current(token); i++) {
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      if (current(token)) result = await request(path + "/" + body.id, undefined, { signal: abort.current?.signal });
-    }
-    if (!current(token)) return;
-    if (result.conversation) latest.current.onConversation(result.conversation);
-    if (result.error || result.pending) throw Error(result.error ?? "Your reply is still being prepared. Check the saved conversation before starting another call.");
-    if (result.audio) await play(result.audio, token);
-    if (current(token)) { resources.current?.capture.reset(); change(mute.current ? "paused" : "listening"); }
   }
-  async function turn(chunks: Float32Array[], token: number) {
+  async function turn(chunks: Float32Array[], token: number, collectSample = true) {
     const r = resources.current;
     if (!r || !current(token)) return;
     change("thinking");
-    if (cloning.current && !cloneFlight.current) {
+    if (collectSample && cloning.current && !cloneFlight.current) {
       const available = Math.max(0, Math.floor(60 * r.context.sampleRate) - samples.current.reduce((n, s) => n + s.length, 0));
       let left = available;
       for (const chunk of chunks) { if (!left) break; const part = chunk.slice(0, left); samples.current.push(part); left -= part.length; }
@@ -160,12 +201,23 @@ export function OnboardingCall({ audience, mode, purpose = "onboarding", coachNa
       if (epoch.current !== token || !alive.current) { stream.getTracks().forEach(t => t.stop()); void context!.close(); return; }
       const node = new AudioWorkletNode(context!, "onboarding-capture"), analyser = context!.createAnalyser(); analyser.fftSize = 2048;
       context!.createMediaStreamSource(stream).connect(analyser); analyser.connect(node); node.connect(context!.destination);
-      const r = { context: context!, stream, node, analyser, capture: new ConversationAudio(context!.sampleRate) }; resources.current = r; sampleRate.current = context!.sampleRate;
+      const r: Resources = { context: context!, stream, node, analyser, capture: new ConversationAudio(context!.sampleRate) }; resources.current = r; sampleRate.current = context!.sampleRate;
       setAudioSessionType("play-and-record");
       const callId = crypto.randomUUID(); call.current = { id: callId };
       const session = await request(prefix, { id: callId, language, mode, consent: true, ...(makeVoice ? { cloneConsent: { ownVoice: true, cloning: true, subscriberUse: true, deletion: true } } : {}) }, { signal: abort.current.signal });
       if (epoch.current !== token || !alive.current) { void request(prefix + "/" + session.id + "/end", {}).catch(() => {}); closeAudio(); return; }
       call.current = session;
+      cueClips.current = []; queued.current = null; inFlight.current = false; interrupted.current = false;
+      waitCues.current = new VoiceWaitCues({
+        clips: () => cueClips.current,
+        play: (clip, valid) => playCue(clip, valid, token),
+        stop: stopCue,
+        longWait: () => { if (current(token)) setWaitNote(language === "ar" ? "يستغرق الرد وقتًا أطول قليلًا. يمكنك متابعة المحادثة هنا أو بالرسائل." : "This reply is taking a little longer. You can stay here or continue in Messages."); },
+      });
+      // Optional preparation runs alongside the greeting, never ahead of it.
+      if (stream.getAudioTracks()[0]?.getSettings().echoCancellation !== false) void request(prefix + "/" + session.id + "/cues", {}, { signal: abort.current.signal }).then(value => {
+        if (current(token) && Array.isArray(value.cues)) cueClips.current = value.cues.slice(0, 2);
+      }).catch(() => {});
       if (makeVoice) {
         setCloneState("Collecting only your side of the call");
         void request(prefix + "/" + session.id + "/clone", {}, { signal: abort.current.signal }).then(value => { if (current(token)) { clone.current = value; if (samples.current.reduce((n, s) => n + s.length, 0) / sampleRate.current >= 45) void createVoice(); } }).catch(e => { if (current(token)) { cloning.current = false; samples.current = []; setCloneError(e.message); setCloneState("Voice creation paused"); } });
@@ -173,13 +225,23 @@ export function OnboardingCall({ audience, mode, purpose = "onboarding", coachNa
       const gate = new SpeechGate(), spectrum = new Float32Array(analyser.frequencyBinCount);
       node.port.onmessage = event => {
         if (!current(token)) return;
-        if (!["listening", "hearing"].includes(phaseRef.current) || mute.current) { r.capture.reset(); return; }
+        if (!["listening", "hearing", "thinking"].includes(phaseRef.current) || mute.current || queued.current) { r.capture.reset(); return; }
         const pcm = event.data as Float32Array;
         let sum = 0; for (const v of pcm) sum += v * v;
         analyser.getFloatFrequencyData(spectrum); const band = speechBand(spectrum, r.context.sampleRate, analyser.fftSize);
         const speech = gate.sample(Math.sqrt(sum / pcm.length), band.ratio, band.activeBins, performance.now());
+        if (speech && inFlight.current && !interrupted.current) {
+          interrupted.current = true; stopWaiting();
+          try { r.player?.stop(); } catch {}
+          setWaitNote(language === "ar" ? "أسمعك. سأضم كلماتك الإضافية إلى المحادثة." : "I'm listening. I'll include what you're adding.");
+        }
         const ready = r.capture.push(pcm, speech);
-        if (ready) void turn(ready, token);
+        if (ready) {
+          if (inFlight.current) {
+            queued.current = ready;
+            setWaitNote(language === "ar" ? "حفظت إضافتك. لحظة واحدة." : "I've kept your addition. One moment.");
+          } else void turn(ready, token, !interrupted.current);
+        }
         else if (r.capture.active && phaseRef.current === "listening") change("hearing");
         else if (!r.capture.active && phaseRef.current === "hearing") change("listening");
       };
@@ -193,6 +255,7 @@ export function OnboardingCall({ audience, mode, purpose = "onboarding", coachNa
   }
   function toggleMute() {
     mute.current = !mute.current; setMuted(mute.current);
+    if (mute.current) stopWaiting();
     resources.current?.stream.getAudioTracks().forEach(t => { t.enabled = !mute.current; });
     resources.current?.capture.reset();
     if (["listening", "hearing", "paused"].includes(phaseRef.current)) change(mute.current ? "paused" : "listening");
@@ -207,9 +270,10 @@ export function OnboardingCall({ audience, mode, purpose = "onboarding", coachNa
       <p className="onboarding-call-status" role="status">{muted ? "Microphone muted" : words[phase]}</p>
       {active ? <>
         <time className="onboarding-call-time">{clock(seconds)}</time>
-        <div className="onboarding-call-wave" data-live={phase === "hearing" || phase === "speaking"} aria-hidden="true">{Array.from({ length: 9 }, (_, i) => <i key={i} />)}</div>
-        <p className="onboarding-call-hint">Speak normally. I'll answer when you pause, then listen again.</p>
-        {error && <div className="onboarding-error" role="alert"><p>{error}</p><button type="button" className="text-link" onClick={() => { setError(""); resources.current?.capture.reset(); change(mute.current ? "paused" : "listening"); }}>Resume listening</button></div>}
+        <div className="onboarding-call-wave" data-live={phase === "hearing" || phase === "speaking" || cueSpeaking} data-voice-cue={cueSpeaking} aria-hidden="true">{Array.from({ length: 9 }, (_, i) => <i key={i} />)}</div>
+        <p className="onboarding-call-hint">Speak naturally. You can add something while your reply is being prepared.</p>
+        {waitNote && <p className="onboarding-call-hint" role="status">{waitNote}</p>}
+        {error && <div className="onboarding-error" role="alert"><p>{error}</p><button type="button" className="text-link" onClick={() => { setError(""); resources.current?.capture.reset(); drain(epoch.current); }}>Resume listening</button></div>}
         {makeVoice && <div className="onboarding-call-training"><span>{cloneState}</span>{!cloneFlight.current && <><progress value={Math.min(sampleSeconds, 45)} max={45} aria-label="Your voice sample" /><small>{sampleSeconds} of 45 seconds · Your microphone only</small></>}{cloneError && <small role="status">{cloneError}</small>}</div>}
         <div className="onboarding-call-controls"><button type="button" onClick={toggleMute} aria-pressed={muted} aria-label={muted ? "Unmute microphone" : "Mute microphone"}>{muted ? <MicOff /> : <Mic />}<span>{muted ? "Unmute" : "Mute"}</span></button><button type="button" className="end-call" onClick={() => stop()} aria-label="End call"><PhoneOff /><span>End</span></button><button type="button" onClick={() => onOpenChange(false)}><MessageCircle /><span>Messages</span></button></div>
         {phase === "speaking" && <button type="button" className="text-link" onClick={() => { try { resources.current?.player?.stop(); } catch {} }}>Skip this reply</button>}

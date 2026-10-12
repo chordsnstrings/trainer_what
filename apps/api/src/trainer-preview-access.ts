@@ -23,8 +23,8 @@ export function previewRouteAllowed(method: string, path: string) {
   const read = method === "GET" || method === "HEAD";
   if (read && /^\/(bootstrap|programme\/(today|timeline)|brain\/plans\/mine|training\/(overview|holds|exercises)|messages\/thread|clients\/[^/]+\/(twin|context)|workspace\/pages\/[^/]+|notifications(?:\/preferences)?|account\/preferences)$/.test(p)) return true;
   if (method === "POST" && /^\/(intake|messages|coaching\/ask|privacy\/consent|settings)$/.test(p)) return true;
-  if (/^\/onboarding-chat(?:\/(history|messages|actions|attachments(?:\/[^/]+)?|calls(?:\/options|\/[^/]+\/end|\/[^/]+\/turns(?:\/[^/]+)?)?))?$/.test(p)) return ["GET", "HEAD", "POST", "DELETE"].includes(method);
-  if (/^\/coaching\/calls(?:\/options|\/[^/]+\/end|\/[^/]+\/turns(?:\/[^/]+)?)?$/.test(p)) return ["GET", "HEAD", "POST"].includes(method);
+  if (/^\/onboarding-chat(?:\/(history|messages|actions|attachments(?:\/[^/]+)?|calls(?:\/options|\/[^/]+\/(?:end|cues)|\/[^/]+\/turns(?:\/[^/]+)?)?))?$/.test(p)) return ["GET", "HEAD", "POST", "DELETE"].includes(method);
+  if (/^\/coaching\/calls(?:\/options|\/[^/]+\/(?:end|cues)|\/[^/]+\/turns(?:\/[^/]+)?)?$/.test(p)) return ["GET", "HEAD", "POST"].includes(method);
   if (/^\/chat\/attachments(?:\/[^/]+)?$/.test(p)) return ["GET", "HEAD", "POST", "DELETE"].includes(method);
   if (/^\/nutrition(?:\/(profile|generate|plans|logs|checkins|pantry|groceries|captures|tracker|favorites|purchase-specs|shopping|leftovers|methods)(?:\/[^/]+)*)?$/.test(p)) return ["GET", "HEAD", "POST", "PUT", "DELETE"].includes(method);
   if (method === "POST" && /^\/training\/sessions\/[^/]+\/(reschedule|cancel)$/.test(p)) return true;

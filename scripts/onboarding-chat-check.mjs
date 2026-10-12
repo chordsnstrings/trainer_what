@@ -6,7 +6,7 @@ const base = process.env.TEST_APP_URL;
 if (!base || !["localhost", "127.0.0.1"].includes(new URL(base).hostname) || process.env.NODE_ENV === "production") throw Error("Use the isolated onboarding runner");
 const folder = "test-results/onboarding-chat";
 await mkdir(folder, { recursive: true });
-const browser = await chromium.launch({ headless: true, args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", "--use-file-for-fake-audio-capture=" + process.env.ONBOARDING_MICROPHONE_FIXTURE] });
+const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH, args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", "--use-file-for-fake-audio-capture=" + process.env.ONBOARDING_MICROPHONE_FIXTURE] });
 const report = { checks: [], errors: [], captures: [], motion: [] };
 async function login(email, width, userAgent, recordMotion = false) {
   const context = await browser.newContext({ viewport: { width, height: 900 }, reducedMotion: "no-preference", ...(userAgent ? { userAgent } : {}), ...(recordMotion ? { recordVideo: { dir: folder + "/my-brain-video", size: { width, height: 900 } } } : {}), permissions: ["microphone"], serviceWorkers: "block" });

@@ -61,13 +61,13 @@ export function onboardingCallRoutes(app: FastifyInstance, db: Database, purpose
 }
 
   const snapshot = (req: FastifyRequest, mode: string) => forward(app, req, "GET", coaching ? "/api/v1/messages/thread" : "/api/v1/onboarding-chat?mode=" + mode);
-  async function reserve(a: Actor, callId: string, usageId: string, kind: "speech" | "transcription", estimate: number, pricing: Record<string, unknown>) {
+  async function reserve(a: Actor, callId: string, usageId: string, kind: "speech" | "transcription", estimate: number, pricing: Record<string, unknown>, optional = false) {
     const c = contracts(), p = kind === "speech" ? c.voice : c.speech;
     await db.tenant(a, async tx => {
       await ownCall(tx, a, callId);
       await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [a.tenantId + ":voice-budget"]);
       const [spent] = await tx.query("SELECT voice_guidance_spent_today() AS total");
-      if (Number(spent.total) + estimate > c.voice.cap) throw fail(429, "VOICE_BUDGET", "Today's voice allowance is used up. You can keep chatting by text.");
+      if (Number(spent.total) + estimate + (optional ? c.voice.price * 0.9 + c.speech.pricePerHour / 60 : 0) > c.voice.cap) throw fail(429, "VOICE_BUDGET", "Today's voice allowance is used up. You can keep chatting by text.");
       await reserveVoiceCost(tx, { id: usageId, tenantId: a.tenantId, userId: a.userId, memberId: a.role === "subscriber" ? a.userId : null,
         task: "voice." + (coaching ? "coaching." : a.role === "owner" ? "onboarding_setup." : "onboarding.") + kind,
         provider: p.provider, model: p.model, priceVersion: p.priceVersion, pricing: { ...pricing, reservedCostUsd: estimate }, traceId: callId });
@@ -77,11 +77,11 @@ export function onboardingCallRoutes(app: FastifyInstance, db: Database, purpose
     await ownCall(tx, a, callId);
     await tx.query("UPDATE cost_events SET status='unknown' WHERE id=$1 AND status='reserved'", [usageId]);
   });
-  async function speak(a: Actor, call: any, text: string) {
+  async function speak(a: Actor, call: any, text: string, optional = false) {
     const c = contracts(), id = randomUUID();
     text = text.trim().slice(0, 900);
     if (!text) return null;
-    await reserve(a, call.id, id, "speech", text.length / 1000 * c.voice.price, { basis: "characters", characters: text.length, usdPer1000Characters: c.voice.price });
+    await reserve(a, call.id, id, "speech", text.length / 1000 * c.voice.price, { basis: "characters", characters: text.length, usdPer1000Characters: c.voice.price }, optional);
     try {
       const result = await generateTrainerVoice(call.data.voiceId, text, beforeSend(a, call.id, id), { provider: "cartesia", model: call.data.model, textLanguage: speechLanguage(text) });
       await db.tenant(a, tx => costEstimated(tx, id, { providerRequestId: result.requestId }));
@@ -123,7 +123,7 @@ export function onboardingCallRoutes(app: FastifyInstance, db: Database, purpose
       if (await onboardingConsentEpoch(tx, a) !== consentEpoch) throw fail(409, "CONSENT_CHANGED", "Your permissions changed. Start the call again when you're ready.");
       const [old] = await tx.query("SELECT * FROM records WHERE id=$1 AND kind='onboarding_call' AND owner_user_id=$2", [b.id, a.userId]);
       if (old) { await ownCall(tx, a, old.id); if (old.status !== "active") throw fail(409, "CALL_ENDED", "This call has ended."); if (old.data.fingerprint !== hash(b)) throw fail(409, "CALL_CHANGED", "Start a new call with these choices."); return callView(old); }
-      await tx.query("UPDATE records SET status='ended',data=data-'cloneConsent',updated_at=now() WHERE kind='onboarding_call' AND owner_user_id=$1 AND status='active'", [a.userId]);
+      await tx.query("UPDATE records SET status='ended',data=data-'cloneConsent'-'waitCues',updated_at=now() WHERE kind='onboarding_call' AND owner_user_id=$1 AND status='active'", [a.userId]);
       await tx.query("UPDATE records SET data=data-'audio',updated_at=now() WHERE kind='onboarding_voice_request' AND owner_user_id=$1 AND data ? 'audio'", [a.userId]);
       const row = await putRecord(tx, a, "onboarding_call", { purpose, name: selected.name, fingerprint: hash(b), language: b.language, mode: a.role === "owner" ? b.mode : "setup", voiceId, model: c.voice.model, signature: c.signature, consentAt: new Date().toISOString(), cloneConsent: b.cloneConsent ?? null, cloneConsentVersion: CLONE_CONSENT_VERSION, turns: 0, expiresAt: new Date(Date.now() + 30 * 60000).toISOString() }, { id: b.id, status: "active" });
       await event(tx, a, "onboarding_chat.call_started", row.id, { cloneOptIn: !!b.cloneConsent });
@@ -134,12 +134,38 @@ export function onboardingCallRoutes(app: FastifyInstance, db: Database, purpose
     const a = actor(req), id = uuid.parse((req.params as any).id);
     await db.tenant(a, async tx => {
       await lockOnboarding(tx, a);
-      const rows = await tx.query("UPDATE records SET status='ended',data=data-'cloneConsent',updated_at=now() WHERE id=$1 AND kind='onboarding_call' AND owner_user_id=$2 RETURNING id", [id, a.userId]);
+      const rows = await tx.query("UPDATE records SET status='ended',data=data-'cloneConsent'-'waitCues',updated_at=now() WHERE id=$1 AND kind='onboarding_call' AND owner_user_id=$2 RETURNING id", [id, a.userId]);
       // A hangup can overtake a slow start request. Its ID must stay ended.
       if (!rows.length) await tx.query("INSERT INTO records(id,tenant_id,owner_user_id,kind,status,data) VALUES($1,$2,$3,'onboarding_call','ended',$4) ON CONFLICT(id) DO NOTHING", [id, a.tenantId, a.userId, JSON.stringify({ cancelledAt: new Date().toISOString() })]);
       await tx.query("UPDATE records SET data=data-'audio',updated_at=now() WHERE kind='onboarding_voice_request' AND owner_user_id=$1 AND data->>'callId'=$2", [a.userId, id]);
     });
     return { ended: true };
+  });
+  // One bounded preparation per consented call. Replays never repurchase cues.
+  // These neutral phrases make no claim about having understood the caller.
+  app.post(prefix + "/:id/cues", async (req, reply) => {
+    reply.header("Cache-Control", "private, no-store");
+    const a = actor(req), id = uuid.parse((req.params as any).id);
+    const claim = await db.tenant(a, async tx => {
+      const call = await ownCall(tx, a, id);
+      if (call.data.cueState) return { cached: call.data.waitCues ?? [] };
+      await tx.query("UPDATE records SET data=data||'{\"cueState\":\"preparing\"}'::jsonb,updated_at=now() WHERE id=$1", [id]);
+      return { call };
+    });
+    if ("cached" in claim) return { cues: claim.cached };
+    const phrases = claim.call.data.language === "ar"
+      ? ["لحظة من فضلك.", "أنا معك، أحتاج لحظة أخرى."]
+      : ["One moment.", "I'm still with you. Just a moment more."];
+    const cues: string[] = [];
+    for (const phrase of phrases) {
+      try { const audio = await speak(a, claim.call, phrase, true); if (audio) cues.push(audio); }
+      catch { break; } // Optional cues never retry an unknown provider outcome.
+    }
+    return db.tenant(a, async tx => {
+      await ownCall(tx, a, id); // No late audio after hangup, withdrawal or voice change.
+      await tx.query("UPDATE records SET data=data||$2::jsonb,updated_at=now() WHERE id=$1", [id, JSON.stringify({ cueState: "complete", waitCues: cues })]);
+      return { cues };
+    });
   });
   app.get(prefix + "/:id/turns/:turnId", async (req, reply) => {
     reply.header("Cache-Control", "private, no-store");
@@ -193,7 +219,7 @@ export function onboardingCallRoutes(app: FastifyInstance, db: Database, purpose
       }
       const messages = conversation.messages ?? [], lastPerson = messages.findLastIndex((m: any) => m.from === "person");
       const words = messages.slice(Math.max(lastPerson + 1, messages.length - 3)).filter((m: any) => m.from === "assistant").map((m: any) => m.text).join(" ");
-      audio = await speak(a, claimed, coaching ? b.greeting ? "Hello, this is your digital coach. What would you like to work on today?" : conversation.spokenReply : words);
+      audio = await speak(a, claimed, coaching ? b.greeting ? "Hi, it’s " + claimed.data.name + "’s coaching support. What would you like to work on today?" : conversation.spokenReply : words);
     } catch (e) {
       error = (e as any).statusCode && (e as any).statusCode < 500 ? (e as Error).message : "That reply couldn't be completed. Your saved conversation is below; you can continue by text.";
     }
