@@ -8,6 +8,17 @@ const folder = "test-results/trainer-preview";
 await mkdir(folder, { recursive: true });
 const browser = await chromium.launch({ headless: true, args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", "--use-file-for-fake-audio-capture=" + process.env.ONBOARDING_MICROPHONE_FIXTURE] });
 const report = { checks: [], errors: [], captures: [] };
+async function capture(page, path) {
+  // Capture settled UI rather than a transient page/message arrival frame.
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    for (const animation of document.getAnimations()) {
+      if (animation.effect?.getTiming().iterations === Infinity) continue;
+      try { animation.finish(); } catch {}
+    }
+  });
+  await page.screenshot({ path, fullPage: true });
+}
 try {
   for (const width of [1280, 390]) {
     const context = await browser.newContext({ viewport: { width, height: 900 }, permissions: ["microphone"], serviceWorkers: "block" });
@@ -51,7 +62,7 @@ try {
         });
       });
       for (const value of contrast) assert.ok(value.ratio >= 4.5, `${scheme} preview ${value.text}: ${value.ratio}`);
-      await page.screenshot({ path: `${folder}/${width}-preview-${scheme}.png`, fullPage: true });
+      await capture(page, `${folder}/${width}-preview-${scheme}.png`);
       report.captures.push(`${width}-preview-${scheme}`);
     }
     await page.getByLabel("I allow my information to be used for coaching.").check();
@@ -86,9 +97,10 @@ try {
     for (const path of ["/chat", "/program", "/nutrition"]) {
       await page.goto(base + "/trainer/preview/app" + path);
       await expect(page.getByLabel("Trainer test controls")).toBeVisible();
+      if (path === "/chat") await expect(page.locator(".chat-messages")).toContainText("What time do you have available?");
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false);
       const name = width + path.replaceAll("/", "-");
-      await page.screenshot({ path: folder + "/" + name + ".png", fullPage: true }); report.captures.push(name);
+      await capture(page, folder + "/" + name + ".png"); report.captures.push(name);
     }
     await page.goto(base + "/trainer/preview/app/chat");
     // The rapid screenshot reloads and complete setup journey share the real

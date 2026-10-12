@@ -62,6 +62,12 @@ let voiceFixture = false,
   prepared = false;
 let preparations = 0,
   workoutStarts = 0;
+const analyticsMutations = [];
+await page.route("**/api/v1/public/acquisition/consent", (route) => {
+  if (route.request().method() !== "GET")
+    analyticsMutations.push(route.request().method());
+  return route.fulfill({ json: { granted: false } });
+});
 const view = () => ({
   id: "fixture-session",
   workoutId: id,
@@ -220,8 +226,7 @@ async function go(planned = false) {
         : "/app/guided/" + id),
   );
   await expect(root()).toBeVisible({ timeout: 45000 });
-  const dismiss = page.getByRole("button", { name: "No thanks", exact: true });
-  if (await dismiss.isVisible()) await dismiss.click();
+  await expect(page.locator(".consent-bar")).toHaveCount(0);
 }
 async function check(name, fn) {
   await fn();
@@ -242,9 +247,39 @@ async function screenshot(name, width) {
   await page.evaluate(() => {
     for (const animation of document.getAnimations()) {
       if (animation.effect?.getTiming().iterations === Infinity) continue;
-      try { animation.finish(); } catch {}
+      try {
+        animation.finish();
+      } catch {}
     }
   });
+  await expect(page.locator(".consent-bar, .consent-bar-space")).toHaveCount(0);
+  assert.equal(
+    await page.evaluate(() => localStorage.getItem("analytics-preference")),
+    null,
+    "playing a workout never answers optional analytics consent",
+  );
+  assert.deepEqual(analyticsMutations, []);
+  if (name === "voice-player") {
+    const controls = root().locator(
+      ".voice-player-controls button, .voice-pain, .voice-done",
+    );
+    assert.equal(await controls.count(), 5);
+    for (const control of await controls.all()) {
+      await expect(control).toBeInViewport({ ratio: 1 });
+      assert.equal(
+        await control.evaluate((element) => {
+          const bounds = element.getBoundingClientRect();
+          const hit = document.elementFromPoint(
+            bounds.left + bounds.width / 2,
+            bounds.top + bounds.height / 2,
+          );
+          return !!hit && (hit === element || element.contains(hit));
+        }),
+        true,
+        "player and safety controls must be visible and unobscured in the captured phone viewport",
+      );
+    }
+  }
   const path = folder + "/" + name + ".png";
   await page.screenshot({ path, fullPage: true });
   report.screenshots.push(path);

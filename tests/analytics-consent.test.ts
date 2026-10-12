@@ -18,6 +18,7 @@ import {
   ConsentSheet,
   asksForAnalytics,
   choiceFor,
+  defersAnalyticsPrompt,
   readAnalyticsChoice,
   saveAnalyticsChoice,
   showsConsentBar,
@@ -126,6 +127,74 @@ test("the bar shows only before an answer, waits for a scroll on marketing pages
     showsConsentBar({ ...base, permission: { granted: true } }),
     false,
   );
+});
+
+test("guided routes defer the analytics question without answering or changing a saved choice", () => {
+  const permission = { granted: false };
+  const store = memoryStore();
+  const base = {
+    permission,
+    choice: readAnalyticsChoice(store),
+    marketing: false,
+    scrolled: true,
+    sheetOpen: false,
+  };
+  for (const prefix of ["", "/trainer/preview"]) {
+    for (const route of [
+      "/app/guided/w1",
+      "/app/voice-session/w1",
+      "/app/voice-session/planned/p1",
+      "/app/voice-session/w1/",
+    ]) {
+      const path = prefix + route;
+      assert.equal(defersAnalyticsPrompt(path), true, path);
+      assert.equal(
+        showsConsentBar({ ...base, deferred: defersAnalyticsPrompt(path) }),
+        false,
+        path,
+      );
+    }
+    for (const route of [
+      "/app",
+      "/app/more",
+      "/app/program",
+      "/app/workouts/w1",
+    ]) {
+      const path = prefix + route;
+      assert.equal(defersAnalyticsPrompt(path), false, path);
+      assert.equal(
+        showsConsentBar({ ...base, deferred: defersAnalyticsPrompt(path) }),
+        true,
+        "unanswered prompt can return after leaving the player",
+      );
+    }
+  }
+  for (const path of [
+    "/coach/guided",
+    "/trainer/voice-session/style",
+    "/app/voice-session-settings",
+  ]) {
+    assert.equal(defersAnalyticsPrompt(path), false, path);
+  }
+  assert.equal(permission.granted, false);
+  assert.equal(
+    readAnalyticsChoice(store),
+    null,
+    "deferral is not permission or dismissal",
+  );
+  assert.equal(store.data.size, 0);
+  for (const choice of ["allowed", "declined", "dismissed"] as const) {
+    const saved = memoryStore({ [ANALYTICS_CHOICE_KEY]: choice });
+    assert.equal(
+      showsConsentBar({
+        ...base,
+        choice: readAnalyticsChoice(saved),
+        deferred: true,
+      }),
+      false,
+    );
+    assert.equal(readAnalyticsChoice(saved), choice);
+  }
 });
 
 test("the bar: two equal 48 px choices, a real Close button and a real privacy link", () => {
@@ -322,7 +391,10 @@ test("phone-first styles: the bar sits above the member app's bottom chrome and 
   // Its movement (and the bar's) lives in app/motion.css, inside the
   // no-preference query (tests/motion-css.test.ts).
   assert.doesNotMatch(css, /(^|[;{\s])animation(-name)?\s*:/m);
-  assert.match(await web("app/motion.css"), /\.consent-sheet\[open\] \{\s*animation:/);
+  assert.match(
+    await web("app/motion.css"),
+    /\.consent-sheet\[open\] \{\s*animation:/,
+  );
   // The old marketing-only bar rules are gone.
   assert.doesNotMatch(await web("app/marketing.css"), /\.consent-bar/);
 });
