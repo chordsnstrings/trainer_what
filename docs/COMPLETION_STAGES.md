@@ -2,6 +2,10 @@
 
 Application implementation and the job audit are complete for the current phase. [PR #1](https://github.com/chordsnstrings/trainer_what/pull/1) contains the work; [combined verification](VERIFICATION_2026-09-27.md) records the passing final code revision. The owner authorized merge to main. Real services and deployment remain the next phase; screenshots were waived. Historical entries below record the evidence available at each stage and may contain superseded pending-check statements.
 
+## Stage 2026-10-12 — preview voice worker discovery (checks pending)
+
+The reported `0/41` stall exposed a production-role permission error in the top-level worker's preview discovery query. A restricted-service regression reproduces it before the fix. Discovery now reads profile metadata in service scope, leaving pending-session reads and paid clip generation in the verified owner/preview scope. Tenant-table grants and RLS remain unchanged. English/Arabic copy describes incremental preparation and explicit text continuation. TypeScript and 39 voice/preview/translation tests passed, including the top-level dispatcher under restricted service permissions; mandatory release checks remain pending. See the active handoff for the release boundary.
+
 ## Stage 2026-10-12 — contextual coaching, guided player and subscriber UI (live)
 
 - **Release:** [PR #57](https://github.com/chordsnstrings/trainer_what/pull/57) is merged and live as `5b1f3d7dd2f91b28661cad60dff70046068ad6f7`. A direct readiness request confirmed HTTP 200 and the exact release at **09:12:49 UTC / 13:12:49 Dubai on 12 October 2026**; [serving verification](https://github.com/chordsnstrings/trainer_what/actions/runs/38227638129) also passed. All six PR gates passed on `cc83191023f289335f4555aa2d2fef0dc92208e1`; all five [exact-main checks](https://github.com/chordsnstrings/trainer_what/actions/runs/38222495275) passed.
