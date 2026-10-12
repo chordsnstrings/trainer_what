@@ -7,9 +7,22 @@ import { strictSecurity } from "../../../packages/providers/src/configuration.ts
 import { generateMemberPlan, reviewPlanGeneration } from "./brain-plans.ts";
 import { deliverReviewedCoachingDecision } from "./coaching-completion.ts";
 import { currentPreview, previewOwner, previewReviewer, previewError as fail, PREVIEW_COOKIE, PREVIEW_COOKIE_PATH } from "./trainer-preview-access.ts";
+import { autoReviewPreviewPlan, autoReviewPreviewReply } from "./trainer-preview-review.ts";
 
 export function registerTrainerPreview(app: FastifyInstance, db: Database) {
   const path = "/api/v1/trainer-preview";
+  app.post(path + "/continue", async req => {
+    const owner = previewOwner(req), profile = await currentPreview(db, owner);
+    z.object({}).strict().parse(req.body ?? {});
+    const a = previewReviewer(owner, profile.user_id);
+    const rows = await db.tenant(a, tx => tx.query("SELECT id FROM records WHERE owner_user_id=$1 AND kind='decision' AND status='pending_review' ORDER BY created_at DESC,id DESC LIMIT 5", [profile.user_id]));
+    const blocked: string[] = [];
+    for (const row of rows) {
+      try { if (!await autoReviewPreviewReply(db, a, row.id)) blocked.push("An earlier reply no longer matches this conversation. Ask your question again."); }
+      catch (error) { if (![400, 409].includes(Number((error as any).statusCode))) throw error; blocked.push((error as Error).message); }
+    }
+    return { ok: true, blocked: [...new Set(blocked)] };
+  });
   app.get(path, async req => {
     const a = previewOwner(req);
     const profile = await currentPreview(db, a).catch(e => {
@@ -80,31 +93,7 @@ export function registerTrainerPreview(app: FastifyInstance, db: Database) {
   app.post(path + "/workout", { config: { rateLimit: { max: 5, timeWindow: "10 minutes" } } }, async req => {
     const owner = previewOwner(req), profile = await currentPreview(db, owner);
     z.object({}).strict().parse(req.body ?? {});
-    const a = previewReviewer(owner, profile.user_id);
-    const [assigned] = await db.tenant(a, tx => tx.query("SELECT id FROM records WHERE kind='program' AND owner_user_id=$1 AND status='assigned' LIMIT 1", [profile.user_id]));
-    if (assigned) return { status: "delivered", programId: assigned.id };
-    const intent = await db.tenant(a, async tx => {
-      await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [a.tenantId + ":preview-workout:" + profile.id]);
-      const [old] = await tx.query("SELECT * FROM records WHERE kind='preview_workout_request' AND owner_user_id=$1 FOR UPDATE", [profile.user_id]);
-      if (old && old.status !== "retryable") return { reused: true, id: old.id, result: old.data.result ?? { status: old.status, message: "Your workout request is already saved. Check the test controls for its progress." } };
-      if (old) await tx.query("UPDATE records SET status='processing',updated_at=now() WHERE id=$1", [old.id]);
-      const row = old ?? await putRecord(tx, a, "preview_workout_request", {}, { ownerId: profile.user_id, status: "processing" });
-      return { reused: false, id: row.id };
-    });
-    if (intent.reused) return intent.result;
-    try {
-      const result = await generateMemberPlan(db, a, profile.user_id, { trigger: "manual", jobId: intent.id });
-      await db.tenant(a, async tx => {
-        const [gen] = result.generationId ? await tx.query("SELECT status,data FROM records WHERE id=$1 AND kind='plan_generation'", [result.generationId]) : [];
-        const retryable = gen?.data.providerState === "not_sent" || ["not_sent", "prerequisite"].includes(gen?.status);
-        await tx.query("UPDATE records SET status=$2,data=$3,updated_at=now() WHERE id=$1", [intent.id, retryable ? "retryable" : "complete", JSON.stringify({ result })]);
-      });
-      return result;
-    } catch (e) {
-      // A transport retry cannot purchase another request with an unknown outcome.
-      await db.tenant(a, tx => tx.query("UPDATE records SET status='needs_review',updated_at=now() WHERE id=$1", [intent.id]));
-      throw e;
-    }
+    return ensurePreviewWorkout(db, owner, { id: profile.id, user_id: profile.user_id });
   });
   app.post(path + "/workout/:id/review", async req => {
     const owner = previewOwner(req), profile = await currentPreview(db, owner);
@@ -127,4 +116,37 @@ export function registerTrainerPreview(app: FastifyInstance, db: Database) {
       return delivered;
     });
   });
+}
+
+/** Same durable intent for the save handoff, resume and an explicit preparation check. */
+export async function ensurePreviewWorkout(db: Database, owner: Parameters<typeof previewReviewer>[0], profile: { id: string; user_id: string }) {
+    const a = previewReviewer(owner, profile.user_id);
+    const [assigned] = await db.tenant(a, tx => tx.query("SELECT id FROM records WHERE kind='program' AND owner_user_id=$1 AND status='assigned' LIMIT 1", [profile.user_id]));
+    if (assigned) return { status: "delivered", programId: assigned.id };
+    const intent = await db.tenant(a, async tx => {
+      await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [a.tenantId + ":preview-workout:" + profile.id]);
+      const [old] = await tx.query("SELECT * FROM records WHERE kind='preview_workout_request' AND owner_user_id=$1 FOR UPDATE", [profile.user_id]);
+      if (old && old.status !== "retryable") return { reused: true, id: old.id, result: old.data.result ?? { status: old.status, message: "Your workout request is already saved. Check the test controls for its progress." } };
+      if (old) await tx.query("UPDATE records SET status='processing',updated_at=now() WHERE id=$1", [old.id]);
+      const row = old ?? await putRecord(tx, a, "preview_workout_request", {}, { ownerId: profile.user_id, status: "processing" });
+      return { reused: false, id: row.id };
+    });
+    if (intent.reused) return autoReviewPreviewPlan(db, a, intent.result);
+    try {
+      const result = await autoReviewPreviewPlan(db, a, await generateMemberPlan(db, a, profile.user_id, { trigger: "manual", jobId: intent.id }));
+      await db.tenant(a, async tx => {
+        const [gen] = result.generationId ? await tx.query("SELECT status,data FROM records WHERE id=$1 AND kind='plan_generation'", [result.generationId]) : [];
+        const retryable = gen?.data.providerState === "not_sent" || ["not_sent", "prerequisite"].includes(gen?.status);
+        await tx.query("UPDATE records SET status=$2,data=$3,updated_at=now() WHERE id=$1", [intent.id, retryable ? "retryable" : "complete", JSON.stringify({ result })]);
+      });
+      return result;
+    } catch (e) {
+      // A transport retry cannot purchase another request with an unknown outcome.
+      await db.tenant(a, async tx => {
+        const [gen] = await tx.query("SELECT status,data FROM records WHERE kind='plan_generation' AND owner_user_id=$1 AND data->>'jobId'=$2 ORDER BY created_at DESC,id DESC LIMIT 1", [profile.user_id, intent.id]);
+        const notSent = gen?.data.providerState === "not_sent" || ["not_sent", "prerequisite"].includes(gen?.status);
+        await tx.query("UPDATE records SET status=$2,updated_at=now() WHERE id=$1", [intent.id, notSent ? "retryable" : "needs_review"]);
+      });
+      throw e;
+    }
 }

@@ -1,5 +1,16 @@
 # Dark mode for subscribers
 
+**12 October 2026 update:** the subscriber app now defaults to **Light** when no
+choice is saved. Existing explicit Light, Dark and Match this device choices
+remain intact. App controls use the neutral palette in
+`apps/web/lib/member-appearance.ts`; coach websites keep the coach's palette.
+Preview panels explicitly pair `--white` with `--ink`, eliminating the missing
+surface-token white-on-white bug. Initial server and client status-bar colours
+match the app. The earlier implementation history below is retained for the
+dark-mode mechanics; its former device-default/coach-coloured-app policy is
+superseded by this update.
+
+
 Owner direction (29 September 2026, after reviewing screenshots of every
 subscriber screen): "FIX all UI issues". The screenshot review found that
 "every dark variant renders in the light theme": subscribers had no dark
@@ -10,8 +21,8 @@ the device). Branch `ui/dark` (from `ui/shell`) adds it.
 
 | Surface | Appearance |
 | ------- | ---------- |
-| Member app (`.trainer-theme.member-shell`) | The member's choice: Match this device (default), Light or Dark |
-| Coach website (`.trainer-theme.coach-website`) | The choice mirrored on this device, else the device |
+| Member app (`.trainer-theme.member-shell`) | The member's choice: Light (default), Dark or Match this device |
+| Coach website (`.trainer-theme.coach-website`) | The choice mirrored on this device, else Light |
 | A coach's sign-in, recovery and joining pages (`.trainer-theme.public`) | The same |
 | Member app first load, "temporarily unavailable" and suspended screens (`.member-neutral`, `/app` paths only) | The same, with the neutral dark palette (the coach's brand is not known yet) |
 | The optional analytics panel while one of the above is dark | Neutral dark |

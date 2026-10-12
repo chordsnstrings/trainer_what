@@ -1,5 +1,5 @@
 "use client";
-import { memberApiUrl, memberHref } from "../lib/trainer-preview-routing";
+import { memberApiUrl } from "../lib/trainer-preview-routing";
 import { sessionOrder } from "../../../packages/domain/src/session-structure.ts";
 // Hands-free, voice-led workout session. The pure state machine
 // (packages/domain/src/voice-runner.ts) decides what happens; this component
@@ -13,15 +13,24 @@ import {
   saveProgress,
   phaseToken,
   mergeCompletedSets,
+  openingAudioKeys,
 } from "../lib/guided-runtime";
 import { queuedSummary } from "./pwa";
 import { ProgressRing, Skeleton, StickyActionBar } from "./phone-ui";
-import { AlertCircle, Mic } from "lucide-react";
+import { AlertCircle, Mic, Play, Pause, RotateCcw } from "lucide-react";
 import { formatDate, formatSetsReps } from "../lib/format";
 import { translator, type Locale, type Translator } from "../lib/i18n/core";
 import { useErrorText, useLocale, useT } from "../lib/i18n/react";
 import voiceMessages from "../lib/i18n/messages/voice";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
+import Link from "./preview-navigation";
 import {
   ECHO_GRACE_MS,
   heardReply,
@@ -69,7 +78,9 @@ async function api<T = any>(
 ): Promise<T> {
   const response = await fetch(memberApiUrl("/api/v1" + path), {
     method,
-    signal: AbortSignal.timeout(20000),
+    signal: AbortSignal.timeout(
+      method === "POST" && path === "/voice-sessions" ? 90000 : 20000,
+    ),
     credentials: "same-origin",
     headers:
       body === undefined
@@ -100,7 +111,13 @@ function statusLine(ctx: { script: SessionScript }, s: RunnerState, t: VoiceT) {
     case "setup":
       return t("status_setup", { name: ex.name });
     case "set": {
-      if (workMeasure(ex) !== "reps") return [ex.name, t("roundOf", { set: s.set, sets: ex.sets }), workText({ ...ex, sets: 1 }), ...(target.loadKg > 0 ? [t("load", { load: target.loadKg })] : [])].join(" · ");
+      if (workMeasure(ex) !== "reps")
+        return [
+          ex.name,
+          t("roundOf", { set: s.set, sets: ex.sets }),
+          workText({ ...ex, sets: 1 }),
+          ...(target.loadKg > 0 ? [t("load", { load: target.loadKg })] : []),
+        ].join(" · ");
       const params = {
         name: ex.name,
         set: s.set,
@@ -151,6 +168,7 @@ type SessionView = {
   plannedSessionId?: string | null;
   mode: "voice" | "text";
   status: string;
+  endReason?: string | null;
   runnable?: boolean;
   stale?: boolean;
   scriptFingerprint?: string;
@@ -161,11 +179,14 @@ type SessionView = {
     savedAt: number;
   } | null;
   progressVersion?: number;
+  runRevision?: number;
+  resumeAvailable?: boolean;
   completedSets?: string[];
   audioStatus: string;
   unavailableReason: { code: string; message: string } | null;
   script: SessionScript;
   audio: {
+    revision?: string;
     ready: number;
     total: number;
     failed: number;
@@ -285,26 +306,35 @@ export function VoiceSessionRunner({
     [busy, setBusy] = useState(false),
     [consent, setConsent] = useState(false),
     [loaded, setLoaded] = useState(false);
+  const [boundWorkoutId, setBoundWorkoutId] = useState<string | null>(null);
+  const boundWorkout = useRef<string | null>(null);
+  const [playRequest, setPlayRequest] = useState(0);
+  const player = useRef<HTMLAudioElement>(null),
+    starting = useRef(false);
+  const refreshEpoch = useRef(0);
+  const activeWorkoutId = workoutId ?? boundWorkoutId;
   const t = useT("voice"),
     locale = useLocale(),
     toError = useErrorText();
   const errorRef = useRef(toError);
   errorRef.current = toError;
   const message = (e: unknown) => errorRef.current(e);
-  const ahead = !workoutId && !!plannedSessionId;
+  const ahead = !activeWorkoutId && !!plannedSessionId;
   const refresh = useCallback(async () => {
+    const epoch = ++refreshEpoch.current;
     const r = await api<Loaded>(
       ahead
         ? `/voice-sessions/planned/${plannedSessionId}`
-        : `/voice-sessions/workout/${workoutId}`,
+        : `/voice-sessions/workout/${activeWorkoutId}`,
     );
+    if (epoch !== refreshEpoch.current || starting.current) return r;
     setGate(r.gate);
     setSession(r.session);
     setStale(!!r.stale);
     setPlanned(r.planned ?? null);
     setLoaded(true);
     return r;
-  }, [ahead, workoutId, plannedSessionId]);
+  }, [ahead, activeWorkoutId, plannedSessionId]);
   useEffect(() => {
     void refresh().catch((e) => {
       setNotice(errorRef.current(e));
@@ -318,13 +348,15 @@ export function VoiceSessionRunner({
     return () => clearInterval(timer);
   }, [session?.audioStatus, refresh]);
   const prepare = async (playbackConsent: boolean) => {
+    refreshEpoch.current++;
     setBusy(true);
     setNotice("");
     try {
       const view = await api<SessionView>("/voice-sessions", "POST", {
-        ...(ahead ? { plannedSessionId } : { workoutId }),
+        ...(ahead ? { plannedSessionId } : { workoutId: activeWorkoutId }),
         ...(playbackConsent ? { playbackConsent: true } : {}),
       });
+      refreshEpoch.current++;
       setSession(view);
       setStale(false);
       if (view.gate) setGate(view.gate);
@@ -334,19 +366,78 @@ export function VoiceSessionRunner({
       setBusy(false);
     }
   };
-  const startWorkout = async () => {
-    if (!planned?.programId) return;
+  const play = async (
+    playbackConsent = false,
+    textOnly = false,
+    resumeStopped = false,
+    beforePrepare?: () => Promise<boolean>,
+  ) => {
+    if (starting.current || gate?.held) return;
+    starting.current = true;
+    refreshEpoch.current++;
     setBusy(true);
     setNotice("");
     try {
-      const workout = await api<{ id: string }>("/workouts/start", "POST", {
-        programId: planned.programId,
-        plannedSessionId: planned.id,
-      });
-      window.location.assign(memberHref(`/app/voice-session/${workout.id}`));
+      // This element survives preparation and planned-workout binding. Finish
+      // unlocking it before any cue is queued; the unlock's pause cannot cut off speech.
+      if (!textOnly && (gate?.mode === "voice" || playbackConsent)) {
+        if (savedMusicMode() === "own") setAudioSessionType("ambient");
+        if (!(await unlockAudio(player.current)))
+          throw new Error(t("audioTapAgain"));
+      }
+      if (beforePrepare && !(await beforePrepare())) return;
+      const existingWorkout = activeWorkoutId ?? boundWorkout.current;
+      let view: SessionView | null = await api<SessionView>(
+        "/voice-sessions",
+        "POST",
+        {
+          ...(!existingWorkout && ahead
+            ? { plannedSessionId }
+            : { workoutId: existingWorkout }),
+          ...(playbackConsent ? { playbackConsent: true } : {}),
+          ...(resumeStopped
+            ? { resumeStopped: true, runRevision: session?.runRevision ?? 0 }
+            : {}),
+        },
+      );
+      let bound = existingWorkout;
+      if (ahead) {
+        bound ??= planned?.workoutId ?? null;
+        if (!bound) {
+          if (!planned?.programId) throw new Error(t("notOpen"));
+          bound = (
+            await api<{ id: string }>("/workouts/start", "POST", {
+              programId: planned.programId,
+              plannedSessionId: planned.id,
+            })
+          ).id;
+        }
+        // Preserve the successful start if binding loses its connection; retry
+        // the same workout instead of creating another start intent.
+        boundWorkout.current = bound;
+        const current = await api<Loaded>(`/voice-sessions/workout/${bound}`);
+        view = current.session;
+        setGate(current.gate);
+        if (!view) throw new Error(t("staleText"));
+      }
+      if (!view) throw new Error(t("loadSessionAgain"));
+      if (view.gate) setGate(view.gate);
+      if (resumeStopped && bound) {
+        try {
+          localStorage.removeItem(progressKey(tenantId, userId, bound));
+        } catch {}
+      }
+      refreshEpoch.current++;
+      setSession(view);
+      setStale(false);
+      if (bound) setBoundWorkoutId(bound);
+      // Negative means the user explicitly chose text for this run; consent is unchanged.
+      setPlayRequest((value) => (Math.abs(value) + 1) * (textOnly ? -1 : 1));
     } catch (e) {
       setNotice(message(e));
+    } finally {
       setBusy(false);
+      starting.current = false;
     }
   };
   const voiceBlockedOnlyByConsent =
@@ -368,6 +459,7 @@ export function VoiceSessionRunner({
   const plannedOpen = !ahead || planned?.status === "planned";
   return (
     <div className="stack voice-session">
+      <audio ref={player} preload="none" hidden />
       <div className="page-heading">
         <p className="eyebrow">
           {session?.mode === "text" ||
@@ -403,12 +495,14 @@ export function VoiceSessionRunner({
       {startedWorkout && (
         <p className="notice">
           {t("started")}{" "}
-          <a
-            className="text-link"
-            href={`/app/voice-session/${startedWorkout}`}
+          <button
+            className="button"
+            disabled={busy || gate?.held}
+            onClick={() => void play()}
           >
-            {t("openRunner")}
-          </a>
+            <Play size={18} aria-hidden="true" />
+            {busy ? t("preparingPlayer") : t("resume")}
+          </button>
         </p>
       )}
       {ahead && !plannedOpen && !startedWorkout && (
@@ -441,16 +535,17 @@ export function VoiceSessionRunner({
                     <button
                       className="button secondary"
                       disabled={busy}
-                      onClick={() => void prepare(false)}
+                      onClick={() => void play(false, true)}
                     >
                       {t("useText")}
                     </button>
                     <button
                       className="button voice-prepare"
                       disabled={busy || (voiceBlockedOnlyByConsent && !consent)}
-                      onClick={() => void prepare(voiceBlockedOnlyByConsent)}
+                      onClick={() => void play(voiceBlockedOnlyByConsent)}
                     >
-                      {t("prepareVoice")}
+                      <Play size={20} aria-hidden="true" />
+                      {busy ? t("preparingPlayer") : t("playWorkout")}
                     </button>
                   </StickyActionBar>
                 </>
@@ -464,9 +559,9 @@ export function VoiceSessionRunner({
                     <button
                       className="button voice-prepare"
                       disabled={busy}
-                      onClick={() => void prepare(false)}
+                      onClick={() => void play(false, true)}
                     >
-                      {ahead ? t("prepareText") : t("startText")}
+                      {busy ? t("preparingPlayer") : t("startText")}
                     </button>
                   </StickyActionBar>
                 </>
@@ -514,32 +609,45 @@ export function VoiceSessionRunner({
           <button
             className="button"
             disabled={busy || gate.held}
-            onClick={() => void startWorkout()}
+            onClick={() => void play()}
           >
-            {t("startWithVoice")}
+            <Play size={20} aria-hidden="true" />
+            {busy ? t("preparingPlayer") : t("playWorkout")}
           </button>
         </section>
       )}
       {session && gate && !ahead && (
         <Runner
-          key={session.id + ":" + (session.scriptFingerprint ?? "")}
+          key={
+            session.id +
+            ":" +
+            (session.scriptFingerprint ?? "") +
+            ":" +
+            (session.runRevision ?? 0) +
+            ":" +
+            (session.audio.revision ?? "")
+          }
           session={session}
           gate={gate}
-          workoutId={workoutId!}
+          workoutId={activeWorkoutId!}
           tenantId={tenantId}
           userId={userId}
           onRefresh={refresh}
           onPrepare={prepare}
+          player={player}
+          playRequest={playRequest}
+          preparing={busy}
+          onPlay={play}
         />
       )}
-      {workoutId ? (
-        <a className="text-link" href={`/app/workouts/${workoutId}`}>
+      {activeWorkoutId ? (
+        <Link className="text-link" href={`/app/workouts/${activeWorkoutId}`}>
           {t("openLog")}
-        </a>
+        </Link>
       ) : (
-        <a className="text-link" href={memberHref("/app/program")}>
+        <Link className="text-link" href="/app/program">
           {t("backCalendar")}
-        </a>
+        </Link>
       )}
     </div>
   );
@@ -608,6 +716,10 @@ function Runner({
   userId,
   onRefresh,
   onPrepare,
+  player,
+  playRequest,
+  preparing,
+  onPlay,
 }: {
   session: SessionView;
   gate: Gate;
@@ -616,6 +728,15 @@ function Runner({
   userId: string;
   onRefresh: () => Promise<unknown>;
   onPrepare: (consent: boolean) => Promise<void>;
+  player: RefObject<HTMLAudioElement | null>;
+  playRequest: number;
+  preparing: boolean;
+  onPlay: (
+    consent?: boolean,
+    textOnly?: boolean,
+    resumeStopped?: boolean,
+    beforePrepare?: () => Promise<boolean>,
+  ) => Promise<void>;
 }) {
   // The script only changes with its fingerprint; a progress poll hands over a
   // new object each time, which must not reset listening or the runner.
@@ -624,7 +745,18 @@ function Runner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [session.id, session.scriptFingerprint],
   );
-  const [autoPace, setAutoPace] = useState(false);
+  const [autoPace, setAutoPace] = useState(() => {
+    try {
+      return (
+        localStorage.getItem(`trainer:guided-pacing:${tenantId}:${userId}`) !==
+        "manual"
+      );
+    } catch {
+      return true;
+    }
+  });
+  const [spokenOpen, setSpokenOpen] = useState(false);
+  const spokenOptions = useRef<HTMLDetailsElement>(null);
   const ctx = useMemo(
     () => ({ script, rules: script.rules, deliberate: true, autoPace }),
     [script, autoPace],
@@ -687,6 +819,7 @@ function Runner({
     [transcriptionConsent, setTranscriptionConsent] = useState(false),
     [clipCount, setClipCount] = useState(0),
     [changed, setChanged] = useState(false),
+    [unavailable, setUnavailable] = useState(false),
     // The language the member replies in: "" follows the app's language.
     [replyLanguage, setReplyLanguage] =
       useState<ReplyLanguage>(savedReplyLanguage),
@@ -712,11 +845,17 @@ function Runner({
     release(): Promise<void>;
     released?: boolean;
   } | null>(null);
-  const player = useRef<HTMLAudioElement | null>(null);
   const [cuePlaying, setCuePlaying] = useState(false);
+  const [buffering, setBuffering] = useState(false),
+    [playbackIssue, setPlaybackIssue] = useState("");
+  const [resuming, setResuming] = useState(false);
+  const resumePending = useRef(false);
+  const audioWaiting = useRef(false),
+    playbackBlocked = useRef(false),
+    handledPlay = useRef(0);
   const [question, setQuestion] = useState("");
   const [actualDistance, setActualDistance] = useState("");
-  useEffect(() => setActualDistance(""), [state.exercise,state.set]);
+  useEffect(() => setActualDistance(""), [state.exercise, state.set]);
   const [answer, setAnswer] = useState("");
   const [asking, setAsking] = useState(false);
   const [voiceVolume, setVoiceVolume] = useState(1);
@@ -735,7 +874,7 @@ function Runner({
   /** Finishes the prompt on screen now (used when the voice is muted mid-prompt). */
   const currentDone = useRef<(() => void) | null>(null);
   const promptAwaited = useRef(false);
-  const outcomeKey = `${storageKey}:outcomes:${session.id}`;
+  const outcomeKey = `${storageKey}:outcomes:${session.id}${session.runRevision ? ":" + session.runRevision : ""}`;
   const [initialOutcomes] = useState(() =>
     readList<RunnerOutcome & { eventKey?: string }>(localStorage, outcomeKey),
   );
@@ -760,7 +899,9 @@ function Runner({
   }, [gate.mode, session.mode]);
   const voiceAvailable = voiceMode && clipCount > 0;
   const runnable =
-    session.runnable !== false && ["ready", "running"].includes(session.status);
+    !unavailable &&
+    session.runnable !== false &&
+    ["ready", "running"].includes(session.status);
 
   const setPlaying = useCallback((playing: boolean) => {
     const p = playback.current;
@@ -835,11 +976,16 @@ function Runner({
     return () => {
       cancelled = true;
     };
-  }, [session.id, voiceMode, readySignature]);
+  }, [session.id, voiceMode, readySignature, playRequest]);
   useEffect(
     () => () => {
       audioEpoch.current++;
       if (promptTimer.current) clearTimeout(promptTimer.current);
+      if (player.current) {
+        player.current.pause();
+        player.current.onended = null;
+        player.current.onerror = null;
+      }
       for (const url of clips.current.values()) URL.revokeObjectURL(url);
       clips.current.clear();
       clipBytes.current.clear();
@@ -864,7 +1010,11 @@ function Runner({
           await api(
             `/voice-sessions/${session.id}/events`,
             "POST",
-            { ...(sentStatus ? { status: sentStatus } : {}), outcomes: batch },
+            {
+              ...(sentStatus ? { status: sentStatus } : {}),
+              outcomes: batch,
+              runRevision: session.runRevision ?? 0,
+            },
             queueOwnerHeaders(tenantId, userId),
           );
           const sent = new Set(batch);
@@ -934,26 +1084,38 @@ function Runner({
   // ------------------------------------------------------------- effects
   const dispatchRef = useRef<(event: RunnerEvent) => void>(() => {});
   const audible = !muted && voiceAvailable;
+  const playNextRef = useRef<() => void>(() => {});
   const playNext = useCallback(() => {
     // While the member talks back, cues wait in the queue.
-    if (talkBusy.current) {
+    if (talkBusy.current || playbackBlocked.current) {
       speaking.current = false;
       return;
     }
-    const next = sayQueue.current.shift();
+    const next = sayQueue.current[0];
     if (!next) {
       speaking.current = false;
       return;
     }
-    speaking.current = true;
-    promptAwaited.current ||= next.wait;
-    const epoch = audioEpoch.current;
     setPrompt(next.text);
     const urls = next.items
       .map((item) =>
         clips.current.get("line" in item ? "l:" + item.line : "s:" + item.clip),
       )
       .filter((u): u is string => !!u);
+    if (voiceMode && !muted && urls.length < next.items.length) {
+      // A selected voice is not permission to consume missing instructions as
+      // silent text. Keep the exact cue queued until its audio arrives.
+      audioWaiting.current = true;
+      setBuffering(true);
+      speaking.current = false;
+      return;
+    }
+    sayQueue.current.shift();
+    audioWaiting.current = false;
+    setBuffering(false);
+    speaking.current = true;
+    promptAwaited.current ||= next.wait;
+    const epoch = audioEpoch.current;
     let finished = false;
     const done = () => {
       if (finished || epoch !== audioEpoch.current) return;
@@ -964,70 +1126,50 @@ function Runner({
         promptAwaited.current = false;
         speaking.current = false;
         dispatchRef.current({ type: "prompt_done" });
-      } else playNext();
+      } else playNextRef.current();
     };
     currentDone.current = done;
+    const blocked = () => {
+      if (epoch !== audioEpoch.current || finished) return;
+      finished = true;
+      player.current?.pause();
+      setPlaying(false);
+      sayQueue.current.unshift(next);
+      speaking.current = false;
+      currentDone.current = null;
+      playbackBlocked.current = true;
+      audioWaiting.current = true;
+      setPlaybackIssue(words.current.t("audioTapAgain"));
+    };
     const keys = next.items.map((item) =>
       "line" in item ? "l:" + item.line : "s:" + item.clip,
     );
-    if (
-      audible &&
-      ownMusicRef.current &&
-      urls.length === next.items.length &&
-      player.current
-    ) {
-      // "My own music": one joined clip of at most about 4.5 s per play
-      // (Android lowers the music briefly; iPhone mixes it as "ambient"); a
-      // longer line stays on screen. Clips that are not MP3 play as before.
+    const parts = keys.map((key) => clipBytes.current.get(key));
+    const cuePlan = planCue(
+      parts.map((bytes) =>
+        bytes ? (mp3Info(bytes)?.durationMs ?? null) : null,
+      ),
+    );
+    if (audible && urls.length === next.items.length && player.current) {
       const audio = player.current;
-      setAudioSessionType("ambient");
-      const parts = keys.map((k) => clipBytes.current.get(k));
-      const plan = planCue(
-        parts.map((b) => (b ? (mp3Info(b)?.durationMs ?? null) : null)),
-      );
-      const joined = plan.groups
-        .map((g) => joinMp3(g.map((i) => parts[i]!)))
-        .filter((j): j is NonNullable<typeof j> => !!j)
-        .map((j) =>
-          URL.createObjectURL(
-            new Blob([j.bytes as BlobPart], { type: "audio/mpeg" }),
-          ),
-        );
-      if (!joined.length) {
-        if (next.wait)
-          promptTimer.current = setTimeout(
-            done,
-            readingSeconds(next.text) * 1000,
+      let sources = urls;
+      let temporary = false;
+      if (ownMusicRef.current) {
+        setAudioSessionType("ambient");
+        // Brief compatible MP3 cues can be joined to mix with music. If any
+        // part is long, unknown or incompatible, play every original clip.
+        if (cuePlan.textOnly.length === 0) {
+          const joined = cuePlan.groups.map((group) =>
+            joinMp3(group.map((index) => parts[index]!)),
           );
-        else done();
-        return;
+          if (joined.length && joined.every((part) => part !== null)) {
+            sources = joined.map((part) => URL.createObjectURL(
+              new Blob([part.bytes as BlobPart], { type: "audio/mpeg" }),
+            ));
+            temporary = true;
+          }
+        }
       }
-      playback.current.prompts = [next.text, ...playback.current.prompts].slice(
-        0,
-        3,
-      );
-      setPlaying(true);
-      let index = 0;
-      const playOne = () => {
-        if (epoch !== audioEpoch.current || voiceRevokedRef.current) return;
-        if (index > 0) URL.revokeObjectURL(joined[index - 1]);
-        if (index >= joined.length) return done();
-        audio.src = joined[index++];
-        audio.onended = playOne;
-        audio.onerror = playOne;
-        void audio.play().catch(() => {
-          if (epoch !== audioEpoch.current) return;
-          setPlaying(false);
-          for (const url of joined.slice(index - 1)) URL.revokeObjectURL(url);
-          promptTimer.current = setTimeout(
-            done,
-            readingSeconds(next.text) * 1000,
-          );
-        });
-      };
-      playOne();
-    } else if (audible && urls.length === next.items.length && player.current) {
-      const audio = player.current;
       // The echo guard ignores replies while this plays and briefly after.
       playback.current.prompts = [next.text, ...playback.current.prompts].slice(
         0,
@@ -1035,27 +1177,33 @@ function Runner({
       );
       setPlaying(true);
       let index = 0;
+      const failed = () => {
+        if (temporary) for (const url of sources) URL.revokeObjectURL(url);
+        blocked();
+      };
       const playOne = () => {
         if (epoch !== audioEpoch.current || voiceRevokedRef.current) return;
-        if (index >= urls.length) return done();
-        audio.src = urls[index++];
+        if (temporary && index > 0) URL.revokeObjectURL(sources[index - 1]);
+        if (index >= sources.length) return done();
+        audio.src = sources[index++];
         audio.onended = playOne;
-        audio.onerror = playOne;
-        void audio.play().catch(() => {
-          if (epoch !== audioEpoch.current) return;
-          // Autoplay refused or the file failed: show the words instead.
-          setPlaying(false);
-          promptTimer.current = setTimeout(
-            done,
-            readingSeconds(next.text) * 1000,
-          );
-        });
+        audio.onerror = failed;
+        void audio.play().catch(failed);
       };
       playOne();
     } else if (next.wait)
       promptTimer.current = setTimeout(done, readingSeconds(next.text) * 1000);
     else done();
-  }, [audible, setPlaying]);
+  }, [audible, voiceMode, muted, clipCount, setPlaying, player]);
+  playNextRef.current = playNext;
+  useEffect(() => {
+    if (
+      !speaking.current &&
+      sayQueue.current.length &&
+      !playbackBlocked.current
+    )
+      playNext();
+  }, [playNext]);
   const logSet = useCallback(
     async (effect: Extract<RunnerEffect, { type: "log_set" }>) => {
       const logicalKey =
@@ -1226,7 +1374,12 @@ function Runner({
         sayQueue.current = [];
         speaking.current = false;
         currentDone.current = null;
+        audioWaiting.current = false;
+        playbackBlocked.current = false;
+        setBuffering(false);
+        setPlaybackIssue("");
       }
+      if (event.type === "end") setPrompt("");
       stateRef.current = next;
       setState(next);
       perform(effects);
@@ -1270,6 +1423,7 @@ function Runner({
         {
           fingerprint: session.scriptFingerprint,
           version: checkpointVersion.current,
+          runRevision: session.runRevision ?? 0,
           state: next,
         },
         queueOwnerHeaders(tenantId, userId),
@@ -1334,7 +1488,7 @@ function Runner({
     const timer = setInterval(() => {
       const now = Date.now(),
         seconds = Math.floor((now - last) / 1000);
-      if (talkBusy.current) {
+      if (talkBusy.current || audioWaiting.current) {
         last = now;
         return;
       }
@@ -1366,12 +1520,16 @@ function Runner({
           else if (view.stale) {
             dispatchRef.current({ type: "end" });
             setChanged(true);
+          } else if (view.runnable === false) {
+            dispatchRef.current({ type: "end" });
+            setUnavailable(true);
+            void onRefresh().catch(() => {});
           }
         })
         .catch(() => {});
     }, 30000);
     return () => clearInterval(timer);
-  }, [inProgress, session.id]);
+  }, [inProgress, session.id, onRefresh]);
 
   // ------------------------------------------------------ spoken replies
   const handleTranscript = useCallback(
@@ -1443,6 +1601,76 @@ function Runner({
     if (wakeLock.current && !wakeLock.current.released) return;
     wakeLock.current = await requestWakeLock();
   }, []);
+  useEffect(() => {
+    const request = Math.abs(playRequest);
+    if (!request || request === handledPlay.current || !runnable || gate.held)
+      return;
+    if (playRequest < 0 && !muted) {
+      setMuted(true);
+      return;
+    }
+    if (
+      voiceMode &&
+      !muted &&
+      stateRef.current.phase === "ready" &&
+      openingAudioKeys(script).some((key) => !clips.current.has(key))
+    ) {
+      audioWaiting.current = true;
+      setBuffering(true);
+      return;
+    }
+    handledPlay.current = request;
+    playbackBlocked.current = false;
+    audioWaiting.current = false;
+    setPlaybackIssue("");
+    setBuffering(false);
+    void keepAwake();
+    if (stateRef.current.phase === "ready") {
+      void flush("running");
+      dispatch({ type: "start" });
+    } else if (stateRef.current.phase === "paused") command({ type: "resume" });
+    else if (sayQueue.current.length) playNext();
+  }, [
+    playRequest,
+    runnable,
+    gate.held,
+    muted,
+    voiceMode,
+    script,
+    clipCount,
+    dispatch,
+    command,
+    flush,
+    playNext,
+    keepAwake,
+  ]);
+  const continueWithText = () => {
+    playbackBlocked.current = false;
+    audioWaiting.current = false;
+    setPlaybackIssue("");
+    setBuffering(false);
+    setMuted(true);
+  };
+  const resumeStopped = async () => {
+    if (resumePending.current) return;
+    resumePending.current = true;
+    setResuming(true);
+    try {
+      // End persists asynchronously. Establish its receipt before asking the
+      // server for a fresh run revision, including a quick Stop → Resume tap.
+      await onPlay(false, muted || !voiceMode, true, async () => {
+        await flush("stopped");
+        if (outcomeStatus.current || outcomes.current.length) {
+          setNotice(t("stopSaveFailed"));
+          return false;
+        }
+        return true;
+      });
+    } finally {
+      resumePending.current = false;
+      setResuming(false);
+    }
+  };
   useEffect(() => {
     if (!inProgress) {
       const lock = wakeLock.current;
@@ -1590,7 +1818,11 @@ function Runner({
   };
 
   const ex = script.exercises[state.exercise];
-  const nextWork = sessionOrder(script.exercises).find(p => !state.logged.includes(`${p.exercise}:${p.set}`) && !state.skipped.includes(`${p.exercise}:${p.set}`));
+  const nextWork = sessionOrder(script.exercises).find(
+    (p) =>
+      !state.logged.includes(`${p.exercise}:${p.set}`) &&
+      !state.skipped.includes(`${p.exercise}:${p.set}`),
+  );
   const target = state.targets[state.exercise]?.[state.set - 1];
   const running = !["ready", "finished", "stopped"].includes(state.phase);
   // A timed round counts down; other sets count up.
@@ -1602,18 +1834,55 @@ function Runner({
           ? state.workLeft
           : state.setElapsed
         : null;
+  const totalSets = script.exercises.reduce(
+    (total, exercise) => total + exercise.sets,
+    0,
+  );
+  const memberStopped =
+    !unavailable &&
+    !gate.held &&
+    ((session.status === "stopped" &&
+      session.endReason === "member_stopped" &&
+      session.resumeAvailable !== false) ||
+      (state.phase === "stopped" && state.stopReason === "member" && runnable));
+  const speak = () => {
+    if (
+      !talkCapture ||
+      (talkCapture === "server" &&
+        !gate.transcriptionConsent &&
+        !transcriptionConsent)
+    ) {
+      setSpokenOpen(true);
+      setTimeout(
+        () =>
+          spokenOptions.current?.scrollIntoView({
+            block: "nearest",
+            behavior: "smooth",
+          }),
+        0,
+      );
+    } else void tapToTalk();
+  };
   return (
     <>
-      <label className="voice-check guided-auto">
-        <input
-          type="checkbox"
-          checked={autoPace}
-          onChange={(e) => setAutoPace(e.target.checked)}
-        />
-        {t("autoPace")}
-      </label>
       <details className="card voice-status-card">
         <summary>{t("sessionOptions")}</summary>
+        <label className="voice-check guided-auto">
+          <input
+            type="checkbox"
+            checked={autoPace}
+            onChange={(e) => {
+              setAutoPace(e.target.checked);
+              try {
+                localStorage.setItem(
+                  `trainer:guided-pacing:${tenantId}:${userId}`,
+                  e.target.checked ? "auto" : "manual",
+                );
+              } catch {}
+            }}
+          />
+          {t("autoPace")}
+        </label>
         <div className="card-heading">
           <h2 id="voice-mode">
             {voiceMode ? t("trainerVoice") : t("textSession")}
@@ -1739,30 +2008,63 @@ function Runner({
       )}
 
       <section className="card voice-runner" aria-labelledby="voice-now">
+        <div className="voice-player-state">
+          <span
+            className={
+              "voice-player-indicator" + (cuePlaying ? " is-speaking" : "")
+            }
+            aria-hidden="true"
+          />
+          <span role="status">
+            {playbackIssue
+              ? t("audioPaused")
+              : buffering
+                ? t("bufferingVoice")
+                : cuePlaying
+                  ? t("coachSpeaking")
+                  : muted || !voiceMode
+                    ? t("textSession")
+                    : state.phase === "paused"
+                      ? t("status_paused")
+                      : t("trainerVoice")}
+          </span>
+          <span className="voice-player-count">
+            {t("setProgress", { done: state.logged.length, total: totalSets })}
+          </span>
+        </div>
+        <progress
+          className="voice-player-progress"
+          value={state.logged.length}
+          max={totalSets || 1}
+          aria-label={t("workoutProgress")}
+        />
         <h2 id="voice-now" className="voice-now">
           {statusLine(ctx, state, t)}
         </h2>
         {state.phase === "ready" && (
           // What the session holds, before it starts.
-          <ul className="voice-plan">
-            {script.exercises.map((e) => (
-              <li key={e.index}>
-                <strong>{e.name}</strong>
-                <span className="muted">
-                  {(e as any).reps
-                    ? t("setsByReps", {
-                        setsReps: formatSetsReps(
-                          e.sets,
-                          (e as any).reps,
-                          t.locale,
-                        ),
-                        count: lastCount((e as any).reps),
-                      })
-                    : t("setCount", { count: Number(e.sets) })}
-                </span>
-              </li>
-            ))}
-          </ul>
+          <details className="voice-plan-details">
+            <summary>{t("viewWorkout")}</summary>
+            <ul className="voice-plan">
+              {script.exercises.map((e) => (
+                <li key={e.index}>
+                  <strong>{e.name}</strong>
+                  <span className="muted">
+                    {(e as any).reps
+                      ? t("setsByReps", {
+                          setsReps: formatSetsReps(
+                            e.sets,
+                            (e as any).reps,
+                            t.locale,
+                          ),
+                          count: lastCount((e as any).reps),
+                        })
+                      : t("setCount", { count: Number(e.sets) })}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </details>
         )}
         {ex && ["setup", "set", "rest"].includes(state.phase) && target && (
           <p className="voice-target">
@@ -1821,10 +2123,31 @@ function Runner({
         <p className="voice-prompt" aria-live="polite">
           {/* Each new cue fades in; the live region itself stays put. */}
           <span className="voice-cue is-new" key={prompt}>
-            {prompt}
+            {memberStopped ? t("stoppedByYou") : prompt}
           </span>
         </p>
-        <audio ref={player} preload="none" hidden />
+        {(buffering || playbackIssue) && (
+          <div className="voice-playback-notice" role="status">
+            <p>{playbackIssue || t("bufferingHelp")}</p>
+            <div className="button-row">
+              <button
+                type="button"
+                className="button secondary"
+                disabled={preparing}
+                onClick={() => void onPlay()}
+              >
+                {preparing ? t("preparingPlayer") : t("retryAudio")}
+              </button>
+              <button
+                type="button"
+                className="text-button"
+                onClick={continueWithText}
+              >
+                {t("continueText")}
+              </button>
+            </div>
+          </div>
+        )}
         {changed ? (
           <div className="stack">
             <p className="notice">{t("changed")}</p>
@@ -1837,19 +2160,28 @@ function Runner({
             <StickyActionBar label={t("sessionActions")}>
               <button
                 className="button voice-start"
-                onClick={() => {
-                  // Inside the tap: mix with the member's music (own-music
-                  // mode), unlock audio for later cues, keep the screen on.
-                  if (ownMusic) setAudioSessionType("ambient");
-                  if (voiceMode) void unlockAudio(player.current);
-                  void keepAwake();
-                  void flush("running");
-                  dispatch({ type: "start" });
-                }}
+                disabled={preparing || buffering}
+                onClick={() => void onPlay(false, muted || !voiceMode)}
               >
-                {t("startSession")}
+                <Play size={22} aria-hidden="true" />
+                {preparing
+                  ? t("preparingPlayer")
+                  : buffering
+                    ? t("bufferingVoice")
+                    : t("playWorkout")}
               </button>
             </StickyActionBar>
+          ) : memberStopped ? (
+            <button
+              className="button voice-start"
+              disabled={preparing || resuming}
+              onClick={() => void resumeStopped()}
+            >
+              <Play size={22} aria-hidden="true" />
+              {preparing || resuming
+                ? t("preparingPlayer")
+                : t("resumeWorkout")}
+            </button>
           ) : session.status === "revoked" || session.stale ? (
             <div className="stack">
               <p className="notice">{t("noMatch")}</p>
@@ -1862,6 +2194,60 @@ function Runner({
           )
         ) : running ? (
           <>
+            <div
+              className="voice-player-controls"
+              role="group"
+              aria-label={t("playerControls")}
+            >
+              <button
+                type="button"
+                className="button secondary voice-repeat"
+                aria-label={t("repeat")}
+                onClick={() => command({ type: "repeat" })}
+              >
+                <RotateCcw size={22} aria-hidden="true" />
+                <span>{t("repeat")}</span>
+              </button>
+              <button
+                type="button"
+                className="button voice-play-toggle"
+                disabled={preparing || checkpointConflict.current}
+                aria-label={
+                  state.phase === "paused" || playbackIssue
+                    ? t("resume")
+                    : t("pause")
+                }
+                onClick={() =>
+                  state.phase === "paused" || playbackIssue
+                    ? void onPlay(false, muted || !voiceMode)
+                    : command({ type: "pause" })
+                }
+              >
+                {state.phase === "paused" || playbackIssue ? (
+                  <Play size={28} aria-hidden="true" />
+                ) : (
+                  <Pause size={28} aria-hidden="true" />
+                )}
+              </button>
+              <button
+                type="button"
+                className="button secondary voice-main-talk"
+                disabled={
+                  state.phase === "paused" || talk.state.phase === "sending"
+                }
+                aria-pressed={talk.state.phase === "recording"}
+                onClick={speak}
+              >
+                <Mic size={22} aria-hidden="true" />
+                <span>
+                  {talk.state.phase === "recording"
+                    ? t("talkListening")
+                    : talk.state.phase === "sending"
+                      ? t("talkSending")
+                      : t("talk")}
+                </span>
+              </button>
+            </div>
             {/* Done and Pain stay in thumb reach above the tab bar, never
                 below the fold (phone-first rules: safety controls visible). */}
             <StickyActionBar label={t("sessionActions")}>
@@ -1880,7 +2266,7 @@ function Runner({
                   type="button"
                   className="button"
                   disabled={checkpointConflict.current}
-                  onClick={() => command({ type: "resume" })}
+                  onClick={() => void onPlay(false, muted || !voiceMode)}
                 >
                   {t("resume")}
                 </button>
@@ -1889,7 +2275,24 @@ function Runner({
                   type="button"
                   className="button voice-done"
                   disabled={state.phase === "set" && !state.promptReady}
-                  onClick={() => command({ type: "done", ...(state.phase === "set" && ex?.distanceMeters && actualDistance !== "" ? { distanceMeters: Math.max(0, Math.min(200000, Math.round(Number(actualDistance)))) } : {}) })}
+                  onClick={() =>
+                    command({
+                      type: "done",
+                      ...(state.phase === "set" &&
+                      ex?.distanceMeters &&
+                      actualDistance !== ""
+                        ? {
+                            distanceMeters: Math.max(
+                              0,
+                              Math.min(
+                                200000,
+                                Math.round(Number(actualDistance)),
+                              ),
+                            ),
+                          }
+                        : {}),
+                    })
+                  }
                 >
                   {state.phase === "setup" || state.phase === "rest"
                     ? t("readyNext")
@@ -1897,7 +2300,19 @@ function Runner({
                 </button>
               )}
             </StickyActionBar>
-            {state.phase === "set" && ex?.distanceMeters && <label>{t("actualMetres")}<input type="number" min={0} max={200000} value={actualDistance} placeholder={String(ex.distanceMeters)} onChange={e => setActualDistance(e.target.value)} /></label>}
+            {state.phase === "set" && ex?.distanceMeters && (
+              <label>
+                {t("actualMetres")}
+                <input
+                  type="number"
+                  min={0}
+                  max={200000}
+                  value={actualDistance}
+                  placeholder={String(ex.distanceMeters)}
+                  onChange={(e) => setActualDistance(e.target.value)}
+                />
+              </label>
+            )}
             {state.phase === "rest" && (
               <button
                 className="button secondary"
@@ -1906,87 +2321,69 @@ function Runner({
                 {t("moreRest")}
               </button>
             )}
-            <div
-              className="voice-commands"
-              role="group"
-              aria-label={t("replies")}
-            >
-              <button
-                className="button secondary"
-                onClick={() => command({ type: "too_heavy" })}
+            <details className="voice-adjustments">
+              <summary>{t("adjustSet")}</summary>
+              <div
+                className="voice-commands"
+                role="group"
+                aria-label={t("replies")}
               >
-                {t("tooHeavy")}
-              </button>
-              <button
-                className="button secondary"
-                onClick={() => command({ type: "too_easy" })}
-              >
-                {t("tooEasy")}
-              </button>
-              {script.rules.allowSkip && (
                 <button
                   className="button secondary"
-                  onClick={() => command({ type: "skip" })}
+                  onClick={() => command({ type: "too_heavy" })}
                 >
-                  {t("skip")}
+                  {t("tooHeavy")}
                 </button>
+                <button
+                  className="button secondary"
+                  onClick={() => command({ type: "too_easy" })}
+                >
+                  {t("tooEasy")}
+                </button>
+                {script.rules.allowSkip && (
+                  <button
+                    className="button secondary"
+                    onClick={() => command({ type: "skip" })}
+                  >
+                    {t("skip")}
+                  </button>
+                )}
+              </div>
+              {state.phase === "set" && workMeasure(ex) === "reps" && (
+                <form
+                  className="voice-reps"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const reps = Number(repsDraft);
+                    if (!Number.isInteger(reps) || reps < 0 || reps > 200)
+                      return;
+                    setRepsDraft("");
+                    command({ type: "reps", reps, typed: true });
+                  }}
+                >
+                  <label>
+                    <span>{t("repsDone")}</span>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      max={200}
+                      value={repsDraft}
+                      onChange={(e) => setRepsDraft(e.target.value)}
+                    />
+                  </label>
+                  <button className="button secondary" type="submit">
+                    {t("logReps")}
+                  </button>
+                </form>
               )}
               <button
-                className="button secondary"
-                onClick={() => command({ type: "repeat" })}
+                className="text-button"
+                onClick={() => dispatch({ type: "end" })}
               >
-                {t("repeat")}
+                {t("endEarly")}
               </button>
-              {state.phase === "paused" ? (
-                <button
-                  className="button secondary"
-                  disabled={checkpointConflict.current}
-                  onClick={() => command({ type: "resume" })}
-                >
-                  {t("resume")}
-                </button>
-              ) : (
-                <button
-                  className="button secondary"
-                  onClick={() => command({ type: "pause" })}
-                >
-                  {t("pause")}
-                </button>
-              )}
-            </div>
-            {state.phase === "set" && workMeasure(ex) === "reps" && (
-              <form
-                className="voice-reps"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const reps = Number(repsDraft);
-                  if (!Number.isInteger(reps) || reps < 0 || reps > 200) return;
-                  setRepsDraft("");
-                  command({ type: "reps", reps, typed: true });
-                }}
-              >
-                <label>
-                  <span>{t("repsDone")}</span>
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    min={0}
-                    max={200}
-                    value={repsDraft}
-                    onChange={(e) => setRepsDraft(e.target.value)}
-                  />
-                </label>
-                <button className="button secondary" type="submit">
-                  {t("logReps")}
-                </button>
-              </form>
-            )}
-            <button
-              className="text-button"
-              onClick={() => dispatch({ type: "end" })}
-            >
-              {t("endEarly")}
-            </button>
+            </details>
           </>
         ) : state.phase === "finished" ? (
           <p className="notice">
@@ -2001,6 +2398,17 @@ function Runner({
               </button>
             )}
           </p>
+        ) : memberStopped ? (
+          <button
+            className="button voice-start"
+            disabled={preparing || resuming}
+            onClick={() => void resumeStopped()}
+          >
+            <Play size={22} aria-hidden="true" />
+            {preparing || resuming ? t("preparingPlayer") : t("resumeWorkout")}
+          </button>
+        ) : unavailable ? (
+          <p className="notice">{t("ended")}</p>
         ) : null}
         {(queued > 0 || rejected > 0) && (
           <p className="muted" role="status">
@@ -2071,8 +2479,13 @@ function Runner({
         dispatch={dispatch}
       />
       {running && state.phase !== "paused" && (
-        <section className="card" aria-labelledby="voice-replies">
-          <h2 id="voice-replies">{t("spokenReplies")}</h2>
+        <details
+          className="card voice-spoken-options"
+          ref={spokenOptions}
+          open={spokenOpen}
+          onToggle={(event) => setSpokenOpen(event.currentTarget.open)}
+        >
+          <summary id="voice-replies">{t("spokenReplies")}</summary>
           <label className="voice-reply-language">
             <span>{t("replyIn")}</span>{" "}
             <select
@@ -2178,7 +2591,7 @@ function Runner({
               )}
             </div>
           }
-        </section>
+        </details>
       )}
     </>
   );

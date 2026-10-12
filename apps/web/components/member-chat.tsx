@@ -1,5 +1,6 @@
 "use client";
 import { memberApiUrl } from "../lib/trainer-preview-routing";
+import Link from "./preview-navigation";
 import {
   useCallback,
   useEffect,
@@ -67,7 +68,7 @@ export function senderName(
 ) {
   const t = translator(chatMessages, locale);
   if (author === "subscriber") return t("you");
-  if (author === "digital_qualified") return t("digital");
+  if (author === "digital_qualified" || author === "digital_reviewed") return t("digital");
   if (author === "system") return t("update");
   return coachName;
 }
@@ -79,6 +80,28 @@ export function chatPrompts(locale: Locale = "en") {
   return PROMPT_KEYS.map((key) => t(key));
 }
 export const CHAT_PROMPTS = chatPrompts();
+
+const CHAT_DESTINATIONS = {
+  training: { href: "/app/program", label: "viewTraining" },
+  profile: { href: "/app/intake", label: "viewProfile" },
+  nutrition: { href: "/app/nutrition", label: "viewNutrition" },
+  progress: { href: "/app/progress", label: "viewProgress" },
+} as const;
+/** Only product-owned destinations become links; model text never becomes a URL. */
+export function chatDestinations(actions: unknown) {
+  return Array.isArray(actions)
+    ? [...new Set(actions)].filter((action): action is keyof typeof CHAT_DESTINATIONS =>
+      typeof action === "string" && Object.hasOwn(CHAT_DESTINATIONS, action),
+    ).map(action => ({ action, ...CHAT_DESTINATIONS[action] }))
+    : [];
+}
+export function chatSuggestions(suggestions: unknown): string[] {
+  return Array.isArray(suggestions)
+    ? [...new Set(suggestions.filter((value): value is string =>
+      typeof value === "string" && value.trim().length > 0 && value.length <= 200,
+    ))].slice(0, 3)
+    : [];
+}
 
 export function MemberChat({ state }: { state: any }) {
   const t = useT("chat"),
@@ -99,10 +122,12 @@ export function MemberChat({ state }: { state: any }) {
     [composerKey, setComposerKey] = useState(0),
     [fresh, setFresh] = useState<string[]>([]);
   const [text, setText] = useWorkspaceValue("member-chat-text", "", true);
+  const [request, setRequest] = useWorkspaceValue<{ id: string; text: string } | null>("member-chat-request", null, true);
   const [attachments, setAttachments] = useWorkspaceValue<ChatAttachment[]>("member-chat-files", [], true);
   // Pending requests survive route changes in memory, never a browser restart.
   const [busy, setBusy] = useWorkspaceValue("member-chat-busy", false);
   const [error, setError] = useWorkspaceValue("member-chat-error", "");
+  const [errorAction, setErrorAction] = useState<"profile" | null>(null);
   const [notice, setNotice] = useWorkspaceValue("member-chat-notice", "");
   const [sending, setSending] = useWorkspaceValue<{ text: string; digital: boolean } | null>("member-chat-sending", null);
   const end = useRef<HTMLDivElement>(null),
@@ -187,12 +212,15 @@ export function MemberChat({ state }: { state: any }) {
       behavior: first ? "auto" : "smooth",
     });
   }, [latest]);
-  async function send(digital: boolean) {
-    if (callActive || busy || uploading || (!text.trim() && !attachments.length) || (digital && attachments.length)) return;
+  async function send(digital: boolean, suggestion?: string) {
+    const draft = suggestion ?? text;
+    if (callActive || busy || uploading || (!draft.trim() && !attachments.length) || (digital && attachments.length)) return;
     setBusy(true);
     setError("");
+    setErrorAction(null);
     setNotice("");
-    const draft = text;
+    const requestId = digital ? request?.text === draft.trim() ? request.id : crypto.randomUUID() : undefined;
+    if (requestId) setRequest({ id: requestId, text: draft.trim() });
     sentText.current = draft.trim();
     setSending({ text: draft.trim(), digital });
     // Hide the draft while sending, but retain it until the POST succeeds.
@@ -201,7 +229,7 @@ export function MemberChat({ state }: { state: any }) {
         digital ? "/coaching/ask" : "/messages",
         "POST",
         digital
-          ? { message: draft }
+          ? { message: draft, requestId }
           : {
               text: draft,
               subscriberId: userId,
@@ -211,8 +239,11 @@ export function MemberChat({ state }: { state: any }) {
       setText((current) => current === draft ? "" : current);
       setAttachments((current) => current.filter(file => !attachments.some(sent => sent.id === file.id)));
       setComposerKey((v) => v + 1);
+      if (requestId) setRequest(current => current?.id === requestId ? null : current);
+      else setRequest(current => current?.text === draft.trim() ? null : current);
+      if (result.messageSaved && result.replyUnavailable) setNotice(t("replyUnavailable"));
       // The server's own sentence is English; other languages get ours.
-      if (result.pendingReview)
+      else if (result.pendingReview)
         setNotice(
           (locale === "en" && result.message) ||
             t("pending", { coach: coachFirst }),
@@ -221,7 +252,10 @@ export function MemberChat({ state }: { state: any }) {
       await refresh();
       if (state.trainerPreview) previewChanged();
     } catch (e: any) {
-      setError(e.status === 429 ? t("tooMany") : t("notSent"));
+      if (e.code === "INTAKE_REQUIRED" || e.code === "COACHING_CONSENT_REQUIRED") {
+        setError(t(e.code === "INTAKE_REQUIRED" ? "profileNeeded" : "permissionNeeded"));
+        setErrorAction("profile");
+      } else setError(e.status === 429 ? t("tooMany") : e.code === "BRAIN_NOT_READY" ? t("brainPreparing", { coach: coachFirst }) : t(digital ? "replyNotConfirmed" : "notSent"));
     } finally {
       setBusy(false);
       setSending(null);
@@ -235,12 +269,18 @@ export function MemberChat({ state }: { state: any }) {
   }, [state.trainerPreview, refresh]);
   const canSend =
     !callActive && !busy && !uploading && (!!text.trim() || attachments.length > 0);
+  const sendPersonally = personal || attachments.length > 0;
   return (
     <div className="member-chat">
       <header className="member-chat-intro">
         <h1 className="sr-only">{t("title")}</h1>
         <p className="muted">{state.trainerPreview ? t("previewIntro") : t("intro", { coach })}</p>
-        <button type="button" className="button secondary button-small" disabled={busy} onClick={() => setCallOpen(true)}><Phone size={16} />{t(callActive ? "returnToCall" : "talkToCoach")}</button>
+        <nav className="chat-context-actions" aria-label={t("conversationTools")}>
+          <Link className="button secondary button-small" href="/app/intake">{t("viewProfile")}</Link>
+          <Link className="button secondary button-small" href="/app/program">{t("viewTraining")}</Link>
+          {state.memberApp?.nutrition && <Link className="button secondary button-small" href="/app/nutrition">{t("viewNutrition")}</Link>}
+          <button type="button" className="button secondary button-small" disabled={busy} onClick={() => setCallOpen(true)}><Phone size={16} />{t(callActive ? "returnToCall" : "talkToCoach")}</button>
+        </nav>
       </header>
       <OnboardingCall audience="member" mode="setup" purpose="coaching" coachName={coach} open={callOpen} onOpenChange={setCallOpen} onActiveChange={setCallActive} onConversation={() => { void refresh(); if (state.trainerPreview) previewChanged(); }} />
       {personal && (
@@ -249,9 +289,10 @@ export function MemberChat({ state }: { state: any }) {
         </p>
       )}
       {error && (
-        <p role="alert" className="notice error">
-          {error}
-        </p>
+        <div role="alert" className="notice error">
+          <p>{error}</p>
+          {errorAction && <Link className="text-link" href="/app/intake">{t("viewProfile")}</Link>}
+        </div>
       )}
       {readError && (
         <div className="notice error" role="alert">
@@ -312,7 +353,7 @@ export function MemberChat({ state }: { state: any }) {
                 className={
                   "chat-message" +
                   (mine ? " is-mine" : "") +
-                  (m.data.author === "digital_qualified" ? " is-digital" : "") +
+                  (["digital_qualified", "digital_reviewed"].includes(m.data.author) ? " is-digital" : "") +
                   (fresh.includes(m.id) ? " is-new" : "")
                 }
               >
@@ -333,6 +374,12 @@ export function MemberChat({ state }: { state: any }) {
                     {m.data.text}
                   </p>
                 )}
+                {!mine && chatDestinations(m.data.actions).length > 0 && <nav className="chat-context-actions" aria-label={t("messageActions")}>
+                  {chatDestinations(m.data.actions).map(action => <Link key={action.action} className="text-link" href={action.href}>{t(action.label)}</Link>)}
+                </nav>}
+                {!mine && m.id === latest && chatSuggestions(m.data.suggestions).length > 0 && <div className="chat-context-actions" role="group" aria-label={t("suggestedReplies")}>
+                  {chatSuggestions(m.data.suggestions).map(suggestion => <button key={suggestion} type="button" className="button secondary button-small" disabled={callActive || busy || uploading || attachments.length > 0 || personal} onClick={() => void send(true, suggestion)}>{suggestion}</button>)}
+                </div>}
                 <ChatAttachmentList
                   files={m.data.attachments ?? []}
                   user={state.user}
@@ -407,7 +454,7 @@ export function MemberChat({ state }: { state: any }) {
           {...unsavedMark(!!text.trim() || attachments.length > 0)}
           onSubmit={(event) => {
             event.preventDefault();
-            void send(false);
+            void send(!sendPersonally);
           }}
         >
           <label className="sr-only" htmlFor="chat-message">
@@ -444,16 +491,14 @@ export function MemberChat({ state }: { state: any }) {
                 </span>
               )}
             </button>
-            <button
+            {!sendPersonally && <button
               type="button"
               className="button secondary chat-send"
-              disabled={
-                !text.trim() || callActive || busy || uploading || attachments.length > 0
-              }
-              onClick={() => void send(true)}
+              disabled={!canSend}
+              onClick={() => void send(false)}
             >
-              {t("askDigital")}
-            </button>
+              {t("messagePersonally", { coach: coachFirst })}
+            </button>}
             <button
               type="submit"
               className="button chat-send"
@@ -462,7 +507,7 @@ export function MemberChat({ state }: { state: any }) {
               <Send size={16} aria-hidden="true" />
               {/* Short on a phone; the full name is the accessible name. */}
               <span aria-hidden="true">{t("sendShort")}</span>
-              <span className="sr-only">{t("sendTo", { coach: coachFirst })}</span>
+              <span className="sr-only">{sendPersonally ? t("sendTo", { coach: coachFirst }) : t("sendDigital")}</span>
             </button>
           </div>
         </form>

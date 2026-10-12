@@ -21,6 +21,7 @@ import { attachmentView, onboardingFiles, onboardingAttachmentRoutes } from "./o
 import { onboardingCallRoutes } from "./onboarding-calls.ts";
 import { screenSafety } from "../../../packages/domain/src/safety-policy.ts";
 import { coachingCoverage, mergeCoachingInterview } from "../../../packages/domain/src/coaching-interview.ts";
+import { prepareChatTurn, preservePreparedFacts, finishChatTurn, onboardingCommand } from "../../../packages/domain/src/onboarding-context.ts";
 
 const specialties = OFFERED_DIRECTORY_SPECIALTIES.map(({ id, label }) => ({ id, label }));
 const prefix = "/api/v1/onboarding-chat";
@@ -32,10 +33,12 @@ const messageSchema = z.object({
   ...common, text: z.string().trim().max(4000), retryOf: z.string().uuid().optional(), mode: z.enum(["setup", "teach"]).default("setup"),
   attachmentIds: z.array(z.string().uuid()).max(3).optional(), attachmentRights: z.literal(true).optional(),
   source: z.literal("voice").optional(), callId: z.string().uuid().optional(),
+  timezone: z.string().max(100).optional(),
+  purpose: z.literal("profile_edit").optional(),
 }).strict().refine(b => b.text.length > 0 || !!b.attachmentIds?.length, "Add a message or a file.").refine(b => !b.attachmentIds?.length || b.attachmentRights, "Confirm that you can share these files.");
 const actionSchema = z.object({
   ...common,
-  action: z.enum(["pause", "resume", "skip", "profile", "offer", "nutrition", "compile", "approve", "quiz", "quiz-answer", "scenario", "publish"]),
+  action: z.enum(["pause", "resume", "skip", "profile", "discard-profile", "offer", "nutrition", "compile", "approve", "quiz", "quiz-answer", "scenario", "publish"]),
   timezone: z.string().max(100).optional(),
   rules: z.array(z.object({ id: z.string().uuid(), version: z.number().int().positive() }).strict()).min(1).max(100).optional(),
   roundId: z.string().uuid().optional(), caseId: z.string().uuid().optional(),
@@ -60,7 +63,23 @@ async function save(tx: Tx, a: Actor, row: Row, data: ChatData): Promise<Row> {
 }
 async function initialize(tx: Tx, a: Actor, mode: "setup" | "teach", p: Awaited<ReturnType<typeof permissions>>) {
   let row = await load(tx, a);
-  if (row) return row;
+  if (row) {
+    // Form edits and other sessions share the same authoritative profile. Refresh
+    // only a clean draft; unfinished chat changes must remain reviewable.
+    if (a.role === "subscriber" && p.coaching && !row.data.pending && row.data.applied.profile === digest(pick(row.data.facts, trainingFields))) {
+      const [intake] = await tx.query("SELECT data FROM records WHERE kind='intake' AND owner_user_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1", [a.userId]);
+      const facts = intake?.data.allowedUses?.includes("model_prompt") ? pick(intake.data, trainingFields) : null;
+      if (facts && digest(facts) !== row.data.applied.profile) {
+        const data = structuredClone(row.data), at = new Date().toISOString();
+        Object.assign(data.facts, facts);
+        for (const key of trainingFields) data.memory[key] = { evidence: "Currently saved coaching profile", messageId: "saved", at };
+        data.applied.profile = digest(facts); data.profileEditing = false;
+        if (data.dialogue) for (const key of trainingFields) { delete data.dialogue.preferences[key]; delete data.dialogue.attempts[key]; }
+        row = await save(tx, a, row, data);
+      }
+    }
+    return row;
+  }
   const data = emptyChat(a.role === "owner" ? "coach" : "member", mode);
   if (a.role === "owner") {
     const rows = await tx.query("SELECT kind,data FROM records WHERE kind IN ('onboarding_step','setup_conversation','product') ORDER BY created_at,id LIMIT 200");
@@ -93,12 +112,12 @@ async function initialize(tx: Tx, a: Actor, mode: "setup" | "teach", p: Awaited<
   for (const k of Object.keys(data.facts)) data.memory[k] = { evidence: "Previously saved profile or teaching", messageId: "saved", at };
   appendChatMessage(data, { id: randomUUID(), from: "assistant", text: a.role === "owner" ? (mode === "teach" ? "Let's keep building on what you've taught your Brain, one message at a time." : "Hey. Let's get to know how you coach, one message at a time.") : "Hey. Let's make this fit your life. We'll talk through your goals and what works for you.", at });
   data.lastQuestion = nextChatQuestion(data, specialties, p.nutrition);
-  appendChatMessage(data, { id: randomUUID(), from: "assistant", text: data.lastQuestion.text, at });
+  appendChatMessage(data, { id: randomUUID(), from: "assistant", text: data.lastQuestion.text, at, questionField: data.lastQuestion.field });
   row = await putRecord(tx, a, "onboarding_chat", data, { status: "active" }) as Row;
   return row;
 }
-function say(data: ChatData, text: string, id = randomUUID()) {
-  appendChatMessage(data, { id, from: "assistant", text, at: new Date().toISOString() });
+function say(data: ChatData, text: string, id = randomUUID(), questionField?: string, destination?: "training" | "nutrition") {
+  appendChatMessage(data, { id, from: "assistant", text, at: new Date().toISOString(), ...(questionField ? { questionField } : {}), ...(destination ? { destination } : {}) });
 }
 const pick = (facts: Record<string, any>, keys: string[]) => Object.fromEntries(keys.filter(k => facts[k] !== undefined).map(k => [k, facts[k]]));
 
@@ -134,6 +153,12 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
     if (!["owner", "subscriber"].includes(a.role)) throw fail(403, "ROLE_REQUIRED", "This conversation belongs to the trainer or client signing in.");
     return a;
   };
+  const applyMemberProfile = async (req: FastifyRequest, a: Actor, data: ChatData, timezone?: string) => {
+    const [current] = await db.tenant(a, tx => tx.query("SELECT id,data FROM records WHERE kind='intake' AND owner_user_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1", [a.userId]));
+    if (data.applied.profile && current && digest(pick(current.data, trainingFields)) !== data.applied.profile)
+      throw fail(409, "PROFILE_CHANGED", "Your saved profile changed elsewhere. Keep the current saved profile, then tell me which changes you still want.");
+    return forward(app, req, "POST", "/api/v1/intake", { ...intakeSchema.parse({ ...pick(data.facts, trainingFields), timezone: timezone ?? current?.data.timezone ?? "Asia/Dubai", consent: true }), expectedProfileId: current?.id ?? null });
+  };
   const snapshot = async (req: FastifyRequest, a: Actor, mode: "setup" | "teach" = "setup") => {
     const state = await db.tenant(a, async tx => {
       await lock(tx, a);
@@ -157,7 +182,7 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
       }
       const data = p.coaching ? row.data : { ...emptyChat("member"), messages: row.data.messages.filter(m => m.from === "assistant").slice(0, 1) };
       const [program] = a.role === "subscriber" ? await tx.query("SELECT id,status FROM records WHERE owner_user_id=$1 AND kind='program' AND status='assigned' ORDER BY created_at DESC LIMIT 1", [a.userId]) : [];
-      return { id: row.id, version: row.version, ...data, permissions: p, ready: profileReady(data), missing: missingFacts(data, p.nutrition), programReady: !!program, ...(a.role === "owner" ? { coachingCoverage: coachingCoverage(data) } : {}) };
+      return { id: row.id, version: row.version, ...data, permissions: p, ready: profileReady(data), profileDirty: !!data.applied.profile && data.applied.profile !== digest(pick(data.facts, trainingFields)), missing: missingFacts(data, p.nutrition), programReady: !!program, ...(a.role === "owner" ? { coachingCoverage: coachingCoverage(data) } : {}) };
     });
     if (a.role === "owner") {
       const [setup, brain] = await Promise.all([forward(app, req, "GET", "/api/v1/setup"), forward(app, req, "GET", "/api/v1/brain/teach")]);
@@ -224,7 +249,7 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
     reply.header("Cache-Control", "private, no-store");
     const a = actor(req), b = messageSchema.parse(req.body);
     b.text ||= "I've shared a file for us to look at.";
-    const claimed = await claim(a, b, "message", digest({ text: b.text, mode: b.mode, retryOf: b.retryOf, attachmentIds: b.attachmentIds?.length ? b.attachmentIds : undefined, source: b.source, callId: b.callId }), b.mode);
+    const claimed = await claim(a, b, "message", digest({ text: b.text, mode: b.mode, retryOf: b.retryOf, attachmentIds: b.attachmentIds?.length ? b.attachmentIds : undefined, source: b.source, callId: b.callId, timezone: b.timezone, purpose: b.purpose }), b.mode);
     if (!claimed) return snapshot(req, a, b.mode);
     try {
       const prepared = await db.tenant(a, async tx => {
@@ -240,7 +265,9 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
         const data = structuredClone(row.data);
         data.paused = false;
         // An existing conversation may be answering a question from an older curriculum.
-        const at = new Date().toISOString(), q = data.lastQuestion ?? nextChatQuestion(data, specialties, p.nutrition);
+        const at = new Date().toISOString();
+        const q: NonNullable<ChatData["lastQuestion"]> = b.purpose === "profile_edit" && !data.profileEditing ? { field: "review", text: "What would you like to change in your profile?" } : data.lastQuestion ?? nextChatQuestion(data, specialties, p.nutrition);
+        if (b.purpose === "profile_edit") data.profileEditing = true;
         const teaching = a.role === "owner" && (b.mode === "teach" || q.field.startsWith("coaching.") || ["approach", "alwaysDo", "neverDo", "referOut", "teaching"].includes(q.field));
         const original = b.retryOf ? data.messages.filter(m => m.from === "person").at(-1) : undefined;
         const files = await onboardingFiles(tx, a, b.retryOf ? original?.attachments?.map(f => f.id) ?? [] : b.attachmentIds ?? [], b.id, b.retryOf);
@@ -250,7 +277,7 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
           const [failed] = await tx.query("SELECT status FROM records WHERE id=$1 AND kind='onboarding_chat_request' AND owner_user_id=$2", [b.retryOf, a.userId]);
           if (!failed || !["failed", "interrupted"].includes(failed.status) || original?.id !== b.retryOf || original.text !== b.text)
             throw fail(409, "RETRY_CHANGED", "Send this as a new message.");
-        } else appendChatMessage(data, { id: b.id, from: "person", text: b.text, at, ...(b.source ? { source: b.source } : {}), ...(files.length ? { attachments: files.map(f => { const { preview, ...metadata } = attachmentView(f); return metadata; }) } : {}) });
+        } else appendChatMessage(data, { id: b.id, from: "person", text: b.text, at, questionField: q.field, ...(b.source ? { source: b.source } : {}), ...(files.length ? { attachments: files.map(f => { const { preview, ...metadata } = attachmentView(f); return metadata; }) } : {}) });
         const sourceIds = teaching ? await recordTeaching(tx, a, data, b.retryOf ?? b.id, b.text, q, files, false, !!b.retryOf) : [];
         let held = false;
         if (a.role === "subscriber") {
@@ -274,21 +301,50 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
             data.memory.limitations = { evidence, messageId: b.id, at };
           }
         }
+        const notices = held ? [] : prepareChatTurn(data, q, b.text, b.retryOf ?? b.id, original?.at ?? at, p.nutrition);
         await save(tx, a, row, data);
         const rules = a.role === "owner" ? await tx.query("SELECT data FROM records WHERE kind='rule' AND status='confirmed' ORDER BY updated_at DESC LIMIT 24") : [];
         const trainerBrain = a.role === "subscriber" ? await publishedTrainerBrain(tx) : undefined;
         if (trainerBrain) await tx.query("UPDATE records SET data=data||$2::jsonb WHERE id=$1 AND kind='onboarding_chat_request' AND owner_user_id=$3", [b.id, JSON.stringify({ trainerBrainReleaseId: trainerBrain.releaseId }), a.userId]);
-        return { data, q, p, held, material, files, sourceIds, trainerBrain, rules: rules.map(r => ({ title: String(r.data.title ?? "").slice(0, 120), condition: String(r.data.condition ?? "").slice(0, 300), directive: String(r.data.directive ?? "").slice(0, 500) })) };
+        return { data, q, p, held, material, files, sourceIds, trainerBrain, notices, rules: rules.map(r => ({ title: String(r.data.title ?? "").slice(0, 120), condition: String(r.data.condition ?? "").slice(0, 300), directive: String(r.data.directive ?? "").slice(0, 500) })) };
       });
       if (prepared.held) {
         await finish(a, b.id, data => { say(data, "I've flagged this for your coach. Please pause training until it has been reviewed. If you feel seriously unwell or in immediate danger, contact local emergency services."); });
       } else {
+        const confirmation = prepared.data.profileEditing && prepared.data.lastQuestion?.field === "review" && /^(?:yes|yes please|save(?: these)? changes|save it|confirm|apply(?: these)? changes|نعم|احفظ التغييرات)[.! ]*$/i.test(b.text.trim());
+        const command = a.role === "subscriber" && !prepared.files.length ? confirmation ? "start" : onboardingCommand(b.text) : undefined;
+        if (command === "training" || command === "nutrition") {
+          await finish(a, b.id, data => say(data, command === "training" ? "Open Training here to see your workout and its preparation status." : "Open Nutrition here to see your meals and food preferences.", randomUUID(), undefined, command));
+          return snapshot(req, a, b.mode);
+        }
+        if (command === "start") {
+          if (!profileReady(prepared.data)) {
+            await finish(a, b.id, data => {
+              const q = nextChatQuestion(data, specialties, false);
+              say(data, "A few profile details are still open before we can prepare your training.");
+              data.lastQuestion = q; say(data, q.text, randomUUID(), q.field);
+            });
+          } else {
+            const hash = digest(pick(prepared.data.facts, trainingFields));
+            const result = prepared.data.applied.profile === hash ? null : await applyMemberProfile(req, a, prepared.data, b.timezone);
+            await finish(a, b.id, data => {
+              data.applied.profile = hash;
+              data.profileEditing = false;
+              const held = result?.trainingHeld || result?.reviewRequired;
+              say(data, held ? "Your profile is saved. Your coach needs to review the health details before you train."
+                : req.trainerPreview ? result?.previewWorkout?.status === "delivered" ? "Your profile is saved and your test workout is ready. Open Training to see it." : "Your profile is saved. Open Training to check workout preparation."
+                : "Your profile is saved. Open Training to see your workout or its preparation status.", randomUUID(), undefined, "training");
+            });
+          }
+          return snapshot(req, a, b.mode);
+        }
         const answer = (!prepared.files.length ? quickChatReply(prepared.q.field, b.text) : null) ?? await onboardingReply(prepared.data, prepared.q, prepared.rules, specialties, prepared.p.nutrition, modelAccounting(db, a, a.role === "owner" ? "setup_assistant" : "member_onboarding"), prepared.files.map(f => ({ name: f.data.name, text: String(f.data.text).slice(0, 8000), image: f.data.image, truncated: f.data.text.length > 8000 })), prepared.trainerBrain);
         await finish(a, b.id, async (data, tx) => {
           if (prepared.trainerBrain && (await publishedTrainerBrain(tx)).releaseId !== prepared.trainerBrain.releaseId)
             throw fail(409, "BRAIN_CHANGED", "Your trainer's Brain was updated. Your message is saved; try the reply again.");
           const p = await permissions(tx, a);
           const merged = mergeChatFacts(data, answer, prepared.material, b.retryOf ?? b.id, new Date().toISOString(), specialties, p.nutrition);
+          preservePreparedFacts(merged, prepared.data, b.retryOf ?? b.id, answer);
           Object.assign(data, merged);
           if (a.role === "owner" && !privacyMatches([b.text, ...prepared.files.map(f => f.data.text)].join("\n")).length) {
             const messageId = b.retryOf ?? b.id;
@@ -298,11 +354,29 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
             mergeCoachingInterview(data, answer.coaching, prepared.material, messageId, new Date().toISOString(), sourceIds);
           }
           if (b.retryOf) await tx.query("UPDATE records SET status='complete',updated_at=now() WHERE id=$1 AND kind='onboarding_chat_request'", [b.retryOf]);
-          const q = nextChatQuestion(data, specialties, p.nutrition);
-          if (answer.questionField === q.field) q.text = chatText(answer.question, q.text);
-          data.lastQuestion = q;
-          say(data, chatText(answer.reply));
-          say(data, q.text);
+          const turn = finishChatTurn(data, answer, prepared.q, b.text, b.retryOf ?? b.id, new Date().toISOString(), specialties, p.nutrition, prepared.notices);
+          const profileChanged = a.role === "subscriber" && data.applied.profile && data.applied.profile !== digest(pick(data.facts, trainingFields));
+          if (b.purpose === "profile_edit" && answer.intent === "clarify" && answer.question && answer.questionField && (answer.questionField === "review" || trainingFields.includes(answer.questionField))) {
+            say(data, turn.reply); data.lastQuestion = { field: answer.questionField, text: answer.question };
+            say(data, answer.question, randomUUID(), answer.questionField); return;
+          }
+          if (profileChanged && profileReady(data) && !(turn.question && "proposal" in turn.question && turn.question.proposal)) {
+            data.profileEditing = true;
+            say(data, turn.reply);
+            data.lastQuestion = { field: "review", text: "These profile changes are ready to review. Save them, or tell me what else to adjust?" };
+            say(data, data.lastQuestion.text, randomUUID(), "review");
+            return;
+          }
+          if (b.purpose === "profile_edit" && !profileChanged && profileReady(data) && !(turn.question && "proposal" in turn.question && turn.question.proposal)) {
+            say(data, turn.reply);
+            if (answer.question && answer.questionField && (answer.questionField === "review" || trainingFields.includes(answer.questionField))) { data.lastQuestion = { field: answer.questionField, text: answer.question }; say(data, answer.question, randomUUID(), answer.questionField); }
+            return;
+          }
+          say(data, turn.reply);
+          if (turn.question) {
+            data.lastQuestion = turn.question;
+            say(data, turn.question.text, randomUUID(), turn.question.field);
+          }
         });
       }
     } catch (e) {
@@ -323,14 +397,13 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
     try {
       const data = claimed.row.data, f = data.facts;
       if (b.action === "pause") line = "Saved. Come back whenever you're ready.";
-      else if (b.action === "resume" || b.action === "skip") { /* code-only controls below */ }
+      else if (["resume", "skip", "discard-profile"].includes(b.action)) { /* code-only controls below */ }
       else if (b.action === "profile") {
         if (!profileReady(data)) throw fail(409, "PROFILE_INCOMPLETE", "A few details are still missing. You can tell me several at once.");
         const hash = digest(pick(f, a.role === "subscriber" ? trainingFields : ["publicName", "businessName", "city", "specialty", "audience", "headline", "bio"]));
         if (data.applied.profile !== hash) {
           if (a.role === "subscriber") {
-            const payload = intakeSchema.parse({ ...pick(f, trainingFields), timezone: b.timezone ?? "Asia/Dubai", consent: true });
-            const result = await forward(app, req, "POST", "/api/v1/intake", payload);
+            const result = await applyMemberProfile(req, a, data, b.timezone);
             line = result.trainingHeld || result.reviewRequired ? "Your profile is saved. Your coach needs to review the health details before you train." : "Your profile is with your coach. Your first workout will appear in Training when it's ready.";
           } else {
             const setup = await forward(app, req, "GET", "/api/v1/setup");
@@ -395,14 +468,25 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
         await forward(app, req, "POST", "/api/v1/brain/releases/supervised", {});
         line = "Your Brain is ready in review mode. It waits for your approval before sending.";
       }
-      await finish(a, b.id, async c => {
+      await finish(a, b.id, async (c, tx) => {
+        if (b.action === "discard-profile") {
+          if (a.role !== "subscriber") throw fail(403, "MEMBER_ONLY", "This action is for your coaching profile.");
+          const [intake] = await tx.query("SELECT data FROM records WHERE kind='intake' AND owner_user_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1", [a.userId]);
+          if (!intake?.data.allowedUses?.includes("model_prompt")) throw fail(409, "PROFILE_UNAVAILABLE", "Update your coaching permissions before continuing.");
+          const facts = pick(intake.data, trainingFields), at = new Date().toISOString();
+          Object.assign(c.facts, facts);
+          for (const key of trainingFields) { c.memory[key] = { evidence: "Currently saved coaching profile", messageId: "saved", at }; if (c.dialogue) { delete c.dialogue.preferences[key]; delete c.dialogue.attempts[key]; } }
+          c.applied.profile = digest(facts); c.profileEditing = false;
+          c.lastQuestion = { field: "review", text: "What would you like to check or change?" };
+          line = "Kept your saved profile. You can check it or ask for another change whenever you like.";
+        }
         if (b.action === "pause") c.paused = true;
-        if (b.action === "resume") { c.paused = false; c.skipped = []; }
+        if (b.action === "resume") { c.paused = false; c.skipped = []; if (c.dialogue) c.dialogue.attempts = {}; }
         if (b.action === "skip") {
           const q = c.lastQuestion ?? nextChatQuestion(c, specialties, claimed.p.nutrition);
           if (!["review", "teaching", "paused", "coaching.review"].includes(q.field)) c.skipped = [...new Set([...c.skipped, q.field])];
         }
-        if (applied) c.applied[applied[0]] = applied[1];
+        if (applied) { c.applied[applied[0]] = applied[1]; if (applied[0] === "profile") c.profileEditing = false; }
         c.compiledIds = [...new Set([...c.compiledIds, ...compiled])];
         if (b.text && ["quiz-answer", "scenario"].includes(b.action)) appendChatMessage(c, { id: b.id, from: "person", text: b.text, at: new Date().toISOString() });
         if (line) say(c, line);

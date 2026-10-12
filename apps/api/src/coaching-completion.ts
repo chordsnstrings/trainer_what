@@ -1,5 +1,6 @@
 import { workMeasure } from "../../../packages/domain/src/prescription.ts";
 import type { FastifyInstance, FastifyRequest } from "fastify";
+import { memberChatAction } from "./member-chat-actions.ts";
 import { loadMemberMemory } from "./member-memory.ts";
 import { loadConversationContext } from "./conversation-context.ts";
 import { CONVERSATION_CONTEXT_VERSION } from "../../../packages/domain/src/conversation-context.ts";
@@ -764,10 +765,10 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
       return { ok: true };
     });
   });
-  app.post("/api/v1/coaching/ask", async (req) => {
+  async function answerCoaching(req: FastifyRequest) {
     const a = identity(req),
       b = z
-        .object({ message: z.string().trim().min(1).max(4000) })
+        .object({ message: z.string().trim().min(1).max(4000), requestId: z.string().uuid().optional() })
         .strict()
         .parse(req.body);
     if (a.role !== "subscriber")
@@ -788,11 +789,19 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
         [a.userId],
       );
       if (!safety && !hold) await activeMembership(tx, a);
+      if (b.requestId) {
+        await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [a.tenantId + ":coaching-request:" + a.userId + ":" + b.requestId]);
+        const [prior] = await tx.query("SELECT data FROM records WHERE kind='message' AND owner_user_id=$1 AND data->>'author'='subscriber' AND data->>'requestId'=$2", [a.userId, b.requestId]);
+        if (prior) {
+          if (prior.data.text !== b.message) throw fail(409, "REQUEST_CHANGED", "Use a new request for a different message.");
+          return { response: prior.data.response ?? { messageSaved: true, receiptPending: true, message: "Your message is saved. Check the conversation for its reply." } };
+        }
+      }
       const currentMessage = await putRecord(
         tx,
         a,
         "message",
-        { text: b.message, author: "subscriber", subscriberId: a.userId },
+        { text: b.message, author: "subscriber", subscriberId: a.userId, ...(b.requestId ? { requestId: b.requestId } : {}) },
         { status: "sent" },
       );
       // The follower's own scope cannot read takeovers or review items.
@@ -884,6 +893,8 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
       return { release, intake, twin, memory, conversation, requestMessageId: currentMessage.id };
     });
     if (material.response) return material.response;
+    const action = await memberChatAction(app, db, req, a, b.message, material.requestMessageId!, material.intake);
+    if (action) return action;
     const qualified = await tryQualifiedCoaching(db, a, b.message, {
       release: material.release!,
       twin: material.twin!,
@@ -1000,10 +1011,29 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
       );
       await event(tx, a, "coaching.review_required", d.id);
       return {
+        decisionId: d.id,
         pendingReview: true,
         message:
           "Your digital coach has prepared a response for your trainer to review.",
       };
     });
+  }
+  app.post("/api/v1/coaching/ask", async req => {
+    const a = identity(req);
+    const input = z.object({ message: z.string().trim().min(1).max(4000), requestId: z.string().uuid().optional() }).strict().parse(req.body);
+    const receipt = async (response: any) => {
+      if (input.requestId && !response?.receiptPending) await db.tenant(a, tx => tx.query(
+        "UPDATE records SET data=data||$3::jsonb,updated_at=now() WHERE kind='message' AND owner_user_id=$1 AND data->>'author'='subscriber' AND data->>'requestId'=$2 AND data->>'text'=$4",
+        [a.userId, input.requestId, JSON.stringify({ response }), input.message],
+      ));
+      return response;
+    };
+    try { return await receipt(await answerCoaching(req)); }
+    catch (error) {
+      if (!input.requestId) throw error;
+      const [saved] = await db.tenant(a, tx => tx.query("SELECT id FROM records WHERE kind='message' AND owner_user_id=$1 AND data->>'author'='subscriber' AND data->>'requestId'=$2 AND data->>'text'=$3", [a.userId, input.requestId, input.message]));
+      if (!saved) throw error;
+      return receipt({ messageSaved: true, replyUnavailable: true, message: "Your message is saved, but the reply couldn't be prepared. Check the conversation before sending it again." });
+    }
   });
 }

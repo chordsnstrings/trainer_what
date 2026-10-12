@@ -71,7 +71,9 @@ export function prescription(e: any, locale: Locale = "en") {
     );
   else if (e.sets && e.seconds)
     parts.push(
-      t("pxSeconds", { setsSeconds: formatSetsReps(e.sets, e.seconds, locale) }),
+      t("pxSeconds", {
+        setsSeconds: formatSetsReps(e.sets, e.seconds, locale),
+      }),
     );
   else if (e.sets) parts.push(t("pxSets", { count: Number(e.sets) }));
   if (typeof e.loadKg === "number" && e.loadKg > 0)
@@ -188,7 +190,11 @@ export function MemberProgram({
       (r: any) => r.kind === "workout" && r.status === "active",
     );
   const next = upcoming[0] ?? null;
-  const start = async (programId: string, plannedSessionId?: string) => {
+  const start = async (
+    programId: string,
+    plannedSessionId?: string,
+    guided = true,
+  ) => {
     setBusy(true);
     setError("");
     try {
@@ -196,7 +202,7 @@ export function MemberProgram({
         programId,
         ...(plannedSessionId ? { plannedSessionId } : {}),
       });
-      router.push(`/app/workouts/${r.id}`);
+      router.push(`/app/${guided ? "voice-session" : "workouts"}/${r.id}`);
     } catch (e: any) {
       setError(
         e.code === "WORKOUT_ACTIVE"
@@ -315,8 +321,11 @@ export function MemberProgram({
           <h2 id="program-active" dir="auto">
             {active.data?.program?.title ?? t("yourWorkout")}
           </h2>
-          <Link className="button" href={`/app/workouts/${active.id}`}>
+          <Link className="button" href={`/app/voice-session/${active.id}`}>
             {t("continueWorkout")} <ArrowRight size={18} aria-hidden="true" />
+          </Link>
+          <Link className="text-link" href={`/app/workouts/${active.id}`}>
+            {t("workoutLog")}
           </Link>
         </section>
       )}
@@ -337,19 +346,33 @@ export function MemberProgram({
           {next.status === "started" && next.data.workoutId ? (
             <Link
               className="button"
-              href={`/app/workouts/${next.data.workoutId}`}
+              href={`/app/voice-session/${next.data.workoutId}`}
             >
               {t("continueSession")} <ArrowRight size={18} aria-hidden="true" />
             </Link>
           ) : (
+            <Link
+              className="button"
+              href={`/app/voice-session/planned/${next.id}`}
+            >
+              {t("openGuided")} <ArrowRight size={18} aria-hidden="true" />
+            </Link>
+          )}
+          {next.data.workoutId ? (
+            <Link
+              className="text-link"
+              href={`/app/workouts/${next.data.workoutId}`}
+            >
+              {t("workoutLog")}
+            </Link>
+          ) : (
             <button
               type="button"
-              className="button"
+              className="text-button"
               disabled={busy}
-              onClick={() => void start(next.data.programId, next.id)}
+              onClick={() => void start(next.data.programId, next.id, false)}
             >
-              {busy ? t("opening") : t("startThis")}
-              <ArrowRight size={18} aria-hidden="true" />
+              {t("workoutLog")}
             </button>
           )}
         </section>
@@ -414,7 +437,15 @@ export function MemberProgram({
                   disabled={busy}
                   onClick={() => void start(p.id)}
                 >
-                  {t("startWorkout")}
+                  {t("openGuided")}
+                </button>
+                <button
+                  type="button"
+                  className="text-button"
+                  disabled={busy}
+                  onClick={() => void start(p.id, undefined, false)}
+                >
+                  {t("workoutLog")}
                 </button>
               </>
             )}
@@ -543,9 +574,7 @@ export function MemberProgram({
                 </select>
               </Field>
             )}
-            <Field
-              label={sheet.kind === "move" ? t("whyMove") : t("whySkip")}
-            >
+            <Field label={sheet.kind === "move" ? t("whyMove") : t("whySkip")}>
               <input
                 name="note"
                 required

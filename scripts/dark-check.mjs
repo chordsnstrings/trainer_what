@@ -507,14 +507,14 @@ try {
           waitUntil: "load",
         });
         await settle(page);
-        const start = page.getByRole("button", { name: /^Start .*session$/ });
+        const start = page.getByRole("button", { name: /^(Play workout|Start text-guided session)$/ });
         if (await start.count()) {
           await start.first().tap();
           await page.waitForTimeout(1500);
           await settle(page);
           assertDark(label, await page.evaluate(inspect));
           await shot(page, label);
-        } else fail(label, "no Start button");
+        } else fail(label, "no workout playback button");
       } catch (e) {
         fail(label, e.message.split("\n")[0]);
       }

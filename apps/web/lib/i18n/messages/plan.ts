@@ -3,13 +3,16 @@ import { defineMessages } from "../core";
 /** The member's programme tab (member-program.tsx). */
 export default defineMessages(
   {
+    workoutLog: "Use workout log",
+    openGuided: "Open guided session",
     title: "Your training plan",
     loadFailed:
       "Your plan could not be loaded. Check your connection, then try again.",
     savedPlan:
       "No connection right now. Showing the plan saved on this phone (last updated {when}).",
     tryAgain: "Try again",
-    errActive: "You already have a workout in progress. Finish or end it first.",
+    errActive:
+      "You already have a workout in progress. Finish or end it first.",
     errChanged:
       "Your coach just changed this session. The plan below is up to date.",
     errStart:
@@ -85,15 +88,17 @@ export default defineMessages(
     },
   },
   {
+    workoutLog: "استخدام سجل التمرين",
+    openGuided: "فتح الجلسة الموجّهة",
     title: "خطة تدريبك",
     loadFailed:
       "تعذّر تحميل خطتك. يُرجى التحقق من الاتصال ثم المحاولة مرة أخرى.",
-    savedPlan: "لا يوجد اتصال الآن. نعرض الخطة المحفوظة على هذا الهاتف (آخر تحديث {when}).",
+    savedPlan:
+      "لا يوجد اتصال الآن. نعرض الخطة المحفوظة على هذا الهاتف (آخر تحديث {when}).",
     tryAgain: "المحاولة مرة أخرى",
     errActive: "لديك تمرين قيد التنفيذ. يُرجى إنهاؤه أولًا.",
     errChanged: "غيّر مدربك هذه الجلسة للتو. الخطة أدناه محدّثة.",
-    errStart:
-      "تعذّر بدء الجلسة. يُرجى التحقق من الاتصال ثم المحاولة مرة أخرى.",
+    errStart: "تعذّر بدء الجلسة. يُرجى التحقق من الاتصال ثم المحاولة مرة أخرى.",
     movedTo: "نُقلت إلى {day}، ويمكن لمدربك رؤية التغيير.",
     skippedNote: "تم تخطي الجلسة، ويمكن لمدربك رؤية السبب.",
     saveFailed: "تعذّر حفظ هذا التغيير. يُرجى المحاولة مرة أخرى.",

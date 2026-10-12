@@ -10,6 +10,7 @@ import {
   publicWebsite as website,
 } from "../../components/public-website";
 import { themeColorsFor, type ColorSchemeChoice } from "../../color-scheme";
+import { MEMBER_THEME_COLORS } from "../../lib/member-appearance";
 import {
   BRAND_COLORS,
   DIRECTORY_PATH,
@@ -123,6 +124,8 @@ export async function generateViewport({
   // The member app draws under the notch and home indicator and pads its top
   // bar, tab bar and sticky action bars with env(safe-area-inset-*)
   // (app/phone-first.css), which matters most once it is installed.
+  if (path[0] === "app" || path[0] === "trainer" && path[1] === "preview")
+    return { viewportFit: "cover", colorScheme: colorSchemeMeta(scheme), themeColor: themeColorsFor(scheme, MEMBER_THEME_COLORS) };
   if (["trainer", "setup", "admin"].includes(path[0])) return { themeColor: BRAND_COLORS.white, colorScheme: "light" };
   const member: Viewport =
     path[0] === "app"

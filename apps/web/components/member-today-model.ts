@@ -142,6 +142,10 @@ export function todayFocus(input: {
       action: {
         kind: "link",
         label: t("fContinueWorkout"),
+        href: `/app/voice-session/${active.id}`,
+      },
+      secondary: {
+        label: t("fWorkoutLog"),
         href: `/app/workouts/${active.id}`,
       },
       tone: "default",
@@ -263,6 +267,10 @@ export function todayFocus(input: {
       action: {
         kind: "link",
         label: t("fContinueWorkout"),
+        href: `/app/voice-session/${s.workoutId}`,
+      },
+      secondary: {
+        label: t("fWorkoutLog"),
         href: `/app/workouts/${s.workoutId}`,
       },
       next,
@@ -338,7 +346,8 @@ export function todayStatus(
     (data.planState === "ready" || data.planState === "self_paced")
   )
     tiles.push({
-      label: p.billing === "upfront" ? t("sProgramme") : t("sBlock", { n: p.block }),
+      label:
+        p.billing === "upfront" ? t("sProgramme") : t("sBlock", { n: p.block }),
       value: t("dayOf", { day: p.day, of: p.of }),
       href: "/app/timeline",
       meter: { value: p.day, max: p.of, key: "today:programme" },

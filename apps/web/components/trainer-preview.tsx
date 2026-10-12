@@ -1,8 +1,9 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import Link from "./preview-navigation";
 import { ProgrammeDraft } from "./brain-plans";
+import { DisplayPreferences } from "./appearance";
 
 async function control(path = "", body?: unknown) {
   const response = await fetch("/api/v1/trainer-preview" + path, {
@@ -40,15 +41,15 @@ export function TrainerPreviewBar() {
   const path = usePathname();
   const [status, setStatus] = useState<any>(null), [error, setError] = useState(""), [busy, setBusy] = useState(false), [notice, setNotice] = useState("");
   const [controlsOpen, setControlsOpen] = useState(false);
-  const reviewReady = !!status?.decisions?.length || status?.generation?.status === "pending_review";
-  useEffect(() => {
-    if (reviewReady || path.endsWith("/program") && status && !status.workout) setControlsOpen(true);
-  }, [reviewReady, path, status?.workout]);
+  const attempted = useRef(new Set<string>());
+  useEffect(() => setControlsOpen(false), [path]);
+  const reviewReady = status?.generation?.errors?.length || status?.generation?.status === "failed";
   const load = useCallback(async () => {
     try { setStatus(await control()); setError(""); }
     catch (e) { setError((e as Error).message); }
   }, []);
   useEffect(() => { void load(); }, [path, load]);
+  useEffect(() => { void control("/continue", {}).then(result => { if (result.blocked?.length) setNotice(result.blocked.join(" ")); return load(); }).catch(e => setError(e.message)); }, [load]);
   useEffect(() => {
     const update = () => void load();
     window.addEventListener("trainer-preview-changed", update);
@@ -61,32 +62,38 @@ export function TrainerPreviewBar() {
     catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
   }
+  async function prepareWorkout() {
+    const result = await control("/workout", {});
+    if (result.status === "delivered") { setNotice("Your test workout is ready in Training."); previewChanged(); }
+    else if (result.message) setNotice(result.message);
+    else if (result.reason) setNotice("Workout preparation: " + String(result.reason).replaceAll("_", " ") + ". Check your Brain's programme settings, then try again.");
+    else setNotice("The workout could not be delivered. Check the preparation details below.");
+  }
+  useEffect(() => {
+    if (!status?.profile || !status.trainingProfile || !status.brain || status.workout || busy || attempted.current.has(status.profile.id)) return;
+    attempted.current.add(status.profile.id);
+    void act(prepareWorkout);
+  }, [status, busy]);
   const generation = status?.generation;
   return <aside className="trainer-preview-bar" aria-label="Trainer test controls">
     <div className="trainer-preview-top"><div><strong>Subscriber preview</strong><small>Your private test profile · progress stays saved</small></div><button type="button" className="button secondary button-small" disabled={busy} onClick={() => void act(endTrainerPreview)}>Back to My Brain</button></div>
     <details open={controlsOpen} onToggle={e => setControlsOpen(e.currentTarget.open)}>
-      <summary>Test controls{status?.decisions?.length ? " · reply ready to review" : ""}{generation?.status === "pending_review" ? " · workout ready to review" : ""}</summary>
-      <p>This uses your published Brain and the subscriber app. Test activity stays separate from your customers. Trainer approval here applies only to this test profile.</p>
+      <summary>Test controls{busy ? " · preparing your workout" : reviewReady ? " · workout needs attention" : ""}</summary>
+      <p>This uses your published Brain and the subscriber app. Replies and valid workouts are approved automatically for your private test profile. Test activity stays separate from your customers.</p>
       {status && !status.brain && <p className="notice">Publish your Brain in My Brain before asking your digital coach for advice or a workout.</p>}
       {status && !status.trainingProfile && <p><Link href="/app/intake">Complete your coaching profile</Link> to try personalised coaching and workouts.</p>}
-      {status?.trainingProfile && status?.brain && !status.workout && <button type="button" className="button secondary" disabled={busy} onClick={() => void act(async () => {
-        const result = await control("/workout", {});
-        if (result.status === "delivered") window.location.assign("/trainer/preview/app/program");
-        else if (result.message) setNotice(result.message);
-        else if (result.reason) setNotice("Workout preparation: " + String(result.reason).replaceAll("_", " ") + ". Check your Brain's programme settings, then try again.");
-        else if (result.status === "failed") setNotice("The workout could not be prepared. Review the details below before trying again.");
-        else setNotice("Workout prepared for your review below.");
-      })}>{busy ? "Preparing…" : "Prepare my workout"}</button>}
-      {generation && ["pending_review", "failed"].includes(generation.status) && <section className="preview-review"><h3>Workout draft · trainer review required</h3>
-        <p>Subscribers wait for your approval at this point. Review the same draft here, then try it on yourself.</p>
+      {status?.workout && <p><Link href="/app/program">Open my workout</Link></p>}
+      {status?.trainingProfile && status?.brain && !status.workout && <button type="button" className="button secondary" disabled={busy} onClick={() => void act(prepareWorkout)}>{busy ? "Preparing…" : "Check workout preparation"}</button>}
+      {generation && ["pending_review", "failed"].includes(generation.status) && !busy && <section className="preview-review"><h3>Workout preparation needs attention</h3>
+        <p>Valid test workouts appear automatically. This draft could not pass the delivery checks.</p>
         {!!generation.reasons?.length && <p>{generation.reasons.join(" · ")}</p>}
         {!!generation.errors?.length && <p role="status" className="notice error">{generation.errors.join(" · ")}</p>}
         {generation.draft && <ProgrammeDraft draft={generation.draft} names={[]} />}
-        {generation.draft && !generation.errors?.length && <button type="button" className="button" disabled={busy} onClick={() => void act(async () => { await control("/workout/" + generation.id + "/review", { version: generation.version }); window.location.assign("/trainer/preview/app/program"); })}>Approve for my test profile</button>}
       </section>}
-      {status?.decisions?.map((d: any) => <section key={d.id} className="preview-review"><h3>Reply draft · trainer review required</h3>{d.request && <p><strong>You asked:</strong> {d.request}</p>}<p>{d.message}</p>{d.reason && <p className="muted">{d.reason}</p>}<button type="button" className="button secondary" disabled={busy} onClick={() => void act(async () => { await control("/replies/" + d.id + "/review", { version: d.version }); previewChanged(); setNotice("Reply approved for your test conversation."); })}>Approve for my test conversation</button></section>)}
+      {status?.decisions?.map((d: any) => <section key={d.id} className="preview-review"><h3>An earlier reply could not be delivered</h3>{d.request && <p><strong>You asked:</strong> {d.request}</p>}{d.reason && <p>{d.reason}</p>}<p>Return to your conversation and ask again using your current profile.</p></section>)}
       <button type="button" className="button secondary button-small" disabled={busy} onClick={() => void act(async () => { const result = await control("/start", { reset: true }); window.location.assign(result.href); })}>Start a new test profile</button>
       <p>Want a different response? Return to My Brain to teach it. Your test conversations do not automatically become teaching.</p>
+      <DisplayPreferences />
     </details>
     {notice && <p role="status">{notice}</p>}{error && <p role="alert" className="notice error">{error}</p>}
   </aside>;

@@ -93,8 +93,13 @@ export async function unlockAudio(
     new Blob([silentWav() as BlobPart], { type: "audio/wav" }),
   );
   try {
+    audio.onended = null;
+    audio.onerror = null;
     audio.src = url;
     await audio.play();
+    // A concurrent cue or a newer play intent owns the element now. Never
+    // pause it when this older unlock promise settles.
+    if (audio.src !== url) return false;
     audio.pause();
     return true;
   } catch {

@@ -1500,6 +1500,7 @@ export async function tryQualifiedCoaching(
       );
       await event(tx, a, "coaching.review_required", decision.id);
       return {
+        decisionId: decision.id,
         pendingReview: true,
         message: "Your trainer will review this coaching request.",
       };

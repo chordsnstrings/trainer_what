@@ -59,18 +59,24 @@ try {
     await go("/app/chat");
     await expect(page.getByLabel("Your message", { exact: true })).toHaveValue("Synthetic retained draft");
   });
-  await check("rejected chat sends retain the draft", async () => {
-    await page.route("**/api/v1/messages", unavailable);
-    await page.getByRole("button", { name: "Send to Alex", exact: true }).click();
-    await expect(page.locator(".member-shell [role=alert]")).toContainText("Your message was not sent");
+  await check("primary Send asks the digital coach and an uncertain retry retains its request receipt", async () => {
+    const requests = [];
+    const reject = route => { requests.push(route.request().postDataJSON()); return unavailable(route); };
+    await page.route("**/api/v1/coaching/ask", reject);
+    await page.getByRole("button", { name: "Send to digital coach", exact: true }).click();
+    await expect(page.locator(".member-shell [role=alert]")).toContainText("We couldn't confirm the reply");
     await expect(page.getByLabel("Your message", { exact: true })).toHaveValue("Synthetic retained draft");
-    await page.unroute("**/api/v1/messages", unavailable);
+    await page.getByRole("button", { name: "Send to digital coach", exact: true }).click();
+    await expect.poll(() => requests.length).toBe(2);
+    assert.ok(requests[0].requestId);
+    assert.equal(requests[0].requestId, requests[1].requestId);
+    await page.unroute("**/api/v1/coaching/ask", reject);
   });
   await check("committed chat send survives failed refresh without duplicate send", async () => {
     await page.route("**/api/v1/messages", async route => {
       sent++; const response = await route.fetch(); assert.ok(response.ok()); failReads = true; await route.fulfill({ response });
     });
-    await page.getByRole("button", { name: "Send to Alex", exact: true }).click();
+    await page.getByRole("button", { name: "Message Alex personally", exact: true }).click();
     await expect(page.locator(".member-shell [role=alert]")).toContainText("Messages could not be loaded");
     await expect(page.getByLabel("Your message", { exact: true })).toHaveValue("");
     await expect(page.getByText("Your message was not sent", { exact: false })).toHaveCount(0);
@@ -90,12 +96,12 @@ try {
       await held; await route.fulfill({ response });
     });
     await page.getByLabel("Your message", { exact: true }).fill("Synthetic pending send");
-    await page.getByRole("button", { name: "Send to Alex", exact: true }).click();
+    await page.getByRole("button", { name: "Message Alex personally", exact: true }).click();
     await accepted;
     try {
       await page.locator('.member-tabbar a[href="/app"]').click();
       await page.locator('.member-tabbar a[href="/app/chat"]').click();
-      await expect(page.getByRole("button", { name: "Send to Alex", exact: true })).toBeDisabled();
+      await expect(page.getByRole("button", { name: "Message Alex personally", exact: true })).toBeDisabled();
       await expect(page.getByLabel("Your message", { exact: true })).toBeDisabled();
     } finally { release(); }
     await expect(page.getByLabel("Your message", { exact: true })).toBeEnabled({ timeout: 20000 });

@@ -417,7 +417,7 @@ export async function buildApp(
   });
   // Before any route: records operator routes for the step-up coverage test.
   trackOperatorRoutes(app);
-  aliasPreviewRoutes(app);
+  aliasPreviewRoutes(app, db);
   await app.register(cookie);
   await app.register(rateLimit, {
     max: options.testing ? 10000 : 120,
@@ -1726,11 +1726,17 @@ export async function buildApp(
   });
 
   app.post("/api/v1/intake", async (req) => {
+    const { expectedProfileId: _expected, ...profileBody } = (req.body ?? {}) as Record<string, unknown>;
     const a = identity(req),
-      b = intakeSchema.parse(req.body);
+      b = intakeSchema.parse(profileBody);
+    const { expectedProfileId } = z.object({ expectedProfileId: z.string().uuid().nullable().optional() }).parse(req.body);
     const coachingVersion = await legalAcceptanceVersion(db, "coaching");
     return db.tenant(a, async (tx) => {
       await lockTraining(tx, a);
+      if (expectedProfileId !== undefined) {
+        const [current] = await tx.query("SELECT id FROM records WHERE kind='intake' AND owner_user_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1", [a.userId]);
+        if ((current?.id ?? null) !== expectedProfileId) throw fail(409, "PROFILE_CHANGED", "Your profile changed while these edits were being saved. Review the current profile before trying again.");
+      }
       const r = await putRecord(
         tx,
         a,

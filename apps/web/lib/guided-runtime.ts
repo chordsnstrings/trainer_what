@@ -8,6 +8,19 @@ import type { SessionScript } from "../../../packages/domain/src/voice-session.t
 export const progressKey = (tenant: string, user: string, workout: string) =>
   `trainer:guided:${tenant}:${user}:${workout}`;
 
+/** Wait for the opening spoken instruction, not merely any prepared clip. */
+export function openingAudioKeys(script: SessionScript) {
+  const setup = script.exercises[0]?.setup;
+  const lines = script.intro.length
+    ? script.intro
+    : script.warmup.length
+      ? script.warmup
+      : setup
+        ? [setup]
+        : [];
+  return lines.map((line) => "l:" + line.id);
+}
+
 /** Never resume a clock after a reload, or restore a different prescription. */
 export function restoreProgress(
   raw: string | null,

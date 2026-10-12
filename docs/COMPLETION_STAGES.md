@@ -2,6 +2,16 @@
 
 Application implementation and the job audit are complete for the current phase. [PR #1](https://github.com/chordsnstrings/trainer_what/pull/1) contains the work; [combined verification](VERIFICATION_2026-09-27.md) records the passing final code revision. The owner authorized merge to main. Real services and deployment remain the next phase; screenshots were waived. Historical entries below record the evidence available at each stage and may contain superseded pending-check statements.
 
+## Stage 2026-10-12 — contextual coaching, guided player and subscriber UI (release checks pending)
+
+- Owner scope: recover Continue GitHub Request, stop intake/delegation loops, make ongoing chat/check/edit intuitive, automatic private preview delivery, comprehensive review/planning, and real Seed response iteration with bounded usage.
+- Implemented: evidence-backed conversational choices and corrections; complete-turn context; truthful profile handoff/navigation; AI primary Send and explicit personal contact; chat profile read/draft/save/cancel; atomic stale-profile checks and durable send receipts; server-triggered private preview plan preparation and routine reply approval with validation/health/isolation preserved.
+- Actual checks so far: final 115 affected conversation/member/preview tests, TypeScript and production build passed. Additional coaching compatibility checks passed. Local browser download failed (truncated archive); CI browser/release gates are pending.
+- Live Seed: bounded replay added and attempted; MODEL_BASE_URL, MODEL_API_KEY and MODEL_NAME absent. Zero provider calls/tokens/cost. No live conversational quality claim.
+- Latest owner expansion (08:57–08:59 Dubai): guided workout voice/player flow and subscriber aesthetics/preview contrast. Implemented one-Play preparation/binding, audio buffering/recovery, current trainer-voice cache identity, safe stopped-session resume, private-preview voice route registration, neutral app theme, light defaults with saved choices retained, readable compact preview controls and direct guided entry.
+- Combined local evidence: TypeScript and production build passed. 57 appearance/member/translation/layout, 23 preview/brand, 35 player/audio/i18n, 68 voice compatibility, and 19 final voice API tests passed. Focused agents reviewed playback/permission/stale-response boundaries. Expanded browser fixtures await mandatory CI; local Chromium download was truncated.
+- Release: not merged or deployed yet. Follow the active handoff for current evidence and next steps.
+
 ## Recovery boundary
 
 The local environment restored an older snapshot. Yesterday's uncommitted completion work is absent. The recovery note on `work-in-progress/completion-2026-09-25` documents intended behavior, not preserved source. Work here starts from published `620eef1` and reconstructs missing features. Previously passing release evidence does not verify these new changes.

@@ -2,6 +2,35 @@
 
 Trainer setup, continued Brain teaching and client intake now default to a shared text-message interface. Short bubbles, optional quick replies, one current question, inline reviews and a persistent composer replace the default wizard. Detailed forms remain available. Trainer setup, Brain teaching and subscriber intake share private file references and an optional hands-free voice conversation.
 
+## Contextual intake and ongoing conversation — 12 October 2026
+
+This update is implemented and awaiting the release checks recorded in `CLAUDE_HANDOFF.md`. Conversation version is `onboarding-chat-v5`. Readiness is distinct from having asked all questions, and saved profiles are distinct from draft edits and assigned workouts.
+
+The assistant receives six complete recent turns, compact persisted facts with supporting quotes, unresolved/deferred details, proposed preferences, delegation and repeated-question state. Fact memory survives transcript truncation without an extra summary-model call. Trainer interview instructions are omitted from subscriber prompts. The active model still supplies semantic understanding; code validates evidence, consent, actions and boundaries. Wording asks for specific, varied responses without repetitive praise, unsupported promises or invented certainty.
+
+| Person says | Required behavior |
+| --- | --- |
+| “4 days”, then “weekdays mostly” | Keep four sessions and Monday–Friday availability; do not demand exact days to finish intake. |
+| “You let me know which days I should go” | Choose an adjustable schedule within the saved availability and say what was chosen. |
+| “What would you suggest?” | Offer a proposal and ask whether it fits; this is not permission to apply it. |
+| “I'm not sure” / “Ask me later” | Keep the detail unresolved, offer help or defer it; do not invent a personal fact. |
+| “You decide, but at most 30 minutes” | Preserve the explicit limit; a generic default cannot override it. |
+| “Do you decide or should I?” | Answer the question; it is not delegated authority. |
+| “Monday is my travel day” | Ask or use semantic extraction with sufficient evidence; a day-name match is not availability. |
+| “Let's get started” | Confirm the complete profile through the real intake endpoint, once, and show the actual next destination. |
+| “Where is Training?” | Show a working Training link without immediately repeating an intake question. |
+| “Show my profile” in Chat | Read the actual saved profile, without a paid model call. |
+| “I only have 30 minutes each session now” | Show an editable draft in Chat; preserve the saved profile until confirmation. |
+| “Save these changes” / “Keep my saved profile” | Apply or discard the current draft, including after a read-only detour to check Training. |
+
+The main Chat Send now requests AI help. Personal messaging is an explicit separate choice; attachments and active human takeover clearly address the coach personally. Profile/Training shortcuts, allowlisted inline destinations and save/cancel quick replies keep checking and editing within reach. After intake confirmation, **Continue with my coach** opens this ongoing conversation. The AI stays identified as digital coaching, including reviewed replies.
+
+Profile edits use the existing extraction and actual intake endpoint. Clean conversations refresh from form edits; unsaved chat changes remain visible. The save includes an expected intake ID checked atomically under the training lock, so another session's save cannot be silently overwritten. Saving preferences does not claim to have changed an assigned programme. Read-only Training and Progress replies use actual records; they do not infer body-composition changes from workout counts. Nutrition reads remain within the member's permission.
+
+Coaching sends accept a stable request ID. A lost response reuses the saved receipt; an unknown/failed paid outcome never launches an automatic second inference. Failed replies distinguish a saved message from an unsent message. Existing customer supervision/qualification, personal-review, consent, health and delivery gates remain. Private trainer preview alone removes routine approval clicks and uses the validated plan path (see `trainer-preview.md`).
+
+Live-model fidelity is not established by synthetic tests. A bounded fictional replay using the actual Seed provider adapter is documented in `onboarding-live-check.md`; the current attempt was blocked by missing model configuration and made zero calls.
+
 ## My Brain message motion — 9 October 2026
 
 Status: live as `55139d219b30b4e19b4daf6f8c50dcc8ebb9f46b` ([PR #54](https://github.com/chordsnstrings/trainer_what/pull/54)), verified by [serving verification](https://github.com/chordsnstrings/trainer_what/actions/runs/37901448919) with HTTP 200 and the exact release at 07:57:53 UTC / 11:57:53 Dubai on 9 October 2026. All six final-head PR gates and all five [exact-main checks](https://github.com/chordsnstrings/trainer_what/actions/runs/37898558751) passed. The owner reported that the trainer's My Brain conversation felt static and requested iPhone-like bubble pops and three animated thinking dots. Earlier motion checks exercised `/setup`, not `/trainer/brain` itself; they did not establish the reporting device's preference or live appearance.

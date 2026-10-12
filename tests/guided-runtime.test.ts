@@ -14,6 +14,7 @@ import {
   restoreProgress,
   saveProgress,
   mergeCompletedSets,
+  openingAudioKeys,
 } from "../apps/web/lib/guided-runtime.ts";
 import { SpeechGate, speechBand } from "../apps/web/lib/speech-gate.ts";
 
@@ -38,6 +39,29 @@ const setup = (): RunnerState => ({
   phase: "setup",
 });
 const done = { type: "command", command: { type: "done" } } as const;
+test("voice starts only after its actual opening instruction is ready", () => {
+  const opening = openingAudioKeys(script);
+  assert.deepEqual(
+    opening,
+    script.intro.map((line) => "l:" + line.id),
+  );
+  const unrelatedReady = new Set([
+    "s:done",
+    "l:" + script.exercises[0].setup.id,
+  ]);
+  assert.ok(opening.some((key) => !unrelatedReady.has(key)));
+  assert.deepEqual(
+    openingAudioKeys({ ...script, intro: [] }),
+    script.warmup.map((line) => "l:" + line.id),
+  );
+  assert.deepEqual(openingAudioKeys({ ...script, intro: [], warmup: [] }), [
+    "l:" + script.exercises[0].setup.id,
+  ]);
+  assert.deepEqual(
+    openingAudioKeys({ ...script, intro: [], warmup: [], exercises: [] }),
+    [],
+  );
+});
 test("guided readiness, completion and full rest are explicit", () => {
   assert.equal(
     stepRunner(ctx, setup(), { type: "prompt_done" })[0].phase,

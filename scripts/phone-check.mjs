@@ -566,23 +566,17 @@ try {
             `${m.smallText.length} text(s) under ${MIN_TEXT}px: ${m.smallText.slice(0, 6).join("; ")}`,
           );
         if (route.startsWith("/app/voice-session/")) {
-          // Prepare, then Start: each is the bar's one primary action.
-          // Running: Done and Pain.
-          const prepare = page.locator(".sticky-action-bar .voice-prepare");
-          if (await prepare.count()) {
-            await prepare.last().tap();
-            await page
-              .locator(".sticky-action-bar .voice-start")
-              .waitFor({ timeout: 30_000 })
-              .catch(() => {});
-            await settle(page);
-          }
-          const start = page.locator(".sticky-action-bar .voice-start");
+          // One Play prepares and starts the session; Done and Pain follow.
+          const start = page.locator(
+            ".sticky-action-bar .voice-start, .sticky-action-bar .voice-prepare",
+          );
           if (!(await start.count()))
-            fail(label, "Start session is not in the bottom action bar");
+            fail(label, "Workout playback is not in the bottom action bar");
           else {
-            await start.tap();
-            await page.waitForTimeout(400);
+            await start.first().tap();
+            await page
+              .locator(".sticky-action-bar .voice-done")
+              .waitFor({ timeout: 30000 });
             const running = await page.evaluate(inspect, {
               minTarget: MIN_TARGET,
               minTab: MIN_TAB,

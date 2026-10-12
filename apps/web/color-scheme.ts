@@ -3,8 +3,8 @@
 // browser-only imports.
 //
 // Subscriber surfaces (the member app, the coach website and the coach's
-// sign-in and joining pages) follow the device's colour scheme unless the
-// member chose Light or Dark in Profile and settings > Display. The choice
+// sign-in and joining pages) start light unless the
+// member chose Dark or Match this device in Profile and settings > Display. The choice
 // is saved per member (with the other member preferences) and mirrored into
 // a cookie, so the next server render and the first paint on this device
 // already use it. Only these three values are ever written into the page or
@@ -13,7 +13,7 @@
 // device.
 export const COLOR_SCHEMES = ["system", "light", "dark"] as const;
 export type ColorSchemeChoice = (typeof COLOR_SCHEMES)[number];
-export const DEFAULT_COLOR_SCHEME: ColorSchemeChoice = "system";
+export const DEFAULT_COLOR_SCHEME: ColorSchemeChoice = "light";
 /** The mirrored choice on this device. */
 export const MEMBER_SCHEME_COOKIE = "trainer_member_scheme";
 /** One year; a display preference, not an identity. */

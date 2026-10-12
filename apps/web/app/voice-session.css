@@ -44,6 +44,107 @@
 .voice-session .voice-prompt {
   line-height: 1.65;
   color: var(--muted);
+  min-block-size: 3.3em;
+}
+.voice-player-state {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+.voice-player-indicator {
+  inline-size: 8px;
+  block-size: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex: none;
+}
+.voice-player-indicator.is-speaking {
+  background: var(--brand-primary);
+  box-shadow: 0 0 0 4px var(--brand-tint);
+}
+.voice-player-count {
+  margin-inline-start: auto;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.voice-player-progress {
+  inline-size: 100%;
+  block-size: 5px;
+  border: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  appearance: none;
+  background: var(--line);
+  accent-color: var(--brand-primary);
+}
+.voice-player-progress::-webkit-progress-bar {
+  background: var(--line);
+}
+.voice-player-progress::-webkit-progress-value {
+  background: var(--brand-primary);
+}
+.voice-player-progress::-moz-progress-bar {
+  background: var(--brand-primary);
+}
+.voice-player-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding-block: 8px;
+}
+.voice-player-controls .button {
+  justify-content: center;
+  min-inline-size: 0;
+  gap: 6px;
+}
+.voice-player-controls .voice-play-toggle {
+  inline-size: 72px;
+  block-size: 72px;
+  padding: 0;
+  border-radius: 50%;
+}
+.voice-player-controls .secondary {
+  display: flex;
+  flex-direction: column;
+  min-block-size: 64px;
+  padding: 8px 4px;
+  font-size: 0.875rem;
+}
+.voice-playback-notice {
+  border-inline-start: 3px solid var(--brand-primary);
+  padding-inline-start: 14px;
+  font-size: 0.9375rem;
+}
+.voice-playback-notice p {
+  margin-block-start: 0;
+}
+.voice-playback-notice .button-row {
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.voice-spoken-options > summary,
+.voice-plan-details > summary,
+.voice-adjustments > summary {
+  padding-block: 12px;
+  min-block-size: 44px;
+  cursor: pointer;
+  font-weight: 600;
+}
+.voice-spoken-options[open] > summary,
+.voice-plan-details[open] > summary,
+.voice-adjustments[open] > summary {
+  margin-block-end: 12px;
+}
+.voice-adjustments {
+  border-block-start: 1px solid var(--line);
+}
+.voice-adjustments > .voice-reps,
+.voice-adjustments > .text-button {
+  margin-block-start: 14px;
 }
 .voice-session .button {
   min-block-size: 48px;
