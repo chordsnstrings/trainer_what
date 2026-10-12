@@ -237,6 +237,14 @@ async function screenshot(name, width) {
     ),
     false,
   );
+  // The controlled clock can leave CSS arrivals half-faded. Capture the
+  // settled interface, while separate motion checks cover the transitions.
+  await page.evaluate(() => {
+    for (const animation of document.getAnimations()) {
+      if (animation.effect?.getTiming().iterations === Infinity) continue;
+      try { animation.finish(); } catch {}
+    }
+  });
   const path = folder + "/" + name + ".png";
   await page.screenshot({ path, fullPage: true });
   report.screenshots.push(path);
