@@ -7,21 +7,38 @@
  * first tap, so the home page's own code and speed budget are unchanged.
  */
 import { useEffect, useState, type ComponentType } from "react";
-import { Mic, X } from "lucide-react";
+import { Mic, Phone, ChevronDown } from "lucide-react";
+import { usePathname } from "next/navigation";
 
 export type AssistantPanelProps = {
   appName: string;
+  minimized: boolean;
+  onMinimize: () => void;
+  onNavigate: () => void;
   onClose: () => void;
   /** At the daily cap: hidden until the given time (midnight UAE). */
   onHide: (until: string | null) => void;
 };
 const HIDDEN_UNTIL = "mk-assistant-hidden-until";
 
-export function AssistantButton({ appName }: { appName: string }) {
-  const [Panel, setPanel] = useState<ComponentType<AssistantPanelProps> | null>(null);
+export function AssistantButton({
+  appName,
+  enabled,
+  marketingPaths,
+}: {
+  appName: string;
+  enabled: boolean;
+  marketingPaths: string[];
+}) {
+  const path = usePathname() ?? "";
+  const allowed = marketingPaths.includes(path);
+  const [Panel, setPanel] = useState<ComponentType<AssistantPanelProps> | null>(
+    null,
+  );
   const [open, setOpen] = useState(false);
   const [hidden, setHidden] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [minimized, setMinimized] = useState(false);
   useEffect(() => {
     try {
       const until = localStorage.getItem(HIDDEN_UNTIL);
@@ -30,7 +47,13 @@ export function AssistantButton({ appName }: { appName: string }) {
       // Storage may be blocked; the server refuses at the cap anyway.
     }
   }, []);
-  if (hidden) return null;
+  useEffect(() => {
+    if (!allowed) {
+      setOpen(false);
+      setMinimized(false);
+    }
+  }, [allowed]);
+  if (hidden || !enabled || !allowed || (path !== "/" && !open)) return null;
   async function toggle() {
     if (!Panel) {
       setLoading(true);
@@ -41,7 +64,11 @@ export function AssistantButton({ appName }: { appName: string }) {
         setLoading(false);
       }
     }
-    setOpen((value) => !value);
+    if (open) setMinimized((value) => !value);
+    else {
+      setMinimized(false);
+      setOpen(true);
+    }
   }
   function hide(until: string | null) {
     try {
@@ -53,20 +80,42 @@ export function AssistantButton({ appName }: { appName: string }) {
     setHidden(true);
   }
   return (
-    <>
+    <div className="mk-assistant-host public platform-ui">
       {open && Panel && (
-        <Panel appName={appName} onClose={() => setOpen(false)} onHide={hide} />
+        <Panel
+          appName={appName}
+          minimized={minimized}
+          onMinimize={() => setMinimized((value) => !value)}
+          onNavigate={() => setMinimized(true)}
+          onClose={() => setOpen(false)}
+          onHide={hide}
+        />
       )}
       <button
         type="button"
         className="mk-assistant-fab"
-        aria-label={open ? "Close Kamran's AI voice" : "Talk to Kamran (AI voice)"}
-        aria-expanded={open}
+        aria-label={
+          open
+            ? minimized
+              ? "Expand Kamran call"
+              : "Minimize Kamran call"
+            : "Talk to Kamran (AI voice)"
+        }
+        aria-expanded={open && !minimized}
         aria-busy={loading}
+        disabled={loading}
         onClick={toggle}
       >
-        {open ? <X size={22} aria-hidden="true" /> : <Mic size={22} aria-hidden="true" />}
+        {open ? (
+          minimized ? (
+            <Phone size={22} aria-hidden="true" />
+          ) : (
+            <ChevronDown size={22} aria-hidden="true" />
+          )
+        ) : (
+          <Mic size={22} aria-hidden="true" />
+        )}
       </button>
-    </>
+    </div>
   );
 }

@@ -1,4 +1,21 @@
-# Kamran's AI voice on the home page (round 5, branch `r5/kamran`)
+# Kamran marketing voice call
+
+## Current behavior — 13 October 2026
+
+The owner now requests a continuous hands-free call and guided marketing navigation, superseding the original home-only hold-to-talk interaction documented below. Audit and ordered acceptance: `../HOMEPAGE_CALL_2026-10-13.md`.
+
+- Start on the homepage with **Talk to Kamran → Start call**. The one start gesture unlocks audio and requests echo-cancelled microphone capture. Local speech detection ends each utterance after a pause, up to 20 seconds; silence makes no provider call. No press-and-hold is needed.
+- **Mute**, **Let me speak**, **End call** and minimize/expand stay available. When the browser confirms echo cancellation, speaking interrupts waiting cues or an answer. Otherwise use Let me speak during playback to avoid speaker feedback. One additional utterance during a pending request is retained, then sent serially. The old response remains in captions but its audio and navigation are suppressed. There is no automatic paid request retry.
+- The assistant host lives in the shared platform layout. Client navigation across registered marketing pages preserves microphone permission, audio context, tab-local history, visit limits and in-flight requests. Leaving marketing pages, closing the panel, backgrounding or the 15-minute timeout stops tracks and audio. Delayed permission/decode/network callbacks cannot restart an ended call.
+- A checked `navigate` destination ID can open a relevant read-only page while the reply speaks. The panel compacts automatically to leave the page visible. **Show relevant pages as we talk** disables this behavior, including in the model context. Current page is sent as an allowlisted ID. Navigation is suppressed after interruption or manual page changes during a slow response. Model URLs are never used. Signup is an explicit link, with no form submissions or automatic account navigation.
+- `POST /public/assistant/cues` accepts only English/Arabic language. Two brief code-owned lines in the configured voice are cached and shared: first eligible around 1.5 seconds, second around 8 seconds. At 18 seconds a truthful delay notice replaces further scheduling. Ready audio, caller speech, mute or end cancels cues immediately, including delayed decoding.
+- Migration 096 stores **generic cue clips only**, keyed by a hash of voice/model/connection/language/text. It stores no visitor speech or transcript. The existing daily platform cap reserves the optional synthesis and conservative real-answer headroom atomically with a one-time claim. Concurrent requests share that claim; failed/unknown preparation is never repurchased. Attempted TTS is counted even on failure. Tenant roles cannot access the cue table. No new provider credentials or live settings changes are needed.
+
+Verification uses real local Chromium worklet/capture/playback with synthetic microphone and provider fixtures at 390 and 1280 px. It covers slow replies, retained additions, serial turns, waiting-cue and answer interruption, route/context continuity, guidance off/on, mute and cleanup. It does not establish physical iPhone/Android echo cancellation, live latency, or the quality of the selected voice. No paid live provider call was made for this change.
+
+## Historical first implementation (1 October 2026)
+
+The original implementation and qualification record follows; its hold-to-talk, home-only, automatic signup and pending-release descriptions are historical and superseded above.
 
 Status: implemented on `r5/kamran` (from `r5/models` `e44c771`); not merged, not deployed, off by
 default. Owner decisions (1 October 2026): the assistant speaks as the owner in the first person

@@ -55,7 +55,6 @@ import {
   FollowerCalculator,
 } from "./islands";
 import { availabilityChip, Chip } from "./chip";
-import { AssistantButton } from "./assistant-button";
 import { HeroFlow } from "./hero-flow";
 import { Journey, JourneyBand, journeyAvailable } from "./journey";
 import { MarketingMotion } from "./motion";
@@ -1564,11 +1563,6 @@ export function MarketingSite({ page: registered, platform, origin }: Ctx) {
         )}
       </main>
       <MarketingFooter appName={platform.name} initials={platform.initials} />
-      {/* Kamran's AI voice: home page only, outside the main content; the
-          panel's code loads on the first tap. */}
-      {page.kind === "home" && platform.assistant === true && (
-        <AssistantButton appName={platform.name} />
-      )}
       {/* The section reveal (renders nothing; app/marketing.css holds the
           motion). */}
       <MarketingMotion path={page.path} />

@@ -146,6 +146,7 @@ export async function verifyRuntimeAccess(client) {
     // Marketing assistant (082): counts and cost only, service only.
     marketing_assistant_days: ["SELECT", "INSERT", "UPDATE"],
     marketing_assistant_counters: ["SELECT", "INSERT", "UPDATE", "DELETE"],
+    marketing_assistant_cues: ["SELECT", "INSERT", "UPDATE"],
     // Shared workout music (085): service only; audit entries are immutable.
     workout_music_jobs: ["SELECT", "INSERT", "UPDATE"],
     workout_music_tracks: ["SELECT", "INSERT", "UPDATE"],

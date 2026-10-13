@@ -271,7 +271,7 @@ test("marketing motion uses the tokens, moves only transform, opacity and disclo
       r.declarations.filter((d) => d.property === token).map((d) => ({ rule: r.selector, value: d.value })),
     );
     assert.equal(defined.length, 1, `${token} is defined ${defined.length} times`);
-    assert.equal(defined[0].rule, ".mk, .mk-header, .mk-footer", token);
+    assert.equal(defined[0].rule, ".mk, .mk-header, .mk-footer, .mk-assistant-host", token);
     assert.equal(defined[0].value, value, token);
   }
   // No motion literal hides outside a token (the tokens' own definitions excepted).
@@ -457,14 +457,14 @@ test("the script's motion values are the CSS tokens, and no animation library is
   // The script marks grid items "done" after the longest stagger.
   const staggers = [...css.matchAll(/--mk-stagger:\s*(\d+)ms/g)].map((m) => Number(m[1]));
   assert.equal(Math.max(...staggers), MAX_STAGGER);
-  // Marketing components import React, Next's link, the icon set, the
+  // Marketing components import React, Next's link/router, the icon set, the
   // workspace packages and each other: no animation library.
   const dir = new URL("../apps/web/components/marketing/", import.meta.url);
   for (const file of (await readdir(dir)).filter((f) => /\.tsx?$/.test(f))) {
     const source = await readFile(new URL(file, dir), "utf8");
     for (const [, from] of source.matchAll(/(?:^|\n)\s*(?:import|export)[^;]*?from\s+"([^"]+)"/g))
       assert.ok(
-        /^(react|next\/link|lucide-react|@trainer\/(contracts|domain)|\.{1,2}\/)/.test(from),
+        /^(react|next\/(link|navigation)|lucide-react|@trainer\/(contracts|domain)|\.{1,2}\/)/.test(from),
         `${file} imports ${from}`,
       );
   }

@@ -8,6 +8,8 @@ import {
 } from "../components/public-website";
 import { LocaleProvider } from "../lib/i18n/react";
 import { publicPlatform } from "../components/marketing/platform";
+import { requestOrigin } from "../components/discovery-server";
+import { AssistantButton } from "../components/marketing/assistant-button";
 import { SCENES_HEAD_SCRIPT } from "../components/marketing/scenes-head";
 import {
   BRAND_COLORS,
@@ -153,6 +155,7 @@ export default async function Layout({
   // The member's "Reduce motion" choice on this device keeps every
   // subscriber surface still from the first paint (app/motion.css).
   const reduceMotion = (await memberMotionChoice()) === "reduce";
+  const [platform, origin] = await Promise.all([publicPlatform(), requestOrigin()]);
   return (
     // The launch script may set the member app's first-paint colour on
     // <html> before React hydrates (docs/features/pwa.md).
@@ -172,6 +175,7 @@ export default async function Layout({
         {/* Subscriber text follows <html lang> (lib/i18n/react.tsx). */}
         <LocaleProvider locale={lang}>
           {children}
+          {!origin.coachHost && <AssistantButton appName={platform.name} enabled={platform.assistant === true} marketingPaths={MARKETING_SITE_PATHS} />}
           <AcquisitionConsent marketingPaths={MARKETING_SITE_PATHS} />
         </LocaleProvider>
       </body>

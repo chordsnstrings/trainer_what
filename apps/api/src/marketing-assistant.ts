@@ -3,7 +3,7 @@
 // the reply checks of packages/domain/src/marketing-assistant.ts, and speech
 // in the chosen voice. Nothing a visitor says or hears is stored: only daily
 // counts and cost, and day-keyed hashed counters for the visitor limits.
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { z } from "zod";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Actor, Database, Tx } from "@trainer/db";
@@ -36,6 +36,7 @@ import {
   type AssistantTurn,
 } from "../../../packages/domain/src/marketing-assistant.ts";
 import { speechLanguage } from "../../../packages/domain/src/speech-language.ts";
+import { ASSISTANT_DESTINATIONS, type AssistantDestination } from "../../../packages/domain/src/marketing-assistant-navigation.ts";
 import { followerModelFromSettings } from "../../../packages/domain/src/marketing-calculators.ts";
 import { clientSource } from "./auth.ts";
 import { publicAvailability, publicPlatform } from "./marketing.ts";
@@ -255,8 +256,10 @@ async function addSpend(db: Database, day: string, s: Spend, config: RuntimeConf
  * so turns running at the same time can never take the day over the cap.
  */
 export async function reserveTurn(db: Database, day: string, aed: number, cap: number) {
+  return db.system(tx => reserveSpend(tx, day, aed, cap));
+}
+async function reserveSpend(tx: Tx, day: string, aed: number, cap: number) {
   if (!(aed > 0) || aed > cap) return false;
-  return db.system(async (tx) => {
     const rows = await tx.query(
       `INSERT INTO marketing_assistant_days(day,cost_aed) VALUES($1,$2)
        ON CONFLICT(day) DO UPDATE SET cost_aed=marketing_assistant_days.cost_aed+EXCLUDED.cost_aed,updated_at=now()
@@ -265,7 +268,56 @@ export async function reserveTurn(db: Database, day: string, aed: number, cap: n
       [day, aed, cap],
     );
     return rows.length > 0;
-  });
+}
+
+export const ASSISTANT_WAIT_CUES = {
+  en: ["One moment.", "I'm still with you. Just a moment more."],
+  ar: ["لحظة واحدة.", "أنا معك. لحظة أخرى فقط."],
+} as const;
+/** Shared generic clips, not call recordings. A claim is never retried after purchase. */
+async function prepareAssistantCues(db: Database, lang: AssistantLanguage) {
+  const config = runtimeConfig();
+  if (!assistantReadiness(config).ready) return { cues: [], pending: false };
+  const voiceId = await assistantVoiceId(config);
+  if (!voiceId) return { cues: [], pending: false };
+  const voice = voiceContract(), lines = ASSISTANT_WAIT_CUES[lang];
+  const key = createHash("sha256").update(JSON.stringify([voiceId, config.VOICE_BASE_URL, config.VOICE_API_KEY, voice.model, config.VOICE_API_VERSION, lang, lines])).digest("hex");
+  const day = uaeDay(), characters = lines.reduce((n, line) => n + line.length, 0);
+  // Keep room for the caller's answer. Shared cues never consume a visit turn.
+  const platform = publicPlatform();
+  const facts = marketingAssistantFacts({ origin: config.PUBLIC_APP_URL || "http://localhost:3000", appName: platform.name, followerModel: platform.followerModel, availability: platform.availability });
+  const history: AssistantTurn[] = Array.from({ length: MARKETING_ASSISTANT_LIMITS.historyTurns }, () => ({ from: "visitor", text: "x".repeat(MARKETING_ASSISTANT_LIMITS.replyCharacters) }));
+  const answer = turnReserve(config, { promptBytes: assistantPromptBytes(platform.name, facts, history), billableMs: MARKETING_ASSISTANT_LIMITS.audioSeconds * 1000, sttUsdPerHour: speechToTextContract().pricePerHour, voiceUsdPer1000: voice.price });
+  const reserved = Math.ceil(characters / 1000 * voice.price * usdToAed(config) * 10000) / 10000 + answer.aed;
+  let claimed = false;
+  const noBudget = new Error("Optional cues exceed available budget");
+  try {
+    const existing = await db.system(async tx => {
+      const inserted = await tx.query("INSERT INTO marketing_assistant_cues(key_hash,state) VALUES($1,'preparing') ON CONFLICT DO NOTHING RETURNING key_hash", [key]);
+      if (!inserted.length) return (await tx.query<{ state: string; audio: string[] }>("SELECT state,audio FROM marketing_assistant_cues WHERE key_hash=$1", [key]))[0];
+      if (!await reserveSpend(tx, day, reserved, assistantCapAed(config))) throw noBudget;
+      claimed = true;
+      return undefined;
+    });
+    if (!claimed) return { cues: existing?.state === "ready" ? existing.audio : [], pending: existing?.state === "preparing" };
+  } catch (error) { if (error === noBudget) return { cues: [], pending: false }; throw error; }
+  const audio: string[] = [];
+  let attempted = 0;
+  try {
+    for (const line of lines) {
+      // Settings may have changed while another clip was synthesised.
+      const now = runtimeConfig();
+      if (!assistantReadiness(now).ready || await assistantVoiceId(now) !== voiceId || now.VOICE_API_KEY !== config.VOICE_API_KEY || now.VOICE_BASE_URL !== config.VOICE_BASE_URL || now.VOICE_MODEL !== config.VOICE_MODEL || await assistantSpentAed(db, day) > assistantCapAed(now)) throw Error("Voice configuration changed");
+      attempted += line.length;
+      const part = await cartesiaVoiceClient(voice).speech({ voiceId, text: line, model: voice.model, language: lang });
+      if (part.audio.length > 512 * 1024) throw Error("Cue audio exceeds bound");
+      audio.push(part.audio.toString("base64"));
+    }
+  } catch { audio.length = 0; }
+  // Failed attempts may still be billed. A crash retains the conservative reservation.
+  await addSpend(db, day, { ttsCharacters: attempted, ttsUsd: attempted / 1000 * voice.price }, config, reserved);
+  await db.system(tx => tx.query("UPDATE marketing_assistant_cues SET state=$2,audio=$3::jsonb WHERE key_hash=$1 AND state='preparing'", [key, audio.length === 2 ? "ready" : "failed", JSON.stringify(audio)]));
+  return { cues: audio, pending: false };
 }
 
 /** A keyed hash of the day and a visitor value; never the value itself. */
@@ -307,6 +359,8 @@ const turnBody = z
     type: z.enum(Object.keys(SPEECH_AUDIO_TYPES) as [SpeechAudioType, ...SpeechAudioType[]]),
     durationMs: z.number().int().min(200).max(MARKETING_ASSISTANT_LIMITS.audioSeconds * 1000 + 500),
     lang: z.enum(["en", "ar"]).default("en"),
+    currentPage: z.enum(Object.keys(ASSISTANT_DESTINATIONS) as [AssistantDestination, ...AssistantDestination[]]).nullable().optional(),
+    allowNavigation: z.boolean().default(true),
     history: z
       .array(
         z.object({
@@ -341,6 +395,16 @@ export function registerMarketingAssistant(
     };
   });
 
+  app.post(
+    "/api/v1/public/assistant/cues",
+    { bodyLimit: 1024, config: { rateLimit: { max: 12, timeWindow: "1 minute" } } },
+    async (req, reply) => {
+      reply.header("Cache-Control", "no-store");
+      const body = z.object({ lang: z.enum(["en", "ar"]) }).strict().safeParse(req.body);
+      if (!body.success) throw fail(400, "ASSISTANT_INVALID", MARKETING_ASSISTANT_PUBLIC_TEXT.en.error);
+      return prepareAssistantCues(db, body.data.lang);
+    },
+  );
   app.post(
     "/api/v1/public/assistant/turn",
     { bodyLimit: 1024 * 1024, config: { rateLimit: { max: 12, timeWindow: "1 minute" } } },
@@ -429,6 +493,7 @@ export function registerMarketingAssistant(
       let text: string;
       let lang: AssistantLanguage = b.lang;
       let handoff = false;
+      let navigate: AssistantDestination | null = null;
       if (!heard) {
         text = MARKETING_ASSISTANT_PUBLIC_TEXT[b.lang].notHeard;
       } else {
@@ -446,7 +511,7 @@ export function registerMarketingAssistant(
         };
         try {
           const modelReply = await marketingAssistantModel(
-            { appName: platform.name, facts, history: b.history, visitor: heard },
+            { appName: platform.name, facts, history: b.history, visitor: heard, currentPage: b.currentPage, allowNavigation: b.allowNavigation },
             accounting,
           );
           const screened = screenAssistantReply({
@@ -459,6 +524,7 @@ export function registerMarketingAssistant(
           text = screened.text;
           lang = screened.lang;
           handoff = screened.handoff;
+          navigate = !b.allowNavigation || screened.navigate === b.currentPage ? null : screened.navigate;
           if (screened.replaced) spend.screened = 1;
           if (handoff) spend.handoffs = 1;
         } catch {
@@ -471,10 +537,13 @@ export function registerMarketingAssistant(
       // Speech out: cue-sized clips in the chosen voice, joined.
       // The page plays the clips one after another.
       let speech: string[] | null = null;
+      const clips = replyClips(text);
+      // Count attempted speech even when its outcome is unknown.
+      spend.ttsCharacters = clips.reduce((n, clip) => n + clip.length, 0);
+      spend.ttsUsd = (spend.ttsCharacters / 1000) * voice.price;
       try {
         const c = voice;
         const client = cartesiaVoiceClient(c);
-        const clips = replyClips(text);
         const parts = await Promise.all(
           clips.map((clip) =>
             client.speech({ voiceId, text: clip, model: c.model, language: speechLanguage(clip) }),
@@ -494,6 +563,7 @@ export function registerMarketingAssistant(
         audio: speech,
         audioType: "audio/mpeg",
         handoff: handoff ? assistantHandoff() : null,
+        navigate,
         turnsLeft: Math.max(0, MARKETING_ASSISTANT_LIMITS.turnsPerVisit - visit),
       };
     },
