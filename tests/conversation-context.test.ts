@@ -33,7 +33,7 @@ async function register(label: string) {
   });
   return actor;
 }
-async function member(owner = coach) {
+async function member(owner = coach, historical = false) {
   const email = `conversation-member-${randomUUID()}@example.test`;
   const invite = await req(owner, "/invitations", "POST", { email, role: "subscriber" });
   assert.equal(invite.statusCode, 200, invite.body);
@@ -42,7 +42,13 @@ async function member(owner = coach) {
   const cookie = String(joined.headers["set-cookie"]).split(";")[0];
   const actor = { ...(await req({ cookie }, "/bootstrap")).json().user, cookie };
   await db.tenant(owner, tx => tx.query("INSERT INTO subscriptions(id,tenant_id,user_id,status,period_end,price_minor) VALUES($1,$2,$3,'active',now()+interval '30 days',10000)", [randomUUID(), owner.tenantId, actor.userId]));
-  assert.equal((await req(actor, "/intake", "POST", profile)).statusCode, 200);
+  if (historical) {
+    // Seed an old grant from the outset: consent records are append-only.
+    await db.tenant(actor, async tx => {
+      await putRecord(tx, actor, "intake", { ...profile, allowedUses: ["render", "model_prompt"], origin: "platform" }, { status: "complete" });
+      await tx.query("INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted,created_at) VALUES($1,$2,$3,'coaching','historical-fixture',true,now()-interval '35 days')", [randomUUID(), actor.tenantId, actor.userId]);
+    });
+  } else assert.equal((await req(actor, "/intake", "POST", profile)).statusCode, 200);
   return actor;
 }
 async function message(owner: any, subscriber: any, text: string, author = "trainer", status = "sent", extra = {}) {
@@ -128,6 +134,60 @@ test("context is bounded to complete recent turns without stripping negation or 
   const selected = selectConversationTurns(long);
   assert.equal(selected.length, 3);
   assert.deepEqual(selected.map(row => row.text), long.slice(0, 3).reverse().map(row => row.text));
+});
+
+async function ageMessage(owner: any, id: string, days: number) {
+  await db.tenant(owner, tx => tx.query("UPDATE records SET created_at=now()-($2::text||' days')::interval WHERE id=$1", [id, String(days)]));
+}
+test("relevant older chat is recalled once, scoped by member, rights and latest consent, without a second model call", async () => {
+  const client = await member(coach, true), peer = await member(), elsewhere = await member(foreign);
+  const old = await message(coach, client, "Dumbbells are in my garage.", "subscriber");
+  await ageMessage(coach, old.id, 20);
+  const reply = await message(coach, client, "Let me know if the equipment changes.");
+  await ageMessage(coach, reply.id, 19.99);
+  const forbidden = [
+    [coach, await message(coach, peer, "Dumbbells PEER PRIVATE", "subscriber"), 20],
+    [foreign, await message(foreign, elsewhere, "Dumbbells FOREIGN PRIVATE", "subscriber"), 20],
+    [coach, await message(coach, client, "Dumbbells BEFORE CONSENT", "subscriber"), 40],
+    [coach, await message(coach, client, "Dumbbells DRAFT PRIVATE", "subscriber", "pending_review"), 19],
+    [coach, await message(coach, client, "Dumbbells SYSTEM PRIVATE", "system"), 18],
+  ] as const;
+  for (const [owner, r, days] of forbidden) await ageMessage(owner, r.id, days);
+  await db.tenant(coach, tx => tx.query("UPDATE records SET data=data||$2::jsonb WHERE id=$1", [old.id, JSON.stringify({ internalNote: "RECALL PRIVATE NOTE", attachments: [{ text: "RECALL PRIVATE ATTACHMENT" }] })]));
+  const current = await message(coach, client, "The dumbbells are gone now. I have no equipment.", "subscriber");
+  const before = prompts.length;
+  const answer = await req(client, "/coaching/ask", "POST", { message: "How should I think about those dumbbells now?" });
+  assert.equal(answer.statusCode, 200, answer.body);
+  assert.equal(prompts.length, before + 1);
+  const { input } = prompts.at(-1);
+  assert.deepEqual(input.conversation.recalled[0].turns.map((r: any) => r.text), [old.data.text, reply.data.text]);
+  assert.deepEqual(input.conversation.turns.map((r: any) => r.text), [current.data.text]);
+  assert.doesNotMatch(JSON.stringify(input), /PRIVATE|BEFORE CONSENT/);
+  const [decision] = await db.tenant(coach, tx => tx.query("SELECT data FROM records WHERE kind='decision' AND owner_user_id=$1", [client.userId]));
+  assert.deepEqual(decision.data.conversationMessageIds, [old.id, reply.id, current.id]);
+  await db.tenant(coach, tx => tx.query("DELETE FROM records WHERE id=ANY($1::uuid[])", [[old.id, reply.id]]));
+  const afterDelete = await db.tenant(client, tx => loadConversationContext(tx, client.userId, decision.data.requestMessageId));
+  assert.equal(afterDelete.context!.recalled, undefined);
+  assert.ok(!afterDelete.messageIds.includes(old.id));
+  assert.equal((await req(client, "/privacy/consent", "POST", { type: "coaching", granted: false })).statusCode, 200);
+  assert.equal((await db.tenant(client, tx => loadConversationContext(tx, client.userId, decision.data.requestMessageId))).context, null);
+  assert.equal((await req(client, "/intake", "POST", profile)).statusCode, 200);
+  const regranted = await db.tenant(client, tx => loadConversationContext(tx, client.userId, decision.data.requestMessageId));
+  assert.deepEqual(regranted.messageIds, [], "Regranting never revives old messages or the old request");
+});
+
+test("deleting a selected older source during generation withholds the stale reply", async () => {
+  const client = await member(coach, true);
+  const old = await message(coach, client, "Dumbbells are at home.", "subscriber");
+  await ageMessage(coach, old.id, 20);
+  duringReply = async () => { await db.tenant(coach, tx => tx.query("DELETE FROM records WHERE id=$1", [old.id])); };
+  const before = prompts.length;
+  const answer = await req(client, "/coaching/ask", "POST", { message: "Can we discuss dumbbells?" });
+  assert.equal(answer.statusCode, 409, answer.body);
+  assert.match(answer.json().message, /conversation changed/);
+  assert.equal(prompts.length, before + 1, "No automatic paid retry");
+  const rows = await db.tenant(coach, tx => tx.query("SELECT id FROM records WHERE kind='decision' AND owner_user_id=$1", [client.userId]));
+  assert.deepEqual(rows, []);
 });
 
 test("trainer examples are versioned with style answers, screened and excluded from copied practice questions", async () => {

@@ -759,7 +759,7 @@ test("qualified replies use recent conversation without replaying old requests, 
   assert.ok(capturedInputs.at(-1).conversation.turns.some((turn: any) => turn.text === sent.json().data.text));
   assert.equal(capturedInputs.at(-1).request, message);
   const [decision] = await db.tenant(coach, tx => tx.query("SELECT data FROM records WHERE id=$1", [answered.json().decisionId]));
-  assert.equal(decision.data.conversationContextVersion, "subscriber-conversation-v1");
+  assert.equal(decision.data.conversationContextVersion, "subscriber-conversation-v2");
   assert.ok(decision.data.conversationMessageIds.includes(sent.json().id));
   const unrelated = await req("/coaching/ask", "POST", { message: "Thanks. That is all for now." }, client);
   assert.equal(unrelated.statusCode, 200, unrelated.body);
