@@ -7,6 +7,7 @@ import { fidelityCaseSchema } from "../packages/domain/src/brain-fidelity.ts";
 import { brainTrainingState } from "../apps/api/src/brain-training-state.ts";
 
 let db: Database, app: Awaited<ReturnType<typeof buildApp>>;
+let address = 0;
 before(async () => {
   db = await createDatabase({ memory: true });
   app = await buildApp({ db, testing: true });
@@ -27,6 +28,7 @@ async function coach() {
   const r = await app.inject({
     url: "/api/v1/auth/register",
     method: "POST",
+    remoteAddress: `10.78.0.${++address}`,
     headers: { origin: "http://localhost:3000" },
     payload: {
       name: "Review Coach",
@@ -147,7 +149,31 @@ const ratings = {
   ],
   note: "The availability follow-up matters.",
 };
-async function saved(a: any, value = situation()) {
+const olderSituation = () => ({
+  ...situation(),
+  history: [
+    {
+      author: "subscriber",
+      text: "The commute takes up my evenings, but I can train before work.",
+    },
+    {
+      author: "trainer",
+      text: "Tell me whether mornings remain practical when your schedule changes.",
+    },
+  ],
+});
+const allScores = (n: number) => ({
+  scores: ["A", "B"].map((label) => ({
+    label,
+    decision: n,
+    wording: n,
+    context: n,
+    reasoning: n,
+    boundaries: n,
+  })),
+  note: "Rate only the visible reply.",
+});
+async function saved(a: any, value: unknown = situation()) {
   const response = await call(a, "/cases", value);
   assert.equal(response.statusCode, 200, response.body);
   return response.json();
@@ -297,6 +323,12 @@ test("one pinned Brain reply excludes reference answers, survives duplicate requ
     const summary = (await call(a)).json().summary;
     assert.equal(summary.count, 1);
     assert.equal(
+      summary.reasoning,
+      null,
+      "Earlier three-dimension ratings have no invented reasoning score",
+    );
+    assert.equal(summary.boundaries, null);
+    assert.equal(
       summary.decision,
       ratings.scores.find((s) => s.label === label)!.decision,
     );
@@ -359,6 +391,183 @@ test("an in-flight duplicate does not trigger another paid request", async () =>
         requiresHumanReview: true,
       };
     },
+  );
+});
+
+test("memory comparison shares a frozen setup, charges once per approach, and pairs only independently rated current cases", async () => {
+  const a = await coach();
+  await publish(a);
+  const c = await saved(a, olderSituation());
+  await model(async (sent) => {
+    const recall = (await call(a, `/cases/${c.id}/runs`, {})).json();
+    assert.equal(recall.status, "ready");
+    assert.equal(recall.approach, "recall");
+    assert.equal(
+      sent[0].conversation.recalled[0].turns[0].text,
+      olderSituation().history[0].text,
+    );
+    await call(a, `/runs/${recall.id}/ratings`, allScores(5));
+    const baseline = (
+      await call(a, `/cases/${c.id}/runs`, { approach: "recent_only" })
+    ).json();
+    assert.equal(baseline.status, "ready");
+    assert.equal(baseline.approach, "recent_only");
+    assert.notEqual(baseline.id, recall.id);
+    assert.equal(sent.length, 2);
+    assert.deepEqual(sent[1], {
+      ...sent[0],
+      conversation: {
+        version: sent[0].conversation.version,
+        turns: sent[0].conversation.turns,
+      },
+    });
+    assert.doesNotMatch(JSON.stringify(sent), /REFERENCE_ONLY/);
+    assert.ok(!JSON.stringify(sent).includes(situation().referenceReply));
+    assert.deepEqual(Object.keys(baseline.candidates[0]).sort(), [
+      "label",
+      "reply",
+    ]);
+    let state = (await call(a)).json();
+    assert.equal(state.summary.count, 1);
+    assert.equal(
+      state.comparison.count,
+      0,
+      "One rated approach is not a matched comparison",
+    );
+    assert.equal(state.comparison.recentOnly.awaitingRatings, 1);
+    const graded = await call(a, `/runs/${baseline.id}/ratings`, allScores(2));
+    assert.equal(graded.statusCode, 200, graded.body);
+    assert.equal(graded.json().receipt.approach, "recent_only");
+    assert.equal(
+      graded.json().receipt.conversationPolicy.maxRecallCharacters,
+      4000,
+    );
+    state = (await call(a)).json();
+    assert.equal(
+      state.summary.count,
+      1,
+      "Baseline ratings cannot inflate current Brain averages",
+    );
+    assert.equal(state.summary.reasoning, 5);
+    assert.equal(state.comparison.count, 1);
+    for (const score of Object.values(state.comparison.scores))
+      assert.deepEqual(score, {
+        count: 1,
+        recall: 5,
+        recentOnly: 2,
+        difference: 3,
+      });
+    assert.equal(
+      (await call(a, `/cases/${c.id}/runs`, { approach: "recall" })).json().id,
+      recall.id,
+    );
+    assert.equal(
+      (await call(a, `/cases/${c.id}/runs`, { approach: "recent_only" })).json()
+        .id,
+      baseline.id,
+    );
+    assert.equal(sent.length, 2);
+    const costs = await db.tenant(a, (tx) =>
+      tx.query("SELECT id FROM cost_events WHERE task='evaluation'"),
+    );
+    assert.equal(costs.length, 2);
+    await call(a, `/runs/${recall.id}/teach`, {
+      reply: "What time is available before work?",
+      reason: "Check whether earlier availability still holds.",
+      confirmed: true,
+    });
+    state = (await call(a)).json();
+    assert.equal(state.comparison.count, 0);
+    assert.equal(state.comparison.recentOnly.attempts, 0);
+    assert.equal(state.summary.count, 0);
+    assert.equal(
+      state.runs.filter((r: any) => r.status === "graded").length,
+      2,
+    );
+    const [teaching] = await db.tenant(a, (tx) =>
+      tx.query("SELECT data FROM records WHERE kind='interview'"),
+    );
+    assert.match(
+      teaching.data.question,
+      /Older conversation \(20 days earlier\)/,
+    );
+  });
+});
+
+test("comparisons never pair different Brain releases or fabricate missing dimensions", async () => {
+  const a = await coach();
+  await publish(a);
+  const c = await saved(a, olderSituation());
+  await model(async () => {
+    const old = (await call(a, `/cases/${c.id}/runs`, {})).json();
+    await call(a, `/runs/${old.id}/ratings`, allScores(5));
+    await publish(a, "A new published method");
+    const baseline = (
+      await call(a, `/cases/${c.id}/runs`, { approach: "recent_only" })
+    ).json();
+    await call(a, `/runs/${baseline.id}/ratings`, ratings);
+    let state = (await call(a)).json();
+    assert.equal(state.summary.count, 0);
+    assert.equal(state.comparison.count, 0);
+    const current = (await call(a, `/cases/${c.id}/runs`, {})).json();
+    await call(a, `/runs/${current.id}/ratings`, allScores(4));
+    state = (await call(a)).json();
+    assert.equal(state.comparison.count, 1);
+    assert.equal(state.comparison.scores.decision.count, 1);
+    assert.deepEqual(state.comparison.scores.reasoning, {
+      count: 0,
+      recall: null,
+      recentOnly: null,
+      difference: null,
+    });
+    assert.equal(state.comparison.scores.boundaries.count, 0);
+  });
+});
+
+test("irrelevant baseline calls and reused older teaching are refused before buying a reply; legacy cases remain idempotent", async () => {
+  const a = await coach();
+  await publish(a);
+  const c = await saved(a);
+  await db.tenant(a, (tx) =>
+    tx.query("UPDATE records SET data=data-'history' WHERE id=$1", [c.id]),
+  );
+  assert.equal((await saved(a)).id, c.id);
+  assert.equal(
+    (await call(a, "/cases", olderSituation())).json().code,
+    "CASE_OVERLAP",
+    "Adding older exchanges cannot disguise a reused question",
+  );
+  await model(async (sent) => {
+    assert.equal(
+      (await call(a, `/cases/${c.id}/runs`, { approach: "recent_only" })).json()
+        .code,
+      "HISTORY_REQUIRED",
+    );
+    assert.equal(
+      (await call(a, `/cases/${c.id}/runs`, { approach: "invented" }))
+        .statusCode,
+      400,
+    );
+    assert.equal(sent.length, 0);
+  });
+  const b = await coach();
+  const historical = await saved(b, olderSituation());
+  await db.tenant(b, (tx) =>
+    putRecord(
+      tx,
+      b,
+      "interview",
+      {
+        question: olderSituation().history[0].text,
+        answer: "Ask about the current schedule.",
+      },
+      { status: "answered" },
+    ),
+  );
+  const state = (await call(b)).json();
+  assert.equal(
+    state.cases.find((v: any) => v.id === historical.id).eligible,
+    false,
   );
 });
 

@@ -29,6 +29,9 @@ import {
 import {
   FIDELITY_VERSION,
   fidelityCaseSchema,
+  fidelityRunSchema,
+  fidelityDimensions,
+  fidelityConversation,
   fidelityRatingSchema,
   fidelityCorrectionSchema,
   fidelitySituation,
@@ -123,7 +126,9 @@ async function comparisonMaterial(tx: Tx) {
 function overlaps(c: FidelityCase, material: string[]) {
   return material.some(
     (t) =>
-      fidelityOverlap(c.request, t) || fidelityOverlap(fidelitySituation(c), t),
+      fidelityOverlap(c.request, t) ||
+      fidelityOverlap(fidelitySituation(c), t) ||
+      (c.history ?? []).some((turn) => fidelityOverlap(turn.text, t)),
   );
 }
 async function currentContext(tx: Tx) {
@@ -140,6 +145,7 @@ async function currentContext(tx: Tx) {
     brainDigest: digest(brain),
     trainerBrainVersion: brain.version,
     conversationVersion: conversationContextPolicy.version,
+    conversationPolicy: conversationContextPolicy,
     promptVersion: coachDecisionPromptVersion,
     provider: modelProviderName(config),
     model: config.MODEL_NAME ?? null,
@@ -161,6 +167,7 @@ const caseView = (c: any, contaminated: boolean) => ({
   title: c.data.title,
   status: c.status,
   turns: c.data.turns,
+  history: c.data.history ?? [],
   request: c.data.request,
   createdAt: c.created_at,
   eligible: c.status === "held_out" && !contaminated,
@@ -171,6 +178,7 @@ function runView(r: any) {
   return {
     id: r.id,
     caseId: r.data.caseId,
+    approach: r.data.approach ?? "recent_only",
     status: r.status,
     createdAt: r.created_at,
     interrupted:
@@ -194,6 +202,69 @@ function runView(r: any) {
         }
       : {}),
     ...(r.status === "failed" ? { failure: r.data.failure } : {}),
+  };
+}
+
+function brainScore(run: any) {
+  const label = run.data.order.indexOf("brain") === 0 ? "A" : "B";
+  return run.data.rating.scores.find((score: any) => score.label === label);
+}
+const average = (values: number[]) =>
+  values.length
+    ? Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 10) / 10
+    : null;
+function summarize(attempts: any[]) {
+  const scores = attempts.filter((r) => r.status === "graded").map(brainScore);
+  return {
+    count: scores.length,
+    attempts: attempts.length,
+    failed: attempts.filter((r) => r.status === "failed").length,
+    pending: attempts.filter((r) => r.status === "generating").length,
+    awaitingRatings: attempts.filter((r) => r.status === "ready").length,
+    ...Object.fromEntries(
+      fidelityDimensions.map((key) => [
+        key,
+        average(scores.map((s) => s?.[key]).filter(Number.isFinite)),
+      ]),
+    ),
+  };
+}
+function pairedComparison(attempts: any[]) {
+  const pairs = new Map<
+    string,
+    Partial<Record<"recall" | "recent_only", any>>
+  >();
+  for (const r of attempts.filter((r) => r.status === "graded")) {
+    const pair = pairs.get(r.data.caseId) ?? {};
+    pair[r.data.approach as "recall" | "recent_only"] = brainScore(r);
+    pairs.set(r.data.caseId, pair);
+  }
+  const matched = [...pairs.values()].filter((p) => p.recall && p.recent_only);
+  return {
+    count: matched.length,
+    recentOnly: summarize(
+      attempts.filter((r) => r.data.approach === "recent_only"),
+    ),
+    scores: Object.fromEntries(
+      fidelityDimensions.map((key) => {
+        const scored = matched.filter(
+          (p) =>
+            Number.isFinite(p.recall[key]) &&
+            Number.isFinite(p.recent_only[key]),
+        );
+        return [
+          key,
+          {
+            count: scored.length,
+            recall: average(scored.map((p) => p.recall[key])),
+            recentOnly: average(scored.map((p) => p.recent_only[key])),
+            difference: average(
+              scored.map((p) => p.recall[key] - p.recent_only[key]),
+            ),
+          },
+        ];
+      }),
+    ),
   };
 }
 
@@ -228,32 +299,17 @@ export function registerBrainFidelity(
         views.filter((c) => c.eligible).map((c) => c.id),
       );
       const attempts = runs.filter(
-        (r) => r.data.key === context.key && eligible.has(r.data.caseId),
+        (r) =>
+          r.data.comparisonKey === context.key && eligible.has(r.data.caseId),
       );
-      const current = attempts.filter((r) => r.status === "graded");
-      const scores = current.map(
-        (r) => r.data.rating.scores[r.data.order.indexOf("brain")],
-      );
-      const mean = (key: string) =>
-        scores.length
-          ? Math.round(
-              (scores.reduce((n, s) => n + s[key], 0) / scores.length) * 10,
-            ) / 10
-          : null;
       return {
         ready: !!context.release,
         cases: views,
         runs: runs.map(runView),
-        summary: {
-          count: scores.length,
-          attempts: attempts.length,
-          failed: attempts.filter((r) => r.status === "failed").length,
-          pending: attempts.filter((r) => r.status === "generating").length,
-          awaitingRatings: attempts.filter((r) => r.status === "ready").length,
-          decision: mean("decision"),
-          wording: mean("wording"),
-          context: mean("context"),
-        },
+        summary: summarize(
+          attempts.filter((r) => r.data.approach === "recall"),
+        ),
+        comparison: pairedComparison(attempts),
       };
     });
   });
@@ -267,7 +323,10 @@ export function registerBrainFidelity(
         "SELECT * FROM records WHERE kind='brain_fidelity_case' ORDER BY id LIMIT 101",
       );
       // Saving after a lost response returns the same immutable case.
-      const existing = rows.find((r) => digest(r.data) === digest(b));
+      const existing = rows.find(
+        (r) =>
+          digest({ ...r.data, history: r.data.history ?? [] }) === digest(b),
+      );
       if (existing)
         return caseView(existing, overlaps(b, await comparisonMaterial(tx)));
       if (rows.length >= 100)
@@ -279,7 +338,11 @@ export function registerBrainFidelity(
       if (
         overlaps(b, await comparisonMaterial(tx)) ||
         rows.some((r) =>
-          fidelityOverlap(fidelitySituation(b), fidelitySituation(r.data)),
+          overlaps(b, [
+            r.data.request,
+            fidelitySituation(r.data),
+            ...(r.data.history ?? []).map((turn: any) => turn.text),
+          ]),
         )
       )
         throw fail(
@@ -296,20 +359,28 @@ export function registerBrainFidelity(
   });
   app.post("/api/v1/brain/fidelity/cases/:id/runs", async (req) => {
     const a = owner(req),
-      caseId = uuid.parse((req.params as any).id);
+      caseId = uuid.parse((req.params as any).id),
+      { approach } = fidelityRunSchema.parse(req.body ?? {});
     const prepared = await db.tenant(a, async (tx) => {
       await lock(tx, a);
       const c = await find(tx, caseId, "brain_fidelity_case"),
         context = await currentContext(tx);
+      if (approach === "recent_only" && !c.data.history?.length)
+        throw fail(
+          400,
+          "HISTORY_REQUIRED",
+          "Add a situation with older exchanges before comparing memory approaches.",
+        );
       if (!context.release)
         throw fail(
           409,
           "BRAIN_NOT_READY",
           "Publish your checked Brain before comparing its replies.",
         );
+      const key = digest({ comparisonKey: context.key, approach });
       const [prior] = await tx.query(
         "SELECT * FROM records WHERE kind='brain_fidelity_run' AND data->>'caseId'=$1 AND data->>'key'=$2 ORDER BY created_at DESC,id DESC LIMIT 1",
-        [caseId, context.key],
+        [caseId, key],
       );
       if (prior) return { existing: prior };
       if (
@@ -343,8 +414,10 @@ export function registerBrainFidelity(
         "brain_fidelity_run",
         {
           caseId,
-          pin: context.pin,
-          key: context.key,
+          approach,
+          pin: { ...context.pin, approach },
+          comparisonKey: context.key,
+          key,
           order: randomInt(2) ? ["brain", "trainer"] : ["trainer", "brain"],
         },
         { status: "generating" },
@@ -369,16 +442,11 @@ export function registerBrainFidelity(
         modelAccounting(db, a, "evaluation"),
         {
           trainerBrain: context!.brain,
-          conversation: {
-            version: conversationContextPolicy.version,
-            turns: example.turns.map((t, i) => ({
-              ...t,
-              sentAt: new Date(
-                new Date(c!.created_at).getTime() -
-                  (example.turns.length - i) * 60000,
-              ).toISOString(),
-            })),
-          },
+          conversation: fidelityConversation(
+            example,
+            new Date(c!.created_at).toISOString(),
+            approach,
+          ),
         },
       );
       const decision = generated.decision;

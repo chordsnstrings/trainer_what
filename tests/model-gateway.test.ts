@@ -1267,7 +1267,7 @@ test("C1: request style, reasoning effort and shared Brain version are pinned; d
   const classic = pins(base);
   assert.deepEqual(Object.keys(classic.coaching), ["endpoint", "model", "promptVersion", "trainerBrainVersion", "conversationVersion", "policyVersion", "retrieval"]);
   assert.equal(classic.coaching.trainerBrainVersion, "trainer-brain-context-v2");
-  assert.equal(classic.coaching.conversationVersion, "subscriber-conversation-v1");
+  assert.equal(classic.coaching.conversationVersion, "subscriber-conversation-v2");
   assert.deepEqual(Object.keys(classic.plan), [
     "endpoint", "model", "promptVersion", "adaptationPromptVersion", "validatorVersion", "confidenceVersion", "retrieval",
   ]);

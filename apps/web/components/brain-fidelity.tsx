@@ -6,6 +6,8 @@ const dimensions = [
   ["decision", "Coaching decision"],
   ["wording", "Tone and wording"],
   ["context", "Use of conversation"],
+  ["reasoning", "Explanation and reasoning"],
+  ["boundaries", "Knowing when to ask or defer"],
 ] as const;
 async function request(path = "", body?: unknown) {
   const response = await fetch("/api/v1/brain/fidelity" + path, {
@@ -31,6 +33,7 @@ export function BrainFidelity() {
     [runId, setRunId] = useState("");
   const [adding, setAdding] = useState(false),
     [exchanges, setExchanges] = useState(1),
+    [olderExchanges, setOlderExchanges] = useState(0),
     [busy, setBusy] = useState(false);
   const [error, setError] = useState(""),
     [notice, setNotice] = useState("");
@@ -67,8 +70,8 @@ export function BrainFidelity() {
       <h2>Does it sound like you?</h2>
       <p>
         Write how you would answer an unfamiliar, made-up conversation. Compare
-        your reply with your published Brain, then rate the decision, wording
-        and use of context.
+        your reply with your published Brain, then rate how closely it follows
+        your coaching method.
       </p>
       <p className="muted">
         Reply labels stay hidden until you save both ratings. You may recognise
@@ -120,7 +123,11 @@ export function BrainFidelity() {
                   {dimensions.map(([key, label]) => (
                     <div key={key}>
                       <dt>{label}</dt>
-                      <dd>{data.summary[key]} / 5</dd>
+                      <dd>
+                        {data.summary[key] == null
+                          ? "Not rated"
+                          : `${data.summary[key]} / 5`}
+                      </dd>
                     </div>
                   ))}
                 </dl>
@@ -132,6 +139,44 @@ export function BrainFidelity() {
               </p>
             )}
           </div>
+          {!!data.comparison?.recentOnly.attempts && (
+            <div className="card">
+              <h3>Does older context help?</h3>
+              <p className="muted">
+                Recent-messages-only comparisons:{" "}
+                {data.comparison.recentOnly.attempts} attempts ·{" "}
+                {data.comparison.recentOnly.awaitingRatings} awaiting ratings ·{" "}
+                {data.comparison.recentOnly.pending} unfinished ·{" "}
+                {data.comparison.recentOnly.failed} withheld or failed.
+              </p>
+              <p>
+                {data.comparison.count}{" "}
+                {data.comparison.count === 1
+                  ? "situation rated"
+                  : "situations rated"}{" "}
+                with both approaches using the same Brain and model. Only these
+                pairs contribute below. These are your ratings, not a measured
+                accuracy rate.
+              </p>
+              {!!data.comparison.count && (
+                <dl>
+                  {dimensions.map(([key, label]) => {
+                    const score = data.comparison.scores[key];
+                    return (
+                      <div key={key}>
+                        <dt>{label}</dt>
+                        <dd>
+                          {score.count
+                            ? `${score.recall} / 5 with recall · ${score.recentOnly} / 5 recent only · ${score.count} paired ${score.count === 1 ? "rating" : "ratings"}`
+                            : "Not rated in both approaches"}
+                        </dd>
+                      </div>
+                    );
+                  })}
+                </dl>
+              )}
+            </div>
+          )}
           <div className="button-row">
             <button
               className="button secondary"
@@ -164,6 +209,13 @@ export function BrainFidelity() {
                         author: i % 2 ? "trainer" : "subscriber",
                         text: f.get("turn" + i),
                       })),
+                      history: Array.from(
+                        { length: olderExchanges * 2 },
+                        (_, i) => ({
+                          author: i % 2 ? "trainer" : "subscriber",
+                          text: f.get("olderTurn" + i),
+                        }),
+                      ),
                       request: f.get("request"),
                       referenceReply: f.get("referenceReply"),
                       referenceReason: f.get("referenceReason"),
@@ -177,6 +229,7 @@ export function BrainFidelity() {
                     setAdding(false);
                     setSelected(saved.id);
                     setRunId("");
+                    setOlderExchanges(0);
                   }
                 });
               }}
@@ -192,9 +245,52 @@ export function BrainFidelity() {
               </Field>
               <p className="muted">
                 Use unfamiliar, fictional details. Keep these separate from
-                teaching examples and practice questions. Keep all messages
-                below within 2,400 characters.
+                teaching examples and practice questions. Keep the recent
+                exchanges and new message within 2,400 characters.
               </p>
+              <details>
+                <summary>Add older context to test memory</summary>
+                <p className="muted">
+                  Optional, fictional exchanges from 20 days earlier, up to
+                  4,000 characters. Include a detail the new message should
+                  recall, or an outdated detail that a recent correction should
+                  override.
+                </p>
+                {Array.from({ length: olderExchanges * 2 }, (_, i) => (
+                  <Field
+                    key={i}
+                    label={`${i % 2 ? "Your older reply" : "Subscriber's older message"} ${Math.floor(i / 2) + 1}`}
+                  >
+                    <textarea
+                      name={"olderTurn" + i}
+                      required
+                      minLength={3}
+                      maxLength={700}
+                      rows={2}
+                    />
+                  </Field>
+                ))}
+                <div className="button-row">
+                  <button
+                    type="button"
+                    className="button secondary"
+                    disabled={busy || olderExchanges >= 3}
+                    onClick={() => setOlderExchanges((n) => n + 1)}
+                  >
+                    Add an older exchange
+                  </button>
+                  {!!olderExchanges && (
+                    <button
+                      type="button"
+                      className="button secondary"
+                      disabled={busy}
+                      onClick={() => setOlderExchanges((n) => n - 1)}
+                    >
+                      Remove last older exchange
+                    </button>
+                  )}
+                </div>
+              </details>
               {Array.from({ length: exchanges * 2 }, (_, i) => (
                 <Field
                   key={i}
@@ -296,6 +392,19 @@ export function BrainFidelity() {
             <>
               <div className="card">
                 <h3>{example.title}</h3>
+                {!!example.history?.length && (
+                  <details>
+                    <summary>Older exchanges · 20 days earlier</summary>
+                    {example.history.map((t: any, i: number) => (
+                      <p key={i}>
+                        <strong>
+                          {t.author === "subscriber" ? "Subscriber" : "You"}:
+                        </strong>{" "}
+                        {t.text}
+                      </p>
+                    ))}
+                  </details>
+                )}
                 {example.turns.map((t: any, i: number) => (
                   <p key={i}>
                     <strong>
@@ -314,23 +423,46 @@ export function BrainFidelity() {
                     summary.
                   </p>
                 )}
-                <button
-                  className="button"
-                  disabled={busy || !data.ready || !example.eligible}
-                  onClick={() =>
-                    void action(
-                      () => request(`/cases/${example.id}/runs`, {}),
-                      "Comparison saved. Existing attempts are reused for the same Brain and model.",
-                    ).then((r) => {
-                      if (r) setRunId(r.id);
-                    })
-                  }
-                >
-                  Compare with current Brain
-                </button>
+                <div className="button-row">
+                  <button
+                    className="button"
+                    disabled={busy || !data.ready || !example.eligible}
+                    onClick={() =>
+                      void action(
+                        () => request(`/cases/${example.id}/runs`, {}),
+                        "Comparison saved. Existing attempts are reused for the same approach, Brain and model.",
+                      ).then((r) => {
+                        if (r) setRunId(r.id);
+                      })
+                    }
+                  >
+                    Compare with current Brain
+                  </button>
+                  {!!example.history?.length && (
+                    <button
+                      className="button secondary"
+                      disabled={busy || !data.ready || !example.eligible}
+                      onClick={() =>
+                        void action(
+                          () =>
+                            request(`/cases/${example.id}/runs`, {
+                              approach: "recent_only",
+                            }),
+                          "Recent-messages-only comparison saved. Rate both approaches to compare their results.",
+                        ).then((r) => {
+                          if (r) setRunId(r.id);
+                        })
+                      }
+                    >
+                      Compare with recent messages only
+                    </button>
+                  )}
+                </div>
                 <p className="muted">
-                  One AI reply per situation and Brain/model version. Your
-                  reference reply and reasoning stay out of its request.
+                  One AI reply per situation, approach and Brain/model version.
+                  Your reference reply and reasoning stay out of its request.
+                  {!!example.history?.length &&
+                    " Comparing recent messages only makes a separate model call, with the same rules and model but no older exchanges."}
                 </p>
               </div>
               {runs.length > 1 && (
@@ -342,7 +474,10 @@ export function BrainFidelity() {
                     {runs.map((r: any, i: number) => (
                       <option key={r.id} value={r.id}>
                         {new Date(r.createdAt).toLocaleString()} ·{" "}
-                        {r.status === "graded" ? "Rated" : "Not rated"} ·{" "}
+                        {r.approach === "recall"
+                          ? "With recall"
+                          : "Recent only"}{" "}
+                        · {r.status === "graded" ? "Rated" : "Not rated"} ·{" "}
                         {runs.length - i}
                       </option>
                     ))}
@@ -389,7 +524,8 @@ export function BrainFidelity() {
                   <p className="muted">
                     Rate each dimension from 1 (poor match) to 5 (very close to
                     how you would coach). Save once; revealing the sources locks
-                    the ratings.
+                    the ratings. Judge the explanation in the visible reply and
+                    whether it asks for missing facts or defers appropriately.
                   </p>
                   <div className="two-columns">
                     {run.candidates.map((c: any) => (
