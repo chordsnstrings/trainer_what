@@ -1,8 +1,8 @@
 # Trainer review of unfamiliar conversations
 
-Status: live, 9 October 2026. [PR #55](https://github.com/chordsnstrings/trainer_what/pull/55) is merged and deployed as `de77f1c7551b9a818d3403154fce74dab35e497b`. [Serving verification](https://github.com/chordsnstrings/trainer_what/actions/runs/37921644436) confirmed HTTP 200 and that exact release at 11:11:11 UTC / 15:11:11 Dubai. This completes the written-chat human-review surface recorded after PR #53.
+Original screen release: 9 October 2026. [PR #55](https://github.com/chordsnstrings/trainer_what/pull/55) is merged and deployed as `de77f1c7551b9a818d3403154fce74dab35e497b`. [Serving verification](https://github.com/chordsnstrings/trainer_what/actions/runs/37921644436) confirmed HTTP 200 and that exact release at 11:11:11 UTC / 15:11:11 Dubai. This completes the written-chat human-review surface recorded after PR #53.
 
-The 13 October extension is implemented with release checks pending; see [personal coaching audit and plan](../PERSONAL_COACHING_2026-10-13.md) for current evidence. It adds older fictional context and matched memory comparisons. The 9 October serving receipt above covers the original screen.
+**Current status: live, 13 October 2026.** [PR #65](https://github.com/chordsnstrings/trainer_what/pull/65) deployed older fictional context and matched memory comparisons as `646b44d5c9ff0ff526ca5283c266690b608b3e6e`. [Serving verification](https://github.com/chordsnstrings/trainer_what/actions/runs/38448772113) passed; direct readiness independently confirmed the exact release and HTTP 200 at 18:50:23 UTC. See the [personal coaching audit and plan](../PERSONAL_COACHING_2026-10-13.md) for the current acceptance checks, complete release evidence and limits.
 
 ## Trainer flow
 
@@ -26,7 +26,7 @@ After rating, **Teach from this review** saves only the trainer's explicit corre
 
 This first evaluation surface covers written supervised chat. It does not measure the automatic action selector, intake/calls, programme/nutrition explanations or narration, and does not requalify any workspace. Cross-channel human grading, real-provider/account acceptance and physical-phone audio are separate follow-ups. No measured fidelity percentage is claimed from software tests or interview coverage.
 
-## Verification
+## Verification of the original screen
 
 The API/domain tests cover fictional exchange validation, private-data/known-case screening, tenant and role boundaries, generic-record concealment, reference-answer exclusion, immutable ratings and source reveal, version-separated summaries, actual usage records, concurrent request deduplication, explicit teaching/retirement, later teaching contamination and invalid/safety output withholding. The conversation browser journey exercises actual API/database saves, generation with an isolated provider, ratings/reveal, correction-to-teaching and layouts at 1280, 390 and 320 pixels. All six PR gates ([application](https://github.com/chordsnstrings/trainer_what/actions/runs/37915254156), [conversation](https://github.com/chordsnstrings/trainer_what/actions/runs/37915254061)) and all five [exact-main gates](https://github.com/chordsnstrings/trainer_what/actions/runs/37918764487) passed on their first attempts. Application: 1,779 passed / 0 failed / 5 skipped; PostgreSQL: 1,778 passed / 0 failed / 6 skipped, on PR and main. The conversation run passed 80 tests, a fresh production build and desktop/phone journeys. The [retained browser evidence](https://github.com/chordsnstrings/trainer_what/actions/runs/37915254061/artifacts/11609602440) was visually inspected at all three widths; no horizontal overflow or unlabelled controls was reported. Existing message animations, private files, hands-free fixture calls, subscriber/guided workouts, builder/layout and backend/domain journeys passed. Root TypeScript and 45 local focused/affected-domain tests also passed.
 
