@@ -1,6 +1,8 @@
 # Kamran marketing voice call
 
-## Current behavior — 13 October 2026
+## Current behavior — live 13 October 2026
+
+PR #61 is deployed as `68a0507ef44fbd07b6bf07e8ab965ff858a4b725`; exact readiness was verified at 03:34:53 UTC / 07:34:53 Dubai, with the public assistant available. All eight PR gates and seven exact-main gates passed. [Serving proof](https://github.com/chordsnstrings/trainer_what/actions/runs/38341867707).
 
 The owner now requests a continuous hands-free call and guided marketing navigation, superseding the original home-only hold-to-talk interaction documented below. Audit and ordered acceptance: `../HOMEPAGE_CALL_2026-10-13.md`.
 
