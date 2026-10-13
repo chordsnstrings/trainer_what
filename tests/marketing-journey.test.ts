@@ -491,7 +491,7 @@ test("motion tokens: the brief's values, defined once in marketing.css", async (
     "utf8",
   );
   const root = rules(sitewide).find(
-    (r) => r.selector.replace(/\s+/g, " ") === ".mk, .mk-header, .mk-footer",
+    (r) => r.selector.replace(/\s+/g, " ") === ".mk, .mk-header, .mk-footer, .mk-assistant-host",
   )!;
   const defined = Object.fromEntries(
     decls(root.body).filter(([p]) => /^--mk-(?:dur|ease)-/.test(p)),
