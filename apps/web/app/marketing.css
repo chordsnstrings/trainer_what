@@ -7,7 +7,8 @@
    closing panel). No ink bands. */
 .mk,
 .mk-header,
-.mk-footer {
+.mk-footer,
+.mk-assistant-host {
   --mk-canvas: var(--ty-white);
   --mk-band: var(--ty-paper);
   --mk-line: var(--ty-line);

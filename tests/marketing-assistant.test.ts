@@ -5,13 +5,16 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { marketingAssistantFacts } from "@trainer/contracts";
+import { marketingAssistantFacts, marketingPage } from "@trainer/contracts";
 import {
   computeAssistantCalc,
   screenAssistantReply,
   visitorNumbers,
   writtenNumbers,
+  assistantReplySchema,
+  marketingAssistantUserMessage,
 } from "../packages/domain/src/marketing-assistant.ts";
+import { ASSISTANT_DESTINATIONS, assistantDestination, assistantPage } from "../packages/domain/src/marketing-assistant-navigation.ts";
 import { estimateEarnings, DEFAULT_EARNINGS_INPUTS } from "../packages/domain/src/marketing-calculators.ts";
 import { governanceFixture } from "./governance-fixtures.ts";
 import {
@@ -159,6 +162,10 @@ let heard = SAID;
 const calls: string[] = [];
 /** When set, each speech-to-text call waits for it (turns held in flight together). */
 let sttHold: (() => Promise<void>) | null = null;
+let ttsHold: (() => Promise<void>) | null = null;
+let ttsFail = false;
+let modelNavigation: string | null = null;
+let lastContext: any;
 
 function wav(seconds = 1) {
   const rate = 8000, data = rate * 2 * seconds, b = Buffer.alloc(44 + data);
@@ -180,10 +187,11 @@ before(() => {
     calls.push(`${init?.method ?? "GET"} ${url.hostname}${url.pathname}`);
     if (url.hostname === "model.test") {
       const body = JSON.parse(String(init.body));
+      lastContext = JSON.parse(body.messages[1].content);
       const visitor = JSON.parse(body.messages[1].content).visitor as string;
       const reply = /sign up/i.test(visitor)
         ? { reply: "Great, I'll take you to Start coaching.", lang: "en", calc: null, handoff: true }
-        : { reply: "I built trainsyou so trainers get more out of their effort.", lang: "en", calc: null, handoff: false };
+        : { reply: "I built trainsyou so trainers get more out of their effort.", lang: "en", calc: null, handoff: false, navigate: modelNavigation };
       return Response.json({
         id: "fixture",
         choices: [{ message: { role: "assistant", content: JSON.stringify(reply) }, finish_reason: "stop" }],
@@ -197,6 +205,8 @@ before(() => {
       return Response.json({ text: heard, duration: 1, language: "en" });
     }
     if (url.hostname === "voice.test" && url.pathname === "/tts/bytes") {
+      if (ttsHold) await ttsHold();
+      if (ttsFail) return new Response("uncertain speech outcome", { status: 502 });
       const sent = JSON.parse(String(init.body));
       assert.equal(sent.voice.id, process.env.MARKETING_ASSISTANT_VOICE_ID || "voice-kamran");
       return new Response(Buffer.from("ID3fixture-mp3"), { headers: { "content-type": "audio/mpeg" } });
@@ -359,4 +369,78 @@ test("public turn: turns at the same time never take the day over the cap; real 
   assert.deepEqual(codes, ["ASSISTANT_CAP", "ASSISTANT_CAP", "ASSISTANT_CAP", "ASSISTANT_CAP", "ok", "ok"]);
   const [day] = await f.db.system((tx) => tx.query("SELECT cost_aed FROM marketing_assistant_days WHERE day=$1", [uaeDay()]));
   assert.ok(Number(day.cost_aed) <= 10, String(day.cost_aed));
+});
+
+test("guided destinations are registered read-only pages; unsafe and screened actions are discarded", () => {
+  for (const [key, destination] of Object.entries(ASSISTANT_DESTINATIONS)) {
+    assert.ok(marketingPage(destination.href), key);
+    assert.equal(assistantPage(destination.href), key);
+  }
+  for (const bad of ["https://evil.test", "//evil.test", "javascript:alert(1)", "/signup", "__proto__", "constructor"]) {
+    assert.equal(assistantDestination(bad), null);
+    assert.equal(assistantReplySchema.parse({ reply: "Hello.", navigate: bad }).navigate, null);
+  }
+  assert.equal(screen({ reply: "Let me show you pricing.", navigate: "pricing" }).navigate, "pricing");
+  assert.equal(screen({ reply: "I use ChatGPT.", navigate: "pricing" }).navigate, null);
+  assert.equal(JSON.parse(marketingAssistantUserMessage([], "Show me more", "pricing")).currentPage, "pricing");
+});
+
+test("public voice passes current-page context, avoids redundant navigation and never retries failed speech", async () => {
+  const f = await governanceFixture();
+  await f.db.system(tx => tx.query("UPDATE marketing_assistant_days SET cost_aed=0 WHERE day=$1", [uaeDay()]));
+  heard = "Show me pricing"; modelNavigation = "pricing";
+  const send = (currentPage: string) => f.app.inject({ method: "POST", url: "/api/v1/public/assistant/turn", remoteAddress: "10.90.0.1", headers: { host: "localhost:3000", origin: "http://localhost:3000" }, payload: { visit: randomUUID(), audio: wav(), type: "audio/wav", durationMs: 1000, currentPage } });
+  try {
+    const first = await send("home"); assert.equal(first.statusCode, 200, first.body); assert.equal(first.json().navigate, "pricing"); assert.equal(lastContext.currentPage, "home");
+    const same = await send("pricing"); assert.equal(same.json().navigate, null);
+    const before = calls.length;
+    assert.equal((await send("https://evil.test")).statusCode, 400);
+    assert.equal(calls.length, before, "invalid context makes no provider request");
+    const [old] = await f.db.system(tx => tx.query("SELECT tts_usd FROM marketing_assistant_days WHERE day=$1", [uaeDay()]));
+    ttsFail = true;
+    const failed = await send("home"); assert.equal(failed.statusCode, 200); assert.equal(failed.json().audio, null);
+    const [now] = await f.db.system(tx => tx.query("SELECT tts_usd FROM marketing_assistant_days WHERE day=$1", [uaeDay()]));
+    assert.ok(Number(now.tts_usd) > Number(old.tts_usd), "uncertain TTS remains charged against the cap");
+  } finally { modelNavigation = null; ttsFail = false; }
+});
+
+test("shared waiting clips claim once, obey the cap and configuration, and never repeat unknown purchases", async () => {
+  const f = await governanceFixture();
+  const originalVoice = process.env.MARKETING_ASSISTANT_VOICE_ID;
+  process.env.MARKETING_ASSISTANT_VOICE_ID = "cue-fixture-" + randomUUID();
+  const post = (lang = "en") => f.app.inject({ method: "POST", url: "/api/v1/public/assistant/cues", remoteAddress: "10.91.0.1", headers: { host: "localhost:3000", origin: "http://localhost:3000" }, payload: { lang } });
+  const speechCount = () => calls.filter(c => c.includes("/tts/bytes")).length;
+  try {
+    await f.db.system(tx => tx.query("INSERT INTO marketing_assistant_days(day,cost_aed) VALUES($1,9.99) ON CONFLICT(day) DO UPDATE SET cost_aed=9.99", [uaeDay()]));
+    const before = speechCount();
+    assert.deepEqual((await post()).json().cues, []); assert.equal(speechCount(), before);
+    await f.db.system(tx => tx.query("UPDATE marketing_assistant_days SET cost_aed=0 WHERE day=$1", [uaeDay()]));
+    let release!: () => void, entered!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; }), started = new Promise<void>(resolve => { entered = resolve; });
+    ttsHold = async () => { entered(); await held; };
+    const first = post(); const running = first.then(r => r);
+    await started;
+    const concurrent = await post(); assert.equal(concurrent.json().pending, true);
+    release(); ttsHold = null;
+    const result = await running; assert.equal(result.statusCode, 200, result.body); assert.equal(result.json().cues.length, 2);
+    assert.equal(speechCount() - before, 2, "only two purchases across concurrent callers");
+    assert.deepEqual((await post()).json().cues, result.json().cues); assert.equal(speechCount() - before, 2);
+    const [day] = await f.db.system(tx => tx.query("SELECT * FROM marketing_assistant_days WHERE day=$1", [uaeDay()]));
+    assert.ok(Number(day.cost_aed) < TURN_RESERVE_AED, "answer headroom is released");
+    // A different voice must never receive the old voice's clips.
+    process.env.MARKETING_ASSISTANT_VOICE_ID = "cue-failed-" + randomUUID();
+    ttsFail = true; const failedBefore = speechCount();
+    assert.deepEqual((await post()).json().cues, []);
+    ttsFail = false;
+    assert.deepEqual((await post()).json().cues, []); assert.equal(speechCount() - failedBefore, 1);
+    process.env.MARKETING_ASSISTANT_ENABLED = "false";
+    assert.deepEqual((await post()).json().cues, []); assert.equal(speechCount() - failedBefore, 1);
+    process.env.MARKETING_ASSISTANT_ENABLED = "true";
+    assert.equal((await post("invalid")).statusCode, 400);
+    const coach = await f.person();
+    await assert.rejects(f.db.tenant({ ...coach, role: "owner" }, tx => tx.query("SELECT * FROM marketing_assistant_cues")), /permission|denied/i);
+  } finally {
+    ttsHold = null; ttsFail = false; process.env.MARKETING_ASSISTANT_ENABLED = "true";
+    if (originalVoice === undefined) delete process.env.MARKETING_ASSISTANT_VOICE_ID; else process.env.MARKETING_ASSISTANT_VOICE_ID = originalVoice;
+  }
 });

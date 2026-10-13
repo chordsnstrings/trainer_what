@@ -1,6 +1,5 @@
 /* Kamran's AI voice panel (docs/features/kamran-assistant.md), loaded with
-   its code on the first tap. Compact: at most 360px wide and 40% of the
-   screen's height, above the button, so the page stays readable. */
+   its code on the first tap. The persistent call can collapse while browsing. */
 .mk-assistant {
   position: fixed;
   inset-inline-end: 16px;
@@ -8,11 +7,11 @@
   z-index: 60;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  width: min(360px, calc(100vw - 32px));
-  max-height: 40vh;
+  gap: 12px;
+  width: min(380px, calc(100vw - 32px));
+  max-height: min(560px, calc(100dvh - 112px));
   min-height: 0;
-  padding: 12px 14px 14px;
+  padding: 16px;
   border: 1px solid var(--ty-line);
   border-radius: var(--ty-radius-panel);
   background: var(--ty-white);
@@ -51,16 +50,16 @@
   margin-top: 2px;
   padding: 1px 6px;
   border-radius: 4px;
-  background: var(--ty-pace);
-  color: var(--ty-ink);
+  background: #eee8f8;
+  color: #513475;
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.02em;
 }
 .mk-assistant-lang,
 .mk-assistant-close {
-  min-width: 36px;
-  min-height: 36px;
+  min-width: 44px;
+  min-height: 44px;
   padding: 4px 8px;
   border: 1px solid var(--ty-line);
   border-radius: var(--ty-radius-control);
@@ -116,6 +115,8 @@
 }
 .mk-assistant-actions {
   display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 .mk-assistant-talk,
 .mk-assistant-stay {
@@ -127,11 +128,11 @@
   cursor: pointer;
 }
 .mk-assistant-talk {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   font-size: 15px;
-  touch-action: none;
-  user-select: none;
-  -webkit-user-select: none;
-  -webkit-touch-callout: none;
 }
 .mk-assistant-talk.is-recording,
 .mk-assistant-talk.is-recording:hover:not(:disabled) {
@@ -148,4 +149,53 @@
 .mk-assistant-close:focus-visible {
   outline: 3px solid var(--ty-ink);
   outline-offset: 2px;
+}
+.mk-assistant-follow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.mk-assistant-follow input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  flex: 0 0 auto;
+  accent-color: #513475;
+}
+.mk-assistant-control {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex: 1 1 120px;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--ty-line);
+  border-radius: var(--ty-radius-control);
+  background: var(--ty-white);
+  color: var(--ty-ink);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.mk-assistant-control.is-end {
+  background: #fff0ef;
+  color: #8e2520;
+  border-color: #eac3c0;
+}
+.mk-assistant-control:focus-visible,
+.mk-assistant-follow input:focus-visible,
+.mk-assistant-signup:focus-visible {
+  outline: 3px solid var(--ty-ink);
+  outline-offset: 2px;
+}
+.mk-assistant-signup {
+  padding-block: 8px;
+  font-size: 14px;
+}
+.mk-assistant.is-minimized {
+  gap: 8px;
 }

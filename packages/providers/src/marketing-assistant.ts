@@ -2,6 +2,7 @@ import { modelCompletion, type ModelAccounting } from "./model-accounting.ts";
 import { ModelOutputInvalid, ProviderUnavailable } from "./index.ts";
 import { runtimeConfig } from "./configuration.ts";
 import { modelReplyJson } from "./model-request.ts";
+import type { AssistantDestination } from "../../domain/src/marketing-assistant-navigation.ts";
 import {
   assistantReplySchema,
   marketingAssistantInstruction,
@@ -22,7 +23,7 @@ export const MARKETING_ASSISTANT_BUDGET = { maxTokens: 1500, timeoutMs: 20000 } 
  * only parsed here; screenAssistantReply checks it before it is spoken.
  */
 export async function marketingAssistantModel(
-  input: { appName: string; facts: string; history: AssistantTurn[]; visitor: string },
+  input: { appName: string; facts: string; history: AssistantTurn[]; visitor: string; currentPage?: AssistantDestination | null; allowNavigation?: boolean },
   accounting: ModelAccounting,
 ): Promise<AssistantModelReply> {
   const { MODEL_BASE_URL: base, MODEL_API_KEY: key, MODEL_NAME: model } = runtimeConfig();
@@ -39,7 +40,7 @@ export async function marketingAssistantModel(
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: marketingAssistantInstruction(input.appName, input.facts) },
-        { role: "user", content: marketingAssistantUserMessage(input.history, input.visitor) },
+        { role: "user", content: marketingAssistantUserMessage(input.history, input.visitor, input.currentPage, input.allowNavigation) },
       ],
     },
     accounting,
