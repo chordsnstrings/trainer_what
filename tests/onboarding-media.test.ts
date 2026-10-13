@@ -48,6 +48,31 @@ async function providers(run: (calls: { stt: number; tts: any[]; models: any[] }
 async function spokenBody() { const wav = pcmWav([new Float32Array(16000).fill(.2)], 16000); return { id: randomUUID(), audio: Buffer.from(await wav.blob.arrayBuffer()).toString("base64"), durationMs: wav.durationMs }; }
 const start = (p: any, extra: any = {}) => ok(p, root + "/calls", { id: randomUUID(), language: "en", mode: "teach", consent: true, ...extra });
 
+test("call preparation reads only the conversation while the delivered UI keeps its full state", async () => {
+  const p = await ctx.person({ role: "owner" });
+  const full = await ok(p, root + "?mode=teach");
+  assert.ok(full.setup && full.brain);
+  const inject = ctx.app.inject;
+  const requests: string[] = [];
+  ctx.app.inject = ((options: any) => { requests.push(options.url); return (inject as any).call(ctx.app, options); }) as any;
+  try {
+    const compact = await ok(p, root + "?mode=teach&view=conversation");
+    assert.equal(compact.version, full.version);
+    assert.deepEqual(compact.messages, full.messages);
+    assert.deepEqual(compact.permissions, full.permissions);
+    assert.equal(compact.setup, undefined); assert.equal(compact.brain, undefined);
+    assert.equal(requests.some(url => /\/setup$|\/brain\/teach$/.test(url)), false);
+    await providers(async () => {
+      const call = await start(p); requests.length = 0;
+      const reply = await ok(p, root + "/calls/" + call.id + "/turns", await spokenBody());
+      assert.equal(reply.error, null);
+      assert.ok(reply.conversation.setup && reply.conversation.brain);
+      assert.equal(requests.filter(url => url === "/api/v1/setup").length, 2);
+      assert.equal(requests.filter(url => url === "/api/v1/brain/teach").length, 2);
+    });
+  } finally { ctx.app.inject = inject; }
+});
+
 // The browser stays hands-free: silence does not spend money; each natural pause
 // produces one bounded utterance, and muted/playback phases discard the buffer.
 test("speech segmentation waits through brief pauses, ignores clicks and resets cleanly", () => {

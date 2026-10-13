@@ -159,7 +159,7 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
       throw fail(409, "PROFILE_CHANGED", "Your saved profile changed elsewhere. Keep the current saved profile, then tell me which changes you still want.");
     return forward(app, req, "POST", "/api/v1/intake", { ...intakeSchema.parse({ ...pick(data.facts, trainingFields), timezone: timezone ?? current?.data.timezone ?? "Asia/Dubai", consent: true }), expectedProfileId: current?.id ?? null });
   };
-  const snapshot = async (req: FastifyRequest, a: Actor, mode: "setup" | "teach" = "setup") => {
+  const snapshot = async (req: FastifyRequest, a: Actor, mode: "setup" | "teach" = "setup", conversationOnly = false) => {
     const state = await db.tenant(a, async tx => {
       await lock(tx, a);
       const p = await permissions(tx, a);
@@ -184,7 +184,7 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
       const [program] = a.role === "subscriber" ? await tx.query("SELECT id,status FROM records WHERE owner_user_id=$1 AND kind='program' AND status='assigned' ORDER BY created_at DESC LIMIT 1", [a.userId]) : [];
       return { id: row.id, version: row.version, ...data, permissions: p, ready: profileReady(data), profileDirty: !!data.applied.profile && data.applied.profile !== digest(pick(data.facts, trainingFields)), missing: missingFacts(data, p.nutrition), programReady: !!program, ...(a.role === "owner" ? { coachingCoverage: coachingCoverage(data) } : {}) };
     });
-    if (a.role === "owner") {
+    if (a.role === "owner" && !conversationOnly) {
       const [setup, brain] = await Promise.all([forward(app, req, "GET", "/api/v1/setup"), forward(app, req, "GET", "/api/v1/brain/teach")]);
       return { ...state, setup, brain };
     }
@@ -193,7 +193,8 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
   app.get(prefix, async (req, reply) => {
     reply.header("Cache-Control", "private, no-store");
     const mode = z.enum(["setup", "teach"]).default("setup").parse((req.query as any)?.mode);
-    return snapshot(req, actor(req), mode);
+    const view = z.enum(["full", "conversation"]).default("full").parse((req.query as any)?.view);
+    return snapshot(req, actor(req), mode, view === "conversation");
   });
   app.get(prefix + "/history", async (req, reply) => {
     reply.header("Cache-Control", "private, no-store");

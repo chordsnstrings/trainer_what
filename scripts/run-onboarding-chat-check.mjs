@@ -1,5 +1,6 @@
 // An isolated loopback model fixture. No real provider calls or customer data.
 import { execFileSync } from "node:child_process";
+import { pcmFixture, wavBytes } from "./voice-audio-fixtures.mjs";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createServer } from "node:https";
@@ -10,13 +11,11 @@ const replies = {
   coach: { publicName: "Alex", city: "Dubai", audience: "busy beginners", approach: "simple strength sessions" },
   member: { age: 28, goal: "Build sustainable strength", experience: "beginner", daysPerWeek: 3, availableWeekdays: [1, 3, 5], maxSessionMinutes: 45, equipment: "Dumbbells", limitations: "No injuries or limitations" },
 };
-// A looping, speech-band synthetic microphone and short decodable reply audio.
+// A looping, synthetic spoken microphone and short decodable reply audio.
 // Real browser capture/worklet/VAD/playback, with no real voice or paid requests.
 mkdirSync("test-results/onboarding-chat", { recursive: true });
 const slowVoice = process.env.VOICE_WAIT_CUE_FIXTURE === "true";
-const rate = 48000, n = rate * (slowVoice ? 30 : 6), wav = Buffer.alloc(44 + n * 2);
-wav.write("RIFF"); wav.writeUInt32LE(36 + n * 2, 4); wav.write("WAVEfmt ", 8); wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22); wav.writeUInt32LE(rate, 24); wav.writeUInt32LE(rate * 2, 28); wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34); wav.write("data", 36); wav.writeUInt32LE(n * 2, 40);
-for (let i = 0; i < n; i++) { if (slowVoice ? !(i < rate * 2 || (i >= rate * 12 && i < rate * 14)) : i >= rate * 4) continue; const v = [380,620,890,1270,1780,2430].reduce((s, hz) => s + Math.sin(2 * Math.PI * hz * i / rate) * .035, 0); wav.writeInt16LE(Math.round(v * 32767), 44 + i * 2); }
+const wav = wavBytes(pcmFixture(slowVoice ? 30 : 6, (slowVoice ? [3, 15] : [0]).map(at => ({ at, text: slowVoice ? "I coach beginners." : "I coach beginners with short strength sessions." }))));
 const microphone = resolve("test-results/onboarding-chat/microphone.wav"); writeFileSync(microphone, wav);
 const replyAudio = execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=0.2", "-f", "mp3", "pipe:1"]);
 const cueAudio = slowVoice ? execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "sine=frequency=550:duration=3.5", "-f", "mp3", "pipe:1"]) : replyAudio;

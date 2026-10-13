@@ -22,7 +22,8 @@ import {
   assistantPage,
 } from "../../../../packages/domain/src/marketing-assistant-navigation";
 import { ConversationAudio, pcmWav } from "../../lib/conversation-audio";
-import { SpeechGate, speechBand } from "../../lib/speech-gate";
+import { VoiceInput, VOICE_SAMPLE_RATE } from "../../lib/voice-input";
+import { VoicePlayback } from "../../lib/voice-playback";
 import { VoiceWaitCues } from "../../lib/voice-wait-cues";
 import { setAudioSessionType } from "../../lib/audio-session";
 import type { AssistantPanelProps } from "./assistant-button";
@@ -39,11 +40,11 @@ type Turn = { from: "visitor" | "assistant"; text: string };
 type Resources = {
   context: AudioContext;
   stream: MediaStream;
-  node: AudioWorkletNode;
-  analyser: AnalyserNode;
+  input?: VoiceInput;
+  tentative?: boolean;
   capture: ConversationAudio;
   echo: boolean;
-  player?: AudioBufferSourceNode;
+  player?: VoicePlayback;
   cue?: AudioBufferSourceNode;
 };
 const T = TEXT.en;
@@ -191,13 +192,11 @@ export function AssistantPanel({
     const r = resources.current;
     resources.current = null;
     if (r) {
-      r.node.port.onmessage = null;
+      r.input?.dispose();
       try {
         r.player?.stop();
       } catch {}
       r.stream.getTracks().forEach((t) => t.stop());
-      r.node.disconnect();
-      r.analyser.disconnect();
       r.capture.reset();
       void r.context.close().catch(() => {});
       setAudioSessionType("ambient");
@@ -234,28 +233,25 @@ export function AssistantPanel({
       (cue && mute.current)
     )
       return;
-    if (!cue) change("speaking");
+    if (!cue) {
+      change("speaking");
+      const player = new VoicePlayback(r.context, buffer);
+      r.player = player;
+      if (!r.tentative) player.resume();
+      await player.done;
+      if (r.player === player) r.player = undefined;
+      return;
+    }
     await new Promise<void>((resolve) => {
       const source = r.context.createBufferSource();
-      source.buffer = buffer;
-      source.connect(r.context.destination);
-      if (cue) {
-        r.cue = source;
-        setCueSpeaking(true);
-      } else r.player = source;
+      source.buffer = buffer; source.connect(r.context.destination);
+      r.cue = source; setCueSpeaking(true);
       source.onended = () => {
         source.disconnect();
-        if (r.cue === source) {
-          r.cue = undefined;
-          if (alive.current) setCueSpeaking(false);
-        }
-        if (r.player === source) r.player = undefined;
+        if (r.cue === source) { r.cue = undefined; if (alive.current) setCueSpeaking(false); }
         resolve();
       };
-      source.start();
-      source.stop(
-        r.context.currentTime + Math.min(buffer.duration, cue ? 4 : 45),
-      );
+      source.start(); source.stop(r.context.currentTime + Math.min(buffer.duration, 4));
     });
   }
   function interrupt() {
@@ -290,7 +286,7 @@ export function AssistantPanel({
     const fromPage = page.current;
     wait.current?.begin();
     try {
-      const wav = pcmWav(chunks, r.context.sampleRate, LIMITS.audioSeconds);
+      const wav = pcmWav(chunks, VOICE_SAMPLE_RATE, LIMITS.audioSeconds);
       const audio = await base64(wav.blob);
       if (!current(token)) return;
       const response = await fetch("/api/v1/public/assistant/turn", {
@@ -418,7 +414,7 @@ export function AssistantPanel({
         throw Error(
           "Voice calls need a current browser with microphone access.",
         );
-      context = new Ctor();
+      context = new Ctor({ sampleRate: 48000 });
       await context!.resume();
       stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -433,29 +429,10 @@ export function AssistantPanel({
         void context!.close();
         return;
       }
-      await context!.audioWorklet.addModule("/onboarding-audio-worklet.js");
-      if (!current(token)) {
-        stream.getTracks().forEach((t) => t.stop());
-        void context!.close();
-        return;
-      }
-      const node = new AudioWorkletNode(context!, "onboarding-capture"),
-        analyser = context!.createAnalyser();
-      analyser.fftSize = 2048;
-      context!.createMediaStreamSource(stream).connect(analyser);
-      analyser.connect(node);
-      node.connect(context!.destination);
       const r: Resources = {
-        context: context!,
-        stream,
-        node,
-        analyser,
-        capture: new ConversationAudio(
-          context!.sampleRate,
-          LIMITS.audioSeconds,
-        ),
-        echo:
-          stream.getAudioTracks()[0]?.getSettings().echoCancellation === true,
+        context: context!, stream,
+        capture: new ConversationAudio(VOICE_SAMPLE_RATE, LIMITS.audioSeconds, 224),
+        echo: stream.getAudioTracks()[0]?.getSettings().echoCancellation === true,
       };
       resources.current = r;
       setAudioSessionType("play-and-record");
@@ -492,50 +469,31 @@ export function AssistantPanel({
           await new Promise((resolve) => setTimeout(resolve, 3000));
         }
       })().catch(() => {});
-      const gate = new SpeechGate(),
-        spectrum = new Float32Array(analyser.frequencyBinCount);
-      node.port.onmessage = (event) => {
-        if (!current(token)) return;
-        if (
-          mute.current ||
-          queued.current ||
-          performance.now() < quietUntil.current ||
-          (!r.echo &&
-            (r.cue ||
-              (phaseRef.current === "speaking" && !interrupted.current)))
-        ) {
-          r.capture.reset();
-          return;
-        }
-        const pcm = event.data as Float32Array;
-        let sum = 0;
-        for (const value of pcm) sum += value * value;
-        analyser.getFloatFrequencyData(spectrum);
-        const band = speechBand(
-          spectrum,
-          r.context.sampleRate,
-          analyser.fftSize,
-        );
-        const speech = gate.sample(
-          Math.sqrt(sum / pcm.length),
-          band.ratio,
-          band.activeBins,
-          performance.now(),
-        );
-        if (speech && inFlight.current && !interrupted.current) interrupt();
-        const ready = r.capture.push(pcm, speech);
-        if (ready) {
-          if (inFlight.current) {
-            queued.current = ready;
-            setNotice(
-              language.current === "ar"
-                ? "سمعت إضافتك. لحظة واحدة."
-                : "I've heard your addition. One moment.",
-            );
-          } else void turn(ready, token);
-        } else if (!inFlight.current)
-          change(r.capture.active ? "hearing" : "listening");
-      };
+      r.input = await VoiceInput.create({
+        context: r.context, stream, signal: abort.current!.signal,
+        mode: () => {
+          if (!current(token) || mute.current || queued.current || performance.now() < quietUntil.current ||
+              (!r.echo && (r.cue || (phaseRef.current === "speaking" && !interrupted.current)))) return "blocked";
+          return inFlight.current && !interrupted.current ? "interrupt" : "listen";
+        },
+        onReset: () => { r.capture.reset(); r.tentative = false; r.player?.resume(); },
+        onError: () => { if (current(token)) { end(); setNotice("Voice processing stopped. Please start another call."); } },
+        onFrame: (pcm, decision) => {
+          if (!current(token)) return;
+          r.tentative = decision.tentative;
+          if (decision.tentative) r.player?.pause();
+          else r.player?.resume();
+          if (decision.interrupt && inFlight.current && !interrupted.current) interrupt();
+          const ready = r.capture.push(pcm, decision.speech);
+          if (ready) {
+            if (inFlight.current) {
+              queued.current = ready;
+              setNotice(language.current === "ar" ? "سمعت إضافتك. لحظة واحدة." : "I've heard your addition. One moment.");
+            } else void turn(ready, token);
+          } else if (!inFlight.current) change(r.capture.active ? "hearing" : "listening");
+        },
+      });
+      if (!current(token)) { r.input.dispose(); return; }
       change("listening");
     } catch (e) {
       stream?.getTracks().forEach((t) => t.stop());
@@ -558,6 +516,7 @@ export function AssistantPanel({
   function toggleMute() {
     mute.current = !mute.current;
     setMuted(mute.current);
+    resources.current?.input?.reset();
     resources.current?.capture.reset();
     queued.current = null;
     resources.current?.stream.getAudioTracks().forEach((t) => {

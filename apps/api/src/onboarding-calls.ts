@@ -60,7 +60,7 @@ export function onboardingCallRoutes(app: FastifyInstance, db: Database, purpose
   return row;
 }
 
-  const snapshot = (req: FastifyRequest, mode: string) => forward(app, req, "GET", coaching ? "/api/v1/messages/thread" : "/api/v1/onboarding-chat?mode=" + mode);
+  const snapshot = (req: FastifyRequest, mode: string, conversationOnly = false) => forward(app, req, "GET", coaching ? "/api/v1/messages/thread" : "/api/v1/onboarding-chat?mode=" + mode + (conversationOnly ? "&view=conversation" : ""));
   async function reserve(a: Actor, callId: string, usageId: string, kind: "speech" | "transcription", estimate: number, pricing: Record<string, unknown>, optional = false) {
     const c = contracts(), p = kind === "speech" ? c.voice : c.speech;
     await db.tenant(a, async tx => {
@@ -190,7 +190,10 @@ export function onboardingCallRoutes(app: FastifyInstance, db: Database, purpose
     if (!claimed) return viewReceipt(req, a, id, b.id);
     let transcript = "", audio: string | null = null, error: string | null = null;
     try {
-      let conversation = await snapshot(req, claimed.data.mode);
+      // Preparation needs the current transcript/version, not a second read of
+      // both trainer dashboards. The delivered receipt still refreshes all UI
+      // state and permissions after the paid turn has settled.
+      let conversation = await snapshot(req, claimed.data.mode, true);
       if (!b.greeting) {
         const bytes = decodeSpeech(b.audio!, "audio/wav", 2 * 1024 * 1024), c = contracts(), usageId = randomUUID();
         try {

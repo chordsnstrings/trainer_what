@@ -6,7 +6,7 @@ export class ConversationAudio {
   private voiced = 0;
   private quiet = 0;
   private started = false;
-  constructor(readonly sampleRate: number, readonly maxSeconds = 44) {}
+  constructor(readonly sampleRate: number, readonly maxSeconds = 44, readonly minVoicedMs = 400) {}
   get active() { return this.started; }
   reset() { this.lead = []; this.chunks = []; this.samples = this.voiced = this.quiet = 0; this.started = false; }
   push(samples: Float32Array, speech: boolean): Float32Array[] | null {
@@ -20,7 +20,7 @@ export class ConversationAudio {
     } else { this.chunks.push(samples); this.samples += samples.length; }
     if (speech) { this.voiced += ms; this.quiet = 0; } else this.quiet += ms;
     if (this.samples / this.sampleRate >= this.maxSeconds || this.quiet >= 1000) {
-      const result = this.voiced >= 400 ? this.chunks : null;
+      const result = this.voiced >= this.minVoicedMs ? this.chunks : null;
       this.reset();
       return result;
     }
