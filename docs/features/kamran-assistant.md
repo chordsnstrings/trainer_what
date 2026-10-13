@@ -2,7 +2,7 @@
 
 ## Current behavior — live 13 October 2026
 
-PR #61 is deployed as `68a0507ef44fbd07b6bf07e8ab965ff858a4b725`; exact readiness was verified at 03:34:53 UTC / 07:34:53 Dubai, with the public assistant available. All eight PR gates and seven exact-main gates passed. [Serving proof](https://github.com/chordsnstrings/trainer_what/actions/runs/38341867707).
+The current voice update is deployed from PR #63 as `fdd9e080bc4b52d3d8d8a19bfeaf30e485e2145a`, extending the hands-free call and navigation shipped in PR #61. Exact readiness was verified at 08:46:15 UTC / 12:46:15 Dubai. All eight final-head PR gates and seven exact-main gates passed. [Serving proof](https://github.com/chordsnstrings/trainer_what/actions/runs/38370740876).
 
 The owner now requests a continuous hands-free call and guided marketing navigation, superseding the original home-only hold-to-talk interaction documented below. Audit and ordered acceptance: `../HOMEPAGE_CALL_2026-10-13.md`.
 
@@ -15,9 +15,9 @@ The owner now requests a continuous hands-free call and guided marketing navigat
 
 Verification uses real local Chromium worklet/capture/playback with synthetic microphone and provider fixtures at 390 and 1280 px. It covers slow replies, retained additions, serial turns, waiting-cue and answer interruption, route/context continuity, guidance off/on, mute and cleanup. It does not establish physical iPhone/Android echo cancellation, live latency, or the quality of the selected voice. No paid live provider call was made for this change.
 
-## Shared noise handling — release verification, 13 October 2026
+## Shared noise handling — live, 13 October 2026
 
-The shared microphone layer now uses locally hosted neural speech detection plus RNNoise where 48 kHz processing is available. Browser echo cancellation and suppression remain enabled. Strong, sustained speech is required to cancel an answer; a brief provisional interruption pauses and then resumes the same audio position. Quiet words retain their leading audio. Models load from the site, and classifier/worklet failures close the microphone with a clear restart path. Required detection never silently falls back to the previous energy-only gate. See `../VOICE_NOISE_2026-10-13.md` for audit, benchmark evidence and the remaining physical-device/nearby-voice limits. Deployment verification is pending.
+The shared microphone layer now uses locally hosted neural speech detection plus RNNoise where 48 kHz processing is available. Browser echo cancellation and suppression remain enabled. Strong, sustained speech is required to cancel an answer; a brief provisional interruption pauses and then resumes the same audio position. Quiet words retain their leading audio. Models load from the site, and classifier/worklet failures close the microphone with a clear restart path. Required detection never silently falls back to the previous energy-only gate. See `../VOICE_NOISE_2026-10-13.md` for audit, benchmark evidence and the remaining physical-device/nearby-voice limits. The exact serving release and hosted audio assets are verified.
 
 ## Historical first implementation (1 October 2026)
 
