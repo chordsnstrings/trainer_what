@@ -615,7 +615,7 @@ test("motion hygiene: transform and opacity only, tokens, hover media, reduced m
   );
 });
 
-test("the island imports only React and no dependency was added", async () => {
+test("the motion island stays React-only and web dependencies are explicitly reviewed", async () => {
   const island = await readFile(islandUrl, "utf8");
   assert.match(island, /^"use client";/);
   const imports = [...island.matchAll(/^import[\s\S]*?from "([^"]+)";/gm)].map(
@@ -633,12 +633,20 @@ test("the island imports only React and no dependency was added", async () => {
   );
   assert.deepEqual(Object.keys(root.dependencies).sort(), ["tsx", "zod"]);
   assert.deepEqual(Object.keys(web.dependencies).sort(), [
+    "@ricky0123/vad-web",
+    "@sapphi-red/web-noise-suppressor",
     "@trainer/domain",
     "lucide-react",
     "next",
+    "onnxruntime-web",
     "react",
     "react-dom",
   ]);
+  // These pinned packages serve local microphone detection/filtering. They do
+  // not enter the React-only marketing motion island checked above.
+  assert.equal(web.dependencies["@ricky0123/vad-web"], "0.0.31");
+  assert.equal(web.dependencies["@sapphi-red/web-noise-suppressor"], "0.4.1");
+  assert.equal(web.dependencies["onnxruntime-web"], "1.30.0");
   // The stylesheet is imported next to the marketing stylesheet.
   const layout = await readFile(
     new URL("../apps/web/app/layout.tsx", import.meta.url),
