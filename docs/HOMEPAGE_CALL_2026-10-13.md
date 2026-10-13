@@ -27,4 +27,4 @@ Real Chromium microphone/worklet/API/database journeys passed at 390 and 1280 px
 
 No live paid provider call was made. Fixture audio is synthetic; actual selected-voice quality, live latency and physical iPhone/Android echo/audio routing remain unmeasured. No model/token/cost telemetry for this assistant coding session is exposed.
 
-Release checks and exact serving verification are next; no new live release is claimed.
+PR #61 is published. Its first PostgreSQL gate found that the separate production runtime-role reset script lacked the new cue-cache grant, although migration 096 granted it. Added the same narrow SELECT/INSERT/UPDATE grant there; tenant access remains revoked. The exact privilege verifier is retained and all release checks rerun on the corrected head. Release checks and exact serving verification are next; no new live release is claimed.
