@@ -571,6 +571,40 @@ test("irrelevant baseline calls and reused older teaching are refused before buy
   );
 });
 
+test("independent situations may reuse a trainer's ordinary acknowledgement", async () => {
+  const a = await coach();
+  const acknowledgement = {
+    author: "trainer",
+    text: "Let me know if that changes.",
+  };
+  await saved(a, {
+    ...olderSituation(),
+    history: [olderSituation().history[0], acknowledgement],
+  });
+  const other = await saved(a, {
+    ...situation(),
+    title: "Travelling with equipment",
+    history: [
+      {
+        author: "subscriber",
+        text: "The hotel gym is closed in the evenings.",
+      },
+      acknowledgement,
+    ],
+    turns: [
+      { author: "subscriber", text: "I am packing for a holiday." },
+      { author: "trainer", text: "What equipment can you bring?" },
+    ],
+    request: "Should I bring my resistance bands while travelling?",
+  });
+  assert.equal(
+    other.eligible,
+    true,
+    "Shared acknowledgements are not duplicate subscriber situations",
+  );
+  assert.equal((await call(a)).json().cases.length, 2);
+});
+
 test("corrections require explicit teaching, preserve earlier scores, retire every run and enter the existing review loop", async () => {
   const a = await coach();
   await publish(a);

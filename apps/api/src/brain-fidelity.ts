@@ -128,7 +128,9 @@ function overlaps(c: FidelityCase, material: string[]) {
     (t) =>
       fidelityOverlap(c.request, t) ||
       fidelityOverlap(fidelitySituation(c), t) ||
-      (c.history ?? []).some((turn) => fidelityOverlap(turn.text, t)),
+      (c.history ?? []).some(
+        (turn) => turn.author === "subscriber" && fidelityOverlap(turn.text, t),
+      ),
   );
 }
 async function currentContext(tx: Tx) {
@@ -341,7 +343,9 @@ export function registerBrainFidelity(
           overlaps(b, [
             r.data.request,
             fidelitySituation(r.data),
-            ...(r.data.history ?? []).map((turn: any) => turn.text),
+            ...(r.data.history ?? [])
+              .filter((turn: any) => turn.author === "subscriber")
+              .map((turn: any) => turn.text),
           ]),
         )
       )
