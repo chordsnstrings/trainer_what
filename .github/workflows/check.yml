@@ -20,6 +20,8 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: npm run build
       - run: npx playwright install --with-deps chromium --only-shell
+      - name: Neural speech detection and noise comparison
+        run: node scripts/voice-noise-check.mjs
       - name: Homepage call, waiting cues, interruption and site navigation
         run: node --import tsx scripts/run-marketing-call-check.mjs
         env:

@@ -1,5 +1,6 @@
 // Full local API/database and real browser audio; only external providers are synthetic.
 import { execFileSync } from "node:child_process";
+import { pcmFixture, wavBytes } from "./voice-audio-fixtures.mjs";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createServer } from "node:https";
@@ -7,30 +8,8 @@ import { createMockTls } from "../tests/e2e/mocks/tls.ts";
 if (process.env.NODE_ENV === "production")
   throw Error("Synthetic development checks only");
 mkdirSync("test-results/marketing-call", { recursive: true });
-const rate = 48000,
-  n = rate * 50,
-  wav = Buffer.alloc(44 + n * 2);
-wav.write("RIFF");
-wav.writeUInt32LE(36 + n * 2, 4);
-wav.write("WAVEfmt ", 8);
-wav.writeUInt32LE(16, 16);
-wav.writeUInt16LE(1, 20);
-wav.writeUInt16LE(1, 22);
-wav.writeUInt32LE(rate, 24);
-wav.writeUInt32LE(rate * 2, 28);
-wav.writeUInt16LE(2, 32);
-wav.writeUInt16LE(16, 34);
-wav.write("data", 36);
-wav.writeUInt32LE(n * 2, 40);
-for (let i = 0; i < n; i++) {
-  const s = i / rate;
-  if (!(s < 2 || (s >= 12 && s < 14) || (s >= 26 && s < 28))) continue;
-  const v = [380, 620, 890, 1270, 1780, 2430].reduce(
-    (sum, hz) => sum + Math.sin((2 * Math.PI * hz * i) / rate) * 0.035,
-    0,
-  );
-  wav.writeInt16LE(Math.round(v * 32767), 44 + i * 2);
-}
+// Give the locally hosted model a startup window before the first spoken turn.
+const wav = wavBytes(pcmFixture(50, [3, 15, 29].map(at => ({ at, text: "Show me the pricing." }))));
 const microphone = resolve("test-results/marketing-call/microphone.wav");
 writeFileSync(microphone, wav);
 const tone = (seconds) =>

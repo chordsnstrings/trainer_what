@@ -14,3 +14,6 @@ __pycache__/
 # End-to-end harness output (scripts/e2e/run.mjs)
 tests/e2e/report.json
 tests/e2e/artifacts/
+
+# Pinned local voice models/runtime are copied from dependencies at build time.
+apps/web/public/voice-input-v1/

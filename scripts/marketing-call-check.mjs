@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { chromium, expect } from "@playwright/test";
 const base = process.env.TEST_APP_URL;
 if (
@@ -78,7 +78,13 @@ try {
     await panel
       .getByRole("button", { name: "Start call", exact: true })
       .click();
-    await expect.poll(() => sent.length, { timeout: 12000 }).toBe(1);
+    try {
+      await expect.poll(() => sent.length, { timeout: 12000 }).toBe(1);
+    } catch (error) {
+      await page.screenshot({ path: `${folder}/startup-failure-${width}.png` });
+      report.checks.push({ width, startupFailure: await panel.innerText() });
+      throw error;
+    }
     assert.equal(sent[0].currentPage, "home");
     assert.equal(sent[0].type, "audio/wav");
     assert.ok(sent[0].durationMs <= 20000);
@@ -111,7 +117,18 @@ try {
       1,
       "addition waits for the outstanding paid turn",
     );
-    assert.ok(await page.evaluate(() => window.__callAudio.some(x => x.method === "stop" && x.immediate && x.duration > 3 && x.duration < 4)), "speech interrupts a waiting cue");
+    assert.ok(
+      await page.evaluate(() =>
+        window.__callAudio.some(
+          (x) =>
+            x.method === "stop" &&
+            x.immediate &&
+            x.duration > 3 &&
+            x.duration < 4,
+        ),
+      ),
+      "speech interrupts a waiting cue",
+    );
     await panel
       .getByRole("button", { name: "Expand call", exact: true })
       .click();
@@ -224,6 +241,114 @@ try {
       microphoneStopped: true,
     });
     await context.close();
+  }
+  for (const failure of [
+    "model-unavailable",
+    "end-during-load",
+    "denoiser-unavailable",
+    "processor-error",
+  ]) {
+    const context = await browser.newContext({
+      permissions: ["microphone"],
+      serviceWorkers: "block",
+    });
+    await context.addInitScript(() => {
+      localStorage.setItem("analytics-preference", "declined");
+      window.__callStreams = [];
+      const get = navigator.mediaDevices.getUserMedia.bind(
+        navigator.mediaDevices,
+      );
+      navigator.mediaDevices.getUserMedia = async (...args) => {
+        const stream = await get(...args);
+        window.__callStreams.push(stream);
+        return stream;
+      };
+    });
+    const page = await context.newPage();
+    page.on("pageerror", (error) => report.errors.push(error.message));
+    let modelRequested = false,
+      releaseModel;
+    const modelWait = new Promise((resolve) => {
+      releaseModel = resolve;
+    });
+    if (failure === "model-unavailable")
+      await page.route("**/voice-input-v1/silero.onnx", (route) =>
+        route.fulfill({ status: 503, body: "unavailable" }),
+      );
+    if (failure === "end-during-load")
+      await page.route("**/voice-input-v1/silero.onnx", async (route) => {
+        modelRequested = true;
+        await modelWait;
+        await route.abort().catch(() => {});
+      });
+    if (failure === "denoiser-unavailable")
+      await page.route("**/voice-input-v1/rnnoise*.wasm", (route) =>
+        route.abort(),
+      );
+    // Chromium's AudioWorklet loader bypasses Playwright request interception.
+    // Serve the fault from the isolated local fixture, restoring it in finally.
+    const workletPath = "apps/web/public/voice-input-worklet.js";
+    const worklet =
+      failure === "processor-error" ? await readFile(workletPath) : null;
+    let turns = 0;
+    page.on("request", (request) => {
+      if (
+        request.url().endsWith("/assistant/turn") &&
+        request.method() === "POST"
+      )
+        turns++;
+    });
+    try {
+      if (worklet)
+        await writeFile(
+          workletPath,
+          'class BrokenCapture extends AudioWorkletProcessor { process() { throw Error("Injected capture failure"); } } registerProcessor("voice-input-capture", BrokenCapture);',
+        );
+      await page.goto(base);
+      await page
+        .getByRole("button", { name: "Talk to Kamran (AI voice)", exact: true })
+        .click();
+      const panel = page.getByRole("dialog");
+      await panel
+        .getByRole("button", { name: "Start call", exact: true })
+        .click();
+      if (failure === "end-during-load") {
+        await expect.poll(() => modelRequested).toBe(true);
+        await panel
+          .getByRole("button", { name: "End call", exact: true })
+          .click();
+        releaseModel();
+      } else if (failure === "denoiser-unavailable") {
+        await expect.poll(() => turns, { timeout: 15000 }).toBe(1);
+        await panel
+          .getByRole("button", { name: "End call", exact: true })
+          .click();
+      } else if (failure === "processor-error") {
+        await expect(panel).toContainText("Voice processing stopped");
+      } else
+        await expect(panel).toContainText("Speech detection could not load");
+      await expect(panel).toHaveAttribute("data-phase", "ended");
+      await expect
+        .poll(() =>
+          page.evaluate(() =>
+            window.__callStreams.every((stream) =>
+              stream.getTracks().every((track) => track.readyState === "ended"),
+            ),
+          ),
+        )
+        .toBe(true);
+      if (failure !== "denoiser-unavailable")
+        assert.equal(
+          turns,
+          0,
+          `${failure}: no late or unclassified microphone upload`,
+        );
+      report.checks.push({ failure, recovered: true, microphoneStopped: true });
+    } finally {
+      if (worklet) await writeFile(workletPath, worklet);
+      releaseModel();
+      await context.close();
+    }
   }
   assert.deepEqual(report.errors, []);
 } finally {

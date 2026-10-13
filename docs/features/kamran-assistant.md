@@ -15,6 +15,10 @@ The owner now requests a continuous hands-free call and guided marketing navigat
 
 Verification uses real local Chromium worklet/capture/playback with synthetic microphone and provider fixtures at 390 and 1280 px. It covers slow replies, retained additions, serial turns, waiting-cue and answer interruption, route/context continuity, guidance off/on, mute and cleanup. It does not establish physical iPhone/Android echo cancellation, live latency, or the quality of the selected voice. No paid live provider call was made for this change.
 
+## Shared noise handling — release verification, 13 October 2026
+
+The shared microphone layer now uses locally hosted neural speech detection plus RNNoise where 48 kHz processing is available. Browser echo cancellation and suppression remain enabled. Strong, sustained speech is required to cancel an answer; a brief provisional interruption pauses and then resumes the same audio position. Quiet words retain their leading audio. Models load from the site, and classifier/worklet failures close the microphone with a clear restart path. Required detection never silently falls back to the previous energy-only gate. See `../VOICE_NOISE_2026-10-13.md` for audit, benchmark evidence and the remaining physical-device/nearby-voice limits. Deployment verification is pending.
+
 ## Historical first implementation (1 October 2026)
 
 The original implementation and qualification record follows; its hold-to-talk, home-only, automatic signup and pending-release descriptions are historical and superseded above.
