@@ -484,7 +484,10 @@ try {
   assert.equal(await kitchen.getAttribute("dir"), "rtl");
   assert.equal(await kitchen.evaluate(el => el.scrollWidth > el.clientWidth + 1), false);
   await subscriber.screenshot({ path: "test-results/nutrition-kitchen-ar.png", fullPage: true });
+  await subscriber.emulateMedia({ media: "print" });
   await subscriber.pdf({ path: "test-results/nutrition-kitchen-ar.pdf", preferCSSPageSize: true, printBackground: true });
+  assert.equal(await kitchen.locator(".nutrition-kitchen-toolbar").isVisible(), false);
+  await subscriber.emulateMedia({ media: "screen" });
   await kitchen.getByRole("button", { name: "إغلاق", exact: true }).click();
   await subscriber
     // Test data is labelled only in development (nutrition.tsx).

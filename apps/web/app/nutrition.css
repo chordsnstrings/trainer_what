@@ -30,14 +30,16 @@
 .nutrition-kitchen-shopping article { margin-block: 10px; }
 body.nutrition-kitchen-open { overflow: hidden; }
 @media print {
-  @page nutrition-kitchen { size: A4; margin: 14mm; }
+  html:has(body.nutrition-kitchen-open) { background: white !important; }
   body.nutrition-kitchen-open { overflow: visible !important; background: white !important; }
   body.nutrition-kitchen-open > :not(.nutrition-kitchen) { display: none !important; }
-  .nutrition-kitchen[open] { page: nutrition-kitchen; position: static !important; inset: auto !important; display: block; width: 100%; height: auto; max-height: none; max-width: none; margin: 0; padding: 0; overflow: visible !important; border: 0; border-radius: 0; font-size: 10pt; }
+  .nutrition-kitchen[open] { position: static !important; inset: auto !important; display: block; width: 100%; height: auto; max-height: none; max-width: none; margin: 0; padding: 0; overflow: visible !important; border: 0; border-radius: 0; font-size: 10pt; }
   .nutrition-kitchen::backdrop, .nutrition-kitchen-toolbar { display: none !important; }
   .nutrition-kitchen-days { display: block; }
-  .nutrition-kitchen-days article { margin-block: 8px; }
-  .nutrition-kitchen-days article, .nutrition-kitchen-shopping article, .nutrition-kitchen tr { break-inside: avoid; }
+  .nutrition-kitchen-days article { margin-block: 6px; padding: 8px; }
+  .nutrition-kitchen-days h3 { margin: 0 0 4px; }
+  .nutrition-kitchen-days ul { margin-block: 0; }
+  .nutrition-kitchen-days article, .nutrition-kitchen-recipe, .nutrition-kitchen-shopping article, .nutrition-kitchen tr { break-inside: avoid; }
   .nutrition-kitchen h2, .nutrition-kitchen h3 { break-after: avoid; }
   .nutrition-kitchen-recipes, .nutrition-kitchen-shopping { break-before: page; }
   .nutrition-kitchen thead { display: table-header-group; }

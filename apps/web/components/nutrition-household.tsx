@@ -406,6 +406,8 @@ function KitchenDialog({
         close();
       }}
     >
+      {/* A mounted-only page rule also applies to a modal in the top layer. */}
+      <style media="print">{"@page { size: A4; margin: 14mm; }"}</style>
       <div className="nutrition-kitchen-toolbar">
         <Field label={t("language")}>
           <select
