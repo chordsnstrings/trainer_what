@@ -35,8 +35,9 @@ jobs:
           if-no-files-found: ignore
   application:
     runs-on: ubuntu-24.04
-    # The suite plus the browser check passed 20 minutes as the test count grew.
-    timeout-minutes: 35
+    # 1,905 tests plus all browser journeys exceeded 35 minutes. Keep every
+    # gate and allow the remaining onboarding/domain checks and cleanup to finish.
+    timeout-minutes: 45
     env:
       PUBLIC_APP_URL: http://localhost:3000
       API_INTERNAL_URL: http://127.0.0.1:4000
@@ -59,6 +60,8 @@ jobs:
         run: npm run test:site-builder
       - name: Section layout matrix (three widths, English and Arabic)
         run: node --import tsx scripts/site-builder-layout-check.ts
+      - name: Scroll modules (motion, accessibility and zoomed preview)
+        run: node --import tsx scripts/site-builder-scroll-check.ts
       - name: Backend onboarding, navigation and responsive UI
         run: node scripts/run-rtl-check.mjs
         env:

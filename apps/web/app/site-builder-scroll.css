@@ -1,0 +1,349 @@
+/* Scoped progressive enhancement: all content is readable before JavaScript. */
+.sb-site .sb-scroll {
+  position: relative;
+  min-width: 0;
+}
+.sb-site .sb-scroll > .sb-intro {
+  margin-bottom: 36px;
+}
+.sb-site .sb-scroll-stage {
+  display: grid;
+  gap: 24px;
+}
+.sb-site .sb-scroll-scene {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: var(--sb-use-radius);
+  background: var(--sb-surface);
+  color: var(--sb-text);
+}
+.sb-site .sb-scroll-visual {
+  position: relative;
+  overflow: hidden;
+  min-width: 0;
+  min-height: 280px;
+  isolation: isolate;
+}
+.sb-site .sb-scroll-photo {
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  inset: 0;
+  object-fit: cover;
+}
+.sb-site .sb-scroll-placeholder {
+  background:
+    radial-gradient(
+      ellipse at 70% 20%,
+      color-mix(in srgb, var(--sb-use-accent) 60%, transparent),
+      transparent 65%
+    ),
+    linear-gradient(145deg, #152b2a, #a0aca0);
+}
+.sb-site .sb-scroll-copy {
+  position: relative;
+  align-self: center;
+  min-width: 0;
+  padding: clamp(24px, 4cqi, 64px);
+}
+.sb-site .sb-scroll-copy h3 {
+  font: 500 clamp(1.75rem, 4cqi, 3.8rem)/1.12 var(--sb-heading-font);
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+.sb-site .sb-scroll-copy .sb-copy {
+  margin-top: 20px;
+  white-space: pre-line;
+}
+.sb-site .sb-scroll-number {
+  display: block;
+  margin-bottom: 24px;
+  font-size: 0.75rem;
+  letter-spacing: 0.18em;
+  opacity: 0.7;
+}
+.sb-site .sb-scroll-hint {
+  margin-top: 16px;
+  font-size: 0.875rem;
+}
+.sb-site .sb-scroll[data-scroll-variant="reversed"] .sb-scroll-visual {
+  order: 2;
+}
+.sb-site .sb-scroll[data-motion="true"] .sb-scroll-track {
+  height: calc(var(--sb-scroll-height) + var(--sb-scroll-travel));
+}
+.sb-site .sb-scroll[data-motion="true"] .sb-scroll-stage {
+  position: sticky;
+  top: var(--sb-scroll-top, 0px);
+  height: var(--sb-scroll-height);
+  overflow: hidden;
+  border-radius: var(--sb-use-radius);
+  background: #101c1b;
+}
+.sb-site .sb-scroll[data-motion="true"] .sb-scroll-scene {
+  position: absolute;
+  inset: 0;
+  opacity: var(--scene-opacity, 1);
+  border-radius: 0;
+}
+.sb-site .sb-scroll[data-motion="true"] .sb-scroll-scene[aria-hidden="true"] {
+  pointer-events: none;
+}
+.sb-site .sb-scroll[data-motion="true"] .sb-scroll-photo {
+  will-change: transform;
+}
+.sb-site .sb-scroll[data-motion="true"] .sb-scroll-copy {
+  padding-bottom: 88px;
+  transform: translateY(var(--scene-shift, 0px));
+}
+.sb-site
+  .sb-scroll[data-motion="true"]:is(
+    [data-scroll-variant="cinematic"],
+    [data-scroll-variant="centered"],
+    [data-scroll-kind="image"]
+  )
+  .sb-scroll-scene {
+  display: block;
+  color: #fff;
+  background: #101c1b;
+}
+.sb-site
+  .sb-scroll[data-motion="true"]:is(
+    [data-scroll-variant="cinematic"],
+    [data-scroll-variant="centered"],
+    [data-scroll-kind="image"]
+  )
+  .sb-scroll-visual {
+  position: absolute;
+  inset: 0;
+}
+.sb-site
+  .sb-scroll[data-motion="true"]:is(
+    [data-scroll-variant="cinematic"],
+    [data-scroll-variant="centered"],
+    [data-scroll-kind="image"]
+  )
+  .sb-scroll-visual::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    0deg,
+    rgb(0 0 0 / 0.88),
+    rgb(0 0 0 / 0.45) 60%,
+    rgb(0 0 0 / 0.2)
+  );
+}
+.sb-site
+  .sb-scroll[data-motion="true"]:is(
+    [data-scroll-variant="cinematic"],
+    [data-scroll-variant="centered"],
+    [data-scroll-kind="image"]
+  )
+  .sb-scroll-copy {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  max-width: 850px;
+}
+.sb-site .sb-scroll[data-motion="true"] [class="sb-intro"] {
+  color: inherit;
+}
+.sb-site
+  .sb-scroll[data-motion="true"]:is(
+    [data-scroll-variant="centered"],
+    [data-scroll-variant="minimal"]
+  )
+  .sb-scroll-copy {
+  text-align: center;
+  margin-inline: auto;
+}
+.sb-site
+  .sb-scroll[data-motion="true"][data-scroll-variant="centered"]
+  .sb-actions {
+  justify-content: center;
+}
+.sb-site .sb-scroll[data-scroll-variant="portrait"] .sb-scroll-visual {
+  order: 2;
+  margin: 32px;
+  border-radius: 28px;
+  border: 1px solid rgb(255 255 255 / 0.25);
+}
+.sb-site .sb-scroll-ambient {
+  display: none;
+}
+.sb-site .sb-scroll[data-motion="true"] .sb-scroll-ambient {
+  display: block;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.25;
+  filter: blur(8px);
+  transform: scale(1.06);
+  pointer-events: none;
+}
+.sb-site
+  .sb-scroll[data-motion="true"][data-scroll-variant="portrait"]
+  .sb-scroll-scene {
+  background: #101c1b;
+  color: #fff;
+}
+.sb-site .sb-scroll[data-scroll-variant="minimal"] .sb-scroll-scene {
+  border: 1px solid var(--sb-border);
+}
+.sb-site .sb-scroll-controls {
+  position: absolute;
+  inset-inline: 20px;
+  bottom: 16px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  z-index: 2;
+  direction: ltr;
+}
+.sb-site .sb-scroll-controls nav {
+  display: flex;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.sb-site .sb-scroll-controls nav button {
+  flex: 0 0 44px;
+}
+.sb-site .sb-scroll-controls button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 6px;
+  border: 1px solid transparent;
+  border-radius: 24px;
+  background: #172522;
+  color: #fff;
+  cursor: pointer;
+  box-shadow: none;
+}
+.sb-site .sb-scroll-controls nav button span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.55;
+}
+.sb-site .sb-scroll-controls nav button[aria-current] span {
+  width: 18px;
+  opacity: 1;
+}
+.sb-site .sb-scroll-controls .sb-scroll-read {
+  padding-inline: 16px;
+  font-size: 0.75rem;
+  margin-inline-start: auto;
+}
+.sb-site .sb-scroll-controls button:focus-visible {
+  outline: 3px solid #fff;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 5px #172522;
+}
+@container builder (max-width: 639px) {
+  .sb-site .sb-scroll-scene {
+    grid-template-columns: 1fr;
+  }
+  .sb-site .sb-scroll-visual {
+    min-height: 240px;
+  }
+  .sb-site
+    .sb-scroll:is(
+      [data-scroll-variant="reversed"],
+      [data-scroll-variant="portrait"]
+    )
+    .sb-scroll-visual {
+    order: 0;
+  }
+  .sb-site .sb-scroll[data-motion="true"] .sb-scroll-scene {
+    display: block;
+    background: #101c1b;
+    color: #fff;
+  }
+  .sb-site .sb-scroll[data-motion="true"] .sb-scroll-visual {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    border-radius: 0;
+  }
+  .sb-site .sb-scroll[data-motion="true"] .sb-scroll-visual::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      0deg,
+      rgb(0 0 0 / 0.96) 5%,
+      rgb(0 0 0 / 0.65) 55%,
+      rgb(0 0 0 / 0.1)
+    );
+  }
+  .sb-site .sb-scroll[data-motion="true"] .sb-scroll-copy {
+    position: absolute;
+    inset-inline: 0;
+    bottom: 0;
+    padding: 24px 24px 116px;
+  }
+  .sb-site .sb-scroll[data-motion="true"] .sb-scroll-copy h3 {
+    font-size: clamp(1.5rem, 7cqi, 2.6rem);
+  }
+  .sb-site .sb-scroll-number {
+    margin-bottom: 14px;
+  }
+  .sb-site .sb-scroll-controls {
+    flex-wrap: wrap;
+    inset-inline: 12px;
+    bottom: 10px;
+    gap: 4px;
+  }
+}
+/* Printing and a preference changed before hydration must also reveal every scene. */
+@media print, (prefers-reduced-motion: reduce) {
+  .sb-site .sb-scroll[data-motion] .sb-scroll-track {
+    height: auto;
+  }
+  .sb-site .sb-scroll[data-motion] .sb-scroll-stage {
+    position: static;
+    height: auto;
+    overflow: visible;
+  }
+  .sb-site .sb-scroll.sb-scroll[data-motion] .sb-scroll-scene {
+    position: relative;
+    inset: auto;
+    opacity: 1;
+    display: grid;
+    color: var(--sb-text);
+    background: var(--sb-surface);
+  }
+  .sb-site .sb-scroll.sb-scroll[data-motion] .sb-scroll-visual {
+    position: relative;
+    inset: auto;
+  }
+  .sb-site .sb-scroll.sb-scroll[data-motion] .sb-scroll-visual::after {
+    display: none;
+  }
+  .sb-site .sb-scroll[data-motion] .sb-scroll-ambient {
+    display: none;
+  }
+  .sb-site .sb-scroll.sb-scroll[data-motion] .sb-scroll-copy {
+    position: relative;
+    transform: none;
+    padding: 24px;
+    inset: auto;
+  }
+  .sb-site .sb-scroll[data-motion] .sb-scroll-photo {
+    transform: none !important;
+  }
+  .sb-site .sb-scroll-controls {
+    display: none;
+  }
+}

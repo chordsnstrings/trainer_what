@@ -12,6 +12,8 @@ import {
 import { ArrowDown, ArrowUp, ImagePlus, Plus, Trash2, X } from "lucide-react";
 import {
   SITE_BUILDER_MODULES,
+  SITE_BUILDER_LIMITS,
+  DEFAULT_BUILDER_SCROLL,
   isPublicBrandImage,
   getBuilderVideoEmbedUrl,
   isSafeBuilderLink,
@@ -24,6 +26,7 @@ import {
   type SiteBuilderResponsive,
   type SiteBuilderItem,
   type SiteBuilderElement,
+  type SiteBuilderScroll,
 } from "@trainer/contracts";
 import {
   newEditorId,
@@ -627,6 +630,7 @@ const itemFields: Partial<
   navigation: ["title", "href"],
   footer: ["title", "href"],
   image: ["image", "imageAlt", "caption"],
+  "scroll-journey": ["eyebrow", "title", "body", "image", "imageAlt"],
 };
 const labels: Record<string, string> = {
   body: "Description",
@@ -650,11 +654,16 @@ function SectionItems({
   section,
   onChange,
   onPick,
+  builder,
+  products,
 }: {
   section: SiteBuilderSection;
   onChange: (items: SiteBuilderItem[], group?: string) => void;
   onPick: PickImage;
+  builder: SiteBuilderDocument;
+  products: Parameters<typeof EditorActionField>[0]["products"];
 }) {
+  const journey = section.moduleId === "scroll-journey";
   const fields = itemFields[section.moduleId] ?? [
     "title",
     "body",
@@ -666,7 +675,9 @@ function SectionItems({
       <summary>
         {section.moduleId === "transformation"
           ? "Client transformations"
-          : "Items"}{" "}
+          : journey
+            ? "Scenes"
+            : "Items"}{" "}
         <span>{section.content.items.length}</span>
       </summary>
       {section.moduleId === "transformation" && (
@@ -721,7 +732,13 @@ function SectionItems({
                   <input
                     value={value}
                     maxLength={
-                      key === "question" ? 300 : key === "caption" ? 500 : 200
+                      key === "question"
+                        ? 300
+                        : key === "caption"
+                          ? 500
+                          : key === "eyebrow"
+                            ? 100
+                            : 200
                     }
                     onChange={(e) => update(e.target.value)}
                   />
@@ -729,6 +746,76 @@ function SectionItems({
               </EditorField>
             );
           })}
+          {journey && (
+            <>
+              <ScrollFocus
+                x={item.focusX ?? 50}
+                y={item.focusY ?? 50}
+                onChange={(key, value) =>
+                  onChange(
+                    section.content.items.map((v) =>
+                      v.id === item.id ? { ...v, [key]: value } : v,
+                    ),
+                    `item:${item.id}:${key}`,
+                  )
+                }
+              />
+              {item.action ? (
+                <>
+                  <EditorActionField
+                    action={item.action}
+                    builder={builder}
+                    products={products}
+                    onChange={(action) =>
+                      onChange(
+                        section.content.items.map((v) =>
+                          v.id === item.id ? { ...v, action } : v,
+                        ),
+                        `item:${item.id}:action`,
+                      )
+                    }
+                  />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onChange(
+                        section.content.items.map((v) => {
+                          if (v.id !== item.id) return v;
+                          const next = { ...v };
+                          delete next.action;
+                          return next;
+                        }),
+                      )
+                    }
+                  >
+                    Remove scene button
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() =>
+                    onChange(
+                      section.content.items.map((v) =>
+                        v.id === item.id
+                          ? {
+                              ...v,
+                              action: {
+                                label: "Get in touch",
+                                kind: "contact",
+                                newTab: false,
+                              },
+                            }
+                          : v,
+                      ),
+                    )
+                  }
+                >
+                  Add scene button
+                </button>
+              )}
+            </>
+          )}
           <div className="sbe-inline">
             <button
               type="button"
@@ -769,7 +856,12 @@ function SectionItems({
       ))}
       <button
         type="button"
-        disabled={section.content.items.length >= 24}
+        disabled={
+          section.content.items.length >=
+          (journey
+            ? SITE_BUILDER_LIMITS.scrollScenes
+            : SITE_BUILDER_LIMITS.itemsPerSection)
+        }
         onClick={() =>
           onChange([
             ...section.content.items,
@@ -778,7 +870,9 @@ function SectionItems({
               title:
                 section.moduleId === "transformation"
                   ? "Client progress story"
-                  : "New item",
+                  : journey
+                    ? "New scene"
+                    : "New item",
               body: "",
               ...(section.moduleId === "faq"
                 ? {
@@ -794,8 +888,131 @@ function SectionItems({
         <Plus size={14} />
         {section.moduleId === "transformation"
           ? "Add client transformation"
-          : "Add item"}
+          : journey
+            ? "Add scene"
+            : "Add item"}
       </button>
+    </details>
+  );
+}
+
+function ScrollFocus({
+  x,
+  y,
+  onChange,
+}: {
+  x: number;
+  y: number;
+  onChange: (key: "focusX" | "focusY", value: number) => void;
+}) {
+  return (
+    <>
+      {(
+        [
+          ["focusX", "Horizontal photo focus", x],
+          ["focusY", "Vertical photo focus", y],
+        ] as const
+      ).map(([key, label, value]) => (
+        <EditorField key={key} label={`${label} · ${value}%`}>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={1}
+            value={value}
+            onChange={(e) => onChange(key, e.target.valueAsNumber)}
+          />
+        </EditorField>
+      ))}
+    </>
+  );
+}
+
+function ScrollSettings({
+  section,
+  onChange,
+}: {
+  section: SiteBuilderSection;
+  onChange: (config: SiteBuilderScroll) => void;
+}) {
+  const config = section.scroll ?? DEFAULT_BUILDER_SCROLL;
+  return (
+    <details open>
+      <summary>Scroll effect</summary>
+      <p className="sbe-help">
+        Use Preview to play the effect. Editing shows every scene. Visitors who
+        prefer less motion, or need more room to read, see stacked content.
+      </p>
+      <label className="sbe-check">
+        <input
+          type="checkbox"
+          checked={config.enabled}
+          onChange={(e) => onChange({ ...config, enabled: e.target.checked })}
+        />
+        Enable scroll effect
+      </label>
+      <EditorField label="Scroll pace">
+        <select
+          value={config.pace}
+          onChange={(e) =>
+            onChange({
+              ...config,
+              pace: e.target.value as SiteBuilderScroll["pace"],
+            })
+          }
+        >
+          <option value="quick">Quick</option>
+          <option value="balanced">Balanced</option>
+          <option value="slow">Slow</option>
+        </select>
+      </EditorField>
+      <EditorField label="Movement">
+        <select
+          value={config.intensity}
+          onChange={(e) =>
+            onChange({
+              ...config,
+              intensity: e.target.value as SiteBuilderScroll["intensity"],
+            })
+          }
+        >
+          <option value="subtle">Subtle</option>
+          <option value="standard">Standard</option>
+          <option value="strong">Strong</option>
+        </select>
+      </EditorField>
+      <EditorField label="Phone presentation">
+        <select
+          value={config.mobile}
+          onChange={(e) =>
+            onChange({
+              ...config,
+              mobile: e.target.value as SiteBuilderScroll["mobile"],
+            })
+          }
+        >
+          <option value="animated">Animate when there is room</option>
+          <option value="stacked">Stack the content</option>
+        </select>
+      </EditorField>
+      {section.moduleId === "scroll-journey" ? (
+        <label className="sbe-check">
+          <input
+            type="checkbox"
+            checked={config.navigation}
+            onChange={(e) =>
+              onChange({ ...config, navigation: e.target.checked })
+            }
+          />
+          Show scene navigation
+        </label>
+      ) : (
+        <ScrollFocus
+          x={config.focusX}
+          y={config.focusY}
+          onChange={(key, value) => onChange({ ...config, [key]: value })}
+        />
+      )}
     </details>
   );
 }
@@ -1445,6 +1662,7 @@ export function SiteBuilderInspector({
     (m) => m.id === section.moduleId,
   )!;
   const showImage = ![
+    "scroll-journey",
     "faq",
     "stats",
     "divider",
@@ -1459,6 +1677,7 @@ export function SiteBuilderInspector({
   const showItems =
     section.content.items.length > 0 ||
     [
+      "scroll-journey",
       "team",
       "benefits",
       "services",
@@ -1934,12 +2153,24 @@ export function SiteBuilderInspector({
           {showItems && (
             <SectionItems
               section={section}
+              builder={builder}
+              products={products}
               onChange={(items, group) =>
                 updateSection((next) => {
                   next.content.items = items;
                 }, group)
               }
               onPick={onPick}
+            />
+          )}
+          {["scroll-journey", "scroll-image"].includes(section.moduleId) && (
+            <ScrollSettings
+              section={section}
+              onChange={(scroll) =>
+                updateSection((next) => {
+                  next.scroll = scroll;
+                })
+              }
             />
           )}
           {section.moduleId !== "divider" && (

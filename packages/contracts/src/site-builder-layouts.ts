@@ -277,6 +277,8 @@ const additions: Record<
   nutrition: ["bento", "split-heading", "editorial-list"],
   "app-preview": ["reverse", "panorama", "framed-split"],
   announcement: ["side-note", "reading-card", "manifesto"],
+  "scroll-journey": [],
+  "scroll-image": [],
 };
 
 export const SITE_BUILDER_ADDITIONAL_LAYOUTS = Object.fromEntries(

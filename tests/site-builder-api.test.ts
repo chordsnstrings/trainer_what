@@ -133,6 +133,36 @@ after(async () => {
   await db.close();
 });
 
+test("scroll scenes retain settings across save/publish and enforce existing tenant media ownership", async () => {
+  const a = await tenant(),
+    b = await tenant();
+  const photo = await upload(a),
+    foreign = await upload(b);
+  const document = builder();
+  const scene = createModule("scroll-journey", "portrait");
+  scene.scroll!.pace = "slow";
+  scene.content.items[0].image = photo.url;
+  scene.content.items[0].focusY = 31;
+  document.pages[0].sections.push(
+    scene,
+    createModule("scroll-image", "zoom-out"),
+  );
+  const saved = await save(a, document);
+  assert.deepEqual(saved.draft.builder.pages[0].sections[1], scene);
+  await publish(a, saved.version);
+  const publicSite = await ok(null, "/public/sites/" + a.slug);
+  assert.deepEqual(publicSite.site.builder.pages[0].sections[1], scene);
+  assert.equal((await request(null, "/media/" + photo.id)).statusCode, 200);
+  scene.content.items[0].image = foreign.url;
+  const current = await ok(a, "/tenant/site");
+  const rejected = await request(a, "/tenant/site", "PUT", {
+    version: current.version,
+    site: { builder: document },
+  });
+  assert.equal(rejected.statusCode, 400, rejected.body);
+  assert.equal((await request(null, "/media/" + foreign.id)).statusCode, 404);
+});
+
 test("legacy sites remain unchanged until an explicit builder draft is published", async () => {
   const a = await tenant();
   const legacy = await ok(a, "/tenant/site", "PUT", {

@@ -16,7 +16,11 @@ import {
 
 const css = (
   await Promise.all(
-    ["site-builder-public.css", "site-builder-layouts.css"].map((name) =>
+    [
+      "site-builder-public.css",
+      "site-builder-layouts.css",
+      "site-builder-scroll.css",
+    ].map((name) =>
       readFile(new URL(`../apps/web/app/${name}`, import.meta.url), "utf8"),
     ),
   )
