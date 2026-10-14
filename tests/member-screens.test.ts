@@ -591,7 +591,9 @@ test("membership: no empty plan picker, a plan in plain words, no checkout card 
     }),
   );
   assert.match(choose, /Choose your coaching membership/);
-  assert.match(choose, /Join this plan/);
+  assert.match(choose, /Continue to payment/);
+  assert.match(choose, /6 months · save 10%/);
+  assert.match(choose, /12 months · save 30%/);
   assert.match(choose, /Have a discount code\?/);
   const active = text(
     render(MemberMembership, {
@@ -617,7 +619,7 @@ test("membership: no empty plan picker, a plan in plain words, no checkout card 
   assert.match(active, /Stop renewal…/);
   assert.doesNotMatch(
     active,
-    /Checkout status|checkout was not finished|No invoices/,
+    /Continue to payment|Checkout status|checkout was not finished|No invoices/,
   );
 });
 
