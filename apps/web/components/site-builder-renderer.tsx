@@ -22,6 +22,7 @@ import {
   type SiteBuilderTheme,
 } from "@trainer/contracts";
 import { offerTermsText } from "./programme-offers";
+import { BuilderScrollSection } from "./site-builder-scroll";
 import { translator } from "../lib/i18n/core";
 import siteMessages from "../lib/i18n/messages/site";
 import authMessages from "../lib/i18n/messages/auth";
@@ -1291,6 +1292,20 @@ function ModuleBody({ props }: { props: SectionProps }) {
     />
   );
   switch (family) {
+    case "scroll-journey":
+    case "scroll-image":
+      return (
+        <BuilderScrollSection
+          section={props.section}
+          context={context}
+          editing={!!props.onSelect}
+          intro={intro}
+          actions={actions}
+          renderAction={(action) => (
+            <Action action={action} context={context} builder={builder} />
+          )}
+        />
+      );
     case "hero":
       return (
         <div className="sb-hero-layout sb-composition-root">

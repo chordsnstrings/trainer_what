@@ -10,6 +10,7 @@ export const SITE_BUILDER_LIMITS = {
   sectionsPerPage: 60,
   sections: 300,
   itemsPerSection: 24,
+  scrollScenes: 8,
   savedSections: 50,
   elementsPerSection: 80,
   elementDepth: 4,
@@ -185,6 +186,8 @@ export const siteBuilderItemSchema = z
     eyebrow: optionalText(100),
     image: brandImageSchema.optional(),
     imageAlt: optionalText(240),
+    focusX: z.number().min(0).max(100).optional(),
+    focusY: z.number().min(0).max(100).optional(),
     beforeImage: brandImageSchema.optional(),
     afterImage: brandImageSchema.optional(),
     caption: optionalText(500),
@@ -308,8 +311,25 @@ export const SITE_BUILDER_MODULE_IDS = [
   "nutrition",
   "app-preview",
   "announcement",
+  "scroll-journey",
+  "scroll-image",
 ] as const;
 export type SiteBuilderModuleId = (typeof SITE_BUILDER_MODULE_IDS)[number];
+/** Optional additive data: existing documents keep their saved representation. */
+export const siteBuilderScrollSchema = z
+  .object({
+    enabled: z.boolean().default(true),
+    pace: z.enum(["quick", "balanced", "slow"]).default("balanced"),
+    intensity: z.enum(["subtle", "standard", "strong"]).default("standard"),
+    navigation: z.boolean().default(true),
+    mobile: z.enum(["animated", "stacked"]).default("animated"),
+    focusX: z.number().min(0).max(100).default(50),
+    focusY: z.number().min(0).max(100).default(50),
+  })
+  .strict();
+export type SiteBuilderScroll = z.infer<typeof siteBuilderScrollSchema>;
+export const DEFAULT_BUILDER_SCROLL: SiteBuilderScroll =
+  siteBuilderScrollSchema.parse({});
 export const siteBuilderSectionSchema = z
   .object({
     id: siteBuilderIdSchema,
@@ -318,8 +338,20 @@ export const siteBuilderSectionSchema = z
     content: siteBuilderContentSchema,
     style: siteBuilderStyleSchema.default({}),
     responsive: siteBuilderResponsiveSchema.default({}),
+    scroll: siteBuilderScrollSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((section, ctx) => {
+    if (
+      section.moduleId === "scroll-journey" &&
+      section.content.items.length > SITE_BUILDER_LIMITS.scrollScenes
+    )
+      ctx.addIssue({
+        code: "custom",
+        path: ["content", "items"],
+        message: "Use up to eight scenes in a scroll journey",
+      });
+  });
 export type SiteBuilderSection = z.infer<typeof siteBuilderSectionSchema>;
 
 export const siteBuilderThemeSchema = z
@@ -467,6 +499,22 @@ type ModuleSpec = [
   )[],
 ];
 const moduleSpecs: ModuleSpec[] = [
+  [
+    "scroll-journey",
+    "Scroll journey",
+    "Motion & storytelling",
+    "Tell a story through photos that crossfade, drift and zoom as visitors scroll.",
+    ["cinematic", "portrait", "split", "reversed", "centered", "minimal"],
+    ["items", "actions"],
+  ],
+  [
+    "scroll-image",
+    "Scroll image",
+    "Motion & storytelling",
+    "Give a photograph gentle scroll movement with readable copy and a next step.",
+    ["zoom-in", "zoom-out", "drift-up", "drift-left", "drift-right", "still"],
+    ["media", "actions"],
+  ],
   [
     "hero",
     "Hero",
@@ -972,9 +1020,26 @@ const defaultCopy: Partial<
     title: "A note from your coach.",
     body: "Add a timely update for your visitors.",
   },
+  "scroll-journey": { title: "Your story, one step at a time.", body: "" },
+  "scroll-image": {
+    title: "A closer look at your coaching.",
+    body: "Share what this moment means to your approach.",
+  },
 };
 function defaultItems(moduleId: SiteBuilderModuleId): SiteBuilderItem[] {
   switch (moduleId) {
+    case "scroll-journey":
+      return items([
+        [
+          "Your starting point",
+          "Introduce what matters to you and the people you coach.",
+        ],
+        ["Your approach", "Describe how you work, in your own words."],
+        [
+          "Your next step",
+          "Invite visitors to explore your coaching or get in touch.",
+        ],
+      ]);
     case "benefits":
       return items([
         [
@@ -1096,11 +1161,16 @@ export function createModule(
     content,
     style,
     responsive: { mobile: { paddingTop: 48, paddingBottom: 48, columns: 1 } },
+    ...(["scroll-journey", "scroll-image"].includes(moduleId)
+      ? { scroll: { ...DEFAULT_BUILDER_SCROLL } }
+      : {}),
     ...overrides,
   });
 }
 
 const arabicModuleTitles: Record<SiteBuilderModuleId, string> = {
+  "scroll-journey": "قصتك، خطوة بخطوة.",
+  "scroll-image": "نظرة أقرب إلى تدريبك.",
   hero: "تدريب يناسبك ويناسب حياتك.",
   intro: "يبدأ التدريب بفهم احتياجاتك.",
   about: "تعرّف على مدربك.",
@@ -1151,6 +1221,12 @@ const arabicModuleBodies: Partial<Record<SiteBuilderModuleId, string>> = {
   lead: "أخبرني قليلاً عنك وعما تريده من التدريب.",
 };
 function arabicDefaultItems(moduleId: SiteBuilderModuleId): SiteBuilderItem[] {
+  if (moduleId === "scroll-journey")
+    return items([
+      ["نقطة البداية", "عرّف بما يهمك ويهم الأشخاص الذين تدربهم."],
+      ["أسلوبك", "صف طريقة عملك بكلماتك الخاصة."],
+      ["الخطوة التالية", "ادع الزائر لاكتشاف تدريبك أو التواصل معك."],
+    ]);
   if (moduleId === "benefits")
     return items([
       ["نقطة البداية", "شارك خبرتك وأهدافك والدعم الذي تحتاجه."],

@@ -59,6 +59,8 @@ jobs:
         run: npm run test:site-builder
       - name: Section layout matrix (three widths, English and Arabic)
         run: node --import tsx scripts/site-builder-layout-check.ts
+      - name: Scroll modules (motion, accessibility and zoomed preview)
+        run: node --import tsx scripts/site-builder-scroll-check.ts
       - name: Backend onboarding, navigation and responsive UI
         run: node scripts/run-rtl-check.mjs
         env:

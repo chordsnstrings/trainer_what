@@ -8,7 +8,7 @@ The editor at `/trainer/website` replaces the old fixed-field website form. The 
 
 Pages, a searchable module library and reusable sections sit beside the canvas. Trainers can insert and reorder sections, select their content and design controls, duplicate sections/pages, arrange nested custom elements, change layout variants, set responsive overrides and undo/redo edits. Pages have independent titles, addresses, navigation visibility, search descriptions, social images and indexing controls. Renaming a page preserves a redirect. The website has its own theme and shared header/footer; it does not overwrite the member app's design.
 
-There are 38 section families and 270 curated layouts (at least six per family):
+There are 40 section families and 282 curated layouts (at least six per family):
 
 | Purpose | Families |
 | --- | --- |
@@ -19,10 +19,15 @@ There are 38 section families and 270 curated layouts (at least six per family):
 | Share content | Video, text/article, coach's statement, featured image, useful resources, FAQ |
 | Help visitors act | Contact/enquiry, start a conversation, social links, page navigation, footer, announcement |
 | Compose layouts | Divider/space and custom columns with nested headings, text, images, buttons, videos and spacers |
+| Tell a visual story | Scroll journey and scroll image |
 
 Five complete four-page starting designs are provided: Editorial, Strength, Minimal, Warm and Performance, plus a blank canvas. Proof sections start without invented testimonials, qualifications, figures or client outcomes. Native programme/pricing sections use actual published workspace offers. Contact forms feed the existing enquiry inbox; settings and inquiries remain accessible at `/trainer/website/settings`.
 
 ## Drafts, publication and compatibility
+
+**Scroll modules (14 October 2026):** In Sections, choose **Motion & storytelling** or search for **Scroll journey** / **Scroll image**. Journeys hold up to eight reorderable scenes with photos, image descriptions, focal points, text and optional native builder buttons. Six layouts provide cinematic, portrait, split, reversed, centered and minimal presentations. Scroll image offers zoom in/out, upward/sideways drift and a still preset. Both have pace, intensity, enable/disable and phone presentation controls; journeys also have scene navigation.
+
+Editing displays the content as cards. **Preview** and the published website animate inside the section, using the same renderer. Several effects can coexist and hand back to normal content; wheel and touch scrolling are not intercepted. Reduced-motion preference, a short viewport or oversized copy produces readable stacked content. Visitors can choose **Read without motion**; scene buttons work by keyboard and invisible scenes cannot receive focus. Printing and JavaScript-free rendering retain all text. Existing save, reusable section, duplicate, undo, revision and publication behavior applies. There is no new animation dependency, database migration, arbitrary HTML or video scrubbing. Audit and verification: `docs/BUILDER_SCROLL_2026-10-14.md`.
 
 The shared contract is `packages/contracts/src/site-builder.ts`. `site.builder` is optional in the existing site document. A legacy website continues to render unchanged until a builder draft is published. Conversion preserves existing text, pages, media, SEO and contact fields. Saving a migrated draft never changes the published legacy site.
 

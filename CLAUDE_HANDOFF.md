@@ -3,6 +3,10 @@
 
 ## Work in progress
 
+### Active — builder scroll modules, 14 October 2026
+
+The owner's supplied scroll reference is implemented on `feat/builder-scroll-modules-2026-10-14`: two module families, twelve presets, bounded scenes/settings, native photo/action controls and a shared section-scoped renderer. Reduced motion, long text, short screens and static editing retain readable cards; the zoomed preview and published website share the animation. No migration or animation dependency. Audit/plan: `docs/BUILDER_SCROLL_2026-10-14.md`. Local typecheck/build, all 56 builder tests, 1,692 layout renders, motion/print checks and the full 17-journey authenticated editor/publication check pass. Continue through PR, normal CI, merge and exact serving verification under the standing release instruction. The previously verified application remains `bf17118fc1ba7ffa6aad2e88e2cd16a488236af2` until new release evidence is recorded.
+
 ### Start here — owner handoff, 14 October 2026
 
 The three latest requests in this thread are complete: audited, planned, implemented, merged and verified live. There is no unfinished implementation or deployment for these requests. The latest verified application release is `bf17118fc1ba7ffa6aad2e88e2cd16a488236af2` (PR #67), confirmed on readiness and the homepage at 14:00:34–35 Dubai on 14 October. Documentation commits record that application release; their SHAs are not substitute evidence of a newly verified serving release. Detailed receipts follow this summary. Earlier operational follow-ups retain their separately stated limits.

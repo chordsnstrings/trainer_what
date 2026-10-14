@@ -970,6 +970,89 @@ try {
   );
 
   await check(
+    "scroll modules can be added, edited, saved, previewed and published",
+    async () => {
+      await page
+        .getByLabel("Current page", { exact: true })
+        .selectOption({ label: "Home" });
+      await page.getByRole("tab", { name: "Sections", exact: true }).click();
+      await page
+        .getByLabel("Search sections", { exact: true })
+        .fill("Scroll journey");
+      const added = await mutate("/tenant/site", "PUT", () =>
+        page.locator('[data-module-id="scroll-journey"]').click(),
+      );
+      const journey = added.draft.builder.pages
+        .find((p) => p.slug === "")
+        .sections.find((s) => s.moduleId === "scroll-journey");
+      assert.ok(journey);
+      const inspector = page.getByRole("complementary", {
+        name: "Content and design inspector",
+      });
+      await mutate("/tenant/site", "PUT", () =>
+        inspector
+          .getByLabel("Scroll pace", { exact: true })
+          .selectOption("slow"),
+      );
+      await inspector.locator(".sbe-item summary").first().click();
+      await mutate("/tenant/site", "PUT", () =>
+        inspector
+          .locator(".sbe-item")
+          .first()
+          .getByRole("textbox", { name: "Title", exact: true })
+          .fill("My scroll story"),
+      );
+      await mutate("/tenant/site", "PUT", () =>
+        inspector
+          .getByRole("button", { name: "Add scene button", exact: true })
+          .click(),
+      );
+      await saved();
+      await page.reload();
+      const canvas = page.locator(
+        `.sbe-canvas-section[data-section-id="${journey.id}"]`,
+      );
+      await canvas.click();
+      await expect(canvas.locator(".sb-scroll")).toHaveAttribute(
+        "data-motion",
+        "false",
+      );
+      await expect(
+        inspector.getByLabel("Scroll pace", { exact: true }),
+      ).toHaveValue("slow");
+      await expect(canvas).toContainText("My scroll story");
+      await page.getByRole("button", { name: "Preview", exact: true }).click();
+      await expect(
+        page.locator(`[data-section-id="${journey.id}"] .sb-scroll`),
+      ).toHaveAttribute("data-motion", "true");
+      await page
+        .getByRole("button", { name: "Back to editing", exact: true })
+        .click();
+      await publish();
+      await publicPage.goto(base + "/coach/alex-morgan");
+      await expect(
+        publicPage.locator(`[data-section-id="${journey.id}"]`),
+      ).toContainText("My scroll story");
+      const live = (await publicSite()).site.builder.pages
+        .find((p) => p.slug === "")
+        .sections.find((s) => s.id === journey.id);
+      assert.equal(live.scroll.pace, "slow");
+      assert.equal(live.content.items[0].action.kind, "contact");
+      await page.getByRole("tab", { name: "Sections", exact: true }).click();
+      await page
+        .getByLabel("Search sections", { exact: true })
+        .fill("Scroll image");
+      await mutate("/tenant/site", "PUT", () =>
+        page.locator('[data-module-id="scroll-image"]').click(),
+      );
+      await expect(inspector.getByLabel(/Horizontal photo focus/)).toHaveValue(
+        "50",
+      );
+      await saved();
+    },
+  );
+
+  await check(
     "desktop canvas has phone preview controls and the editor is unavailable on phones",
     async () => {
       await page.setViewportSize({ width: 1920, height: 1080 });
