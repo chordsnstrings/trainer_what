@@ -26,7 +26,7 @@ export function previewRouteAllowed(method: string, path: string) {
   if (/^\/onboarding-chat(?:\/(history|messages|actions|attachments(?:\/[^/]+)?|calls(?:\/options|\/[^/]+\/(?:end|cues)|\/[^/]+\/turns(?:\/[^/]+)?)?))?$/.test(p)) return ["GET", "HEAD", "POST", "DELETE"].includes(method);
   if (/^\/coaching\/calls(?:\/options|\/[^/]+\/(?:end|cues)|\/[^/]+\/turns(?:\/[^/]+)?)?$/.test(p)) return ["GET", "HEAD", "POST"].includes(method);
   if (/^\/chat\/attachments(?:\/[^/]+)?$/.test(p)) return ["GET", "HEAD", "POST", "DELETE"].includes(method);
-  if (/^\/nutrition(?:\/(profile|generate|plans|logs|checkins|pantry|groceries|captures|tracker|favorites|purchase-specs|shopping|leftovers|methods)(?:\/[^/]+)*)?$/.test(p)) return ["GET", "HEAD", "POST", "PUT", "DELETE"].includes(method);
+  if (/^\/nutrition(?:\/(profile|generate|plans|logs|checkins|pantry|groceries|kitchen|captures|tracker|favorites|purchase-specs|shopping|leftovers|methods)(?:\/[^/]+)*)?$/.test(p)) return ["GET", "HEAD", "POST", "PUT", "DELETE"].includes(method);
   if (method === "POST" && /^\/training\/sessions\/[^/]+\/(reschedule|cancel)$/.test(p)) return true;
   if (/^\/workouts(?:\/[^/]+)*$/.test(p)) return ["GET", "HEAD", "POST"].includes(method);
   // onRoute sees the parameter name, before a real request supplies its UUID.

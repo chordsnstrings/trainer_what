@@ -1,4 +1,5 @@
 import { openTrainingHold } from "./coaching-completion.ts";
+import { nutritionGuidance } from "../../../packages/domain/src/nutrition-household.ts";
 import { screenForSafety } from "./safety-policy.ts";
 import {
   publishedTrainerBrain,
@@ -298,6 +299,7 @@ export async function nutritionCatalog(
       name: x.name,
       description: x.description,
       dietTags: x.diet_tags,
+      ...(x.cuisines?.length ? { cuisines: x.cuisines } : {}),
       slots: x.slots,
       budget: x.budget,
       yieldServings: Number(x.yield_servings),
@@ -1418,7 +1420,7 @@ export function nutritionRoutes(
       const rid = randomUUID(),
         r = b.recipe;
       await tx.query(
-        "INSERT INTO nutrition_recipes(id,tenant_id,supersedes_id,name,description,diet_tags,slots,budget,yield_servings,source) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+        "INSERT INTO nutrition_recipes(id,tenant_id,supersedes_id,name,description,diet_tags,slots,budget,yield_servings,source,cuisines) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
         [
           rid,
           a.tenantId,
@@ -1430,6 +1432,7 @@ export function nutritionRoutes(
           r.budget,
           r.yieldServings,
           r.source,
+          JSON.stringify(r.cuisines ?? []),
         ],
       );
       for (const v of r.variants) {
@@ -1914,9 +1917,11 @@ function subscriberRoutes(
           today: localDate("Asia/Dubai"),
           ready: false,
         };
+      let safetyHeld = false;
       try { await requireNoRecentNutritionRedFlags(tx,uid); }
       catch (error) {
         if (!(error instanceof NutritionBlocked)) throw error;
+        safetyHeld = true;
         await tx.query("UPDATE records SET status='needs_recheck',version=version+1,updated_at=now() WHERE kind='nutrition_plan' AND owner_user_id=$1 AND status='delivered'",[uid]);
         await exception(tx,a,uid,"SCOPE_REVIEW","New health information needs your coach's review before dietary guidance resumes.");
       }
@@ -1928,6 +1933,8 @@ function subscriberRoutes(
         "SELECT id,status,data->>'code' AS code,data->>'message' AS message FROM records WHERE kind='nutrition_exception' AND owner_user_id=$1 AND status='open'",
         [uid],
       );
+      const readiness = await nutritionReadiness(tx);
+      const policy = readiness.material.policy?.data.policy;
       return {
         userId: uid,
         entitled: await nutritionEntitlement(tx, uid),
@@ -1938,7 +1945,9 @@ function subscriberRoutes(
         exceptions,
         twin: await nutritionTwin(tx, a, uid),
         today: localDate(profile?.data.profile.timezone ?? "Asia/Dubai"),
-        ready: (await nutritionReadiness(tx)).ready,
+        ready: readiness.ready,
+        policyOptions: { targets: policy?.targets.map((t: any) => ({ goal: t.goal })) ?? [], supportedDiets: policy?.supportedDiets ?? [] },
+        guidance: p.granted && !safetyHeld ? nutritionGuidance(policy, profile?.data.profile, readiness.material.foods, readiness.material.recipes) : null,
         targets: await tx.query(
           "SELECT * FROM records WHERE kind='nutrition_target' AND owner_user_id=$1 ORDER BY created_at DESC,id DESC",
           [uid],
@@ -2387,6 +2396,12 @@ function subscriberRoutes(
       const plan = await find(tx, (req.params as any).id, "nutrition_plan");
       if (plan.owner_user_id !== a.userId)
         throw fail(404, "NOT_FOUND", "Plan unavailable");
+      await permission(tx, a.userId);
+      await entitled(tx, a.userId);
+      await requireNoRecentNutritionRedFlags(tx, a.userId);
+      const currentProfile = await latest(tx, "nutrition_profile", a.userId);
+      if (plan.status !== "delivered" || plan.data.profileId !== currentProfile?.id)
+        throw fail(409, "PLAN_CHANGED", "Prepare a current meal week before exporting groceries.");
       const quote = (s: unknown) =>
         '"' +
         String(s)
@@ -2426,6 +2441,7 @@ function subscriberRoutes(
       ].join("\n");
     });
     reply
+      .header("Cache-Control", "private, no-store")
       .type("text/csv")
       .header(
         "Content-Disposition",
@@ -2781,7 +2797,7 @@ export async function prepareNutritionWeek(
           origin: "automatic",
           targetId: s.individualTarget.id,
           target: s.individualTarget.details,
-          targetSource: s.individualTarget.id ? "individual" : "coach_goal_policy",
+          targetSource: s.individualTarget.id ? "individual" : view.personalEnergy ? "coach_personal_energy" : "coach_goal_policy",
           trainingContext: s.nutritionContext.training,
           adjustmentEvidence: s.adjustmentEvidence,
           model: nutritionModelIdentity(),

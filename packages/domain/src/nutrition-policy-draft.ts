@@ -370,6 +370,12 @@ export function nutritionPolicyDraft(
   if (!reply.policy)
     return { policy: null, partialPolicy: null, gaps, conflicts };
   const draft: Record<string, unknown> = { ...reply.policy };
+  // This optional calculation is adopted explicitly in the policy form; a
+  // language model cannot introduce a new automatic energy method.
+  if (draft.energyAdjustments !== undefined) {
+    delete draft.energyAdjustments;
+    ask("energyAdjustments", "Choose and confirm personal energy rules in the policy form if you want to enable them.");
+  }
   if (Array.isArray(draft.boundaries))
     draft.boundaries = draft.boundaries
       .filter((b) => typeof b === "string" && b.trim())
@@ -401,7 +407,7 @@ export function nutritionPolicyDraft(
         "Automatic adjustment is off; the coach changes targets personally.";
   }
   if (adjustment) draft.adjustment = adjustment;
-  const required = Object.keys(nutritionPolicySchema.shape);
+  const required = Object.keys(nutritionPolicySchema.shape).filter((key) => key !== "energyAdjustments");
   const unusable = new Set<string>();
   for (const key of required)
     if (key !== "forbiddenIngredients" && blank(draft[key])) unusable.add(key);

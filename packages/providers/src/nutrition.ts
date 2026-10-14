@@ -26,7 +26,7 @@ import {
  * (which must be in caseIds), never from a scenario or another case.
  * Releases pin this version (nutritionModelIdentity).
  */
-export const NUTRITION_PROMPT_VERSION = "nutrition-cases-v5";
+export const NUTRITION_PROMPT_VERSION = "nutrition-cases-v6";
 export const NUTRITION_CONTEXT_LIMIT = 180000;
 export type NutritionTask =
   | "nutrition_week"

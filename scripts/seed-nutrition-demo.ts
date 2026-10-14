@@ -128,12 +128,17 @@ export async function seedNutritionDemo(db: Database, a: Actor) {
         "INSERT INTO consent_records(id,tenant_id,user_id,document_type,document_version,granted) VALUES($1,$2,$3,$4,'synthetic-demo-only',true)",
         [randomUUID(), a.tenantId, sam.id, type],
       );
+    const householdProfile = { ...fixtureProfile,
+      weightKg: 80,
+      energy: { heightCm: 180, equationSex: "male" as const, activity: "low" as const },
+      kitchen: { cook: "chef" as const, portions: 3, language: "en" as const, region: "AE" as const, instructions: "Pack lunch separately" },
+    };
     const profile = await putRecord(
       tx,
       a,
       "nutrition_profile",
       {
-        profile: fixtureProfile,
+        profile: householdProfile,
         synthetic: true,
         allowedUses: ["render", "model_prompt"],
       },
@@ -147,7 +152,7 @@ export async function seedNutritionDemo(db: Database, a: Actor) {
       view = validateNutritionWeek({
         week: choices,
         policy,
-        profile: fixtureProfile,
+        profile: householdProfile,
         ...catalog,
         caseIds: cases.map((c) => c.id),
         weekStart,

@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { mkdir, writeFile } from "node:fs/promises";
 import {
@@ -461,6 +462,33 @@ try {
     .getByRole("heading", { name: "Your week of meals", exact: true })
     .waitFor();
   await subscriber.getByText("Warm breakfast bowl", { exact: true }).waitFor();
+  await subscriber.getByRole("button", { name: "Weekly cooking pack", exact: true }).click();
+  const kitchen = subscriber.locator("dialog.nutrition-kitchen");
+  await kitchen.waitFor();
+  assert.equal(await kitchen.locator(".nutrition-kitchen-days article").count(), 7);
+  assert.equal(await kitchen.locator(".nutrition-kitchen-recipe").count(), 3);
+  assert.ok((await kitchen.innerText()).includes("8400"), "three cooking portions produce a full week's quantities");
+  assert.ok(!(await kitchen.innerText()).includes("weightKg"));
+  for (const width of [390, 1280]) {
+    await subscriber.setViewportSize({ width, height: 900 });
+    assert.equal(await kitchen.evaluate(el => el.scrollWidth > el.clientWidth + 1), false, "cooking pack fits viewport");
+    await subscriber.screenshot({ path: `test-results/nutrition-kitchen-${width}.png`, fullPage: true });
+  }
+  // PDF output exercises the actual print stylesheet and all seven days.
+  await subscriber.emulateMedia({ media: "print" });
+  await subscriber.pdf({ path: "test-results/nutrition-kitchen-en.pdf", preferCSSPageSize: true, printBackground: true });
+  assert.equal(await kitchen.locator(".nutrition-kitchen-toolbar").isVisible(), false);
+  await subscriber.emulateMedia({ media: "screen" });
+  await kitchen.getByLabel("Language for the cooking pack").selectOption("ar");
+  await subscriber.setViewportSize({ width: 390, height: 900 });
+  assert.equal(await kitchen.getAttribute("dir"), "rtl");
+  assert.equal(await kitchen.evaluate(el => el.scrollWidth > el.clientWidth + 1), false);
+  await subscriber.screenshot({ path: "test-results/nutrition-kitchen-ar.png", fullPage: true });
+  await subscriber.emulateMedia({ media: "print" });
+  await subscriber.pdf({ path: "test-results/nutrition-kitchen-ar.pdf", preferCSSPageSize: true, printBackground: true });
+  assert.equal(await kitchen.locator(".nutrition-kitchen-toolbar").isVisible(), false);
+  await subscriber.emulateMedia({ media: "screen" });
+  await kitchen.getByRole("button", { name: "إغلاق", exact: true }).click();
   await subscriber
     // Test data is labelled only in development (nutrition.tsx).
     .getByText("Test data (development only)", {
