@@ -30,14 +30,25 @@ This is implementation of the owner's commercial policy, not a claim of external
 
 ## Verification and release
 
-Implemented on `work/nutrition-commerce-2026-10-14`. Release pending ordinary GitHub gates; no live transaction was used.
+Implemented on `work/nutrition-commerce-2026-10-14`, merged in PR #67 and verified live as `bf17118fc1ba7ffa6aad2e88e2cd16a488236af2`. The exact release evidence is recorded below; no live transaction was used for testing.
 
 Local TypeScript and production build pass. Financial/domain coverage includes 11 new cases: all bundle floors, exact 6/12-month totals, Dubai month ends and leap years, the exclusive 15-day boundary, purchase acknowledgement, delayed payment and replay, immutable purchased modules, proportional refund/commission reversal, queued-window promotion before partial refund, paid-training requirements, pass expiry/refund isolation, payout preparation and dispatch reserves, provider ownership, original payment dates on reconciliation and unknown-outcome deduplication. Targeted regression groups passed 56, 41, 36 and 13 tests (these groups overlap and are not a combined count). Translation and terms-publication checks pass; migration 098 publishes a separate terms version and preserves historical documents/acceptances.
 
-The broad regression sweep exposed old fixtures that granted nutrition without payment, used prices below the new floors, or expected the old statement shape. Those fixtures now establish positive paid access and assert the new commercial rules; focused reruns pass. One old meal-capture race fixture waited for a provider call that the new paywall correctly prevented, so the initial broad run was stopped, that fixture was corrected, and remaining files were run separately. This is not claimed as a clean full-suite result; exact-head CI must pass before merge.
+The broad regression sweep exposed old fixtures that granted nutrition without payment, used prices below the new floors, or expected the old statement shape. Those fixtures now establish positive paid access and assert the new commercial rules; focused reruns pass. One old meal-capture race fixture waited for a provider call that the new paywall correctly prevented, so the initial broad run was stopped, that fixture was corrected, and remaining files were run separately. This local sweep is not claimed as a clean full-suite result; the completed exact-head PR and main CI evidence below supersedes that local-only limitation.
 
 The production browser journey passes in English/Arabic at 390px and 1280px, covering prepaid prices, required acknowledgement and both pass purchase payloads. Screenshots were visually inspected; the initial narrow-column terms layout was corrected. The journey is included in the existing browser release gate and intercepts checkout so it cannot charge a provider.
 
 New prepaid packs and passes use card Checkout. Authenticated reconciliation recovers the captured card charge time; missing timing evidence leaves the purchase held rather than extending access or restarting a refund window. Older programme payments keep their established reconciliation behavior. Sources and policy assumptions above apply; the new consolidated legal source is `docs/legal/uae-2026-10/terms-2026-10-14.en.md`.
 
 Runtime model/token/cost totals were not exposed; no alternate-model or cost-saving claim is made.
+
+## Completed release evidence
+
+[PR #67](https://github.com/chordsnstrings/trainer_what/pull/67) merged as `bf17118fc1ba7ffa6aad2e88e2cd16a488236af2`. Its tree, `c8770ee8d498475f03a82f895944bdbf65356637`, exactly matches the final checked PR head `0a6465ada837d850799094c8bfcee5f46f9fbddd`.
+
+- All eight final-head PR gates passed: [Application checks](https://github.com/chordsnstrings/trainer_what/actions/runs/38533500474) and [Onboarding conversation](https://github.com/chordsnstrings/trainer_what/actions/runs/38533500479).
+- All seven [exact-main checks](https://github.com/chordsnstrings/trainer_what/actions/runs/38541204088) passed on their first attempt. On both PR and main, application tests recorded 1,895 passed / 0 failed / 5 skipped; PostgreSQL recorded 1,894 passed / 0 failed / 6 skipped. Conversation recorded 151 passed / 0 failed. Checks include non-owner runtime isolation, production container readiness and the actual production browser journeys.
+- The initial PR head exposed an obsolete `Join this plan` assertion. The correction verifies `Continue to payment` and both prepaid discount choices; all 24 focused screen checks passed with the CI UTC timezone. On the corrected head, the application job passed every test and browser step but GitHub cancelled it at its 35-minute limit during final cleanup. The unchanged-code retry completed successfully. No failed gate was waived.
+- [Serving verification](https://github.com/chordsnstrings/trainer_what/actions/runs/38545486276) confirmed the exact feature release at 09:59:18 UTC on 14 October. Independent readiness and homepage GETs returned HTTP 200 and the same release at 10:00:34–35 UTC; readiness returned `status: ready`.
+
+The structured receipt is `docs/NUTRITION_COMMERCE_RELEASE_2026-10-14.json`. The documentation-only follow-up records this verified feature SHA, changes no application behavior and follows ordinary automatic CI separately. No production charge, refund, payout or grocery purchase was performed for testing.

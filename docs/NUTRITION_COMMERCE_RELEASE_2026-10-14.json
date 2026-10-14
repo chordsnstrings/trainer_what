@@ -1,0 +1,89 @@
+{
+  "featureRelease": "bf17118fc1ba7ffa6aad2e88e2cd16a488236af2",
+  "pullRequest": "https://github.com/chordsnstrings/trainer_what/pull/67",
+  "servingVerificationRun": "https://github.com/chordsnstrings/trainer_what/actions/runs/38545486276",
+  "finalPrHead": "0a6465ada837d850799094c8bfcee5f46f9fbddd",
+  "checkedTree": "c8770ee8d498475f03a82f895944bdbf65356637",
+  "prApplicationRun": "https://github.com/chordsnstrings/trainer_what/actions/runs/38533500474",
+  "prConversationRun": "https://github.com/chordsnstrings/trainer_what/actions/runs/38533500479",
+  "mainApplicationRun": "https://github.com/chordsnstrings/trainer_what/actions/runs/38541204088",
+  "prGatesPassed": 8,
+  "mainGatesPassed": 7,
+  "prApplicationTests": {
+    "tests": 1900,
+    "pass": 1895,
+    "fail": 0,
+    "skipped": 5
+  },
+  "prPostgresTests": {
+    "tests": 1900,
+    "pass": 1894,
+    "fail": 0,
+    "skipped": 6
+  },
+  "mainApplicationTests": {
+    "tests": 1900,
+    "pass": 1895,
+    "fail": 0,
+    "skipped": 5
+  },
+  "mainPostgresTests": {
+    "tests": 1900,
+    "pass": 1894,
+    "fail": 0,
+    "skipped": 6
+  },
+  "conversationTests": {
+    "tests": 151,
+    "pass": 151,
+    "fail": 0,
+    "skipped": 0
+  },
+  "browserJourney": {
+    "languages": [
+      "en",
+      "ar"
+    ],
+    "widths": [
+      390,
+      1280
+    ],
+    "checks": [
+      "prepaid totals",
+      "required terms acknowledgement",
+      "nutrition and voice pass payloads",
+      "readable terms layout"
+    ],
+    "noCharges": true
+  },
+  "migration": "098_membership_commerce_terms.sql",
+  "initialCorrection": "Obsolete member-screen CTA assertion corrected; purchase button and six/twelve-month choices now asserted.",
+  "prApplicationRetry": {
+    "firstJob": 115750705747,
+    "retryJob": 115764701021,
+    "reason": "First job cancelled at its 35-minute limit during cleanup after all tests and browser steps passed.",
+    "outcome": "Unchanged-code retry passed; no failed gate waived."
+  },
+  "mainApplicationAttempt": 1,
+  "scope": "Verified feature release. Documentation-only receipt follows ordinary automatic checks separately.",
+  "ready": {
+    "url": "https://trainsyou.com/api/v1/ready",
+    "checkedAt": "2026-10-14T10:00:34.053132+00:00",
+    "httpStatus": 200,
+    "serverDate": "Wed, 14 Oct 2026 10:00:33 GMT",
+    "release": "bf17118fc1ba7ffa6aad2e88e2cd16a488236af2",
+    "body": {
+      "status": "ready"
+    }
+  },
+  "homepage": {
+    "url": "https://trainsyou.com/",
+    "checkedAt": "2026-10-14T10:00:35.107400+00:00",
+    "httpStatus": 200,
+    "serverDate": "Wed, 14 Oct 2026 10:00:34 GMT",
+    "release": "bf17118fc1ba7ffa6aad2e88e2cd16a488236af2",
+    "htmlReceived": true
+  },
+  "watcherConfirmedAt": "2026-10-14T09:59:18Z",
+  "servingVerification": "passed"
+}
