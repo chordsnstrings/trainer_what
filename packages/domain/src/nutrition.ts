@@ -6,6 +6,7 @@ import {
   nutritionSampleMealSchema,
 } from "./nutrition-learning-schema.ts";
 import { redFlagCategories, type RedFlagCategory } from "./red-flags.ts";
+import { energyInputsSchema, energyAdjustmentSchema, personalEnergyTarget, estimateNutritionEnergy } from "./nutrition-energy.ts";
 
 export const nutritionCategories = [
   "diet",
@@ -85,6 +86,7 @@ export const recipeSchema = z
     name: text(160),
     description: z.string().max(2000),
     dietTags: tags.min(1),
+    cuisines: tags.optional(),
     slots: z.array(text(50)).min(1).max(6),
     budget: z.enum(["low", "moderate", "flexible"]),
     yieldServings: z.number().positive().max(100).multipleOf(0.25),
@@ -115,6 +117,20 @@ export type Recipe = z.infer<typeof recipeSchema> & { id: string };
 export const nutritionProfileSchema = z
   .object({
     weightKg: z.number().min(20).max(500).optional(),
+    energy: energyInputsSchema.optional(),
+    preferences: z.object({
+      cuisines: tags,
+      likedFoods: tags,
+      halal: z.boolean(),
+      batchCooking: z.boolean(),
+    }).strict().optional(),
+    kitchen: z.object({
+      cook: z.enum(["self", "family", "helper", "chef"]),
+      portions: z.number().int().min(1).max(12),
+      language: z.enum(["en", "ar"]),
+      region: z.enum(["AE", "other"]),
+      instructions: z.string().trim().max(1000),
+    }).strict().optional(),
     age: z.number().int().min(18).max(100),
     goal: text(100),
     diet: text(80).transform((s) => s.toLowerCase()),
@@ -167,6 +183,7 @@ export const nutritionPolicySchema = z
       )
       .min(1)
       .max(20),
+    energyAdjustments: z.array(energyAdjustmentSchema).max(20).optional(),
     minKcal: z.number().int().positive().max(10000),
     maxKcal: z.number().int().positive().max(10000),
     tolerancePercent: z.number().min(0).max(20),
@@ -191,6 +208,9 @@ export const nutritionPolicySchema = z
   })
   .strict()
   .superRefine((p, c) => {
+    const energyGoals = p.energyAdjustments?.map((g) => g.goal.toLowerCase()) ?? [];
+    if (new Set(energyGoals).size !== energyGoals.length || energyGoals.some((g) => !p.targets.some((t) => t.goal.toLowerCase() === g)))
+      c.addIssue({ code: "custom", message: "Personal energy rules must name unique supported goals" });
     if (
       p.minAge > p.maxAge ||
       p.minKcal > p.maxKcal ||
@@ -464,6 +484,9 @@ export function nutritionTarget(
     profile.diet,
     ...profile.exclusions,
     ...profile.allergens,
+    ...(profile.preferences?.cuisines ?? []),
+    ...(profile.preferences?.likedFoods ?? []),
+    profile.kitchen?.instructions ?? "",
   ];
   if (
     nutritionScopeSignals(profileText).length ||
@@ -505,6 +528,16 @@ export function nutritionTarget(
       "TARGET_MISSING",
       "The coach has not defined a calorie approach for this goal.",
     );
+  const rule = policy.energyAdjustments?.find((g) => g.goal.toLowerCase() === profile.goal.toLowerCase());
+  if (rule) {
+    const personal = personalEnergyTarget(profile, rule.adjustmentKcal);
+    if (personal.error) throw new NutritionBlocked(personal.error, personal.error === "TARGET_INPUT"
+      ? "Add current weight, height, equation sex and activity in Food preferences for your coach's personal calorie method."
+      : "This personal calorie estimate needs your coach or a dietitian's review.");
+    if (personal.kcal! < policy.minKcal || personal.kcal! > policy.maxKcal)
+      block("TARGET_LIMIT", "The personal calorie estimate is outside your coach's approved limits.");
+    return personal.kcal!;
+  }
   return target!.kcal;
 }
 // Decimal inputs are converted to integer hundredths. Rounding happens only at presentation.
@@ -820,6 +853,8 @@ export function recipeCompatibility(
 ) {
   if (!recipe.dietTags.includes(profile.diet))
     return "Diet preference does not match";
+  if (profile.preferences?.halal && !recipe.dietTags.includes("halal"))
+    return "The recipe has not been reviewed as halal";
   if (
     variant.minutes > profile.maxMinutes ||
     variant.equipment.some((e) => !profile.equipment.includes(e))
@@ -889,6 +924,11 @@ export function validateNutritionWeek(input: {
     range = dailyKcalRange(target, policy.tolerancePercent);
   if (target < policy.minKcal || target > policy.maxKcal)
     block("TARGET_LIMIT", "The calorie target is outside the coach's limits.");
+  if (policy.energyAdjustments?.some(g => g.goal.toLowerCase() === profile.goal.toLowerCase())) {
+    const estimate = estimateNutritionEnergy(profile);
+    if (!estimate || personalEnergyTarget(profile, target - estimate.maintenanceKcal).error)
+      block("TARGET_LIMIT", "The adjusted personal target needs your coach's review.");
+  }
   if (new Set(week.days.map((d) => d.offset)).size !== 7)
     block("INCOMPLETE_WEEK", "The plan must contain seven different days.");
   if (week.caseIds.some((id) => !input.caseIds.includes(id)))
@@ -974,6 +1014,7 @@ export function validateNutritionWeek(input: {
           nutrients: scaledNutrients(portions, 1),
           estimated: true,
           source: r.source,
+          recipeYieldServings: r.yieldServings,
         };
       });
       const total = {} as Record<string, number | null>;
@@ -1015,7 +1056,10 @@ export function validateNutritionWeek(input: {
       batches: batches.size,
       recipes: input.recipes,
     }),
+    personalEnergy: !!policy.energyAdjustments?.some(g => g.goal.toLowerCase() === profile.goal.toLowerCase()),
     calculationVersion: "nutrition-decimal-v1",
+    kitchen: profile.kitchen ?? { cook: "self", portions: 1, language: "en", region: "other", instructions: "" },
+    restrictions: { allergens: profile.allergens, exclusions: profile.exclusions, halal: profile.preferences?.halal ?? false },
     estimated: true,
   };
 }

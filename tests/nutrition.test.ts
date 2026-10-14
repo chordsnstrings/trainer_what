@@ -428,11 +428,14 @@ test("food and recipe facts are tenant-scoped and immutable; policy needs own te
   }
   for (const recipe of catalog.recipes) {
     const { id: rid, ...value } = recipe;
+    value.cuisines = ["emirati"];
     value.variants.forEach((v) =>
       v.ingredients.forEach((i) => (i.foodId = mapping.get(i.foodId)!)),
     );
     recipes.push(await ok("/nutrition/recipes", "POST", { recipe: value }));
   }
+  const catalogRead = await ok("/nutrition/coach");
+  assert.ok(catalogRead.recipes.every((r: any) => r.cuisines.includes("emirati")));
   await assert.rejects(
     db.tenant(owner, (tx) =>
       tx.query("UPDATE nutrition_foods SET name='Mutated' WHERE id=$1", [
@@ -535,7 +538,7 @@ test("trainer preview uses the published nutrition service without joining or ch
   const testMember = { cookie: owner.cookie + "; " + cookieValue(start, "trainer_preview") };
   const boot = await ok("/trainer-preview/run/bootstrap", "GET", undefined, testMember);
   assert.equal(boot.user.role, "subscriber");
-  await ok("/trainer-preview/run/nutrition/profile", "POST", { profile: fixtureProfile, processingConsent: true, modelConsent: true, version: 0 }, testMember);
+  await ok("/trainer-preview/run/nutrition/profile", "POST", { profile: { ...fixtureProfile, kitchen: { cook: "helper", portions: 3, language: "ar", region: "AE", instructions: "Pack lunch separately" } }, processingConsent: true, modelConsent: true, version: 0 }, testMember);
   const requestKey = randomUUID(), before = modelCalls;
   const result = await ok("/trainer-preview/run/nutrition/generate", "POST", { requestKey, weekStart: today }, testMember);
   assert.equal(result.plan.status, "delivered");
@@ -546,6 +549,13 @@ test("trainer preview uses the published nutrition service without joining or ch
   assert.equal(hidden.length, 0);
   const groceries = await req("/trainer-preview/run/nutrition/groceries/" + result.plan.id, "GET", undefined, testMember);
   assert.equal(groceries.statusCode, 200, groceries.body);
+  const kitchen = await ok("/trainer-preview/run/nutrition/kitchen/" + result.plan.id, "GET", undefined, testMember);
+  assert.equal(kitchen.days.length, 7);
+  assert.equal(kitchen.kitchen.portions, 3);
+  assert.equal(kitchen.kitchen.language, "ar");
+  assert.equal(kitchen.shopping.find((g: any) => g.name === "Oat mixture").grams, 8400);
+  assert.equal(kitchen.targetKcal, undefined);
+  assert.equal((await req("/nutrition/kitchen/" + result.plan.id, "GET", undefined, subscriber)).statusCode, 404);
   await ok("/trainer-preview/end", "POST", {}, testMember);
   assert.equal((await ok("/bootstrap", "GET", undefined, owner)).user.userId, owner.userId);
 });

@@ -7,6 +7,7 @@ import { defineMessages } from "../core";
  */
 export default defineMessages(
   {
+    personalTargetSource: "Personal energy target calculated with your coach’s approved rule",
     currentMethodWeight: "Current weight in kg (for your coach's method)",
     individualTargetSource: "Individual target set by your coach",
     policyTargetSource: "Your coach's standard target for this goal. Ask your coach for an individual target when needed.",
@@ -315,6 +316,7 @@ export default defineMessages(
     ringOf: "of {kcal} kcal planned · {date}",
   },
   {
+    personalTargetSource: "هدف طاقة شخصي محسوب وفق قاعدة مدربك المعتمدة",
     currentMethodWeight: "الوزن الحالي بالكيلوغرام (لطريقة مدربك)",
     individualTargetSource: "هدف فردي حدده مدربك",
     policyTargetSource: "هدف مدربك القياسي لهذا الهدف. يمكنك طلب هدف فردي من مدربك عند الحاجة.",

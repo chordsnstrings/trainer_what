@@ -15,7 +15,9 @@ import {
   nutritionMaterial,
   invalidatePlansUsing,
   catalogReadLock,
+  requireNoRecentNutritionRedFlags,
 } from "./nutrition.ts";
+import { nutritionKitchenPack } from "../../../packages/domain/src/nutrition-household.ts";
 import {
   nutritionMethodSchema,
   nutritionTargetSchema,
@@ -357,6 +359,33 @@ export function nutritionCompletionRoutes(
         ),
         inventory,
         today: localDate(profile.data.profile.timezone),
+      };
+    });
+  });
+  app.get("/api/v1/nutrition/kitchen/:id", async (req, reply) => {
+    const a = identity(req), planId = id.parse((req.params as any).id);
+    if (!["subscriber", "owner", "staff"].includes(a.role))
+      throw fail(403, "NUTRITION_ACCESS", "Nutrition access denied");
+    reply.header("Cache-Control", "private, no-store");
+    return db.tenant(internal(a), async tx => {
+      const [plan] = await tx.query("SELECT * FROM records WHERE kind='nutrition_plan' AND id=$1", [planId]);
+      if (!plan || (a.role === "subscriber" && plan.owner_user_id !== a.userId))
+        throw fail(404, "NOT_FOUND", "Kitchen plan unavailable");
+      const profile = await clientContext(tx, a, plan.owner_user_id);
+      if (!(await nutritionEntitlement(tx, plan.owner_user_id)))
+        throw fail(402, "NUTRITION_MEMBERSHIP", "Workout + nutrition membership is required");
+      await requireNoRecentNutritionRedFlags(tx, plan.owner_user_id);
+      if (plan.status !== "delivered" || plan.data.profileId !== profile.id)
+        throw fail(409, "PLAN_CHANGED", "Prepare a current meal week before printing or shopping.");
+      const specs = await tx.query("SELECT * FROM records WHERE kind='nutrition_purchase_spec' AND status='active' ORDER BY created_at DESC"),
+        inventory = await tx.query("SELECT * FROM records WHERE kind='nutrition_leftover' AND owner_user_id=$1 ORDER BY created_at DESC LIMIT 300", [plan.owner_user_id]);
+      return {
+        planId: plan.id, version: plan.version,
+        sample: !!plan.data.synthetic || plan.data.origin === "synthetic_fixture",
+        ...nutritionKitchenPack({ ...plan.data.view,
+          kitchen: plan.data.view.kitchen ?? profile.data.profile.kitchen,
+          restrictions: plan.data.view.restrictions ?? { allergens: profile.data.profile.allergens, exclusions: profile.data.profile.exclusions, halal: profile.data.profile.preferences?.halal ?? false },
+        }, specs as any, inventory as any, localDate(profile.data.profile.timezone)),
       };
     });
   });

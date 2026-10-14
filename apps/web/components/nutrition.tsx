@@ -1,4 +1,5 @@
 "use client";
+import { NutritionPreferencesFields, nutritionPreferencesFromForm, NutritionGuidance, NutritionKitchenButton } from "./nutrition-household";
 import { memberApiUrl, memberHref } from "../lib/trainer-preview-routing";
 import { confirmWorkspace } from "./workspace-feedback";
 import { queuedLabel, queuedSummary, unsavedMark } from "./pwa";
@@ -1247,6 +1248,7 @@ function RecipeForm({
                 name: f.get("name"),
                 description: f.get("description"),
                 dietTags: list(f.get("diets")),
+                cuisines: list(f.get("cuisines")),
                 slots: list(f.get("slots")),
                 budget: f.get("budget"),
                 yieldServings: num(f, "yield"),
@@ -1279,6 +1281,9 @@ function RecipeForm({
               placeholder="balanced, vegetarian"
               required
             />
+          </Field>
+          <Field label="Cuisines (comma separated)">
+            <input name="cuisines" defaultValue={initial?.cuisines?.join(", ")} placeholder="Emirati, Arabic, Indian…" />
           </Field>
           <Field label="Meal slots (match your policy)">
             <input
@@ -1466,6 +1471,8 @@ function PolicyForm({
           goal: t?.goal ?? "",
           kcal: t?.kcal ?? "",
           reason: t?.reason ?? "",
+          energyIntent: initial?.energyAdjustments?.find((g: any) => g.goal.toLowerCase() === t?.goal?.toLowerCase())?.intent ?? "off",
+          energyDelta: initial?.energyAdjustments?.find((g: any) => g.goal.toLowerCase() === t?.goal?.toLowerCase())?.adjustmentKcal ?? 0,
         }))
       : [{ goal: "", kcal: "", reason: "" }],
   );
@@ -1481,7 +1488,8 @@ function PolicyForm({
             supportedDiets: list(f.get("diets")),
             minAge: num(f, "minAge"),
             maxAge: num(f, "maxAge"),
-            targets: targets.map((t) => ({ ...t, kcal: Number(t.kcal) })),
+            targets: targets.map((t) => ({ goal: t.goal, reason: t.reason, kcal: Number(t.kcal) })),
+            energyAdjustments: targets.filter(t => t.energyIntent && t.energyIntent !== "off").map(t => ({ goal: t.goal, intent: t.energyIntent, adjustmentKcal: Number(t.energyDelta) })),
             minKcal: num(f, "minKcal"),
             maxKcal: num(f, "maxKcal"),
             tolerancePercent: num(f, "tolerance"),
@@ -1610,8 +1618,18 @@ function PolicyForm({
                 />
               </Field>
             ))}
+            <Field label="Personal energy rule for this goal">
+              <select value={t.energyIntent ?? "off"} onChange={e => setTargets(v => v.map((x, j) => j === i ? { ...x, energyIntent: e.target.value, energyDelta: e.target.value === "lose" ? -300 : e.target.value === "gain" ? 300 : 0 } : x))}>
+                <option value="off">Use the standard goal target</option>
+                <option value="lose">Estimated maintenance minus a deficit</option>
+                <option value="maintain">Estimated maintenance</option>
+                <option value="gain">Estimated maintenance plus a surplus</option>
+              </select>
+            </Field>
+            {t.energyIntent && t.energyIntent !== "off" && <Field label="Coach-selected calorie adjustment (kcal/day)"><input type="number" min={t.energyIntent === "lose" ? -500 : 0} max={t.energyIntent === "gain" ? 500 : 0} value={t.energyDelta} readOnly={t.energyIntent === "maintain"} onChange={e => setTargets(v => v.map((x, j) => j === i ? { ...x, energyDelta: e.target.value } : x))} required /></Field>}
           </div>
         ))}
+        <p className="muted">Personal rules use the Mifflin–St Jeor resting-energy estimate and the subscriber's stated activity. They require current weight, height and an explicit equation sex. General-wellness adults aged 19–78 only; low weight, targets at or below 1,200 kcal, deficits over 25% of maintenance, or values outside your limits require review. Confirm your policy, then run its checks and activate a reviewed week. No predicted weight-loss date is promised.</p>
         <button
           type="button"
           className="button secondary"
@@ -1726,6 +1744,7 @@ export function ProfileForm({
         const f = new FormData(e.currentTarget);
         void onSubmit({
           profile: {
+            ...nutritionPreferencesFromForm(f),
             age: num(f, "age"),
             ...(String(f.get("weightKg") ?? "").trim() ? { weightKg: num(f, "weightKg") } : {}),
             goal: f.get("goal"),
@@ -1776,8 +1795,10 @@ export function ProfileForm({
             defaultValue={initial?.diet}
             required
             placeholder={t("dietPlaceholder")}
+            list="nutrition-diets"
           />
         </Field>
+        <datalist id="nutrition-diets">{policy?.supportedDiets?.map((diet: string) => <option key={diet} value={diet} />)}</datalist>
         <Field label={t("allergy")}>
           <select
             name="allergyStatus"
@@ -1856,6 +1877,7 @@ export function ProfileForm({
           )}
         </Field>
       </div>
+      <NutritionPreferencesFields initial={initial} />
       <Field label={t("notes")}>
         <textarea name="notes" defaultValue={initial?.notes} />
       </Field>
@@ -2099,7 +2121,7 @@ export function WeekView({
       <div className="nutrition-week-heading">
         <p>{formatDateRange(view.weekStart, view.weekEnd, { locale })}</p>
         <p className="muted">{t("approxDay", { kcal: view.targetKcal })}</p>
-        <p className="muted">{plan.data.targetId ? (t("individualTargetSource")) : (t("policyTargetSource"))}</p>
+        <p className="muted">{plan.data.targetId ? (t("individualTargetSource")) : plan.data.view.personalEnergy ? t("personalTargetSource") : (t("policyTargetSource"))}</p>
         {!plan.data.targetId && <a className="text-link" href={memberHref("/app/chat")}>{t("discussTarget")}</a>}
 
       </div>
@@ -2641,6 +2663,7 @@ export function NutritionSubscriber({
       {coachView && (
         <NutritionClientControl userId={userId} onChange={r.load} />
       )}
+      {!offline && d.processingConsent && <NutritionGuidance guidance={d.guidance} />}
       {!coachView && d.targets?.find((t: any) => t.status === "active") && (
         <ClientTargetSummary
           target={d.targets.find((t: any) => t.status === "active")}
@@ -2691,6 +2714,7 @@ export function NutritionSubscriber({
                     {catalogRecheck ? t("recheck") : t("historical")}
                   </Notice>
                 )}
+                <NutritionKitchenButton planId={plan.id} disabled={offline || !d.processingConsent || !d.entitled || plan.status !== "delivered"} />
                 <WeekView
                   key={plan.id}
                   plan={plan}
@@ -2838,6 +2862,7 @@ export function NutritionSubscriber({
                     ),
                   })}
                 </p>
+                <NutritionKitchenButton planId={plan.id} disabled={offline || !d.processingConsent || !d.entitled || plan.status !== "delivered"} />
                 <GroceryList
                   plan={plan}
                   pantry={d.records.find(
@@ -2897,6 +2922,7 @@ export function NutritionSubscriber({
                   <ProfileForm
                     key={d.profile?.id ?? "profile"}
                     initial={offline ? undefined : profile}
+                    policy={d.policyOptions}
                     onSubmit={(b) =>
                       r.action(
                         () =>
