@@ -1,6 +1,6 @@
 # Personal nutrition and weekly kitchen handoff
 
-Status: implemented; release verification in progress on `feat/nutrition-household-2026-10-14`, based on `e5f615e`.
+Status: implemented and merged in [PR #66](https://github.com/chordsnstrings/trainer_what/pull/66) as `4fb73f859ffe6b2fe2ca52df7aa408cf2869c6a9`. All exact-main checks passed and the feature is verified live.
 
 ## Audit
 
@@ -32,8 +32,19 @@ Kitchen scaling means a chosen number of the subscriber's meal portions, not nut
 
 ## Verification
 
-TypeScript and 59 focused nutrition tests passed locally, including real private-subscriber preview generation and kitchen projection. Full application tests, production build and browser/PDF journeys are in progress. No live paid provider evaluation or grocery purchase has been made.
+All eight final-head PR gates passed on `d3ec5cdb040f2da45a915f30ee73f0856e5ea3c4`: [application checks](https://github.com/chordsnstrings/trainer_what/actions/runs/38500241122) and [conversation](https://github.com/chordsnstrings/trainer_what/actions/runs/38500240859). Application: 1,883 passed, 0 failed, 5 skipped. PostgreSQL: 1,882 passed, 0 failed, 6 skipped. Conversation: 151 tests passed plus browser journeys. Production build, container, tenant boundaries and UI gates passed.
+
+All seven [exact-main gates](https://github.com/chordsnstrings/trainer_what/actions/runs/38503248274) also passed, with the same application and PostgreSQL counts. No failed gate was waived. [Serving verification](https://github.com/chordsnstrings/trainer_what/actions/runs/38506258358) confirmed the exact merged release at **03:31:39 UTC on 14 October 2026**. Independent requests at **03:32:51 UTC** confirmed readiness HTTP 200, `status: ready`, homepage HTTP 200 and the exact release header on both responses. [Machine-readable receipt](NUTRITION_HOUSEHOLD_RELEASE_2026-10-14.json). Implementation, merge, deployment and serving verification are complete. This documentation-only follow-up changes no application behavior and follows ordinary automatic CI separately.
+
+Local verification passed TypeScript, 59 focused nutrition tests, 14 translation tests, the production build and a 74-route browser journey with no browser errors. Targeted cooking-pack checks verified all seven days, three grouped recipe cards, a three-portion household's full-week amounts, a fresh CSV download, phone/desktop widths and English/Arabic A4 print output. Both five-page PDFs were rendered and visually inspected. Initial verification exposed a Next.js type-narrowing issue, an English label in Arabic, and print sizing/pagination issues; these were fixed before the final gates. No live paid provider evaluation or grocery purchase has been made.
 
 Migration `097_nutrition_cuisines` adds immutable recipe cuisine metadata with existing RLS and member-helper boundaries. Profile and plan metadata use existing versioned records. Prompt pin is `nutrition-cases-v6`; nutrition releases must pass fresh evaluation and reviewed-week activation before automatic generation resumes. Existing checked weeks remain available unless their profile/catalog/safety state changes.
 
 Browser coverage includes seven printed days, per-person and whole-household quantities, English/Arabic headings, phone/desktop overflow checks and A4 PDFs. Recipe text remains in the language entered by the trainer; changing print language translates headings only.
+
+## Using the feature
+
+- Subscriber: open Nutrition → Food preferences. Add optional estimate inputs and set Cooking and household preferences, including who cooks, number of your portions, print language and shopping location. Save the profile and prepare a current week.
+- Trainer: use Nutrition → Policy to choose the personal energy intent and calorie adjustment for each supported goal, then complete the existing policy review, evaluation and reviewed-week activation. Add cuisine metadata and verified purchase facts to reviewed recipes/ingredients.
+- Open Weekly cooking pack from Meals or Groceries. Preview in English or Arabic, print/save PDF, or download the household shopping CSV. Recipe instructions retain the trainer's original language.
+- Trainer subscriber preview uses its own private subscriber profile and the same Nutrition screens and services, including cooking preferences and the weekly pack.

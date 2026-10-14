@@ -1,0 +1,54 @@
+{
+  "featureRelease": "4fb73f859ffe6b2fe2ca52df7aa408cf2869c6a9",
+  "pullRequest": "https://github.com/chordsnstrings/trainer_what/pull/66",
+  "servingVerificationRun": "https://github.com/chordsnstrings/trainer_what/actions/runs/38506258358",
+  "ready": {
+    "url": "https://trainsyou.com/api/v1/ready",
+    "checkedAt": "2026-10-14T03:32:51.919105+00:00",
+    "httpStatus": 200,
+    "serverDate": "Wed, 14 Oct 2026 03:32:51 GMT",
+    "release": "4fb73f859ffe6b2fe2ca52df7aa408cf2869c6a9",
+    "body": {
+      "status": "ready"
+    }
+  },
+  "homepage": {
+    "url": "https://trainsyou.com/",
+    "checkedAt": "2026-10-14T03:32:51.925162+00:00",
+    "httpStatus": 200,
+    "serverDate": "Wed, 14 Oct 2026 03:32:51 GMT",
+    "release": "4fb73f859ffe6b2fe2ca52df7aa408cf2869c6a9",
+    "htmlReceived": true
+  },
+  "finalPrHead": "d3ec5cdb040f2da45a915f30ee73f0856e5ea3c4",
+  "prApplicationRun": "https://github.com/chordsnstrings/trainer_what/actions/runs/38500241122",
+  "prConversationRun": "https://github.com/chordsnstrings/trainer_what/actions/runs/38500240859",
+  "mainApplicationRun": "https://github.com/chordsnstrings/trainer_what/actions/runs/38503248274",
+  "prGatesPassed": 8,
+  "mainGatesPassed": 7,
+  "applicationTests": {
+    "passed": 1883,
+    "failed": 0,
+    "skipped": 5
+  },
+  "postgresTests": {
+    "passed": 1882,
+    "failed": 0,
+    "skipped": 6
+  },
+  "conversationTestsPassed": 151,
+  "localNutritionTestsPassed": 59,
+  "localTranslationTestsPassed": 14,
+  "localBrowserRoutes": 74,
+  "printInspection": {
+    "languages": [
+      "en",
+      "ar"
+    ],
+    "paper": "A4",
+    "pagesPerSyntheticPack": 5,
+    "renderedAndInspected": true
+  },
+  "watcherConfirmedAt": "2026-10-14T03:31:39Z",
+  "scope": "Verified feature release. Documentation-only receipt follows ordinary automatic checks separately."
+}
