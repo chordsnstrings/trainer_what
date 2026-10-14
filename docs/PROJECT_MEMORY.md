@@ -1,3 +1,7 @@
+# Work in progress — membership pricing and nutrition paywall (14 October 2026)
+
+Owner authorised audit, plan and execution. Branch `work/nutrition-commerce-2026-10-14`, base `87ac739`. Implementing AED 199/299/399 floors, paid-training-only nutrition, AED 150/100 monthly nonrenewing passes, 6/12-month prepaid discounts, 15-day refund policy and payout reserves. Audit/plan: `docs/NUTRITION_COMMERCE_2026-10-14.md`. Implementation complete. Local TypeScript, production build, focused financial/legal/nutrition regressions and English/Arabic phone/desktop purchase journeys pass; see the audit for exact coverage and initial fixture corrections. No release claimed yet. Next: publish PR, pass all exact-head gates, merge and verify serving release. No blocker.
+
 # Project memory
 
 **Nutrition household planning — live (14 October 2026):** [PR #66](https://github.com/chordsnstrings/trainer_what/pull/66) is merged and verified live as `4fb73f859ffe6b2fe2ca52df7aa408cf2869c6a9`. [Serving verification](https://github.com/chordsnstrings/trainer_what/actions/runs/38506258358) confirmed that exact release at **03:31:39 UTC**. Independent readiness and homepage requests confirmed HTTP 200 and the exact release at **03:32:51 UTC**; readiness returned `status: ready`. Implementation, merge, deployment and serving verification are complete.

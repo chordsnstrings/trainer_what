@@ -14,7 +14,12 @@ import {
   stripeRefused,
 } from "@trainer/providers";
 import { z } from "zod";
-import { STRIPE_MIN_CHARGE_AED_MINOR } from "@trainer/contracts";
+import {
+  MEMBERSHIP_PRICING_VERSION,
+  assertOfferPrice,
+  minimumOfferPrice,
+  prepayQuote,
+} from "@trainer/contracts";
 import { checkoutOfferTerms } from "./finance-promotions.ts";
 import { processStripeEvent } from "./stripe-events.ts";
 import { checkoutAbsent, refusalOf } from "./stripe-outcomes.ts";
@@ -34,6 +39,8 @@ const inputSchema = z
   .object({
     productId: uuid,
     promotionCode: z.string().trim().max(40).optional(),
+    prepayMonths: z.union([z.literal(6), z.literal(12)]).optional(),
+    acceptedPolicyVersion: z.literal(MEMBERSHIP_PRICING_VERSION).optional(),
   })
   .strict();
 type CheckoutActor = Actor & { email: string };
@@ -56,7 +63,7 @@ async function checkoutLock(tx: Tx, a: Pick<Actor, "tenantId" | "userId">) {
  * is posted (its access lives on the membership row, not the intent).
  */
 const MEMBERSHIP_INTENT =
-  "coalesce(data->>'purpose','membership')<>'voice_addon' AND NOT (status='completed' AND coalesce(data->>'billing','')='upfront')";
+  "coalesce(data->>'purpose','membership') NOT IN ('voice_addon','module_pass') AND NOT (status='completed' AND coalesce(data->>'billing','')='upfront')";
 async function unresolvedCheckout(tx: Tx, a: Actor) {
   const [r] = await tx.query(
     `SELECT * FROM records WHERE kind='checkout' AND owner_user_id=$1 AND status NOT IN ('expired','closed') AND ${MEMBERSHIP_INTENT} ORDER BY created_at,id LIMIT 1 FOR UPDATE`,
@@ -325,7 +332,10 @@ async function reconcileIntent(
       role: "owner",
     });
     await db.tenant(scope, async (tx) => {
-      await checkoutLock(tx, { tenantId: r.tenant_id, userId: r.owner_user_id });
+      await checkoutLock(tx, {
+        tenantId: r.tenant_id,
+        userId: r.owner_user_id,
+      });
       await tx.query(
         "UPDATE records SET status='expired',data=data||$2::jsonb,updated_at=now() WHERE id=$1 AND status IN ('creating','unknown')",
         [r.id, JSON.stringify({ providerStatus: "absent" })],
@@ -462,6 +472,19 @@ export async function createMembershipCheckout(
     });
   const input = inputSchema.parse(raw),
     promotionCode = input.promotionCode?.trim().toUpperCase() ?? "";
+  if (
+    input.prepayMonths &&
+    input.acceptedPolicyVersion !== MEMBERSHIP_PRICING_VERSION
+  )
+    throw fail(
+      "PURCHASE_TERMS_REQUIRED",
+      "Review and accept the prepaid price and 15-day refund terms before purchase.",
+    );
+  if (input.prepayMonths && promotionCode)
+    throw fail(
+      "PREPAY_PROMOTION",
+      "Prepaid discounts cannot be combined with another promotion.",
+    );
   // A bounded loop can clear previously verified expired history without changing uncertain intents.
   for (let attempt = 0; attempt < 10; attempt++) {
     const context: any = await db.system(async (tx) => {
@@ -507,6 +530,8 @@ export async function createMembershipCheckout(
           if (old) {
             const same =
               old.data.productId === input.productId &&
+              (old.data.prepay?.months ?? null) ===
+                (input.prepayMonths ?? null) &&
               (old.data.offerTerms?.promotionCode ?? "") === promotionCode;
             if (
               old.status === "open" &&
@@ -536,17 +561,16 @@ export async function createMembershipCheckout(
           );
           if (!product?.data.stripePriceId)
             throw fail("PRODUCT_UNAVAILABLE", "This offer is unavailable");
-          // Stripe cannot charge less than AED 2.00; an older offer priced
-          // below it is refused before any provider instruction.
-          if (
-            Number(product.data.priceMinor) > 0 &&
-            Number(product.data.priceMinor) < STRIPE_MIN_CHARGE_AED_MINOR
-          )
+          assertOfferPrice(product.data);
+          if (input.prepayMonths && offerBilling(product.data) !== "monthly")
             throw fail(
-              "PRICE_BELOW_MINIMUM",
-              "This offer's price is below the smallest card payment (AED 2.00); your coach needs to update it",
+              "PREPAY_MONTHLY_OFFER",
+              "Choose a monthly offer for a six- or twelve-month pack.",
             );
-          const billing = offerBilling(product.data);
+          const prepay = input.prepayMonths
+            ? prepayQuote(product.data.priceMinor, input.prepayMonths)
+            : null;
+          const billing = prepay ? "upfront" : offerBilling(product.data);
           if (admission === "renew_upfront" && billing !== "upfront")
             throw fail(
               "ALREADY_SUBSCRIBED",
@@ -576,10 +600,20 @@ export async function createMembershipCheckout(
               email: member.email,
               expiresAt: new Date(Date.now() + 35 * 60000).toISOString(),
               billing,
+              policyVersion: MEMBERSHIP_PRICING_VERSION,
+              minimumMinor: minimumOfferPrice(product.data),
+              productTerms: { ...product.data },
+              ...(prepay
+                ? {
+                    prepay,
+                    acceptedPolicyVersion: input.acceptedPolicyVersion,
+                    acceptedAt: new Date().toISOString(),
+                  }
+                : {}),
               ...(billing === "upfront"
                 ? {
                     purpose: "programme",
-                    amountMinor: product.data.priceMinor,
+                    amountMinor: prepay?.amountMinor ?? product.data.priceMinor,
                     programmeDays: effectiveProgrammeDays(
                       product.data.programmeDays,
                     ),
@@ -613,6 +647,7 @@ export async function createMembershipCheckout(
       continue;
     }
     const intent = context.intent;
+    let dispatched = false;
     try {
       const metadata = {
         tenant_id: a.tenantId,
@@ -623,15 +658,63 @@ export async function createMembershipCheckout(
       const discounts = intent.data.offerTerms?.couponId
         ? [{ coupon: intent.data.offerTerms.couponId }]
         : undefined;
+      if (intent.data.offerTerms?.couponId) {
+        const coupon = await stripe.coupons.retrieve(
+          intent.data.offerTerms.couponId,
+        );
+        const base = intent.data.productTerms.priceMinor;
+        const after =
+          coupon.percent_off != null
+            ? Math.floor((base * (100 - coupon.percent_off)) / 100)
+            : base - (coupon.amount_off ?? 0);
+        if (
+          !coupon.valid ||
+          (coupon.amount_off && coupon.currency !== "aed") ||
+          after < intent.data.minimumMinor
+        )
+          throw fail(
+            "PROMOTION_BELOW_MINIMUM",
+            "This promotion would reduce the price below the minimum for this plan.",
+          );
+      }
       const programme = { ...metadata, purpose: "programme" };
+      const pack = intent.data.prepay;
+      const packLine = pack
+        ? [
+            {
+              price_data: {
+                currency: "aed",
+                unit_amount: pack.amountMinor,
+                product_data: {
+                  name: `${intent.data.productTerms.name} · ${pack.months} months`,
+                  description: `${pack.months === 6 ? 10 : 30}% off. One payment; no automatic renewal. Refund requests within 15 days; each started month costs AED ${(pack.monthlyPriceMinor / 100).toFixed(2)}. Mandatory rights unaffected.`,
+                },
+              },
+              quantity: 1,
+            },
+          ]
+        : undefined;
+      dispatched = true;
       const remote = await stripe.checkout.sessions.create(
         intent.data.billing === "upfront"
           ? {
               // One payment for the whole programme (a one-time price).
               mode: "payment",
+              ...(pack ? { payment_method_types: ["card" as const] } : {}),
               customer_email: intent.data.email,
               client_reference_id: intent.id,
-              line_items: [{ price: intent.data.priceId, quantity: 1 }],
+              line_items: packLine ?? [
+                { price: intent.data.priceId, quantity: 1 },
+              ],
+              ...(pack
+                ? {
+                    custom_text: {
+                      submit: {
+                        message: `15-day refund request window from payment. Deduct AED ${(pack.monthlyPriceMinor / 100).toFixed(2)} for each started month; keep access through that month. No automatic renewal. Mandatory UAE rights remain. / مهلة طلب الاسترداد 15 يوماً من الدفع. يُخصم السعر الشهري الكامل عن كل شهر بدأ، ويستمر الوصول حتى نهايته. لا تجديد تلقائياً. حقوقك القانونية محفوظة.`,
+                      },
+                    },
+                  }
+                : {}),
               expires_at: Math.floor(Date.parse(intent.data.expiresAt) / 1000),
               metadata: programme,
               discounts,
@@ -687,7 +770,7 @@ export async function createMembershipCheckout(
       // A Stripe refusal (a 4xx answer) created nothing: the intent is
       // closed with the reason and another purchase may start. Anything else
       // may have reached Stripe and stays uncertain until reconciled.
-      const refused = stripeRefused(error);
+      const refused = !dispatched || stripeRefused(error);
       await db.tenant(a, (tx) =>
         tx.query(
           "UPDATE records SET status=$2,data=data||$3::jsonb,updated_at=now() WHERE id=$1 AND status='creating'",

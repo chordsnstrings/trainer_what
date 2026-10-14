@@ -292,7 +292,7 @@ test("complimentary access opens workouts, guided sessions, bookings and reminde
   assert.equal(boot.json().complimentary[0].reason, undefined);
 });
 
-test("the nutrition tier needs nutrition setup and, in production, the approval flags", async () => {
+test("complimentary nutrition is refused even with setup; training grants remain available", async () => {
   await freshMfa(coach);
   const body = {
     userId: b.userId,
@@ -302,7 +302,7 @@ test("the nutrition tier needs nutrition setup and, in production, the approval 
   };
   const early = await grant(body);
   assert.equal(early.statusCode, 409);
-  assert.equal(early.json().code, "NUTRITION_NOT_ENABLED");
+  assert.equal(early.json().code, "NUTRITION_PAYMENT_REQUIRED");
   await ownerTx((tx) =>
     putRecord(
       tx,
@@ -312,13 +312,15 @@ test("the nutrition tier needs nutrition setup and, in production, the approval 
       { status: "active" },
     ),
   );
-  const ok = await grant(body);
+  const stillBlocked = await grant(body);
+  assert.equal(stillBlocked.json().code, "NUTRITION_PAYMENT_REQUIRED");
+  const ok = await grant({ ...body, tier: "workout" });
   assert.equal(ok.statusCode, 200, ok.body);
   assert.equal(ok.json().endsAt, null, "Until revoked");
-  assert.equal(await ownerTx((tx) => hasNutritionAccess(tx, b.userId)), true);
+  assert.equal(await ownerTx((tx) => hasNutritionAccess(tx, b.userId)), false);
   const home = await request("/nutrition", "GET", undefined, b);
   assert.equal(home.statusCode, 200, home.body);
-  assert.equal(home.json().entitled, true);
+  assert.equal(home.json().entitled, false);
   assert.equal(complimentaryNutritionApproved({}, false), true);
   assert.equal(complimentaryNutritionApproved({}, true), false);
   assert.equal(
@@ -540,7 +542,7 @@ test("platform operators see grants; only an administrator with a fresh authenti
   assert.equal(listed.statusCode, 200, listed.body);
   const target = listed.json().grants.find((g: any) => g.userId === b.userId);
   assert.equal(target.workspace, "Coach comp-coach");
-  assert.equal(target.tier, "workout_nutrition");
+  assert.equal(target.tier, "workout");
   assert.equal(listed.json().canRevoke, true);
   const supportView = await request(
     `/admin/complimentary-access?tenantId=${coach.tenantId}&status=all`,

@@ -1,12 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import {
-  elevated,
-  type Actor,
-  type Database,
-  type Tx,
-} from "@trainer/db";
+import { elevated, type Actor, type Database, type Tx } from "@trainer/db";
 import { requireRecentMfa } from "./security.ts";
 import { platformWorkspaceSql } from "./workspace-state.ts";
 import {
@@ -63,6 +58,7 @@ export type MonthMetrics = {
   // Added for the platform finance view (docs/features/platform-finance.md).
   membershipGrossMinor: number;
   programmeGrossMinor: number;
+  modulePassGrossMinor: number;
   voiceAddOnGrossMinor: number;
   /** Card dispute amounts held when opened, and those lost. */
   disputesOpenedMinor: number;
@@ -128,7 +124,7 @@ const POSITIVE_INVOICE =
 
 async function workspaceFigures(tx: Tx, since: Date, before: Date) {
   const ledger = await tx.query(
-    `SELECT ${month("j.created_at")} AS month,CASE WHEN j.source_key LIKE 'stripe-invoice:%' AND j.data->>'purpose'='voice_addon' THEN 'voice_addon' WHEN j.source_key LIKE 'stripe-invoice:%' THEN 'membership' WHEN j.source_key LIKE 'stripe-programme:%' THEN 'programme' WHEN j.source_key LIKE 'booking-charge:%' THEN 'booking' WHEN j.source_key LIKE 'stripe-refund:%' OR j.source_key LIKE 'booking-refund:%' THEN 'refund' WHEN j.source_key LIKE 'payout:%' THEN 'payout' WHEN j.source_key LIKE 'payout-return:%' THEN 'payout_return' WHEN j.source_key LIKE 'dispute-reserve:%' THEN 'dispute_opened' WHEN j.source_key LIKE 'dispute-resolution:%' THEN 'dispute_resolution' WHEN j.source_key LIKE 'usage:%' THEN 'usage' WHEN j.source_key LIKE 'allocated-cost:%' THEN 'allocated' WHEN j.source_key LIKE 'web-address-invoice:%' THEN 'domain_payment' WHEN j.source_key LIKE 'web-address-refund-reversal:%' THEN 'domain_refund_reversal' WHEN j.source_key LIKE 'web-address-refund:%' THEN 'domain_refund' ELSE 'other' END AS source,l.account,j.currency,sum(l.amount_minor)::text AS amount FROM journals j JOIN journal_lines l ON l.tenant_id=j.tenant_id AND l.journal_id=j.id WHERE j.created_at>=$1 GROUP BY 1,2,3,4`,
+    `SELECT ${month("j.created_at")} AS month,CASE WHEN j.source_key LIKE 'stripe-invoice:%' AND j.data->>'purpose'='voice_addon' THEN 'voice_addon' WHEN j.source_key LIKE 'stripe-invoice:%' THEN 'membership' WHEN j.source_key LIKE 'stripe-programme:%' AND j.data->>'purpose'='module_pass' THEN 'module_pass' WHEN j.source_key LIKE 'stripe-programme:%' THEN 'programme' WHEN j.source_key LIKE 'booking-charge:%' THEN 'booking' WHEN j.source_key LIKE 'stripe-refund:%' OR j.source_key LIKE 'booking-refund:%' THEN 'refund' WHEN j.source_key LIKE 'payout:%' THEN 'payout' WHEN j.source_key LIKE 'payout-return:%' THEN 'payout_return' WHEN j.source_key LIKE 'dispute-reserve:%' THEN 'dispute_opened' WHEN j.source_key LIKE 'dispute-resolution:%' THEN 'dispute_resolution' WHEN j.source_key LIKE 'usage:%' THEN 'usage' WHEN j.source_key LIKE 'allocated-cost:%' THEN 'allocated' WHEN j.source_key LIKE 'web-address-invoice:%' THEN 'domain_payment' WHEN j.source_key LIKE 'web-address-refund-reversal:%' THEN 'domain_refund_reversal' WHEN j.source_key LIKE 'web-address-refund:%' THEN 'domain_refund' ELSE 'other' END AS source,l.account,j.currency,sum(l.amount_minor)::text AS amount FROM journals j JOIN journal_lines l ON l.tenant_id=j.tenant_id AND l.journal_id=j.id WHERE j.created_at>=$1 GROUP BY 1,2,3,4`,
     [since],
   );
   // Costs a platform operator allocated to the workspace but did not charge
@@ -251,6 +247,7 @@ export async function computeBusinessMetrics(
     payoutsReturnedMinor: 0,
     membershipGrossMinor: 0,
     programmeGrossMinor: 0,
+    modulePassGrossMinor: 0,
     voiceAddOnGrossMinor: 0,
     disputesOpenedMinor: 0,
     disputeLossesMinor: 0,
@@ -281,7 +278,12 @@ export async function computeBusinessMetrics(
     workout_nutrition: { active: 0, trialing: 0, pastDue: 0, mrrMinor: 0 },
   };
   let pendingCancellations = 0;
-  const upfront = { active: 0, pastDue: 0, collectedMinor: 0, monthlyEquivalentMinor: 0 };
+  const upfront = {
+    active: 0,
+    pastDue: 0,
+    collectedMinor: 0,
+    monthlyEquivalentMinor: 0,
+  };
   const voice = { active: 0, mrrMinor: 0 };
   const payoutStatus: Record<string, { count: number; amountMinor: number }> = {};
   const chargedRates: Array<{ month: string; fx: number }> = [];
@@ -321,6 +323,7 @@ export async function computeBusinessMetrics(
       if (row.account === "stripe_receivable") {
         if (row.source === "membership") m.membershipGrossMinor += amount;
         if (row.source === "programme") m.programmeGrossMinor += amount;
+        if (row.source === "module_pass") m.modulePassGrossMinor += amount;
         if (row.source === "voice_addon") m.voiceAddOnGrossMinor += amount;
         if (row.source === "booking") m.bookingGrossMinor += amount;
         if (row.source === "refund") m.refundsMinor -= amount;
@@ -410,7 +413,10 @@ export async function computeBusinessMetrics(
   const usd4 = (n: number) => Math.round(n * 10000) / 10000;
   const finish = (m: MonthMetrics, prior: number) => {
     m.subscriptionGrossMinor =
-      m.membershipGrossMinor + m.programmeGrossMinor + m.voiceAddOnGrossMinor;
+      m.membershipGrossMinor +
+      m.programmeGrossMinor +
+      m.voiceAddOnGrossMinor +
+      m.modulePassGrossMinor;
     m.grossMinor = m.subscriptionGrossMinor + m.bookingGrossMinor;
     m.platformRevenueMinor = m.commissionMinor + m.costRecoveryMinor;
     m.refundRate = rate(m.refundsMinor, m.grossMinor);
@@ -447,9 +453,21 @@ export async function computeBusinessMetrics(
         (totals as any)[key] += m[key] as number;
   totals.payingMembers = null;
   // Window churn: all cancellations over the sum of each month's prior payers.
-  finish(totals, rows.reduce((n, m) => n + (priorPayers.get(previousMonth(m.month)) ?? 0), 0));
-  totals.providerCostAedMinor = rows.reduce((n, m) => n + m.providerCostAedMinor, 0);
-  totals.costToRevenue = rate(totals.providerCostAedMinor, totals.platformRevenueMinor);
+  finish(
+    totals,
+    rows.reduce(
+      (n, m) => n + (priorPayers.get(previousMonth(m.month)) ?? 0),
+      0,
+    ),
+  );
+  totals.providerCostAedMinor = rows.reduce(
+    (n, m) => n + m.providerCostAedMinor,
+    0,
+  );
+  totals.costToRevenue = rate(
+    totals.providerCostAedMinor,
+    totals.platformRevenueMinor,
+  );
   const count = (state: string) =>
     workspaces.filter((w) => w.lifecycle_state === state).length;
   const membership = (key: "active" | "trialing" | "pastDue") =>
@@ -570,6 +588,7 @@ const csvFields: Array<keyof MonthMetrics> = [
   "payoutsReturnedMinor",
   "membershipGrossMinor",
   "programmeGrossMinor",
+  "modulePassGrossMinor",
   "voiceAddOnGrossMinor",
   "disputesOpenedMinor",
   "disputeLossesMinor",
@@ -599,7 +618,9 @@ function csvCell(value: unknown) {
     : text;
   return /[",\n]/.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe;
 }
-export function metricsCsv(result: Awaited<ReturnType<typeof computeBusinessMetrics>>) {
+export function metricsCsv(
+  result: Awaited<ReturnType<typeof computeBusinessMetrics>>,
+) {
   const lines = [csvFields.join(",")];
   for (const row of [...result.series, result.totals])
     lines.push(csvFields.map((field) => csvCell(row[field])).join(","));

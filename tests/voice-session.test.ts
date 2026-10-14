@@ -84,12 +84,12 @@ async function subscribe(user: any, modules: string[]) {
   await db.tenant(seedScope(coach), async (tx) => {
     const [updated] = await tx.query(
       "UPDATE subscriptions SET data=$2 WHERE user_id=$1 RETURNING id",
-      [user.userId, JSON.stringify({ modules })],
+      [user.userId, JSON.stringify({ modules, firstPaidAt: new Date().toISOString() })],
     );
     if (!updated)
       await tx.query(
         "INSERT INTO subscriptions(id,tenant_id,user_id,status,period_end,price_minor,data) VALUES($1,$2,$3,'active',now()+interval '30 days',10000,$4)",
-        [randomUUID(), coach.tenantId, user.userId, JSON.stringify({ modules })],
+        [randomUUID(), coach.tenantId, user.userId, JSON.stringify({ modules, firstPaidAt: new Date().toISOString() })],
       );
   });
 }

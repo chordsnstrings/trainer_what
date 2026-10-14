@@ -119,34 +119,78 @@ export function BusinessMetrics({ platformRole }: { platformRole: string }) {
             <>
               <p className="muted">As of {when(data.asOf)}.</p>
               <div className="stats-grid governance-stats">
-                <Tile label="Active trainers" value={String(data.snapshot.trainers.active)}
-                  detail={`${data.snapshot.trainers.published} published · ${data.snapshot.trainers.suspended} suspended`} />
-                <Tile label="Followers" value={String(data.snapshot.followers)}
-                  detail={`${data.snapshot.memberships.active} active memberships`} />
-                <Tile label="Monthly recurring revenue" value={aed(data.snapshot.mrrMinor)}
-                  detail={`${data.snapshot.memberships.pendingCancellations} ending at period end`} />
-                <Tile label="Gross takings (period)" value={aed(t.grossMinor)}
-                  detail={`Refunds ${percent(t.refundRate)}`} />
-                <Tile label="Platform commission (period)" value={aed(t.commissionMinor)}
-                  detail={`Take rate ${percent(t.takeRate)}`} />
-                <Tile label="Churn (latest month)" value={percent(latest?.churnRate)}
-                  detail={`${latest?.cancellations ?? 0} paid cancellation(s) in ${latest ? monthLabel(latest.month) : "—"}${latest?.unpaidCancellations ? ` · ${latest.unpaidCancellations} unpaid trial(s) canceled` : ""}`} />
-                <Tile label="Trial conversion (period)" value={percent(t.trialConversionRate)}
-                  detail={`${t.trialsConverted} of ${t.trialsStarted} trials`} />
-                <Tile label="AI and voice cost vs revenue" value={percent(t.costToRevenue)}
-                  detail={`${aed(t.providerCostAedMinor)} of ${aed(t.platformRevenueMinor)}${t.unpricedRequests ? ` · ${t.unpricedRequests} unpriced` : ""}`} />
-                <Tile label="Voice add-on MRR" value={aed(data.snapshot.voiceAddOns?.mrrMinor ?? 0)}
-                  detail={`${data.snapshot.voiceAddOns?.active ?? 0} active add-on(s), included in MRR`} />
-                <Tile label="Upfront programmes (current)" value={aed(data.snapshot.upfrontProgrammes?.collectedMinor ?? 0)}
-                  detail={`${data.snapshot.upfrontProgrammes?.active ?? 0} active · ${aed(data.snapshot.upfrontProgrammes?.monthlyEquivalentMinor ?? 0)} a month equivalent, not MRR`} />
-                <Tile label="AI cost (period)" value={usd(t.aiCostUsd ?? 0)}
-                  detail={`${t.estimatedAiCostUsd ? `${usd(t.estimatedAiCostUsd)} of it estimated · ` : ""}Voice ${usd(t.voiceCostUsd ?? 0)}${t.estimatedVoiceCostUsd ? ` (${usd(t.estimatedVoiceCostUsd)} estimated)` : ""}${t.unpricedEstimateUsd ? ` · about ${usd(t.unpricedEstimateUsd)} unpriced, not included` : ""}`} />
-                <Tile label="Complimentary members' cost (period)" value={usd(t.complimentaryCostUsd ?? 0)}
-                  detail="AI and voice cost of members with complimentary access; included above and charged to the trainer today (Settings → Platform finance)" />
-                <Tile label="Domains (period)" value={domains(t, "NetSales")}
-                  detail={`Net sales, in the currency charged · ${domains(t, "Payments")} paid, ${domains(t, "Refunds")} refunded; not in platform revenue`} />
-                <Tile label="Card disputes (period)" value={aed(t.disputeLossesMinor ?? 0)}
-                  detail={`Lost · ${aed(t.disputesOpenedMinor ?? 0)} held when opened`} />
+                <Tile
+                  label="Active trainers"
+                  value={String(data.snapshot.trainers.active)}
+                  detail={`${data.snapshot.trainers.published} published · ${data.snapshot.trainers.suspended} suspended`}
+                />
+                <Tile
+                  label="Followers"
+                  value={String(data.snapshot.followers)}
+                  detail={`${data.snapshot.memberships.active} active memberships`}
+                />
+                <Tile
+                  label="Monthly recurring revenue"
+                  value={aed(data.snapshot.mrrMinor)}
+                  detail={`${data.snapshot.memberships.pendingCancellations} ending at period end`}
+                />
+                <Tile
+                  label="Gross takings (period)"
+                  value={aed(t.grossMinor)}
+                  detail={`Refunds ${percent(t.refundRate)}`}
+                />
+                <Tile
+                  label="Platform commission (period)"
+                  value={aed(t.commissionMinor)}
+                  detail={`Take rate ${percent(t.takeRate)}`}
+                />
+                <Tile
+                  label="Churn (latest month)"
+                  value={percent(latest?.churnRate)}
+                  detail={`${latest?.cancellations ?? 0} paid cancellation(s) in ${latest ? monthLabel(latest.month) : "—"}${latest?.unpaidCancellations ? ` · ${latest.unpaidCancellations} unpaid trial(s) canceled` : ""}`}
+                />
+                <Tile
+                  label="Trial conversion (period)"
+                  value={percent(t.trialConversionRate)}
+                  detail={`${t.trialsConverted} of ${t.trialsStarted} trials`}
+                />
+                <Tile
+                  label="AI and voice cost vs revenue"
+                  value={percent(t.costToRevenue)}
+                  detail={`${aed(t.providerCostAedMinor)} of ${aed(t.platformRevenueMinor)}${t.unpricedRequests ? ` · ${t.unpricedRequests} unpriced` : ""}`}
+                />
+                <Tile
+                  label="Voice add-on MRR"
+                  value={aed(data.snapshot.voiceAddOns?.mrrMinor ?? 0)}
+                  detail={`${data.snapshot.voiceAddOns?.active ?? 0} active add-on(s), included in MRR`}
+                />
+                <Tile
+                  label="Upfront programmes (current)"
+                  value={aed(
+                    data.snapshot.upfrontProgrammes?.collectedMinor ?? 0,
+                  )}
+                  detail={`${data.snapshot.upfrontProgrammes?.active ?? 0} active · ${aed(data.snapshot.upfrontProgrammes?.monthlyEquivalentMinor ?? 0)} a month equivalent, not MRR`}
+                />
+                <Tile
+                  label="AI cost (period)"
+                  value={usd(t.aiCostUsd ?? 0)}
+                  detail={`${t.estimatedAiCostUsd ? `${usd(t.estimatedAiCostUsd)} of it estimated · ` : ""}Voice ${usd(t.voiceCostUsd ?? 0)}${t.estimatedVoiceCostUsd ? ` (${usd(t.estimatedVoiceCostUsd)} estimated)` : ""}${t.unpricedEstimateUsd ? ` · about ${usd(t.unpricedEstimateUsd)} unpriced, not included` : ""}`}
+                />
+                <Tile
+                  label="Complimentary members' cost (period)"
+                  value={usd(t.complimentaryCostUsd ?? 0)}
+                  detail="AI and voice cost of members with complimentary access; included above and charged to the trainer today (Settings → Platform finance)"
+                />
+                <Tile
+                  label="Domains (period)"
+                  value={domains(t, "NetSales")}
+                  detail={`Net sales, in the currency charged · ${domains(t, "Payments")} paid, ${domains(t, "Refunds")} refunded; not in platform revenue`}
+                />
+                <Tile
+                  label="Card disputes (period)"
+                  value={aed(t.disputeLossesMinor ?? 0)}
+                  detail={`Lost · ${aed(t.disputesOpenedMinor ?? 0)} held when opened`}
+                />
               </div>
               <section className="card" aria-labelledby="membership-tiers">
                 <h2 id="membership-tiers">Active memberships by tier</h2>
@@ -207,7 +251,12 @@ export function BusinessMetrics({ platformRole }: { platformRole: string }) {
                         <tr key={m.month} className={m.month === "total" ? "governance-total" : ""}>
                           <th scope="row">{monthLabel(m.month)}</th>
                           <td>{aed(m.grossMinor)}</td>
-                          <td>{aed(m.refundsMinor)} <small className="muted">{percent(m.refundRate)}</small></td>
+                          <td>
+                            {aed(m.refundsMinor)}{" "}
+                            <small className="muted">
+                              {percent(m.refundRate)}
+                            </small>
+                          </td>
                           <td>{aed(m.commissionMinor)}</td>
                           <td>{percent(m.takeRate)}</td>
                           <td>{m.payingMembers ?? "—"}</td>
@@ -215,12 +264,22 @@ export function BusinessMetrics({ platformRole }: { platformRole: string }) {
                           <td>
                             {m.cancellations}
                             {m.unpaidCancellations ? (
-                              <small className="muted"> +{m.unpaidCancellations} unpaid</small>
+                              <small className="muted">
+                                {" "}
+                                +{m.unpaidCancellations} unpaid
+                              </small>
                             ) : null}
                           </td>
                           <td>{percent(m.churnRate)}</td>
-                          <td>{m.trialsConverted}/{m.trialsStarted}</td>
-                          <td>{aed(m.providerCostAedMinor)} <small className="muted">{percent(m.costToRevenue)}</small></td>
+                          <td>
+                            {m.trialsConverted}/{m.trialsStarted}
+                          </td>
+                          <td>
+                            {aed(m.providerCostAedMinor)}{" "}
+                            <small className="muted">
+                              {percent(m.costToRevenue)}
+                            </small>
+                          </td>
                           <td>{aed(m.platformRevenueMinor)}</td>
                           <td>{aed(m.payoutsPaidMinor)}</td>
                         </tr>
@@ -248,6 +307,7 @@ export function BusinessMetrics({ platformRole }: { platformRole: string }) {
                         <th scope="col">Memberships</th>
                         <th scope="col">Programmes</th>
                         <th scope="col">Voice add-on</th>
+                        <th scope="col">Nutrition / voice passes</th>
                         <th scope="col">1:1 sessions</th>
                         <th scope="col">Disputes lost</th>
                         <th scope="col">Usage charged back (posted; usually for the previous month)</th>
@@ -268,6 +328,7 @@ export function BusinessMetrics({ platformRole }: { platformRole: string }) {
                           <td>{aed(m.membershipGrossMinor ?? 0)}</td>
                           <td>{aed(m.programmeGrossMinor ?? 0)}</td>
                           <td>{aed(m.voiceAddOnGrossMinor ?? 0)}</td>
+                          <td>{aed(m.modulePassGrossMinor ?? 0)}</td>
                           <td>{aed(m.bookingGrossMinor ?? 0)}</td>
                           <td>{aed(m.disputeLossesMinor ?? 0)}</td>
                           <td>{aed(m.usageRecoveryMinor ?? 0)}</td>
@@ -276,20 +337,30 @@ export function BusinessMetrics({ platformRole }: { platformRole: string }) {
                           <td>
                             {usd(m.aiCostUsd ?? 0)}
                             {m.estimatedAiCostUsd ? (
-                              <small className="muted"> ({usd(m.estimatedAiCostUsd)} estimated)</small>
+                              <small className="muted">
+                                {" "}
+                                ({usd(m.estimatedAiCostUsd)} estimated)
+                              </small>
                             ) : null}
                           </td>
                           <td>
                             {usd(m.voiceCostUsd ?? 0)}
                             {m.estimatedVoiceCostUsd ? (
-                              <small className="muted"> ({usd(m.estimatedVoiceCostUsd)} estimated)</small>
+                              <small className="muted">
+                                {" "}
+                                ({usd(m.estimatedVoiceCostUsd)} estimated)
+                              </small>
                             ) : null}
                           </td>
                           <td>{usd(m.complimentaryCostUsd ?? 0)}</td>
                           <td>
                             {m.unpricedRequests}
                             {m.unpricedEstimateUsd ? (
-                              <small className="muted"> (about {usd(m.unpricedEstimateUsd)}, not included)</small>
+                              <small className="muted">
+                                {" "}
+                                (about {usd(m.unpricedEstimateUsd)}, not
+                                included)
+                              </small>
                             ) : null}
                           </td>
                           <td>
@@ -317,11 +388,13 @@ export function BusinessMetrics({ platformRole }: { platformRole: string }) {
                   <p className="muted">No payout instructions yet.</p>
                 ) : (
                   <ul className="governance-history">
-                    {Object.entries(data.snapshot.payouts).map(([status, p]: [string, any]) => (
-                      <li key={status}>
-                        {status}: {p.count} · {aed(p.amountMinor)}
-                      </li>
-                    ))}
+                    {Object.entries(data.snapshot.payouts).map(
+                      ([status, p]: [string, any]) => (
+                        <li key={status}>
+                          {status}: {p.count} · {aed(p.amountMinor)}
+                        </li>
+                      ),
+                    )}
                   </ul>
                 )}
               </section>
@@ -356,7 +429,15 @@ export function BusinessMetrics({ platformRole }: { platformRole: string }) {
   );
 }
 
-function Tile({ label, value, detail }: { label: string; value: string; detail: string }) {
+function Tile({
+  label,
+  value,
+  detail,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+}) {
   return (
     <section className="card stat">
       <span className="small-label">{label}</span>

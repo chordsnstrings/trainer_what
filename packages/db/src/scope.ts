@@ -78,6 +78,7 @@ export const ELEVATIONS = {
     purpose:
       "Signed payment-provider webhooks, authenticated provider reconciliation and the ledger reads that follow a verified payment, which carry no session.",
     usedBy: [
+      "apps/api/src/module-passes.ts",
       "apps/api/src/acquisition.ts",
       "apps/api/src/finance-bookings.ts",
       "apps/api/src/finance-checkout.ts",

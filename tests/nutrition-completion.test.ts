@@ -294,7 +294,7 @@ async function prepareClient() {
         randomUUID(),
         owner.tenantId,
         client.userId,
-        JSON.stringify({ modules: ["training", "nutrition"] }),
+        JSON.stringify({ modules: ["training", "nutrition"], firstPaidAt: new Date().toISOString() }),
       ],
     );
   });

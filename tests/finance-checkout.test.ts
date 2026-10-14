@@ -60,7 +60,7 @@ before(async () => {
       {
         name: "Workout",
         description: "Fixture",
-        priceMinor: 12000,
+        priceMinor: 30000,
         stripePriceId: "price_" + owner.tenantId,
         tier: "workout",
         modules: ["training"],
@@ -605,12 +605,12 @@ test("app exposes checkout reconciliation and persists premium voice on the exis
     const created = await post("/products", ownerToken, {
       name: "Guided workout",
       description: "Fixture voice offer",
-      priceMinor: 18000,
+      priceMinor: 19900,
       tier: "workout",
-      voiceAddOnMinor: 4900,
+      voiceAddOnMinor: 10000,
     });
     assert.equal(created.statusCode, 200, created.body);
-    assert.equal(created.json().data.voiceAddOnMinor, 4900);
+    assert.equal(created.json().data.voiceAddOnMinor, 10000);
     assert.equal(created.json().data.billing, "monthly");
     assert.deepEqual(created.json().data.modules, ["training"]);
     assert.equal(created.json().status, "draft");

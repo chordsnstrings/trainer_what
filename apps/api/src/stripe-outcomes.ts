@@ -40,3 +40,38 @@ export const checkoutAbsent = (r: {
 export const INSTRUCTION_SETTLED_AFTER_MS = 10 * 60000;
 export const instructionSettled = (r: { created_at: string | Date }) =>
   Date.now() - new Date(r.created_at).getTime() > INSTRUCTION_SETTLED_AFTER_MS;
+
+/** New prepaid packs/passes use captured card payments. Reconciliation must
+ * recover the payment time, never restart access or a refund window at read time. */
+export async function confirmedCardPaymentTime(
+  e: { created?: number },
+  stripe: { charges: { retrieve(id: string): Promise<any> } } | undefined,
+  chargeId: string | undefined,
+  paymentIntentId: string | undefined,
+) {
+  if (Number.isSafeInteger(e.created) && Number(e.created) > 0)
+    return new Date(Number(e.created) * 1000);
+  if (stripe && chargeId && paymentIntentId) {
+    const charge = await stripe.charges.retrieve(chargeId);
+    const payment =
+      typeof charge.payment_intent === "string"
+        ? charge.payment_intent
+        : charge.payment_intent?.id;
+    if (
+      charge.id === chargeId &&
+      payment === paymentIntentId &&
+      charge.paid &&
+      charge.captured &&
+      charge.payment_method_details?.type === "card" &&
+      Number.isSafeInteger(charge.created) &&
+      charge.created > 0
+    )
+      return new Date(charge.created * 1000);
+  }
+  throw Object.assign(
+    new Error(
+      "Confirmed payment time is unavailable; reconcile before granting access.",
+    ),
+    { code: "PAYMENT_TIME_UNRESOLVED", statusCode: 409 },
+  );
+}

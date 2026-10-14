@@ -83,12 +83,13 @@ export async function executePayout(
         "Reconcile affiliate corrections before paying trainer earnings",
       );
     if (
-      summary.earnedMinor < summary.reservedMinor ||
+      summary.earnedMinor - summary.refundReserveMinor <
+        summary.reservedMinor ||
       (summary.accounts.bank_cash ?? 0) < summary.reservedMinor
     )
       throw fail(
         "FUNDING_CHANGED",
-        "Earnings or recorded funding changed after preparation; reconcile before sending",
+        "Earnings, refundable reserves or recorded funding changed after preparation; reconcile before sending",
       );
     // Separation of duties: whoever prepared the instruction, or works in the
     // payee workspace, cannot authorize its dispatch. Unattended dispatch acts

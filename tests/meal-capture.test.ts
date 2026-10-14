@@ -118,7 +118,7 @@ async function actor(tenantId: string, role = "subscriber"): Promise<User> {
   if (role === "subscriber")
     await db.tenant(seedScope(a), async (tx) => {
       await tx.query(
-        "INSERT INTO subscriptions(id,tenant_id,user_id,status,period_end,data) VALUES($1,$2,$3,'active',now()+interval '1 month','{\"modules\":[\"training\",\"nutrition\"]}')",
+        "INSERT INTO subscriptions(id,tenant_id,user_id,status,period_end,data) VALUES($1,$2,$3,'active',now()+interval '1 month',jsonb_build_object('modules','[\"training\",\"nutrition\"]'::jsonb,'firstPaidAt',now()::text))",
         [randomUUID(), tenantId, userId],
       );
       await putRecord(
@@ -507,7 +507,7 @@ test("missing entitlement and photo permission block analysis without provider u
   assert.equal(calls, before);
   await db.tenant(owner, (tx) =>
     tx.query(
-      'UPDATE subscriptions SET data=\'{"modules":["training","nutrition"]}\' WHERE user_id=$1',
+      'UPDATE subscriptions SET data=data||jsonb_build_object(\'modules\',\'["training","nutrition"]\'::jsonb,\'firstPaidAt\',now()::text) WHERE user_id=$1',
       [neighbour.userId],
     ),
   );

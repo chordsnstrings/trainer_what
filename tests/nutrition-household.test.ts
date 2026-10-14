@@ -376,7 +376,7 @@ test("current kitchen packs and grocery exports enforce permission, profile fres
           randomUUID(),
           owner.tenantId,
           member.userId,
-          JSON.stringify({ modules: ["training", "nutrition"] }),
+          JSON.stringify({ modules: ["training", "nutrition"], firstPaidAt: new Date().toISOString() }),
         ],
       ),
     );

@@ -10,6 +10,7 @@ import {
 } from "@trainer/db";
 import { stripeClient, stripeRefused } from "@trainer/providers";
 import { refundEligible } from "@trainer/domain";
+import { prepaidRefundQuote } from "@trainer/contracts";
 import { z } from "zod";
 import { requireRecentMfa } from "./security.ts";
 import { processStripeEvent } from "./stripe-events.ts";
@@ -375,27 +376,46 @@ export async function billingHistory(db: Database, a: Actor) {
       invoices,
       requests,
       transitions,
-      charges: charges.map((c) => ({
-        id: c.id,
-        chargeId: c.data.chargeId,
-        invoiceId: c.data.invoiceId,
-        chargedAt: c.data.chargedAt ?? c.created_at,
-        amountMinor: c.data.grossMinor,
-        refundedMinor: Number(c.refunded_minor),
-        remainingMinor: Math.max(
-          0,
-          c.data.grossMinor - Number(c.refunded_minor),
-        ),
-        eligible:
-          !!c.data.chargeId &&
-          refundEligible(c.data.chargedAt ?? c.created_at) &&
-          Number(c.refunded_minor) < c.data.grossMinor &&
-          // A failed or canceled refund moved no money: the charge may be
-          // requested again.
-          !requests.some(
-            (r) => r.data.chargeId === c.data.chargeId && r.status !== "failed",
+      charges: charges.map((c) => {
+        const failed = requests.find(
+          (r) =>
+            r.data.chargeId === c.data.chargeId &&
+            r.status === "failed" &&
+            r.data.refundCalculation,
+        );
+        const calculation =
+          failed?.data.refundCalculation ??
+          prepaidRefundQuote(c.data, Number(c.refunded_minor));
+        return {
+          id: c.id,
+          chargeId: c.data.chargeId,
+          invoiceId: c.data.invoiceId,
+          chargedAt: c.data.chargedAt ?? c.created_at,
+          amountMinor: c.data.grossMinor,
+          refundedMinor: Number(c.refunded_minor),
+          remainingMinor: Math.max(
+            0,
+            c.data.grossMinor - Number(c.refunded_minor),
           ),
-      })),
+          refundCalculation: calculation,
+          refundableMinor:
+            calculation?.amountMinor ??
+            Math.max(0, c.data.grossMinor - Number(c.refunded_minor)),
+          refundWindowDays: calculation ? 15 : 7,
+          eligible:
+            !!c.data.chargeId &&
+            (calculation
+              ? calculation.eligible && calculation.amountMinor > 0
+              : refundEligible(c.data.chargedAt ?? c.created_at)) &&
+            Number(c.refunded_minor) < c.data.grossMinor &&
+            // A failed or canceled refund moved no money: the charge may be
+            // requested again.
+            !requests.some(
+              (r) =>
+                r.data.chargeId === c.data.chargeId && r.status !== "failed",
+            ),
+        };
+      }),
     };
   });
 }
@@ -419,29 +439,42 @@ export async function requestRefund(
           "SELECT id,data,created_at,refunded_minor::text AS refunded_minor FROM member_charge($1)",
           [input.chargeId],
         );
-    if (
-      !charge ||
-      (!override && !refundEligible(charge.data.chargedAt ?? charge.created_at))
-    )
-      throw fail(
-        400,
-        "REFUND_WINDOW",
-        "This charge is unavailable or outside the seven-day request window",
-      );
-    // One refund request per charge. A failed (or canceled) refund moved
-    // no money: the same request starts a new attempt, a new instruction
-    // with its own idempotency key; the failed refund stays in its history.
     const [existing] = await tx.query(
       "SELECT * FROM records WHERE kind='refund' AND data->>'chargeId'=$1 FOR UPDATE",
       [input.chargeId],
     );
+    const calculation = charge
+      ? existing?.status === "failed" && existing.data.refundCalculation
+        ? existing.data.refundCalculation
+        : prepaidRefundQuote(charge.data, Number(charge.refunded_minor))
+      : null;
+    if (
+      !charge ||
+      (!override &&
+        !(calculation
+          ? calculation.eligible
+          : refundEligible(charge.data.chargedAt ?? charge.created_at)))
+    )
+      throw fail(
+        400,
+        "REFUND_WINDOW",
+        "This charge is unavailable or outside its refund request window (15 days for prepaid packs; 7 days for other purchases). Mandatory rights can be reviewed through Support.",
+      );
+    // One refund request per charge. A failed (or canceled) refund moved
+    // no money: the same request starts a new attempt, a new instruction
+    // with its own idempotency key; the failed refund stays in its history.
     if (existing && existing.status !== "failed")
       throw fail(
         409,
         "ALREADY_REQUESTED",
         "A refund instruction already exists; reconcile it before any new request",
       );
-    const amountMinor = charge.data.grossMinor - Number(charge.refunded_minor);
+    const remainingMinor =
+      charge.data.grossMinor - Number(charge.refunded_minor);
+    const amountMinor =
+      !override && calculation
+        ? Math.min(calculation.amountMinor, remainingMinor)
+        : remainingMinor;
     if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0)
       throw fail(
         409,
@@ -455,6 +488,7 @@ export async function requestRefund(
       amountMinor,
       requestedAt: new Date().toISOString(),
       override,
+      ...(!override && calculation ? { refundCalculation: calculation } : {}),
     };
     const r = existing
       ? (

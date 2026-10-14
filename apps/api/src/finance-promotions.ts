@@ -2,7 +2,7 @@ import type { Actor, Database, Tx } from "@trainer/db";
 import { event, putRecord } from "@trainer/db";
 import { requireCommerce, stripeClient } from "@trainer/providers";
 import { z } from "zod";
-import { STRIPE_MIN_CHARGE_AED_MINOR } from "@trainer/contracts";
+import { minimumOfferPrice } from "@trainer/contracts";
 const fail = (code: string, message: string) =>
   Object.assign(new Error(message), { statusCode: 409, code });
 export const promotionSchema = z
@@ -50,14 +50,13 @@ export async function createPromotion(
         "PRODUCT_REQUIRED",
         "Publish this offer to Stripe before adding a promotion",
       );
-    // The discounted first payment must be free or a chargeable amount:
-    // Stripe cannot charge less than AED 2.00.
+    // Promotions must preserve the platform minimum for this offer.
     const price = Number(product.data.priceMinor);
     const discounted = price - Math.round((price * input.percentOff) / 100);
-    if (discounted > 0 && discounted < STRIPE_MIN_CHARGE_AED_MINOR)
+    if (discounted < minimumOfferPrice(product.data))
       throw fail(
         "PROMOTION_BELOW_MINIMUM",
-        `With this discount the first payment would be AED ${(discounted / 100).toFixed(2)}; card payments start at AED 2.00. Choose a smaller discount or 100%.`,
+        `With this discount the first payment would be AED ${(discounted / 100).toFixed(2)}; this offer requires at least AED ${(minimumOfferPrice(product.data) / 100).toFixed(2)}. Choose a smaller discount.`,
       );
     return putRecord(
       tx,

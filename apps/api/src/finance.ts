@@ -127,6 +127,17 @@ export const PLATFORM_ONLY_ACCOUNTS: ReadonlySet<string> = new Set([
   "registrar_cost",
   "registrar_prepaid",
 ]);
+/** Refundable earnings never fund a trainer payout, even after a prior close. */
+export async function refundReserve(tx: Tx) {
+  const [row] = await tx.query(`SELECT coalesce(sum(greatest(0,
+    (j.data->>'grossMinor')::bigint - (j.data->>'commissionMinor')::bigint -
+    coalesce((SELECT sum(coalesce((r.data->>'refundAmountMinor')::bigint,0) + coalesce((r.data->>'disputeLossMinor')::bigint,0) - coalesce((r.data->>'commissionReversalMinor')::bigint,0)) FROM journals r WHERE r.data->>'originalJournalId'=j.id::text),0)
+  )),0)::text AS amount FROM journals j WHERE j.currency='AED' AND (j.source_key LIKE 'stripe-invoice:%' OR j.source_key LIKE 'stripe-programme:%') AND (
+    (j.data ? 'refundHoldUntil' AND (j.data->>'refundHoldUntil')::timestamptz>now()) OR
+    EXISTS(SELECT 1 FROM records q WHERE q.kind='refund' AND q.data->>'journalId'=j.id::text AND (q.status IN ('requested','submitting','submitted','unknown') OR (q.status='failed' AND q.data ? 'refundCalculation')))
+  )`);
+  return Number(row.amount);
+}
 /**
  * Balances of the current workspace. Without `platformView` (every
  * trainer-facing answer) the platform-only accounts are left out of both
@@ -155,6 +166,7 @@ export async function financeSummary(
   const pending = await tx.query(
     "SELECT coalesce(sum(amount_minor),0)::text AS total FROM payouts WHERE status IN ('ready','held','submitted','processing','unknown')",
   );
+  const refundReserveMinor = await refundReserve(tx);
   return {
     /** AED balances by account. */
     accounts: balance,
@@ -162,9 +174,12 @@ export async function financeSummary(
     otherCurrencies,
     earnedMinor: 0 - (balance.trainer_payable ?? 0),
     reservedMinor: Number(pending[0].total),
+    refundReserveMinor,
     availableMinor: Math.max(
       0,
-      -(balance.trainer_payable ?? 0) - Number(pending[0].total),
+      -(balance.trainer_payable ?? 0) -
+        Number(pending[0].total) -
+        refundReserveMinor,
     ),
     commissionMinor: 0 - (balance.platform_commission ?? 0),
   };

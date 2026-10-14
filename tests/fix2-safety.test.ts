@@ -301,7 +301,7 @@ async function subscriber(label: string) {
         randomUUID(),
         owner.tenantId,
         user.userId,
-        JSON.stringify({ modules: ["training", "nutrition"] }),
+        JSON.stringify({ modules: ["training", "nutrition"], firstPaidAt: new Date().toISOString() }),
       ],
     ),
   );

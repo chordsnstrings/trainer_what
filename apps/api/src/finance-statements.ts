@@ -157,6 +157,7 @@ export async function financialStatement(
   const revenue = {
     membershipMinor: 0,
     programmeMinor: 0,
+    modulePassMinor: 0,
     voiceAddOnMinor: 0,
     sessionsMinor: 0,
   };
@@ -215,6 +216,8 @@ export async function financialStatement(
       totals.commissionMinor += Number(entry.data.commissionMinor ?? 0);
       if (entry.source_key.startsWith("booking-charge:"))
         revenue.sessionsMinor += gross;
+      else if (entry.data.purpose === "module_pass")
+        revenue.modulePassMinor += gross;
       else if (entry.source_key.startsWith("stripe-programme:"))
         revenue.programmeMinor += gross;
       else if (entry.data.purpose === "voice_addon")

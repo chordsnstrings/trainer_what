@@ -23,7 +23,14 @@ import {
   type ViewProps,
 } from "./workspace-ui";
 import { Workout } from "./workspace-training";
-export function Finance({ state, records, action, busy, path, more }: ViewProps) {
+export function Finance({
+  state,
+  records,
+  action,
+  busy,
+  path,
+  more,
+}: ViewProps) {
   const [promotionCode, setPromotionCode] = useState("");
   const [checkout, setCheckout] = useState<{
     status: string;
@@ -36,8 +43,19 @@ export function Finance({ state, records, action, busy, path, more }: ViewProps)
       !["canceled", "incomplete_expired"].includes(subscription.status)
         ? subscription
         : null;
-  const [requested, setOffer] = useWorkspaceQuery("view", path.includes("products") ? "offers" : path.includes("payout") ? "payouts" : "overview");
-  const offer = ["overview", "ledger", "offers", "refunds", "payouts"].includes(requested) ? requested : "overview";
+  const [requested, setOffer] = useWorkspaceQuery(
+    "view",
+    path.includes("products")
+      ? "offers"
+      : path.includes("payout")
+        ? "payouts"
+        : "overview",
+  );
+  const offer = ["overview", "ledger", "offers", "refunds", "payouts"].includes(
+    requested,
+  )
+    ? requested
+    : "overview";
   const mt = useT("membership"),
     locale = useLocale();
   return (
@@ -59,8 +77,24 @@ export function Finance({ state, records, action, busy, path, more }: ViewProps)
           ) : undefined
         }
       />
-      {!sub && <WorkspaceTabs label="Finance" items={[["overview", "Overview"], ["ledger", "Transactions"], ["offers", "Plans"], ["refunds", "Refunds"], ["payouts", "Payouts"]]} value={offer} onChange={setOffer} panelId="finance-panel" />}
-      {!sub && offer === "payouts" && state.user.role === "owner" && <TrainerFinanceTools />}
+      {!sub && (
+        <WorkspaceTabs
+          label="Finance"
+          items={[
+            ["overview", "Overview"],
+            ["ledger", "Transactions"],
+            ["offers", "Plans"],
+            ["refunds", "Refunds"],
+            ["payouts", "Payouts"],
+          ]}
+          value={offer}
+          onChange={setOffer}
+          panelId="finance-panel"
+        />
+      )}
+      {!sub && offer === "payouts" && state.user.role === "owner" && (
+        <TrainerFinanceTools />
+      )}
       {sub ? (
         <>
           <MemberAccessCard />
@@ -209,91 +243,108 @@ export function Finance({ state, records, action, busy, path, more }: ViewProps)
         </>
       ) : (
         <div id="finance-panel" role="tabpanel" aria-label="Finance">
-          {offer === "overview" && <>
-          <div className="stats-grid">
-            <Card className="stat">
-              <span className="small-label">Trainer payable</span>
-              <strong>
-                <span dir="ltr">{money(state.finance?.earnedMinor ?? 0)}</span>
-              </strong>
-              <span className="muted">After booked adjustments</span>
-            </Card>
-            <Card className="stat">
-              <span className="small-label">Allocated to payouts</span>
-              <strong>
-                <span dir="ltr">
-                  {money(state.finance?.reservedMinor ?? 0)}
-                </span>
-              </strong>
-              <span className="muted">Held or in progress</span>
-            </Card>
-            <Card className="stat">
-              <span className="small-label">Available to allocate</span>
-              <strong>
-                <span dir="ltr">
-                  {money(state.finance?.availableMinor ?? 0)}
-                </span>
-              </strong>
-              <span className="muted">Funding and eligibility still apply</span>
-            </Card>
-            <Card className="stat">
-              <span className="small-label">Platform commission</span>
-              <strong>
-                <span dir="ltr">
-                  {money(state.finance?.commissionMinor ?? 0)}
-                </span>
-              </strong>
-              <span className="muted">Marginal subscriber bands</span>
-            </Card>
-          </div>
-          {!!state.usageStatements?.length && (
-            <Card>
-              <h2>AI Coach Service Fee</h2>
-              <p className="muted">
-                By the month it is for. A month&apos;s fee is posted after the
-                month ends: it is on the next month&apos;s statement and is
-                deducted from the payout for the month it is for.
-              </p>
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th scope="col">Month</th>
-                      <th scope="col">AI Coach Service Fee</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {state.usageStatements.map((s) => {
-                      const adjustments = Number(s.adjustments_minor ?? 0);
-                      return (
-                        <tr key={s.period}>
-                          <td>{monthName(s.period)}</td>
-                          <td>
-                            <span dir="ltr">
-                              {money(Number(s.charge_minor) + adjustments)}
-                            </span>
-                            {adjustments !== 0 && (
-                              <span className="muted">
-                                {" "}
-                                (including an adjustment of{" "}
-                                <span dir="ltr">{money(adjustments)}</span>)
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+          {offer === "overview" && (
+            <>
+              <div className="stats-grid">
+                <Card className="stat">
+                  <span className="small-label">Trainer payable</span>
+                  <strong>
+                    <span dir="ltr">
+                      {money(state.finance?.earnedMinor ?? 0)}
+                    </span>
+                  </strong>
+                  <span className="muted">After booked adjustments</span>
+                </Card>
+                <Card className="stat">
+                  <span className="small-label">Allocated to payouts</span>
+                  <strong>
+                    <span dir="ltr">
+                      {money(state.finance?.reservedMinor ?? 0)}
+                    </span>
+                  </strong>
+                  <span className="muted">Held or in progress</span>
+                </Card>
+                <Card className="stat">
+                  <span className="small-label">Refund reserve</span>
+                  <strong>
+                    <span dir="ltr">
+                      {money(state.finance?.refundReserveMinor ?? 0)}
+                    </span>
+                  </strong>
+                  <span className="muted">
+                    15-day prepaid window and unresolved refunds
+                  </span>
+                </Card>
+                <Card className="stat">
+                  <span className="small-label">Available to allocate</span>
+                  <strong>
+                    <span dir="ltr">
+                      {money(state.finance?.availableMinor ?? 0)}
+                    </span>
+                  </strong>
+                  <span className="muted">
+                    Funding and eligibility still apply
+                  </span>
+                </Card>
+                <Card className="stat">
+                  <span className="small-label">Platform commission</span>
+                  <strong>
+                    <span dir="ltr">
+                      {money(state.finance?.commissionMinor ?? 0)}
+                    </span>
+                  </strong>
+                  <span className="muted">Marginal subscriber bands</span>
+                </Card>
               </div>
-              <LoadMore
-                more={more}
-                collection="usageStatements"
-                label="Load earlier months"
-              />
-            </Card>
+              {!!state.usageStatements?.length && (
+                <Card>
+                  <h2>AI Coach Service Fee</h2>
+                  <p className="muted">
+                    By the month it is for. A month&apos;s fee is posted after
+                    the month ends: it is on the next month&apos;s statement and
+                    is deducted from the payout for the month it is for.
+                  </p>
+                  <div className="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th scope="col">Month</th>
+                          <th scope="col">AI Coach Service Fee</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {state.usageStatements.map((s) => {
+                          const adjustments = Number(s.adjustments_minor ?? 0);
+                          return (
+                            <tr key={s.period}>
+                              <td>{monthName(s.period)}</td>
+                              <td>
+                                <span dir="ltr">
+                                  {money(Number(s.charge_minor) + adjustments)}
+                                </span>
+                                {adjustments !== 0 && (
+                                  <span className="muted">
+                                    {" "}
+                                    (including an adjustment of{" "}
+                                    <span dir="ltr">{money(adjustments)}</span>)
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <LoadMore
+                    more={more}
+                    collection="usageStatements"
+                    label="Load earlier months"
+                  />
+                </Card>
+              )}
+            </>
           )}
-          </>}
           {offer === "offers" ? (
             <div className="two-columns">
               <Card>
@@ -389,7 +440,9 @@ export function Finance({ state, records, action, busy, path, more }: ViewProps)
                           secondary
                           disabled={busy}
                           onClick={async () => {
-                            const reason = (await promptWorkspace("Reason for declining"));
+                            const reason = await promptWorkspace(
+                              "Reason for declining",
+                            );
                             if (reason)
                               void action(
                                 () =>
@@ -655,7 +708,9 @@ export function PayoutView({ state, records, action, busy, more }: ViewProps) {
                             {" "}
                             (adjusted later by{" "}
                             <span dir="ltr">
-                              {money(deductions.fees[p.period].adjustmentsMinor)}
+                              {money(
+                                deductions.fees[p.period].adjustmentsMinor,
+                              )}
                             </span>
                             )
                           </>
@@ -675,7 +730,9 @@ export function PayoutView({ state, records, action, busy, more }: ViewProps) {
                             {" "}
                             · Other charges in {monthName(p.period)}{" "}
                             <span dir="ltr">
-                              {money(deductions.months[p.period].otherChargesMinor)}
+                              {money(
+                                deductions.months[p.period].otherChargesMinor,
+                              )}
                             </span>
                           </>
                         )}

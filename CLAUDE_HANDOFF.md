@@ -1,3 +1,7 @@
+# Work in progress — membership pricing and nutrition paywall (14 October 2026)
+
+Owner authorised audit, plan and execution. Branch `work/nutrition-commerce-2026-10-14`, base `87ac739`. Implementing AED 199/299/399 floors, paid-training-only nutrition, AED 150/100 monthly nonrenewing passes, 6/12-month prepaid discounts, 15-day refund policy and payout reserves. Audit/plan: `docs/NUTRITION_COMMERCE_2026-10-14.md`. Implementation complete. Local TypeScript, production build, focused financial/legal/nutrition regressions and English/Arabic phone/desktop purchase journeys pass; see the audit for exact coverage and initial fixture corrections. No release claimed yet. Next: publish PR, pass all exact-head gates, merge and verify serving release. No blocker.
+
 # Claude handoff
 
 

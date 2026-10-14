@@ -857,7 +857,7 @@ test("quality-delivery:G4 product activation uses the injected Stripe provider b
         {
           name: "Workout",
           description: "Fixture",
-          priceMinor: 12000,
+          priceMinor: 19900,
           tier: "workout",
           modules: ["training"],
         },
@@ -881,7 +881,7 @@ test("quality-delivery:G4 product activation uses the injected Stripe provider b
       calls.map((c) => c.key),
       [`product:${draft.id}`, `price:${draft.id}:v${draft.version}`],
     );
-    assert.equal(calls[1].body.unit_amount, 12000);
+    assert.equal(calls[1].body.unit_amount, 19900);
     const [published] = await db.tenant(owner, (tx) =>
       tx.query("SELECT status,data FROM records WHERE id=$1", [draft.id]),
     );
@@ -895,7 +895,7 @@ test("quality-delivery:G4 product activation uses the injected Stripe provider b
         {
           name: "Workout + nutrition",
           description: "Fixture",
-          priceMinor: 18000,
+          priceMinor: 29900,
           tier: "workout_nutrition",
           baseProductId: draft.id,
           modules: ["training", "nutrition"],

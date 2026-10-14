@@ -4,7 +4,11 @@ import {
 } from "./finance-checkout.ts";
 import { processBookingStripeEvent } from "./finance-bookings.ts";
 import { processVoiceAddOnEvent } from "./voice-addon.ts";
-import { endRefundedProgramme } from "./programme-billing.ts";
+import {
+  endRefundedProgramme,
+  promoteQueuedProgramme,
+} from "./programme-billing.ts";
+import { endRefundedPass } from "./module-passes.ts";
 import { randomUUID } from "node:crypto";
 import {
   type Database,
@@ -104,7 +108,10 @@ export function unmatchedStripeEvent(
 export const eventAged = (e: any) =>
   Number(e?.created ?? 0) > 0 &&
   Date.now() / 1000 - Number(e.created) > UNMATCHED_RETRY_SECONDS;
-const INVOICE_CLOSED = new Set(["invoice.voided", "invoice.marked_uncollectible"]);
+const INVOICE_CLOSED = new Set([
+  "invoice.voided",
+  "invoice.marked_uncollectible",
+]);
 /** Invoice record states in the order they may replace each other. */
 const invoiceRank: Record<string, number> = {
   open: 0,
@@ -663,7 +670,12 @@ export async function processStripeEvent(
             "A different active provider subscription requires reconciliation before replacing the current membership",
           );
         await settleCheckoutSubscription(tx, userId, object);
-        await closeEndedSubscriptionInvoices(tx, object.id, object.status, e.id);
+        await closeEndedSubscriptionInvoices(
+          tx,
+          object.id,
+          object.status,
+          e.id,
+        );
         await event(tx, a, "subscription.historical_terminal", object.id, {
           providerEventId: e.id,
           status: object.status,
@@ -864,7 +876,14 @@ export async function processStripeEvent(
           // Money taken back by a lost dispute ends what it paid for, as a
           // full refund does: an upfront programme, or the voice add-on.
           if (final && lost > 0) {
-            if (original.source_key.startsWith("stripe-programme:"))
+            if (original.data.purpose === "module_pass")
+              await endRefundedPass(
+                tx,
+                userId,
+                original,
+                "disputed:" + object.id,
+              );
+            else if (original.source_key.startsWith("stripe-programme:"))
               await endRefundedProgramme(tx, a, userId, original, object.id);
             else if (original.data.purpose === "voice_addon")
               await tx.query(
@@ -1013,8 +1032,46 @@ async function applyRefund(
     },
   );
   // A fully refunded upfront programme no longer grants access.
-  if (programmeCharge && final)
+  if (final && original.data.purpose === "module_pass")
+    await endRefundedPass(tx, memberId, original, "refunded:" + refund.id);
+  else if (programmeCharge && final)
     await endRefundedProgramme(tx, a, memberId, original, refund.id);
+  else if (programmeCharge && original.data.prepay) {
+    const [request] = await tx.query(
+      "SELECT data FROM records WHERE kind='refund' AND data->>'journalId'=$1 AND data->>'providerRefundId'=$2 AND status='succeeded'",
+      [original.id, refund.id],
+    );
+    const calculation = request?.data?.refundCalculation;
+    if (
+      calculation &&
+      request.data.amountMinor === amount &&
+      calculation.accessUntil
+    ) {
+      const [subscription] = await tx.query(
+        "SELECT * FROM subscriptions WHERE user_id=$1 FOR UPDATE",
+        [memberId],
+      );
+      await promoteQueuedProgramme(tx, a, subscription);
+      // A discounted pack refund retains only the full-price months bought.
+      // Restrict only the matching current window, never a later purchase.
+      await tx.query(
+        "UPDATE subscriptions SET period_end=least(period_end,$3::timestamptz),status=CASE WHEN $3::timestamptz<=now() THEN 'canceled' ELSE status END,data=jsonb_set(data,'{upfront,endsAt}',to_jsonb($3::text))||jsonb_build_object('prepaidRefund', $4::jsonb) WHERE user_id=$1 AND data->'upfront'->>'intentId'=$2 AND NOT data ? 'nextProgramme'",
+        [
+          memberId,
+          original.data.intentId,
+          calculation.accessUntil,
+          JSON.stringify({ refundId: refund.id, ...calculation }),
+        ],
+      );
+      await event(
+        tx,
+        a,
+        "programme.refund_access_adjusted",
+        original.data.intentId,
+        { accessUntil: calculation.accessUntil, refundId: refund.id },
+      );
+    }
+  }
   // A fully refunded voice add-on charge ends premium voice now; the worker
   // cancels the add-on subscription so it does not renew.
   if (final && original.data.purpose === "voice_addon")

@@ -258,7 +258,7 @@ test("F5: a plan change delivered after the proration invoice is applied from St
 
 test("F5: a late voice add-on change is applied from Stripe's current add-on subscription", async () => {
   const owner = await workspace(db);
-  const product = await offer(db, owner, { voiceStripePriceId: "price_voice_" + randomUUID().slice(0, 6), voiceAddOnMinor: 2000 });
+  const product = await offer(db, owner, { voiceStripePriceId: "price_voice_" + randomUUID().slice(0, 6), voiceAddOnMinor: 10000 });
   const { m, stripe } = await paidMember(owner, product);
   const vid = "sub_voice_" + randomUUID().slice(0, 8);
   const voice = (over: any = {}) => ({
@@ -463,7 +463,7 @@ test("STATE-1: a checkout Stripe refuses is closed, so the member can buy again 
 
 test("STATE-1: a voice add-on checkout Stripe refuses is closed, so it can be bought again", async () => {
   const owner = await workspace(db);
-  const product = await offer(db, owner, { voiceStripePriceId: "price_vr_" + randomUUID().slice(0, 6), voiceAddOnMinor: 2000 });
+  const product = await offer(db, owner, { voiceStripePriceId: "price_vr_" + randomUUID().slice(0, 6), voiceAddOnMinor: 10000 });
   const { m } = await paidMember(owner, product);
   const refusing = fakeStripe({ checkout: { sessions: { create: async () => { throw refusal("No such price", "resource_missing", 404); } } } });
   await assert.rejects(addVoiceAddOn(db, m, options, () => refusing, () => refusing), /No such price/);
@@ -681,16 +681,16 @@ test("STATE-1/F2: a session Stripe cannot charge is refused before Stripe, and a
   assert.equal(blockers.checkout, 0);
 });
 
-test("F2: offers, add-ons and discounts below Stripe's AED 2.00 minimum are refused", async () => {
+test("F2: offers, add-ons and discounts below the commercial minimum are refused", async () => {
   const base = { name: "Tiny", description: "Fixture", tier: "workout" };
   assert.equal(productSchema.safeParse({ ...base, priceMinor: 150 }).success, false);
-  assert.equal(productSchema.safeParse({ ...base, priceMinor: 200 }).success, true);
+  assert.equal(productSchema.safeParse({ ...base, priceMinor: 19900 }).success, true);
   assert.equal(voiceAddOnPriceSchema.safeParse(150).success, false);
   const owner = await workspace(db);
   const old = await offer(db, owner, { priceMinor: 150 });
   const m = await follower(db, owner);
   const stripe = fakeStripe();
-  await assert.rejects(createMembershipCheckout(db, m, { productId: old.id }, options, stripe), /AED 2.00/);
+  await assert.rejects(createMembershipCheckout(db, m, { productId: old.id }, options, stripe), /AED 199.00/);
   assert.equal(stripe.calls.length, 0, "no provider instruction");
   const priced = await offer(db, owner, { priceMinor: 300 });
   await assert.rejects(
@@ -720,7 +720,7 @@ test("STATE-3/STATE-5: leaving with an unpaid renewal ends the subscription now,
 
 test("STATE-2: the renewal gap neither cancels a paid voice add-on nor removes membership access", async () => {
   const owner = await workspace(db);
-  const product = await offer(db, owner, { voiceStripePriceId: "price_v_" + randomUUID().slice(0, 6), voiceAddOnMinor: 2000 });
+  const product = await offer(db, owner, { voiceStripePriceId: "price_v_" + randomUUID().slice(0, 6), voiceAddOnMinor: 10000 });
   const { m } = await paidMember(owner, product);
   await rows(
     owner,
@@ -870,7 +870,7 @@ test("gap: Commerce approved off refuses a membership checkout before any intent
 
 test("gap: a voice add-on's failed renewal is mirrored as past due with an open invoice, and async payment events are handled", async () => {
   const owner = await workspace(db);
-  const product = await offer(db, owner, { voiceStripePriceId: "price_v2_" + randomUUID().slice(0, 6), voiceAddOnMinor: 2000 });
+  const product = await offer(db, owner, { voiceStripePriceId: "price_v2_" + randomUUID().slice(0, 6), voiceAddOnMinor: 10000 });
   const { m, stripe } = await paidMember(owner, product);
   const vid = "sub_voice2_" + randomUUID().slice(0, 8);
   const meta = { tenant_id: m.tenantId, user_id: m.userId, purpose: "voice_addon" };

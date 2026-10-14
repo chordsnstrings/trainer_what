@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
+import { MembershipPurchase } from "./membership-commerce";
 import { OfferTerms } from "./programme-offers";
 import { formatDate, formatMoney } from "../lib/format";
 import { useErrorText, useLocale, useT } from "../lib/i18n/react";
@@ -67,14 +68,13 @@ export function UpfrontMembership({
   const available = offers.filter(
     (p) =>
       p.status === "published" &&
-      (purchase === "any" ||
-        (purchase === "upfront" && p.data?.billing === "upfront")),
+      (purchase === "any" || purchase === "upfront"),
   );
-  const buy = async (productId: string) => {
+  const buy = async (input: any) => {
     setBusy(true);
     setError("");
     try {
-      const r = await api("/payments/checkout", "POST", { productId });
+      const r = await api("/payments/checkout", "POST", input);
       if (r?.url) window.location.assign(r.url);
     } catch (e: any) {
       setError(toError(e));
@@ -117,15 +117,12 @@ export function UpfrontMembership({
                 <strong>{p.data.name}</strong>
                 <OfferTerms data={p.data} />
               </div>
-              <button
-                className="button"
-                disabled={busy}
-                onClick={() => void buy(p.id)}
-              >
-                {p.data.billing === "upfront"
-                  ? t("buyProgramme")
-                  : t("joinPlan")}
-              </button>
+              <MembershipPurchase
+                offer={p}
+                busy={busy}
+                onlyPrepaid={purchase === "upfront"}
+                onPurchase={(input) => void buy(input)}
+              />
             </div>
           ))}
         </div>
@@ -160,6 +157,7 @@ export function VoiceAddOnCard() {
     (!data.included && !data.available && !data.active && !data.status && !data.priceMinor)
   )
     return null;
+  if (!data.active && !data.pending && !data.included) return null;
   const act = async (fn: () => Promise<any>, done: string) => {
     setBusy(true);
     setError("");
@@ -182,7 +180,11 @@ export function VoiceAddOnCard() {
     <section className="card voice-addon" aria-labelledby="voice-addon-title">
       <p className="eyebrow">{t("voiceEyebrow")}</p>
       <h2 id="voice-addon-title">{t("voiceTitle")}</h2>
-      {data.readiness && !data.readiness.ready && <p className="notice">{t("audioPreparing")} <a href="/app/chat">{t("audioMessageCoach")}</a></p>}
+      {data.readiness && !data.readiness.ready && (
+        <p className="notice">
+          {t("audioPreparing")} <a href="/app/chat">{t("audioMessageCoach")}</a>
+        </p>
+      )}
       {data.included ? (
         <p>{t("voiceInMembership")}</p>
       ) : data.active ? (

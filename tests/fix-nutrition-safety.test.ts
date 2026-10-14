@@ -401,12 +401,12 @@ test("setup rejects unrecognised food allergen tags", async () => {
   const product = await ok("/products", "POST", {
     name: "Workout only",
     description: "Training",
-    priceMinor: 15000,
+    priceMinor: 19900,
   });
   const combined = await ok("/products", "POST", {
     name: "Workout plus nutrition",
     description: "Training and meals",
-    priceMinor: 22000,
+    priceMinor: 29900,
     tier: "workout_nutrition",
     baseProductId: product.id,
   });
@@ -431,6 +431,11 @@ test("setup rejects unrecognised food allergen tags", async () => {
       },
     },
   });
+  await processStripeEvent(db, { id: "evt_safety_paid", type: "invoice.paid", created: 101, data: { object: {
+    id: "in_safety_paid", object: "invoice", status: "paid", currency: "aed", amount_paid: 29900, amount_due: 29900, created: 101,
+    charge: "ch_safety_paid", subscription: "sub_nutrition_safety", metadata: { tenant_id: owner.tenantId, user_id: subscriber.userId },
+    lines: { data: [{ period: { end: Math.floor(Date.now() / 1000) + 2592000 } }] },
+  } } });
   await ok("/nutrition/setup", "PUT", { enabled: true, version: 0 });
   for (const { id: _, ...c } of fixtureCases())
     cases.push(await ok("/nutrition/cases", "POST", c));
