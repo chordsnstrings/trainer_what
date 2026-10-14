@@ -1,0 +1,141 @@
+{
+  "featureRelease": "932498b18c3ba0f0d4907b22a4982673d3b762c4",
+  "pullRequest": "https://github.com/chordsnstrings/trainer_what/pull/68",
+  "finalPrHead": "40e0acc4d15acbd37638e6b22f1f4fda3df0fef0",
+  "checkedTree": "30a3ca06ff3c043ac63fee40f95f74edced95cb5",
+  "mergedTreeMatchesCheckedTree": true,
+  "prApplicationRun": "https://github.com/chordsnstrings/trainer_what/actions/runs/38564301416",
+  "mainApplicationRun": "https://github.com/chordsnstrings/trainer_what/actions/runs/38568962618",
+  "prGatesPassed": 7,
+  "mainGatesPassed": 7,
+  "prApplicationTests": {
+    "tests": 1905,
+    "pass": 1900,
+    "fail": 0,
+    "skipped": 5
+  },
+  "prPostgresTests": {
+    "tests": 1905,
+    "pass": 1899,
+    "fail": 0,
+    "skipped": 6
+  },
+  "mainApplicationTests": {
+    "tests": 1905,
+    "pass": 1900,
+    "fail": 0,
+    "skipped": 5
+  },
+  "mainPostgresTests": {
+    "tests": 1905,
+    "pass": 1899,
+    "fail": 0,
+    "skipped": 6
+  },
+  "mainApplicationEvidenceJob": 115868800284,
+  "mainPostgresEvidenceJob": 115868800305,
+  "mainWorkflowAttempt": 2,
+  "mainGates": [
+    {
+      "name": "wildcard-edge",
+      "job": 115884257357,
+      "conclusion": "success"
+    },
+    {
+      "name": "homepage-call",
+      "job": 115884259376,
+      "conclusion": "success"
+    },
+    {
+      "name": "application",
+      "job": 115884259793,
+      "conclusion": "success"
+    },
+    {
+      "name": "postgres-and-container",
+      "job": 115884302339,
+      "conclusion": "success"
+    },
+    {
+      "name": "compose-topology",
+      "job": 115884302688,
+      "conclusion": "success"
+    },
+    {
+      "name": "subscriber-ui",
+      "job": 115884327706,
+      "conclusion": "success"
+    },
+    {
+      "name": "ux-spacing",
+      "job": 115884329077,
+      "conclusion": "success"
+    }
+  ],
+  "localChecks": {
+    "builderTests": 56,
+    "marketingAssistantTests": 11,
+    "layoutRenders": 1692,
+    "layoutPresets": 282,
+    "languages": [
+      "en",
+      "ar"
+    ],
+    "widths": [
+      1280,
+      768,
+      390
+    ],
+    "editorPublicationJourneys": 17,
+    "hydratedMotionAndPrint": "passed",
+    "screenshots": "inspected",
+    "typecheck": "passed",
+    "productionBuild": "passed"
+  },
+  "ciCorrections": [
+    {
+      "reason": "Historical marketing-assistant assertion hard-coded 270 layouts / 38 families.",
+      "resolution": "Assert catalogue-derived 282 layouts / 40 families while retaining spoken factual screening."
+    },
+    {
+      "reason": "Application job reached its 35-minute limit during the broader onboarding browser journey after passing tests, build and builder checks.",
+      "resolution": "Raised measured job budget to 45 minutes; retained every test and browser step and reran all gates on the final head."
+    }
+  ],
+  "mainInfrastructureRetry": {
+    "firstJob": 115868800506,
+    "retryJob": 115884257357,
+    "reason": "Go checksum-server HTTP/2 INTERNAL_ERROR downloading a checksum tile for github.com/yuin/goldmark v1.8.2 during the unchanged wildcard-edge build.",
+    "outcome": "Targeted unchanged-code retry passed. All seven gates passed; none was waived."
+  },
+  "schemaMigration": false,
+  "newAnimationDependency": false,
+  "limits": [
+    "No video scrubbing or global smooth scrolling.",
+    "No reference branding, copy or embedded photographs imported.",
+    "Automated viewport checks do not constitute physical iPhone/Android testing.",
+    "No live trainer content, paid provider call or billing operation used for verification."
+  ],
+  "scope": "Verified feature release. Documentation-only receipt follows ordinary automatic checks separately.",
+  "servingVerificationRun": "https://github.com/chordsnstrings/trainer_what/actions/runs/38574329818",
+  "watcherConfirmedAt": "2026-10-14T13:50:36.8631183Z",
+  "servingVerification": "passed",
+  "ready": {
+    "url": "https://trainsyou.com/api/v1/ready",
+    "checkedAt": "2026-10-14T13:51:22.935732+00:00",
+    "httpStatus": 200,
+    "serverDate": "Wed, 14 Oct 2026 13:51:31 GMT",
+    "release": "932498b18c3ba0f0d4907b22a4982673d3b762c4",
+    "body": {
+      "status": "ready"
+    }
+  },
+  "homepage": {
+    "url": "https://trainsyou.com/",
+    "checkedAt": "2026-10-14T13:51:32.200096+00:00",
+    "httpStatus": 200,
+    "serverDate": "Wed, 14 Oct 2026 13:51:42 GMT",
+    "release": "932498b18c3ba0f0d4907b22a4982673d3b762c4",
+    "htmlReceived": true
+  }
+}
