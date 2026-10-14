@@ -76,6 +76,22 @@ test("the release publishes the pack, preserves settings and records its own att
   assert.equal(unchanged.revision, 8, "repeating the release does not overwrite later operator decisions");
 });
 
+test("commercial terms publish a new version without rewriting prior terms or settings", async () => {
+  const commercial = await readFile(new URL("../packages/db/migrations/098_membership_commerce_terms.sql", import.meta.url), "utf8");
+  const { rows: [prior] } = await raw!.query<any>("SELECT * FROM admin_documents WHERE kind='legal' AND key='terms' AND version=1");
+  await raw!.exec(commercial);
+  await raw!.exec(commercial);
+  const { rows } = await raw!.query<any>("SELECT * FROM admin_documents WHERE kind='legal' AND key='terms' ORDER BY version");
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].content, prior.content);
+  assert.ok(rows[1].content.startsWith(prior.content));
+  assert.match(rows[1].content, /15 elapsed days/);
+  assert.match(rows[1].content, /AED 875.60/);
+  assert.match(rows[1].content, /حقوق المستهلك/);
+  const { rows: [settings] } = await raw!.query<any>("SELECT revision FROM platform_settings WHERE integration_id='application'");
+  assert.equal(settings.revision, 8);
+});
+
 test("production trainer and client signup opens with explicit, versioned acceptance", async () => {
   await raw!.close(); raw = undefined;
   db = await createDatabase({ directory, url: "", migrate: false });
@@ -101,6 +117,6 @@ test("production trainer and client signup opens with explicit, versioned accept
   assert.equal(member.role, "subscriber");
   for (const user of [owner, member]) {
     const consents: Array<{ document_type: string; document_version: string; granted: boolean }> = await db.tenant(user, (tx) => tx.query("SELECT document_type,document_version,granted FROM consent_records WHERE user_id=$1", [user.userId]));
-    assert.deepEqual(consents, [{ document_type: "registration", document_version: "terms:1|privacy:1|ai-disclosure:1", granted: true }]);
+    assert.deepEqual(consents, [{ document_type: "registration", document_version: "terms:2|privacy:1|ai-disclosure:1", granted: true }]);
   }
 });

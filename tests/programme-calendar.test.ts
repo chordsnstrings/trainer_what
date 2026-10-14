@@ -32,15 +32,15 @@ test("offer validation: trainer-set length 7..365 or rolling, billing, upfront n
     ["programmeDays"],
   );
   assert.equal(
-    productSchema.parse({ ...base, billing: "upfront", programmeDays: 84 }).billing,
+    productSchema.parse({ ...base, priceMinor: 60000, billing: "upfront", programmeDays: 84 }).billing,
     "upfront",
   );
   assert.equal(productSchema.safeParse({ ...base, billing: "yearly" }).success, false);
   assert.equal(productSchema.safeParse({ ...base, voiceAddOnMinor: 99 }).success, false);
   assert.equal(productSchema.safeParse({ ...base, voiceAddOnMinor: 100001 }).success, false);
-  assert.equal(productSchema.parse({ ...base, voiceAddOnMinor: 4900 }).voiceAddOnMinor, 4900);
-  // Voice is no longer an offer of its own.
-  assert.equal(productSchema.safeParse({ ...base, premiumVoice: true }).success, false);
+  assert.equal(productSchema.parse({ ...base, voiceAddOnMinor: 10000 }).voiceAddOnMinor, 10000);
+  // A training + voice bundle meets its own monthly floor.
+  assert.equal(productSchema.safeParse({ ...base, premiumVoice: true }).success, true);
 });
 
 test("Day N of M uses the member's calendar day, across time zones", () => {

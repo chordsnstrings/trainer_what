@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { minimumOfferPrice } from "./membership-pricing.ts";
 import { brandDesignSchema } from "./branding.ts";
 export * from "./branding.ts";
 export * from "./brand.ts";
@@ -47,16 +48,35 @@ export const intakeSchema = z
     goal: z.string().min(3).max(1000),
     experience: z.enum(["beginner", "intermediate", "advanced"]),
     daysPerWeek: z.number().int().min(1).max(7),
-    availableWeekdays: z.array(z.number().int().min(0).max(6)).min(1).max(7).refine(v => new Set(v).size === v.length, "Choose each weekday once").optional(),
+    availableWeekdays: z
+      .array(z.number().int().min(0).max(6))
+      .min(1)
+      .max(7)
+      .refine((v) => new Set(v).size === v.length, "Choose each weekday once")
+      .optional(),
     maxSessionMinutes: z.number().int().min(15).max(180).optional(),
-    timezone: z.string().max(100).refine(v => { try { new Intl.DateTimeFormat("en", { timeZone: v }); return true; } catch { return false; } }, "Choose a valid timezone").optional(),
+    timezone: z
+      .string()
+      .max(100)
+      .refine((v) => {
+        try {
+          new Intl.DateTimeFormat("en", { timeZone: v });
+          return true;
+        } catch {
+          return false;
+        }
+      }, "Choose a valid timezone")
+      .optional(),
 
     equipment: z.string().max(1000),
     limitations: z.string().max(2000),
     consent: z.literal(true),
   })
   .strict()
-  .refine(v => !v.availableWeekdays || v.availableWeekdays.length >= v.daysPerWeek, "Choose enough available weekdays for your training frequency");
+  .refine(
+    (v) => !v.availableWeekdays || v.availableWeekdays.length >= v.daysPerWeek,
+    "Choose enough available weekdays for your training frequency",
+  );
 export const setSchema = z
   .object({
     eventKey: z.string().uuid(),
@@ -82,17 +102,13 @@ export const programmeDaysSchema = z
 /** Stripe's smallest charge in AED: AED 2.00 (docs.stripe.com/currencies). */
 export const STRIPE_MIN_CHARGE_AED_MINOR = 200;
 /** Trainer-set monthly price of the premium voice add-on a member may add to this offer. */
-export const voiceAddOnPriceSchema = z
-  .number()
-  .int()
-  .min(STRIPE_MIN_CHARGE_AED_MINOR)
-  .max(100000);
+export const voiceAddOnPriceSchema = z.number().int().min(10000).max(100000);
 /**
  * A trainer's offer. `billing: "monthly"` renews every month (a programme
  * length then defines the block length); `billing: "upfront"` is one payment
- * for the whole programme and needs a programme length. Premium voice is no
- * longer a separate offer: `voiceAddOnMinor` prices the add-on members buy
- * with their membership (older offers with `premiumVoice` keep including it).
+ * for the whole programme and needs a programme length. `premiumVoice` includes
+ * guided voice in the bundle; `voiceAddOnMinor` services a separate recurring
+ * add-on. One-month passes use the shared commercial policy.
  */
 export const productSchema = z
   .object({
@@ -100,6 +116,7 @@ export const productSchema = z
     description: z.string().max(1500),
     priceMinor: z.number().int().min(STRIPE_MIN_CHARGE_AED_MINOR).max(1000000),
     tier: z.enum(["workout", "workout_nutrition"]).default("workout"),
+    premiumVoice: z.boolean().default(false),
     baseProductId: z.string().uuid().optional(),
     programmeDays: programmeDaysSchema.nullable().default(null),
     billing: z.enum(["monthly", "upfront"]).default("monthly"),
@@ -107,6 +124,13 @@ export const productSchema = z
   })
   .strict()
   .superRefine((offer, ctx) => {
+    const floor = minimumOfferPrice(offer);
+    if (offer.priceMinor < floor)
+      ctx.addIssue({
+        code: "custom",
+        path: ["priceMinor"],
+        message: `Minimum price is AED ${floor / 100}`,
+      });
     if (offer.billing === "upfront" && offer.programmeDays === null)
       ctx.addIssue({
         code: "custom",
@@ -114,6 +138,7 @@ export const productSchema = z
         message: "An upfront programme needs a length in days",
       });
   });
+export * from "./membership-pricing.ts";
 export * from "./marketing-features.ts";
 export * from "./coach-setup.ts";
 export * from "./site-builder.ts";

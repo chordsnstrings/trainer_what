@@ -1,6 +1,7 @@
 import { audioReadiness, requireServiceReady } from "./service-readiness.ts";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { hasPaidTraining, modulePassActive } from "@trainer/contracts";
 import {
   type Actor,
   type Database,
@@ -283,10 +284,10 @@ export async function projectVoiceAddOn(
   let object = input;
   const a = providerActor(tenantId);
   const [member] = await db.system((tx) =>
-    tx.query(
-      "SELECT 1 FROM memberships WHERE tenant_id=$1 AND user_id=$2",
-      [tenantId, userId],
-    ),
+    tx.query("SELECT 1 FROM memberships WHERE tenant_id=$1 AND user_id=$2", [
+      tenantId,
+      userId,
+    ]),
   );
   // A follower who left keeps a recorded exit; the winding-down add-on's
   // remaining provider events must still be mirrored.
@@ -298,7 +299,9 @@ export async function projectVoiceAddOn(
         ]),
       );
   if (!member && !former)
-    throw new Error("Voice add-on refers to an unknown subscriber relationship");
+    throw new Error(
+      "Voice add-on refers to an unknown subscriber relationship",
+    );
   await recordOwnership(db, tenantId, userId, [
     [object.id, "voice_addon_subscription"],
   ]);
@@ -322,7 +325,10 @@ export async function projectVoiceAddOn(
       const remote: any = await stripe.subscriptions.retrieve(object.id);
       if (remote.id !== object.id)
         throw new Error("Conflicting provider object ownership");
-      object = { ...remote, metadata: { ...object.metadata, ...remote.metadata } };
+      object = {
+        ...remote,
+        metadata: { ...object.metadata, ...remote.metadata },
+      };
       authoritative = true;
     }
   }
@@ -640,7 +646,7 @@ export async function voiceAddOnStatus(db: Database, a: Actor) {
       "SELECT status,period_end,data FROM subscriptions WHERE user_id=$1",
       [a.userId],
     );
-    const paid = subscriptionHasAccess(s);
+    const paid = hasPaidTraining(s);
     const [offer] = s?.data?.productId
       ? await tx.query(
           "SELECT id,data FROM records WHERE id=$1 AND kind='product'",
@@ -662,7 +668,8 @@ export async function voiceAddOnStatus(db: Database, a: Actor) {
         !included &&
         pending?.status !== "confirming" &&
         !!offer?.data?.voiceStripePriceId &&
-        !!offer?.data?.voiceAddOnMinor,
+        Number(offer?.data?.voiceAddOnMinor) >= 10000 &&
+        !modulePassActive(s?.data?.modulePasses?.voice),
       priceMinor: offer?.data?.voiceAddOnMinor ?? null,
       active: paid && voiceAddOnEntitled(v),
       status: v?.status ?? null,
@@ -705,17 +712,22 @@ export async function addVoiceAddOn(
       "SELECT * FROM subscriptions WHERE user_id=$1 FOR UPDATE",
       [a.userId],
     );
-    if (!subscriptionHasAccess(s))
+    if (!hasPaidTraining(s))
       throw fail(
         "MEMBERSHIP_REQUIRED",
         "Premium voice is added to a current paid membership.",
       );
     if (voiceIncluded(s.data))
       throw fail("VOICE_INCLUDED", "Your membership already includes voice.");
+    if (modulePassActive(s.data?.modulePasses?.voice))
+      throw fail("VOICE_ACTIVE", "Your voice pass is already active.");
     const v = s.data?.voiceAddOn;
     if (voiceAddOnEntitled(v)) {
       if (!v.cancelAtPeriodEnd)
-        throw fail("VOICE_ACTIVE", "Premium voice is already on your membership.");
+        throw fail(
+          "VOICE_ACTIVE",
+          "Premium voice is already on your membership.",
+        );
       return { resume: v };
     }
     if (v && !TERMINAL.has(v.status) && v.status !== "incomplete")
@@ -760,6 +772,20 @@ export async function addVoiceAddOn(
       return { reconcile: old };
     }
     if (refused) throw refused;
+    const [passPending] = await tx.query(
+      "SELECT id FROM records WHERE kind='checkout' AND owner_user_id=$1 AND data->>'purpose'='module_pass' AND data->>'module'='voice' AND status IN ('creating','open','unknown') LIMIT 1",
+      [a.userId],
+    );
+    if (passPending)
+      throw fail(
+        "VOICE_PENDING",
+        "Check the existing voice pass purchase before starting another payment.",
+      );
+    if (Number(offer.data.voiceAddOnMinor) < 10000)
+      throw fail(
+        "PRICE_BELOW_MINIMUM",
+        "The minimum voice add-on price is AED 100.",
+      );
     const [user] = await tx.query("SELECT email FROM users WHERE id=$1", [
       a.userId,
     ]);
@@ -784,7 +810,10 @@ export async function addVoiceAddOn(
     return { intent };
   });
   if (context.existing)
-    return { url: context.existing.data.checkoutUrl, intentId: context.existing.id };
+    return {
+      url: context.existing.data.checkoutUrl,
+      intentId: context.existing.id,
+    };
   if (context.resume) {
     const provider = stripe();
     // An end scheduled with cancel_at (flexible billing mode) is cleared
@@ -815,8 +844,14 @@ export async function addVoiceAddOn(
     return { resumed: true };
   }
   if (context.reconcile) {
-    const outcome = await reconcileVoiceCheckout(db, a, context.reconcile, stripe());
-    if (outcome.status === "open") return { url: outcome.url, intentId: context.reconcile.id };
+    const outcome = await reconcileVoiceCheckout(
+      db,
+      a,
+      context.reconcile,
+      stripe(),
+    );
+    if (outcome.status === "open")
+      return { url: outcome.url, intentId: context.reconcile.id };
     throw fail(
       "CHECKOUT_RECONCILED",
       "Your earlier voice add-on checkout was checked; reload your membership to continue.",
@@ -923,7 +958,12 @@ export async function reconcileVoiceCheckout(
         "UPDATE records SET status='expired',data=data||$2::jsonb,updated_at=now() WHERE id=$1 AND status IN ('creating','unknown')",
         [r.id, JSON.stringify({ providerStatus: "absent" })],
       );
-      await event(tx, providerActor(r.tenant_id), "voice_addon.checkout_absent", r.id);
+      await event(
+        tx,
+        providerActor(r.tenant_id),
+        "voice_addon.checkout_absent",
+        r.id,
+      );
     });
     return { status: "expired" };
   }
@@ -1002,7 +1042,11 @@ export async function removeVoiceAddOn(
     );
     const v = s?.data?.voiceAddOn;
     if (!v?.providerId || TERMINAL.has(v.status))
-      throw fail("VOICE_NOT_ACTIVE", "There is no voice add-on to remove.", 404);
+      throw fail(
+        "VOICE_NOT_ACTIVE",
+        "There is no voice add-on to remove.",
+        404,
+      );
     await event(tx, a, "voice_addon.removal_requested", v.providerId);
     return v;
   });
@@ -1015,7 +1059,9 @@ export async function removeVoiceAddOn(
   const remote: any = await client.subscriptions.update(
     v.providerId,
     { cancel_at_period_end: true },
-    { idempotencyKey: `voice-addon-cancel:${v.providerId}:${v.lastStripeEventAt}` },
+    {
+      idempotencyKey: `voice-addon-cancel:${v.providerId}:${v.lastStripeEventAt}`,
+    },
   );
   if (remote.id !== v.providerId || remote.cancel_at_period_end !== true)
     throw fail(
@@ -1045,9 +1091,10 @@ export async function stopVoiceAddOnForExit(
   stripe: () => StripeLike,
 ): Promise<"none" | "ends"> {
   const [s] = await db.tenant(reader, (tx) =>
-    tx.query("SELECT data->'voiceAddOn' AS v FROM subscriptions WHERE user_id=$1", [
-      userId,
-    ]),
+    tx.query(
+      "SELECT data->'voiceAddOn' AS v FROM subscriptions WHERE user_id=$1",
+      [userId],
+    ),
   );
   const v: VoiceAddOnState | undefined = s?.v ?? undefined;
   // An incomplete add-on has taken no payment; the worker ends it.
@@ -1058,7 +1105,9 @@ export async function stopVoiceAddOnForExit(
   const remote: any = await client.subscriptions.update(
     v.providerId,
     { cancel_at_period_end: true },
-    { idempotencyKey: `voice-addon-cancel:${v.providerId}:${v.lastStripeEventAt}` },
+    {
+      idempotencyKey: `voice-addon-cancel:${v.providerId}:${v.lastStripeEventAt}`,
+    },
   );
   if (remote.id !== v.providerId || remote.cancel_at_period_end !== true)
     throw fail(
@@ -1194,5 +1243,5 @@ export function registerVoiceAddOn(
     if (!pending) return { status: "resolved" };
     return reconcileVoiceCheckout(db, a, pending, providers.stripe());
   });
-}
 
+}

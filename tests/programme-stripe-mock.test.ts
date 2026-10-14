@@ -68,7 +68,7 @@ test("the Stripe mock serves upfront programme payments and the voice add-on sub
     const voice = await stripe.prices.create({
       product: voiceProduct.id,
       currency: "aed",
-      unit_amount: 4900,
+      unit_amount: 10000,
       recurring: { interval: "month" },
     });
     const voiceMeta = { tenant_id: "t", user_id: "u", intent_id: "v", purpose: "voice_addon" };
@@ -84,7 +84,7 @@ test("the Stripe mock serves upfront programme payments and the voice add-on sub
     const added = await mock.completeCheckout(voiceSession.id);
     assert.equal(added.subscription.metadata.purpose, "voice_addon");
     assert.equal(added.invoice.parent.subscription_details.metadata.purpose, "voice_addon");
-    assert.equal(added.invoice.amount_paid, 4900);
+    assert.equal(added.invoice.amount_paid, 10000);
     const scheduled = await stripe.subscriptions.update(
       added.subscription.id,
       { cancel_at_period_end: true },
@@ -127,7 +127,7 @@ test("through the e2e Stripe double and the real SDK: a trainer sells an upfront
         priceMinor: 90000,
         billing: "upfront",
         programmeDays: 84,
-        voiceAddOnMinor: 4900,
+        voiceAddOnMinor: 10000,
       });
       assert.equal(created.statusCode, 200, created.body);
       const activated = await request(app, "POST", `/products/${created.json().id}/activate`, owner.token, {});

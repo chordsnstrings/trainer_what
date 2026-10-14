@@ -144,7 +144,7 @@ async function subscribeVoice(trainer: any, user: any) {
   await db.tenant(seedScope(trainer), (tx) =>
     tx.query(
       "INSERT INTO subscriptions(id,tenant_id,user_id,status,period_end,price_minor,data) VALUES($1,$2,$3,'active',now()+interval '30 days',10000,$4)",
-      [randomUUID(), trainer.tenantId, user.userId, JSON.stringify({ modules: ["training", "voice"] })],
+      [randomUUID(), trainer.tenantId, user.userId, JSON.stringify({ modules: ["training", "voice"], firstPaidAt: new Date().toISOString() })],
     ),
   );
 }

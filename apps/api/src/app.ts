@@ -1,5 +1,8 @@
 import { onboardingChatRoutes } from "./onboarding-chat.ts";
-import { candidateCommunication, checkedCommunication } from "./trainer-brain.ts";
+import {
+  candidateCommunication,
+  checkedCommunication,
+} from "./trainer-brain.ts";
 import { requireServiceReady } from "./service-readiness.ts";
 import { registerFinanceAutomation } from "./finance-automation.ts";
 import { clientContextRoutes } from "./client-context.ts";
@@ -26,6 +29,7 @@ import {
   registerOfferVoiceAddOn,
 } from "./programme-billing.ts";
 import { registerVoiceAddOn } from "./voice-addon.ts";
+import { registerModulePasses } from "./module-passes.ts";
 import { registerProgrammeToday } from "./programme-today.ts";
 import { registerBookingPayments } from "./finance-bookings.ts";
 import { registerTrainingPrograms } from "./training-programs.ts";
@@ -88,7 +92,10 @@ import {
 } from "./integrations-completion.ts";
 import { registerWorkoutMusic } from "./workout-music.ts";
 import { registerVoiceSessions } from "./voice-session.ts";
-import { aliasPreviewRoutes, resolveTrainerPreview } from "./trainer-preview-access.ts";
+import {
+  aliasPreviewRoutes,
+  resolveTrainerPreview,
+} from "./trainer-preview-access.ts";
 import { registerTrainerPreview } from "./trainer-preview.ts";
 import { registerVoiceNarration } from "./voice-narration.ts";
 import { registerVoiceClones } from "./voice-clones.ts";
@@ -115,7 +122,10 @@ import {
 } from "./legal.ts";
 import { registerAdminOperations } from "./admin-operations.ts";
 import { openPersonalReview, screenForSafety } from "./safety-policy.ts";
-import { nutritionRedFlags, nutritionScopeSignals } from "../../../packages/domain/src/nutrition.ts";
+import {
+  nutritionRedFlags,
+  nutritionScopeSignals,
+} from "../../../packages/domain/src/nutrition.ts";
 import { registerMessaging } from "./messaging-admin.ts";
 import { registerSupportPreview } from "./support-preview.ts";
 import {
@@ -246,6 +256,7 @@ import {
   intakeSchema,
   setSchema,
   productSchema,
+  assertOfferPrice,
 } from "@trainer/contracts";
 import {
   programSchema,
@@ -714,6 +725,7 @@ export async function buildApp(
     commerce: commerceProvider,
     stripe: stripeProvider,
   });
+  registerModulePasses(app, db, commerceProvider);
   registerProgrammeToday(app, db);
   registerFinanceCompletion(app, db);
   registerFinanceAutomation(app, db);
@@ -1736,8 +1748,16 @@ export async function buildApp(
     return db.tenant(a, async (tx) => {
       await lockTraining(tx, a);
       if (expectedProfileId !== undefined) {
-        const [current] = await tx.query("SELECT id FROM records WHERE kind='intake' AND owner_user_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1", [a.userId]);
-        if ((current?.id ?? null) !== expectedProfileId) throw fail(409, "PROFILE_CHANGED", "Your profile changed while these edits were being saved. Review the current profile before trying again.");
+        const [current] = await tx.query(
+          "SELECT id FROM records WHERE kind='intake' AND owner_user_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1",
+          [a.userId],
+        );
+        if ((current?.id ?? null) !== expectedProfileId)
+          throw fail(
+            409,
+            "PROFILE_CHANGED",
+            "Your profile changed while these edits were being saved. Review the current profile before trying again.",
+          );
       }
       const r = await putRecord(
         tx,
@@ -1767,7 +1787,10 @@ export async function buildApp(
           "UPDATE records SET status='needs_recheck',version=version+1,updated_at=now() WHERE kind='nutrition_plan' AND owner_user_id=$1 AND status='delivered'",
           [a.userId],
         );
-      await event(tx, a, "intake.completed", r.id, { trainingHeld: screen.hold, review: screen.review });
+      await event(tx, a, "intake.completed", r.id, {
+        trainingHeld: screen.hold,
+        review: screen.review,
+      });
       return { ...r, trainingHeld: screen.hold, reviewRequired: screen.review };
     });
   });
@@ -1867,10 +1890,11 @@ export async function buildApp(
         "product",
         {
           ...b,
-          modules:
-            b.tier === "workout_nutrition"
-              ? ["training", "nutrition"]
-              : ["training"],
+          modules: [
+            "training",
+            ...(b.tier === "workout_nutrition" ? ["nutrition"] : []),
+            ...(b.premiumVoice ? ["voice"] : []),
+          ],
         },
         { status: "draft" },
       );
@@ -1885,9 +1909,17 @@ export async function buildApp(
       findRecord(tx, (req.params as any).id, "product"),
     );
     // Stripe idempotency keys expire, so a repeated activation must not mint a second product/price.
+    assertOfferPrice(product.data);
     if (product.status === "published" && product.data.stripePriceId)
       return { ok: true };
-    await db.tenant(a, tx => requireServiceReady(tx, { ...product.data, premiumVoice: !!(product.data.premiumVoice || product.data.voiceAddOnMinor) }));
+    await db.tenant(a, (tx) =>
+      requireServiceReady(tx, {
+        ...product.data,
+        premiumVoice: !!(
+          product.data.premiumVoice || product.data.voiceAddOnMinor
+        ),
+      }),
+    );
     if (product.data.tier === "workout_nutrition")
       await db.tenant(a, requireNutritionReady);
     const remote = await stripe.products.create(
@@ -2169,15 +2201,35 @@ export async function buildApp(
       );
       // A withdrawn health permission invalidates pending replies and their private
       // transcript. A later opt-in starts fresh; withdrawn text is never replayed.
-      if (a.role === "subscriber" && !b.granted && ["coaching", "nutrition", "nutrition_model"].includes(b.type)) {
-        await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [a.tenantId + ":onboarding-chat:" + a.userId]);
-        await tx.query("DELETE FROM records WHERE owner_user_id=$1 AND kind IN ('onboarding_chat','onboarding_chat_archive','onboarding_attachment','onboarding_call','onboarding_voice_request')", [a.userId]);
-        await tx.query("UPDATE records SET status='withdrawn',updated_at=now() WHERE owner_user_id=$1 AND kind='onboarding_chat_request' AND status='processing'", [a.userId]);
+      if (
+        a.role === "subscriber" &&
+        !b.granted &&
+        ["coaching", "nutrition", "nutrition_model"].includes(b.type)
+      ) {
+        await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+          a.tenantId + ":onboarding-chat:" + a.userId,
+        ]);
+        await tx.query(
+          "DELETE FROM records WHERE owner_user_id=$1 AND kind IN ('onboarding_chat','onboarding_chat_archive','onboarding_attachment','onboarding_call','onboarding_voice_request')",
+          [a.userId],
+        );
+        await tx.query(
+          "UPDATE records SET status='withdrawn',updated_at=now() WHERE owner_user_id=$1 AND kind='onboarding_chat_request' AND status='processing'",
+          [a.userId],
+        );
       }
       if (!b.granted && b.type === "voice") {
-        await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [a.tenantId + ":onboarding-chat:" + a.userId]);
-        await tx.query("UPDATE records SET status='ended',data=data-'cloneConsent',updated_at=now() WHERE owner_user_id=$1 AND kind='onboarding_call'", [a.userId]);
-        await tx.query("DELETE FROM records WHERE owner_user_id=$1 AND kind='onboarding_voice_request'", [a.userId]);
+        await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+          a.tenantId + ":onboarding-chat:" + a.userId,
+        ]);
+        await tx.query(
+          "UPDATE records SET status='ended',data=data-'cloneConsent',updated_at=now() WHERE owner_user_id=$1 AND kind='onboarding_call'",
+          [a.userId],
+        );
+        await tx.query(
+          "DELETE FROM records WHERE owner_user_id=$1 AND kind='onboarding_voice_request'",
+          [a.userId],
+        );
       }
       // The consent history decides marketing; keep the settings toggle in step.
       if (b.type === "marketing")

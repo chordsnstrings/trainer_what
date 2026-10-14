@@ -299,7 +299,7 @@ test("reviewed trainer profile and offer save through the existing draft workflo
 
 test("nutrition needs entitlement plus both permissions, then saves the real food profile", async () => {
   const owner = await ctx.person({ role: "owner" }), member = await ctx.person({ role: "subscriber", tenantId: owner.tenantId });
-  await ctx.db.tenant({ userId: owner.userId, tenantId: owner.tenantId, role: "owner" }, tx => tx.query("INSERT INTO complimentary_access(id,tenant_id,user_id,tier,reason,granted_by) VALUES($1,$2,$3,'workout_nutrition','Synthetic onboarding fixture',$4)", [randomUUID(), owner.tenantId, member.userId, owner.userId]));
+  await ctx.db.tenant({ userId: owner.userId, tenantId: owner.tenantId, role: "owner" }, tx => tx.query("INSERT INTO subscriptions(id,tenant_id,user_id,status,period_end,data) VALUES($1,$2,$3,'active',now()+interval '1 month',jsonb_build_object('modules',jsonb_build_array('training','nutrition'),'firstPaidAt',now()::text))", [randomUUID(), owner.tenantId, member.userId]));
   await grant(member); await grant(member, "nutrition");
   let c = await snapshot(member);
   assert.equal(c.permissions.nutritionIncluded, true); assert.equal(c.permissions.nutrition, false);

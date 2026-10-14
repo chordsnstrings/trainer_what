@@ -63,6 +63,13 @@ async function monthlyMember(product: any) {
       now,
     ),
   );
+  await processStripeEvent(db, evt("invoice.paid", {
+    id: "in_training_" + member.userId, object: "invoice", status: "paid", amount_paid: product.data.priceMinor, amount_due: product.data.priceMinor,
+    currency: "aed", created: now, charge: "ch_training_" + member.userId,
+    subscription: "sub_member_" + member.userId.slice(0, 8),
+    metadata: { tenant_id: member.tenantId, user_id: member.userId },
+    lines: { data: [{ period: { end: now + 30 * DAY } }] },
+  }, tick()));
   return member;
 }
 const voiceSubscription = (member: Member, price: string, extra: any = {}) => ({
@@ -102,7 +109,7 @@ const voiceInvoice = (member: Member, amount: number) => {
 
 test("voice add-on: bought with a monthly membership through its own subscription checkout, entitles premium voice, and posts a commissionable add-on charge", async () => {
   const product = await offer(db, owner, {
-    voiceAddOnMinor: 4900,
+    voiceAddOnMinor: 10000,
     voiceStripePriceId: "price_voice_monthly",
     voicePriceIds: ["price_voice_monthly"],
   });
@@ -112,7 +119,7 @@ test("voice add-on: bought with a monthly membership through its own subscriptio
   let status = await request(app, "GET", "/membership/voice-addon", member.token);
   assert.deepEqual(
     [status.json().available, status.json().active, status.json().priceMinor],
-    [true, false, 4900],
+    [true, false, 10000],
   );
   const blocked = await withEnv({ COMMERCE_APPROVED: "false" }, () =>
     request(app, "POST", "/membership/voice-addon", member.token, {}),
@@ -152,15 +159,15 @@ test("voice add-on: bought with a monthly membership through its own subscriptio
   assert.equal(granted.premiumVoice, true);
   assert.equal(granted.voiceSource, "add_on");
   // The add-on invoice posts its own charge with the member's commission rank.
-  const invoice = voiceInvoice(member, 4900);
+  const invoice = voiceInvoice(member, 10000);
   await processStripeEvent(db, evt("invoice.paid", invoice, tick()));
   const [charge] = await db.tenant(seedScope(owner, "finance"), (tx) =>
     tx.query("SELECT * FROM journals WHERE source_key=$1", ["stripe-invoice:" + invoice.id]),
   );
   assert.equal(charge.description, "Voice add-on payment");
   assert.equal(charge.data.purpose, "voice_addon");
-  assert.equal(charge.data.grossMinor, 4900);
-  assert.equal(charge.data.commissionMinor, 1225);
+  assert.equal(charge.data.grossMinor, 10000);
+  assert.equal(charge.data.commissionMinor, 2500);
   assert.equal(charge.data.rank, (await subscription(member.userId)).data.commissionRank);
   const [invoiceRecord] = await db.tenant(member, (tx) =>
     tx.query("SELECT status,data FROM records WHERE kind='billing_invoice' AND data->>'invoiceId'=$1", [invoice.id]),
@@ -170,7 +177,7 @@ test("voice add-on: bought with a monthly membership through its own subscriptio
     .format(new Date())
     .slice(0, 7);
   const statement = await db.tenant(seedScope(owner, "finance"), (tx) => financialStatement(tx, period));
-  assert.equal(statement.revenue.voiceAddOnMinor, 4900);
+  assert.equal(statement.revenue.voiceAddOnMinor, 10000);
   // Buying it twice is refused.
   const twice = await withEnv({ COMMERCE_APPROVED: "true" }, () =>
     request(app, "POST", "/membership/voice-addon", member.token, {}),
@@ -201,7 +208,7 @@ test("voice add-on: bought with a monthly membership through its own subscriptio
       id: "re_voice_" + member.userId.slice(0, 8),
       object: "refund",
       status: "succeeded",
-      amount: 4900,
+      amount: 10000,
       currency: "aed",
       charge: invoice.charge,
       metadata: {},
@@ -211,12 +218,12 @@ test("voice add-on: bought with a monthly membership through its own subscriptio
     tx.query("SELECT * FROM journals WHERE source_key=$1", ["stripe-refund:re_voice_" + member.userId.slice(0, 8)]),
   );
   assert.equal(refund.description, "Voice add-on refund");
-  assert.equal(refund.data.commissionReversalMinor, 1225);
+  assert.equal(refund.data.commissionReversalMinor, 2500);
 });
 
 test("only a price that is one of the workspace's add-on prices verifies voice; metadata never grants it", async () => {
   const product = await offer(db, owner, {
-    voiceAddOnMinor: 4900,
+    voiceAddOnMinor: 10000,
     voiceStripePriceId: "price_voice_current",
     voicePriceIds: ["price_voice_old", "price_voice_current"],
   });
@@ -256,7 +263,7 @@ test("an older offer that included premium voice keeps it, and its members are n
   assert.equal(refused.json().code, "VOICE_INCLUDED");
   // The trainer cannot sell an add-on on an offer that includes voice.
   const priced = await withEnv({ COMMERCE_APPROVED: "true" }, () =>
-    request(app, "POST", `/products/${legacy.id}/voice-addon`, owner.token, { priceMinor: 4900 }),
+    request(app, "POST", `/products/${legacy.id}/voice-addon`, owner.token, { priceMinor: 10000 }),
   );
   assert.equal(priced.statusCode, 409, priced.body);
   // Without a membership there is nothing to add voice to.
@@ -270,7 +277,7 @@ test("an older offer that included premium voice keeps it, and its members are n
 
 test("voice ends with the membership: entitlement stops at once and the worker cancels the add-on subscription", async () => {
   const product = await offer(db, owner, {
-    voiceAddOnMinor: 4900,
+    voiceAddOnMinor: 10000,
     voiceStripePriceId: "price_voice_end",
     voicePriceIds: ["price_voice_end"],
   });
@@ -308,7 +315,7 @@ test("voice ends with the membership: entitlement stops at once and the worker c
 
 test("a member cannot write its own voice or access state; another follower sees none of it", async () => {
   const product = await offer(db, owner, {
-    voiceAddOnMinor: 4900,
+    voiceAddOnMinor: 10000,
     voiceStripePriceId: "price_voice_iso",
     voicePriceIds: ["price_voice_iso"],
   });

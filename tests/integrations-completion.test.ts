@@ -450,7 +450,7 @@ test("voice enrollment requires reviewed identity/rights, premium membership and
   assert.equal(audioCalls, 0);
   await db.tenant(owner, (tx) =>
     tx.query(
-      'UPDATE subscriptions SET data=\'{"modules":["training","voice"]}\' WHERE user_id=$1',
+      'UPDATE subscriptions SET data=data||jsonb_build_object(\'modules\',\'["training","voice"]\'::jsonb,\'firstPaidAt\',now()::text) WHERE user_id=$1',
       [user.userId],
     ),
   );
@@ -500,7 +500,7 @@ test("voice enrollment requires reviewed identity/rights, premium membership and
   );
   await db.tenant(owner, (tx) =>
     tx.query(
-      'UPDATE subscriptions SET data=\'{"modules":["training","voice"]}\' WHERE user_id=$1',
+      'UPDATE subscriptions SET data=data||jsonb_build_object(\'modules\',\'["training","voice"]\'::jsonb,\'firstPaidAt\',now()::text) WHERE user_id=$1',
       [user.userId],
     ),
   );

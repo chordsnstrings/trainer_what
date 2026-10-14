@@ -136,7 +136,15 @@ if (r.statusCode === 409) {
       );
       await tx.query(
         "INSERT INTO subscriptions(id,tenant_id,user_id,status,price_minor,period_end,data) VALUES($1,$2,$3,'active',19900,now()+interval '30 days',$4)",
-        [randomUUID(), a.tenantId, uid, JSON.stringify({ synthetic: true })],
+        [
+          randomUUID(),
+          a.tenantId,
+          uid,
+          JSON.stringify({
+            synthetic: true,
+            firstPaidAt: new Date().toISOString(),
+          }),
+        ],
       );
       await recordCharge(tx, a, "demo:" + uid, 19900, 1, {
         userId: uid,

@@ -23,8 +23,7 @@ async function api(path: string, method = "GET", body?: unknown) {
   return data;
 }
 /** "29 Sep 2026" (lib/format.ts). */
-const day = (value?: string | null) =>
-  value ? formatDate(value) : "—";
+const day = (value?: string | null) => (value ? formatDate(value) : "—");
 const tierName = (tier: string) =>
   tier === "workout_nutrition" ? "Workout + nutrition" : "Workout";
 const until = (g: any) =>
@@ -106,7 +105,12 @@ export function ComplimentaryAccessManager({ role }: { role: string }) {
             const existing = activeFor(userId);
             if (
               existing &&
-              !(await confirmWorkspace({ title: "Confirm action", detail: "This follower already has complimentary access. Replace it with these terms?", confirm: "Continue" }))
+              !(await confirmWorkspace({
+                title: "Confirm action",
+                detail:
+                  "This follower already has complimentary access. Replace it with these terms?",
+                confirm: "Continue",
+              }))
             )
               return;
             void act(
@@ -139,10 +143,6 @@ export function ComplimentaryAccessManager({ role }: { role: string }) {
             <span>Tier</span>
             <select name="tier" defaultValue="workout">
               <option value="workout">Workout</option>
-              <option value="workout_nutrition" disabled={!nutritionOpen}>
-                Workout + nutrition
-                {nutritionOpen ? "" : " (nutrition not available yet)"}
-              </option>
             </select>
           </label>
           <fieldset className="comp-period">
@@ -239,7 +239,9 @@ export function ComplimentaryAccessManager({ role }: { role: string }) {
                     type="button"
                     disabled={busy}
                     onClick={async () => {
-                      const reason = (await promptWorkspace(`Why are you ending ${g.name ?? "this follower"}'s complimentary access? (at least 5 characters)`));
+                      const reason = await promptWorkspace(
+                        `Why are you ending ${g.name ?? "this follower"}'s complimentary access? (at least 5 characters)`,
+                      );
                       if (reason && reason.trim().length >= 5)
                         void act(
                           () =>
@@ -423,7 +425,9 @@ export function AdminComplimentaryAccess({
                     type="button"
                     disabled={busy}
                     onClick={async () => {
-                      const reason = (await promptWorkspace("Reason for ending this complimentary access (recorded in the operator audit):"));
+                      const reason = await promptWorkspace(
+                        "Reason for ending this complimentary access (recorded in the operator audit):",
+                      );
                       if (!reason || reason.trim().length < 5) return;
                       setBusy(true);
                       setError("");

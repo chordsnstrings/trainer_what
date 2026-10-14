@@ -15,6 +15,7 @@ import publicPages from "./messages/public";
 import consent from "./messages/consent";
 import site from "./messages/site";
 import offers from "./messages/offers";
+import commerce from "./messages/commerce";
 import workout from "./messages/workout";
 import today from "./messages/today";
 import profile from "./messages/profile";
@@ -46,6 +47,7 @@ export const CATALOG = {
   consent,
   site,
   offers,
+  commerce,
   workout,
   today,
   profile,

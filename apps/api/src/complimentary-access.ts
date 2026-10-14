@@ -133,11 +133,11 @@ export async function grantComplimentaryAccess(
       "COMPLIMENTARY_PERIOD_LIMIT",
       `Complimentary access can last at most ${limits.complimentaryMaxDays} days.`,
     );
-  if (b.tier === "workout_nutrition" && !complimentaryNutritionApproved())
+  if (b.tier === "workout_nutrition")
     throw fail(
       409,
-      "NUTRITION_APPROVAL_PENDING",
-      "The workout + nutrition tier waits for the platform's nutrition approval.",
+      "NUTRITION_PAYMENT_REQUIRED",
+      "Nutrition requires a paid training membership and paid nutrition access.",
     );
   return db.tenant({ ...a, role: "owner" }, async (tx) => {
     await lockGrants(tx, a.tenantId);
@@ -374,11 +374,11 @@ export async function memberAccessSummary(tx: Tx, userId: string) {
     complimentary: grant
       ? {
           id: grant.id,
-          tier: grant.tier,
+          tier: "workout",
           startsAt: grant.starts_at,
           endsAt: grant.ends_at,
-          includesNutrition: tierModules(grant.tier).includes("nutrition"),
-          nutritionAvailable: access.modules.includes("nutrition"),
+          includesNutrition: false,
+          nutritionAvailable: false,
         }
       : null,
     paid: access.subscription

@@ -1001,38 +1001,15 @@ test("finance job failures remain blocked and stale workers cannot overwrite a n
   assert.equal(stored.leased_until, null);
 });
 
-test("premium voice is an add-on of the two existing tiers; an older offer that included it keeps it only through a verified offer mapping", async () => {
+test("premium voice can be bundled or added; entitlement still needs a verified offer mapping", async () => {
   const { productSchema } = await import("@trainer/contracts");
-  const base = {
-    name: "Fixture voice offer",
-    description: "Coaching membership",
-    priceMinor: 12000,
-  };
-  // Voice is no longer sold as part of an offer: an offer prices the add-on
-  // members buy with their membership (docs/features/programme.md).
-  assert.equal("premiumVoice" in productSchema.parse(base), false);
-  assert.equal(
-    productSchema.safeParse({ ...base, premiumVoice: true }).success,
-    false,
-  );
+  const base = { name: "Fixture voice offer", description: "Coaching membership", priceMinor: 39900 };
+  assert.equal(productSchema.parse(base).premiumVoice, false);
+  assert.equal(productSchema.safeParse({ ...base, premiumVoice: true }).success, true);
   assert.equal(productSchema.parse(base).voiceAddOnMinor, null);
-  assert.equal(
-    productSchema.parse({
-      ...base,
-      voiceAddOnMinor: 4900,
-      tier: "workout_nutrition",
-      baseProductId: randomUUID(),
-    }).voiceAddOnMinor,
-    4900,
-  );
-  assert.equal(
-    productSchema.safeParse({ ...base, voiceAddOnMinor: "4900" }).success,
-    false,
-  );
-  assert.equal(
-    productSchema.safeParse({ ...base, tier: "voice" }).success,
-    false,
-  );
+  assert.equal(productSchema.parse({ ...base, voiceAddOnMinor: 10000, tier: "workout_nutrition", baseProductId: randomUUID() }).voiceAddOnMinor, 10000);
+  assert.equal(productSchema.safeParse({ ...base, voiceAddOnMinor: "10000" }).success, false);
+  assert.equal(productSchema.safeParse({ ...base, tier: "voice" }).success, false);
   await db.tenant(a, async (tx) => {
     for (const [priceId, flag] of [
       ["price_voice_fixture", true],

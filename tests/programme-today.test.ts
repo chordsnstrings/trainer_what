@@ -51,7 +51,7 @@ async function upfrontMember(product: any, startedDaysAgo: number, days: number)
           modules: product.data.modules,
           programmeDays: days,
           programmeStartsAt: startsAt.toISOString(),
-          upfront: { startsAt: startsAt.toISOString(), endsAt: endsAt.toISOString() },
+          upfront: { amountMinor: product.data.priceMinor, startsAt: startsAt.toISOString(), endsAt: endsAt.toISOString() },
         }),
       ],
     ),

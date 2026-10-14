@@ -60,7 +60,7 @@ export default defineMessages(
     tryAgain: "Try again",
     discard: "Discard",
     notEntitled:
-      "Choose your coach’s workout + nutrition membership for new nutrition plans. Your previous records remain available.",
+      "Nutrition requires paid training plus a plan that includes nutrition or a current nutrition pass. Review your membership options. Your previous records remain available.",
     membershipOptions: "Membership options",
     // Meal plan
     mealWeek: "Meal week",
@@ -379,7 +379,7 @@ export default defineMessages(
     tryAgain: "المحاولة مرة أخرى",
     discard: "تجاهل",
     notEntitled:
-      "لخطط التغذية الجديدة، يمكنك اختيار اشتراك التمارين + التغذية لدى مدربك. تبقى سجلاتك السابقة متاحة.",
+      "تتطلب التغذية اشتراك تدريب مدفوعاً مع خطة تشمل التغذية أو تصريح تغذية سارٍ. يمكنك مراجعة خيارات الاشتراك. تبقى سجلاتك السابقة متاحة.",
     membershipOptions: "خيارات الاشتراك",
     mealWeek: "أسبوع الوجبات",
     planStatus_delivered: "الحالية",

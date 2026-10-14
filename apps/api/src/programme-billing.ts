@@ -10,14 +10,15 @@ import {
   putRecord,
 } from "@trainer/db";
 import { stripeClient } from "@trainer/providers";
-import { voiceAddOnPriceSchema } from "@trainer/contracts";
+import { voiceAddOnPriceSchema, addMembershipMonths } from "@trainer/contracts";
 import {
   RENEWAL_WINDOW_DAYS,
   effectiveProgrammeDays,
 } from "../../../packages/domain/src/programme.ts";
 import { assignCommissionRank, recordCharge } from "./finance.ts";
 import { recordFirstPaidAcquisition } from "./acquisition.ts";
-import { checkoutAbsent } from "./stripe-outcomes.ts";
+import { checkoutAbsent, confirmedCardPaymentTime } from "./stripe-outcomes.ts";
+import { processModulePassCheckout } from "./module-passes.ts";
 
 /**
  * Offer billing and upfront programme payments (docs/features/programme.md).
@@ -210,6 +211,7 @@ export async function processProgrammeCheckoutEvent(
   e: any,
   deps: { stripe?: StripeLike } = {},
 ) {
+  if (await processModulePassCheckout(db, e, deps.stripe)) return true;
   const remote = e.data?.object;
   if (remote?.mode !== "payment" || remote.metadata?.purpose !== "programme")
     return false;
@@ -351,6 +353,14 @@ export async function processProgrammeCheckoutEvent(
     throw new Error(
       "Programme payment identity unresolved; retain receipt for reconciliation",
     );
+  const confirmedAt = r.data.prepay
+    ? await confirmedCardPaymentTime(
+        e,
+        deps.stripe ?? optionalStripe(),
+        chargeId,
+        paymentIntentId,
+      )
+    : new Date((Number(e.created) || Math.floor(Date.now() / 1000)) * 1000);
   await db.system(async (tx) => {
     for (const [externalId, kind] of [
       [remote.id, "checkout.session"],
@@ -387,10 +397,8 @@ export async function processProgrammeCheckoutEvent(
         "PRODUCT_UNAVAILABLE",
         "The programme offer of this payment is unavailable",
       );
-    const days = effectiveProgrammeDays(r.data.programmeDays);
-    const paidAt = new Date(
-      (Number(e.created) || Math.floor(Date.now() / 1000)) * 1000,
-    );
+    let days = effectiveProgrammeDays(r.data.programmeDays);
+    const paidAt = confirmedAt;
     const [locked] = await tx.query(
       "SELECT * FROM subscriptions WHERE user_id=$1 FOR UPDATE",
       [memberId],
@@ -415,7 +423,12 @@ export async function processProgrammeCheckoutEvent(
     // A programme renewed before the current one ends is queued: it starts
     // when the current programme ends, so both keep their own Day 1..M.
     const startsAt = liveUpfront ? new Date(sEnd) : paidAt;
-    const endsAt = new Date(startsAt.getTime() + days * DAY);
+    const endsAt = r.data.prepay
+      ? addMembershipMonths(startsAt, r.data.prepay.months)
+      : new Date(startsAt.getTime() + days * DAY);
+    if (r.data.prepay)
+      days = Math.ceil((endsAt.getTime() - startsAt.getTime()) / DAY);
+    const purchased = r.data.productTerms ?? product.data;
     const firstPaidAt: string | undefined =
       s?.data?.firstPaidAt ?? (amount > 0 ? paidAt.toISOString() : undefined);
     const window = {
@@ -430,11 +443,12 @@ export async function processProgrammeCheckoutEvent(
       queuedAfter: liveUpfront ? new Date(sEnd).toISOString() : null,
       programmeDays: days,
       productId: product.id,
-      tier: product.data.tier ?? "workout",
-      modules: product.data.modules ?? ["training"],
-      premiumVoice: product.data.premiumVoice === true,
+      tier: purchased.tier ?? "workout",
+      modules: purchased.modules ?? ["training"],
+      premiumVoice: purchased.premiumVoice === true,
       priceId: r.data.priceId,
       listPriceMinor: r.data.amountMinor,
+      ...(r.data.prepay ? { prepay: r.data.prepay } : {}),
     };
     if (!conflict && liveUpfront)
       // Access continues through the queued programme; the current window,
@@ -458,6 +472,7 @@ export async function processProgrammeCheckoutEvent(
               "commissionRankMethod",
               "firstPaidAt",
               "voiceAddOn",
+              "modulePasses",
             ]
               .filter((k) => s.data?.[k] !== undefined)
               .map((k) => [k, s.data[k]]),
@@ -470,10 +485,10 @@ export async function processProgrammeCheckoutEvent(
         ...keep,
         billing: "upfront",
         productId: product.id,
-        tier: product.data.tier ?? "workout",
-        modules: product.data.modules ?? ["training"],
+        tier: purchased.tier ?? "workout",
+        modules: purchased.modules ?? ["training"],
         // An older offer that included premium voice keeps including it.
-        premiumVoice: product.data.premiumVoice === true,
+        premiumVoice: purchased.premiumVoice === true,
         priceId: r.data.priceId,
         programmeDays: days,
         programmeStartsAt: startsAt.toISOString(),
@@ -523,6 +538,14 @@ export async function processProgrammeCheckoutEvent(
         accessStartsAt: startsAt.toISOString(),
         accessEndsAt: endsAt.toISOString(),
         chargedAt: paidAt.toISOString(),
+        ...(r.data.prepay
+          ? {
+              prepay: r.data.prepay,
+              refundHoldUntil: new Date(
+                paidAt.getTime() + 15 * DAY,
+              ).toISOString(),
+            }
+          : {}),
         firstPaidAt,
         rankMethod: row?.data?.commissionRankMethod ?? PROGRAMME_RANK_METHOD,
       });
@@ -605,7 +628,9 @@ export async function reconcileProgrammeCheckout(
   else {
     const page = await stripe.checkout.sessions.list({
       limit: 100,
-      created: { gte: Math.floor(new Date(r.created_at).getTime() / 1000) - 60 },
+      created: {
+        gte: Math.floor(new Date(r.created_at).getTime() / 1000) - 60,
+      },
     });
     listed = !page.has_more;
     const matches = page.data.filter(
@@ -638,6 +663,19 @@ export async function reconcileProgrammeCheckout(
     throw fail(
       "CHECKOUT_UNRESOLVED",
       "No provider outcome is confirmed; the programme purchase remains held",
+    );
+  if (
+    remote.client_reference_id !== r.id ||
+    remote.metadata?.intent_id !== r.id ||
+    remote.metadata?.tenant_id !== r.tenant_id ||
+    remote.metadata?.user_id !== r.owner_user_id ||
+    remote.metadata?.purpose !==
+      (r.data.purpose === "module_pass" ? "module_pass" : "programme") ||
+    (r.data.providerId && remote.id !== r.data.providerId)
+  )
+    throw fail(
+      "CHECKOUT_IDENTITY_MISMATCH",
+      "Provider checkout does not match this purchase.",
     );
   if (remote.status === "complete" || remote.status === "expired") {
     await processProgrammeCheckoutEvent(
@@ -780,7 +818,10 @@ export async function endRefundedProgramme(
       const startsNow = {
         ...next,
         startsAt: at,
-        endsAt: new Date(now + effectiveProgrammeDays(next.programmeDays) * DAY).toISOString(),
+        endsAt: (next.prepay
+          ? addMembershipMonths(at, next.prepay.months)
+          : new Date(now + effectiveProgrammeDays(next.programmeDays) * DAY)
+        ).toISOString(),
       };
       accessEndsAt = startsNow.endsAt;
       await tx.query(

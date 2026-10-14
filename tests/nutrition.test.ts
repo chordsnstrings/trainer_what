@@ -335,7 +335,7 @@ test("two tiers preserve legacy access and enforce a higher combined price", asy
   const workout = await ok("/products", "POST", {
     name: "Workout only",
     description: "Training",
-    priceMinor: 15000,
+    priceMinor: 19900,
   });
   assert.deepEqual(workout.data.modules, ["training"]);
   assert.equal(
@@ -343,7 +343,7 @@ test("two tiers preserve legacy access and enforce a higher combined price", asy
       await req("/products", "POST", {
         name: "Combined",
         description: "Both",
-        priceMinor: 15000,
+        priceMinor: 19900,
         tier: "workout_nutrition",
         baseProductId: workout.id,
       })
@@ -353,7 +353,7 @@ test("two tiers preserve legacy access and enforce a higher combined price", asy
   const combined = await ok("/products", "POST", {
     name: "Workout plus nutrition",
     description: "Training and meals",
-    priceMinor: 22000,
+    priceMinor: 29900,
     tier: "workout_nutrition",
     baseProductId: workout.id,
   });
@@ -384,6 +384,15 @@ test("two tiers preserve legacy access and enforce a higher combined price", asy
         },
       },
     },
+  });
+  assert.equal((await ok("/nutrition", "GET", undefined, subscriber)).entitled, false, "Active provider state without payment does not unlock nutrition");
+  await processStripeEvent(db, {
+    id: "evt_nutrition_first_payment", type: "invoice.paid", created: 101,
+    data: { object: { id: "in_nutrition_fixture", object: "invoice", status: "paid", currency: "aed", amount_paid: 29900, amount_due: 29900,
+      charge: "ch_nutrition_fixture", subscription: "sub_nutrition_fixture", created: 101,
+      metadata: { tenant_id: owner.tenantId, user_id: subscriber.userId },
+      lines: { data: [{ period: { end: Math.floor(Date.now() / 1000) + 2592000 } }] },
+    } },
   });
   assert.equal(
     (await ok("/nutrition", "GET", undefined, subscriber)).entitled,

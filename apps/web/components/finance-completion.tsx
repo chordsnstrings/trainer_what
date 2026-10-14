@@ -3,6 +3,7 @@ import { formatDate, formatMoney, humanize } from "../lib/format";
 import { useErrorText, useLocale, useT } from "../lib/i18n/react";
 import { useEffect, useState } from "react";
 import { LoadingOrRetry } from "./phone-ui";
+import { PrepaidRefundDetails } from "./membership-commerce";
 import { money } from "@trainer/domain";
 /** "July 2026" for a YYYY-MM month. */
 const monthName = (period: string) =>
@@ -114,6 +115,11 @@ export function BillingHistory({ active = false }: { active?: boolean }) {
               </div>
             </article>
           ))}
+          {data.charges
+            .filter((c: any) => c.refundCalculation)
+            .map((c: any) => (
+              <PrepaidRefundDetails key={c.id} charge={c} />
+            ))}
           {data.charges.some((c: any) => c.eligible) && (
             <form
               onSubmit={(e) => {
@@ -133,7 +139,8 @@ export function BillingHistory({ active = false }: { active?: boolean }) {
                     .filter((c: any) => c.eligible)
                     .map((c: any) => (
                       <option key={c.id} value={c.chargeId}>
-                        {date(c.chargedAt)} — {price(c.remainingMinor)}
+                        {date(c.chargedAt)} —{" "}
+                        {price(c.refundableMinor ?? c.remainingMinor)}
                       </option>
                     ))}
                 </select>
@@ -455,6 +462,7 @@ function FinancialStatementView({ tenant }: { tenant?: string }) {
                     {[
                       ["membershipMinor", "Memberships"],
                       ["programmeMinor", "Upfront programmes"],
+                      ["modulePassMinor", "Nutrition and voice passes"],
                       ["voiceAddOnMinor", "Voice add-on"],
                       ["sessionsMinor", "1:1 sessions"],
                     ].map(([key, label]) => (
@@ -475,10 +483,12 @@ function FinancialStatementView({ tenant }: { tenant?: string }) {
               data.disputes.releasedMinor > 0 ||
               data.disputes.lostMinor > 0) && (
               <p>
-                Card disputes: <span dir="ltr">{money(data.disputes.openedMinor)}</span>{" "}
-                held · <span dir="ltr">{money(data.disputes.releasedMinor)}</span>{" "}
-                released · <span dir="ltr">{money(data.disputes.lostMinor)}</span>{" "}
-                lost (included in other adjustments)
+                Card disputes:{" "}
+                <span dir="ltr">{money(data.disputes.openedMinor)}</span> held ·{" "}
+                <span dir="ltr">{money(data.disputes.releasedMinor)}</span>{" "}
+                released ·{" "}
+                <span dir="ltr">{money(data.disputes.lostMinor)}</span> lost
+                (included in other adjustments)
               </p>
             )}
           {data.webAddresses &&
@@ -597,9 +607,8 @@ function FinancialStatementView({ tenant }: { tenant?: string }) {
             data.usage.map((r: any, i: number) => (
               <p key={i}>
                 {/* Coaches never see the model or its vendor. */}
-                Brain usage · {r.status}: {r.calls}{" "}
-                calls · USD {r.cost_usd ?? "unresolved"} · {r.unresolved}{" "}
-                unpriced
+                Brain usage · {r.status}: {r.calls} calls · USD{" "}
+                {r.cost_usd ?? "unresolved"} · {r.unresolved} unpriced
               </p>
             ))
           )}
@@ -1129,9 +1138,9 @@ function AdminRefundConsole({ tenant }: { tenant: string }) {
     <section className="card">
       <h2>Refund review and overrides</h2>
       <p>
-        Review existing decisions or open an exception to the seven-day request
-        window. Financial actions require recent account verification and a
-        recorded reason.
+        Review existing decisions or open an exception to the purchase’s refund
+        request window. Financial actions require recent account verification
+        and a recorded reason.
       </p>
       {message && (
         <p className="notice" role="status">

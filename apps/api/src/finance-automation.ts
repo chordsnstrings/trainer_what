@@ -318,7 +318,7 @@ async function reconcileObligations(
 ) {
   const rows = await db.tenant(a, (tx) =>
     tx.query(
-      "SELECT * FROM records WHERE (kind='refund' AND status IN ('submitting','submitted','unknown')) OR (kind='subscription_transition' AND status IN ('submitting','unknown')) OR (kind='booking_payment' AND status IN ('pending','creating','open','unknown','refund_submitting','refund_pending','refund_unknown')) OR (kind='checkout' AND status IN ('creating','unknown') AND data->>'purpose' IN ('programme','voice_addon') AND created_at<now()-interval '2 minutes') ORDER BY created_at LIMIT 50",
+      "SELECT * FROM records WHERE (kind='refund' AND status IN ('submitting','submitted','unknown')) OR (kind='subscription_transition' AND status IN ('submitting','unknown')) OR (kind='booking_payment' AND status IN ('pending','creating','open','unknown','refund_submitting','refund_pending','refund_unknown')) OR (kind='checkout' AND status IN ('creating','unknown','open') AND data->>'purpose' IN ('programme','voice_addon','module_pass') AND created_at<now()-interval '2 minutes') ORDER BY created_at LIMIT 50",
     ),
   );
   let unresolved = 0;
@@ -399,7 +399,10 @@ export async function executeFinanceJob(
   const fx = rate.source === "reviewed" ? rate.aedPerUsd : c.data.fxAedPerUsd;
   const fxEvidence =
     rate.source === "reviewed"
-      ? `Reviewed rate for ${period}, revision ${rate.revision}: ${rate.note}`.slice(0, 500)
+      ? `Reviewed rate for ${period}, revision ${rate.revision}: ${rate.note}`.slice(
+          0,
+          500,
+        )
       : c.data.fxEvidence;
   const rateOverride =
     rate.source === "reviewed" && Number(rate.aedPerUsd) !== Number(c.data.fxAedPerUsd)
@@ -521,7 +524,10 @@ export async function executeFinanceJob(
     status: "completed",
     payoutId: payout?.id ?? null,
     usageStatement: statementSource,
-    rate: { aedPerUsd: fx, source: rate.source === "reviewed" ? "reviewed" : "approved" },
+    rate: {
+      aedPerUsd: fx,
+      source: rate.source === "reviewed" ? "reviewed" : "approved",
+    },
     ...(rateOverride ? { rateOverride } : {}),
   };
 }

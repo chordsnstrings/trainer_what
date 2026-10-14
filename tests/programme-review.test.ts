@@ -72,7 +72,7 @@ async function upfrontRow(o: Member, member: Member, product: any, startedDaysAg
           modules: product.data.modules ?? ["training"],
           programmeDays: days,
           programmeStartsAt: startsAt.toISOString(),
-          upfront: { startsAt: startsAt.toISOString(), endsAt: endsAt.toISOString() },
+          upfront: { amountMinor: product.data.priceMinor, startsAt: startsAt.toISOString(), endsAt: endsAt.toISOString() },
         }),
       ],
     ),
@@ -85,14 +85,14 @@ const voiceSubscription = (member: Member, price: string) => ({
   cancel_at_period_end: false,
   current_period_end: Math.floor(Date.now() / 1000) + 30 * 86400,
   metadata: { tenant_id: member.tenantId, user_id: member.userId, purpose: "voice_addon" },
-  items: { data: [{ price: { id: price, unit_amount: 4900 } }] },
+  items: { data: [{ price: { id: price, unit_amount: 10000 } }] },
 });
 
 test("leaving ends the voice add-on: renewal stops before the exit, and the worker cancels it once the member is gone", async () => {
   const product = await offer(db, owner, {
     billing: "upfront",
     programmeDays: 200,
-    voiceAddOnMinor: 4900,
+    voiceAddOnMinor: 10000,
     voiceStripePriceId: "price_voice_exit",
     voicePriceIds: ["price_voice_exit"],
   });
@@ -145,7 +145,7 @@ test("leaving ends the voice add-on: renewal stops before the exit, and the work
 test("the orphan sweep finds an ended add-on behind more than 100 healthy ones", async () => {
   const o = await workspace(db);
   const product = await offer(db, o, {
-    voiceAddOnMinor: 4900,
+    voiceAddOnMinor: 10000,
     voiceStripePriceId: "price_voice_many",
     voicePriceIds: ["price_voice_many"],
   });
@@ -246,7 +246,7 @@ test("a monthly membership bought after upfront access ended replaces the row be
 
 test("a completed add-on checkout whose subscription is not mirrored yet is pending, never a second purchase; a full add-on refund ends voice", async () => {
   const product = await offer(db, owner, {
-    voiceAddOnMinor: 4900,
+    voiceAddOnMinor: 10000,
     voiceStripePriceId: "price_voice_pending",
     voicePriceIds: ["price_voice_pending"],
   });
@@ -268,6 +268,12 @@ test("a completed add-on checkout whose subscription is not mirrored yet is pend
       tick(),
     ),
   );
+  await processStripeEvent(db, evt("invoice.paid", {
+    id: "in_base_" + member.userId, object: "invoice", currency: "aed",
+    amount_paid: product.data.priceMinor, charge: "ch_base_" + member.userId,
+    lines: { data: [{ period: { end: now + 30 * 86400 } }] },
+    parent: { subscription_details: { subscription: "sub_member_" + member.userId.slice(0, 8), metadata: { tenant_id: member.tenantId, user_id: member.userId } } },
+  }, tick()));
   const added = await withEnv({ COMMERCE_APPROVED: "true" }, () =>
     request(app, "POST", "/membership/voice-addon", member.token, {}),
   );
@@ -304,8 +310,8 @@ test("a completed add-on checkout whose subscription is not mirrored yet is pend
         id: invoiceId,
         object: "invoice",
         status: "paid",
-        amount_paid: 4900,
-        amount_due: 4900,
+        amount_paid: 10000,
+        amount_due: 10000,
         currency: "aed",
         created: Math.floor(Date.now() / 1000),
         charge: "ch_" + invoiceId,
@@ -326,7 +332,7 @@ test("a completed add-on checkout whose subscription is not mirrored yet is pend
       id: "re_voice_full_" + member.userId.slice(0, 8),
       object: "refund",
       status: "succeeded",
-      amount: 4900,
+      amount: 10000,
       currency: "aed",
       charge: "ch_" + invoiceId,
       metadata: {},

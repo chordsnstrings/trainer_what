@@ -1061,7 +1061,7 @@ test("metrics and statements show products, disputes, recovered and absorbed cos
     { tenantId: owner.tenantId, userId: fin.userId, role: "finance", elevation: "platform-operator" },
     (tx) => financialStatement(tx, "2026-02", { platformView: true, rate: { month: "2026-02", aedPerUsd: 3.6725, source: "default", revision: null, note: null, reviewedAt: null } }),
   );
-  assert.deepEqual(s.revenue, { membershipMinor: 10000, programmeMinor: 30000, voiceAddOnMinor: 2000, sessionsMinor: 5000 });
+  assert.deepEqual(s.revenue, { membershipMinor: 10000, programmeMinor: 30000, modulePassMinor: 0, voiceAddOnMinor: 2000, sessionsMinor: 5000 });
   assert.deepEqual(s.disputes, { openedMinor: 4000, releasedMinor: 0, lostMinor: 4000 });
   // Domains per currency: USD first (refund reversed in USD), AED apart.
   assert.deepEqual(s.webAddresses, {

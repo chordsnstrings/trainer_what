@@ -4,6 +4,7 @@ import Link from "next/link";
 import { BottomSheet } from "./phone-ui";
 import { MemberAccessCard } from "./complimentary-access";
 import { UpfrontMembership, VoiceAddOnCard } from "./programme-membership";
+import { MembershipPurchase, ModulePassCards } from "./membership-commerce";
 import { OfferTerms } from "./programme-offers";
 import { BillingHistory } from "./finance-completion";
 import { formatDate, formatMoney } from "../lib/format";
@@ -282,17 +283,16 @@ export function MemberMembership({
                 <h3 dir="auto">{p.data.name}</h3>
                 {p.data.description && <p dir="auto">{p.data.description}</p>}
                 <OfferTerms data={p.data} />
-                <button
-                  type="button"
-                  className="button"
-                  disabled={!!busy}
-                  onClick={() =>
+                <MembershipPurchase
+                  offer={p}
+                  busy={!!busy}
+                  onPurchase={(input) =>
                     void run(
                       "join:" + p.id,
                       () =>
                         api("/payments/checkout", "POST", {
-                          productId: p.id,
-                          ...(code.trim()
+                          ...input,
+                          ...(!input.prepayMonths && code.trim()
                             ? { promotionCode: code.trim() }
                             : {}),
                         }),
@@ -301,13 +301,7 @@ export function MemberMembership({
                       if (r?.url) window.location.assign(r.url);
                     })
                   }
-                >
-                  {busy === "join:" + p.id
-                    ? t("mOpeningCheckout")
-                    : p.data.billing === "upfront"
-                      ? t("buyProgramme")
-                      : t("joinPlan")}
-                </button>
+                />
               </li>
             ))}
           </ul>
@@ -331,13 +325,16 @@ export function MemberMembership({
         <section className="card" aria-labelledby="offers-title" id="offers">
           <h2 id="offers-title">{t("mNotOpen")}</h2>
           <p className="muted">
-            {t("mNotOpenText", { coach: state.tenant?.name ?? t("mYourCoach") })}
+            {t("mNotOpenText", {
+              coach: state.tenant?.name ?? t("mYourCoach"),
+            })}
           </p>
           <Link className="button" href="/app/chat">
             {t("mMessageCoach")}
           </Link>
         </section>
       )}
+      <ModulePassCards />
       <VoiceAddOnCard />
       {pending && !membership && (
         <section className="card" aria-labelledby="checkout-title">

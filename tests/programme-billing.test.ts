@@ -87,13 +87,13 @@ test("offers: the trainer sets billing and programme length; activation creates 
       ...base,
       billing: "upfront",
       programmeDays: 84,
-      voiceAddOnMinor: 4900,
+      voiceAddOnMinor: 10000,
     });
     assert.equal(created.statusCode, 200, created.body);
     const product = created.json();
     assert.deepEqual(
       [product.data.billing, product.data.programmeDays, product.data.voiceAddOnMinor, product.status],
-      ["upfront", 84, 4900, "draft"],
+      ["upfront", 84, 10000, "draft"],
     );
     // The combined tier must be comparable: same billing and length.
     const unpaired = await request(app, "POST", "/products", owner.token, {
@@ -119,7 +119,7 @@ test("offers: the trainer sets billing and programme length; activation creates 
     assert.equal(prices[0].body.unit_amount, 90000);
     assert.equal(prices[0].body.recurring, undefined, "an upfront programme is a one-time price");
     assert.equal(prices[0].body.metadata.billing, "upfront");
-    assert.equal(prices[1].body.unit_amount, 4900);
+    assert.equal(prices[1].body.unit_amount, 10000);
     assert.deepEqual(prices[1].body.recurring, { interval: "month" });
     assert.equal(prices[1].body.metadata.purpose, "voice_addon");
     const [published] = await db.tenant(seedScope(owner), (tx) =>
@@ -129,17 +129,17 @@ test("offers: the trainer sets billing and programme length; activation creates 
     assert.ok(published.data.voiceStripePriceId);
     // A changed add-on price is a new provider price; the old one stays recognised.
     const repriced = await withEnv({ COMMERCE_APPROVED: "true" }, () =>
-      request(app, "POST", `/products/${product.id}/voice-addon`, owner.token, { priceMinor: 5900 }),
+      request(app, "POST", `/products/${product.id}/voice-addon`, owner.token, { priceMinor: 11000 }),
     );
     assert.equal(repriced.statusCode, 200, repriced.body);
     const [after] = await db.tenant(seedScope(owner), (tx) =>
       tx.query("SELECT data FROM records WHERE id=$1", [product.id]),
     );
-    assert.equal(after.data.voiceAddOnMinor, 5900);
+    assert.equal(after.data.voiceAddOnMinor, 11000);
     assert.equal(after.data.voicePriceIds.length, 2);
     assert.ok(after.data.voicePriceIds.includes(published.data.voiceStripePriceId));
     const member = await follower(db, owner);
-    const refused = await request(app, "POST", `/products/${product.id}/voice-addon`, member.token, { priceMinor: 5900 });
+    const refused = await request(app, "POST", `/products/${product.id}/voice-addon`, member.token, { priceMinor: 11000 });
     assert.equal(refused.statusCode, 403, refused.body);
     // A monthly offer still renews monthly; its length defines block length.
     const monthly = await request(app, "POST", "/products", owner.token, {

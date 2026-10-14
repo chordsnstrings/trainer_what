@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { money, paymentBreakdown } from "@trainer/domain";
+import { monthlyMinimum } from "@trainer/contracts";
 import { Field } from "./field";
 import { translator, type Locale } from "../lib/i18n/core";
 import offersMessages from "../lib/i18n/messages/offers";
@@ -132,7 +133,11 @@ export function PaymentEstimate({ price }: { price: string }) {
     </p>
   );
   if (!valid || !first) return live;
-  const last = paymentBreakdown(minor, terms!.stripe, bands![bands!.length - 1]);
+  const last = paymentBreakdown(
+    minor,
+    terms!.stripe,
+    bands![bands!.length - 1],
+  );
   const pct = (bps: number) => `${(bps / 100).toLocaleString("en")}%`;
   const t = terms!;
   return (
@@ -143,8 +148,9 @@ export function PaymentEstimate({ price }: { price: string }) {
           <strong>Each payment of <span dir="ltr">{money(minor)}</span>:</strong>{" "}
           Stripe fee, paid by you, about{" "}
           <span dir="ltr">{money(first.stripeFeeMinor)}</span> (
-          {pct(t.stripe.percentBps)} + <span dir="ltr">{money(t.stripe.fixedMinor)}</span>
-          ; a card issued outside the UAE about{" "}
+          {pct(t.stripe.percentBps)} +{" "}
+          <span dir="ltr">{money(t.stripe.fixedMinor)}</span>; a card issued
+          outside the UAE about{" "}
           <span dir="ltr">{money(first.internationalFeeMinor)}</span>). Platform
           commission <span dir="ltr">{money(first.commissionMinor)}</span> (
           {pct(bands![0])} for your first 100 paying members, down to{" "}
@@ -207,6 +213,9 @@ export function OfferForm({
   const [rolling, setRolling] = useState(true);
   const [price, setPrice] = useState("");
   const [voicePrice, setVoicePrice] = useState("");
+  const [tier, setTier] = useState("workout");
+  const [premiumVoice, setPremiumVoice] = useState(false);
+  const floor = monthlyMinimum({ tier, premiumVoice }) / 100;
   const upfront = billing === "upfront";
   return (
     <form
@@ -225,6 +234,7 @@ export function OfferForm({
                 description: f.get("description"),
                 priceMinor: Math.round(Number(f.get("price")) * 100),
                 tier: f.get("tier"),
+                premiumVoice,
                 billing,
                 programmeDays:
                   upfront || !rolling ? Number(f.get("programmeDays")) : null,
@@ -250,11 +260,30 @@ export function OfferForm({
         <input name="name" required />
       </Field>
       <Field label="Subscription tier">
-        <select name="tier">
+        <select
+          name="tier"
+          value={tier}
+          onChange={(e) => setTier(e.target.value)}
+        >
           <option value="workout">Workout only</option>
           <option value="workout_nutrition">Workout + nutrition</option>
         </select>
       </Field>
+      <label>
+        <input
+          type="checkbox"
+          checked={premiumVoice}
+          onChange={(e) => setPremiumVoice(e.target.checked)}
+        />{" "}
+        Include voice-guided training in this plan
+      </label>
+      <p className="muted">
+        Minimum monthly prices: AED 199 for training; AED 299 for training and
+        nutrition; AED 399 for training, nutrition and voice. Voice with
+        training starts at AED 299. Qualified services also offer one-month
+        nutrition passes at AED 150 and voice passes at AED 100, only with paid
+        training.
+      </p>
       <Field label="How members pay">
         <select
           name="billing"
@@ -312,7 +341,7 @@ export function OfferForm({
         <input
           name="price"
           type="number"
-          min={2}
+          min={floor}
           step={0.01}
           required
           value={price}
@@ -320,11 +349,18 @@ export function OfferForm({
         />
       </Field>
       <PaymentEstimate price={price} />
+      <p className="notice">
+        Monthly offers can be prepaid for 6 months at 10% off or 12 months at
+        30% off. The same revenue split applies to the discounted payment.
+        Refundable earnings are held for 15 days and until any refund is
+        resolved. For a custom upfront programme, the minimum is the monthly
+        floor for each started 30 days.
+      </p>
       <Field label="Premium voice add-on, monthly (AED, optional)">
         <input
           name="voicePrice"
           type="number"
-          min={2}
+          min={100}
           max={1000}
           step={0.01}
           value={voicePrice}
@@ -397,7 +433,7 @@ export function OfferVoicePrice({
         <input
           name="voicePrice"
           type="number"
-          min={2}
+          min={100}
           max={1000}
           step={0.01}
           required
