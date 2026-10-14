@@ -531,12 +531,12 @@ export function nutritionTarget(
   const rule = policy.energyAdjustments?.find((g) => g.goal.toLowerCase() === profile.goal.toLowerCase());
   if (rule) {
     const personal = personalEnergyTarget(profile, rule.adjustmentKcal);
-    if (personal.error) throw new NutritionBlocked(personal.error, personal.error === "TARGET_INPUT"
+    if (!("kcal" in personal)) throw new NutritionBlocked(personal.error, personal.error === "TARGET_INPUT"
       ? "Add current weight, height, equation sex and activity in Food preferences for your coach's personal calorie method."
       : "This personal calorie estimate needs your coach or a dietitian's review.");
-    if (personal.kcal! < policy.minKcal || personal.kcal! > policy.maxKcal)
+    if (personal.kcal < policy.minKcal || personal.kcal > policy.maxKcal)
       block("TARGET_LIMIT", "The personal calorie estimate is outside your coach's approved limits.");
-    return personal.kcal!;
+    return personal.kcal;
   }
   return target!.kcal;
 }

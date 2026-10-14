@@ -29,6 +29,7 @@ import context from "./messages/context";
 import membership from "./messages/membership";
 import voice from "./messages/voice";
 import nutrition from "./messages/nutrition";
+import nutritionHousehold from "./messages/nutrition-household";
 import capture from "./messages/capture";
 import chat from "./messages/chat";
 import plan from "./messages/plan";
@@ -59,6 +60,7 @@ export const CATALOG = {
   membership,
   voice,
   nutrition,
+  nutritionHousehold,
   capture,
   chat,
   plan,

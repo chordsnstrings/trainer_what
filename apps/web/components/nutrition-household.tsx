@@ -147,8 +147,8 @@ export function NutritionPreferencesFields({
               name="kitchenLanguage"
               defaultValue={initial?.kitchen?.language ?? locale}
             >
-              <option value="en">English</option>
-              <option value="ar">العربية</option>
+              <option value="en">{t("english")}</option>
+              <option value="ar">{t("arabic")}</option>
             </select>
           </Field>
           <Field label={t("region")}>
@@ -412,8 +412,8 @@ function KitchenDialog({
             value={locale}
             onChange={(e) => setLocale(e.target.value as "en" | "ar")}
           >
-            <option value="en">English</option>
-            <option value="ar">العربية</option>
+            <option value="en">{t("english")}</option>
+            <option value="ar">{t("arabic")}</option>
           </select>
         </Field>
         <button
