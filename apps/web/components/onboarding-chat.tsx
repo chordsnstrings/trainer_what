@@ -1,4 +1,6 @@
 "use client";
+import { OnboardingWebsitePhotos } from "./onboarding-website-photos";
+import { websiteMissingFacts } from "../../../packages/domain/src/website-interview";
 import { VoiceOneOnOne } from "./voice-one-on-one";
 import { BrainFidelity } from "./brain-fidelity";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
@@ -21,7 +23,7 @@ type State = ChatData & {
   setup?: any; brain?: any;
   coachingCoverage?: CoachingCoverage;
 };
-type Props = { audience: "coach" | "member"; mode?: "setup" | "teach"; onSaved?: () => void | Promise<void>; onDetails?: () => void };
+type Props = { audience: "coach" | "member"; mode?: "setup" | "teach" | "website"; onSaved?: () => void | Promise<void>; onDetails?: () => void };
 const labels: Record<string, string> = {
   publicName: "Your name", businessName: "Business name", city: "City", specialty: "Specialty",
   audience: "Who you coach", approach: "Your approach", alwaysDo: "Always", neverDo: "Never",
@@ -32,7 +34,7 @@ const labels: Record<string, string> = {
   limitations: "Health and movement notes", diet: "Food preferences", allergyStatus: "Allergies",
   allergens: "Allergens", exclusions: "Foods you avoid", kitchenEquipment: "Kitchen equipment",
   cookingMinutes: "Cooking minutes", foodBudget: "Food budget", nutritionScope: "Food support",
-  nutritionNotes: "Food notes",
+  nutritionNotes: "Food notes", trainingServices: "Your training", deliveryMode: "How you coach", offerIncludes: "Package includes", baseTrainingPriceAed: "Training-only price in AED", description: "What the package includes", websiteStyle: "Website style", websiteMotion: "Photo movement",
 };
 const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const choices: Record<string, string[]> = {
@@ -133,7 +135,14 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
     observer.observe(composer.current);
     return () => observer.disconnect();
   }, [state?.id]);
+  const websiteAttempt = useRef<string | null>(null);
   const busy = sending || !!state?.pending || callActive;
+  const websiteKey = state ? JSON.stringify({ id: state.id, facts: state.facts, offers: state.website?.offers, offersComplete: state.website?.offersComplete, photos: state.website?.photos }) : "";
+  useEffect(() => {
+    if (audience !== "coach" || mode !== "website" || !state || state.paused || busy || state.error || error || state.website?.result || !state.website?.offersComplete || !state.website.photos || websiteMissingFacts(state.facts).length || websiteAttempt.current === websiteKey) return;
+    websiteAttempt.current = websiteKey;
+    void act("website");
+  }, [audience, mode, state?.version, busy, websiteKey, error]);
   const act = async (action: string, extra: Record<string, any> = {}) => {
     if (!latest.current || flight.current || latest.current.pending) return;
     setPanel(null);
@@ -295,7 +304,7 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
             <span className="sr-only">{message.from === "person" ? "You" : "Assistant"}: </span>
             {message.attachments?.map(file => <OnboardingFile file={file} key={file.id} />)}
             <p className="onboarding-message-content" dir="auto">{message.text}</p>
-            {message.destination && <Link className="onboarding-message-link" href={message.destination === "training" ? "/app/program" : "/app/nutrition"}>Open {message.destination === "training" ? "Training" : "Nutrition"}<ChevronRight size={14} /></Link>}
+            {message.destination && <Link className="onboarding-message-link" href={message.destination === "website" ? "/trainer/website/preview" : message.destination === "training" ? "/app/program" : "/app/nutrition"}>{message.destination === "website" ? "Review my website" : "Open " + (message.destination === "training" ? "Training" : "Nutrition")}<ChevronRight size={14} /></Link>}
             {i === lastAssistant && !busy && <div className="onboarding-message-actions">
               {state.ready && (!state.applied.profile || state.profileDirty) && <button type="button" className="onboarding-message-link" onClick={() => setPanel("details")}>Review my {teaching ? "profile and page" : "answers"}<ChevronRight size={14} /></button>}
               {!teaching && state.applied.profile && !message.destination && <Link className="onboarding-message-link" href="/app/program">{state.programReady ? "Open my workout" : "Check my training plan"}<ChevronRight size={14} /></Link>}
@@ -303,6 +312,26 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
             <span className="onboarding-message-meta">{message.source === "voice" && <Mic size={11} aria-label="From your voice conversation" />}<time dateTime={message.at}>{new Date(message.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time>{message.from === "person" && (optimistic?.id === message.id ? <span className="onboarding-saving">{error ? "Not confirmed" : "Sending…"}</span> : <Check className="onboarding-saved-check" size={13} aria-label="Saved" />)}</span>
           </div>)}
         </div>
+        {teaching && mode === "website" && field === "website.offers" && <div className="onboarding-inline-card onboarding-website-offers">
+          <h3>Your coaching packages</h3>
+          {[...(state.website?.offers ?? []), state.facts].map((offer, index) => <div key={index} dir="auto">
+            <strong>{offer.name} · AED {offer.priceAed}{offer.billing === "monthly" ? " / month" : ` for ${offer.programmeDays} days`}</strong>
+            <p>{offer.description}</p>
+            <small>{String(offer.offerIncludes).replaceAll("_", " + ")}{offer.baseTrainingPriceAed ? ` · Training-only option: AED ${offer.baseTrainingPriceAed}` : ""}</small>
+          </div>)}
+          <p>Tell me any corrections before continuing.</p>
+          <div className="onboarding-website-photo-actions">
+            <button type="button" className="button" disabled={busy} onClick={() => void act("website-offers", { offerChoice: "complete" })}>These are my packages</button>
+            {(state.website?.offers?.length ?? 0) < 5 && <button type="button" className="button secondary" disabled={busy} onClick={() => void act("website-offers", { offerChoice: "another" })}>Add another package</button>}
+          </div>
+        </div>}
+        {teaching && mode === "website" && field === "website.photos" && <OnboardingWebsitePhotos disabled={busy} onChoose={async websitePhotos => { await act("website-photos", { websitePhotos }); }} />}
+        {teaching && mode === "website" && state.website?.result && <div className="onboarding-inline-card onboarding-website-ready">
+          <strong>{state.website.result.status === "ready" ? "Your website draft is ready" : "Your existing website is kept"}</strong>
+          <p>{state.website.result.message || "Review every page, your photos and the package prices. The draft is private until you choose to publish it."}</p>
+          <Link className="button" href="/trainer/website/preview">Review my website</Link>
+          <Link className="text-link" href="/trainer/brain">Continue teaching my Brain</Link>
+        </div>}
         {!state.permissions.coaching && <div className="onboarding-inline-card">
           <p>Your coach and this AI assistant can use the goals and health details you share to prepare your coaching. You can withdraw permission in Privacy.</p>
           <label className="onboarding-choice"><input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} /> I allow my information to be used for coaching.</label>
@@ -330,7 +359,7 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails }:
         {(sending || state.pending) && <div className="onboarding-pending" role="status"><span className="onboarding-typing" aria-hidden="true"><i /><i /><i /></span><span className="sr-only">Preparing your reply…</span></div>}
         {problem && <div className="onboarding-error" role="alert"><p>{problem}</p><div className="onboarding-options">
           {restoreRequest.current ? <button className="text-link" disabled={busy} onClick={() => { const saved = restoreRequest.current!; void transmit(saved.path, saved.body, saved.sentText); }}><RotateCcw size={14} /> Retry saved request</button> : <button className="text-link" disabled={busy} onClick={() => void load()}>Refresh conversation</button>}
-          {state.error && lastPerson && <button className="text-link" disabled={busy} onClick={() => void transmit("/onboarding-chat/messages", { id: crypto.randomUUID(), version: state.version, mode, text: lastPerson.text, retryOf: lastPerson.id })}>Try reply again</button>}
+          {mode === "website" && state.website?.photos && !state.website.result && !websiteMissingFacts(state.facts).length ? <button className="text-link" disabled={busy} onClick={() => void act("website")}>Retry website preparation</button> : state.error && lastPerson && <button className="text-link" disabled={busy} onClick={() => void transmit("/onboarding-chat/messages", { id: crypto.randomUUID(), version: state.version, mode, text: lastPerson.text, retryOf: lastPerson.id })}>Try reply again</button>}
           {onDetails && <button className="text-link" onClick={onDetails}>Use {teaching ? "setup" : "profile"} forms</button>}
         </div></div>}
         <div ref={end} />

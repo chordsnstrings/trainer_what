@@ -912,6 +912,7 @@ function DesktopSiteBuilder({ tenant, returnTo }: { tenant: EditorTenant; return
   }
   async function openStarter() {
     setProposal(null);
+    setStarterBrief(previous => previous || "Prepare my complete website using my saved public onboarding details, selected website photos and actual coaching offers.");
     openDialog("starter");
     setStarterOptions(null);
     try {
@@ -938,6 +939,7 @@ function DesktopSiteBuilder({ tenant, returnTo }: { tenant: EditorTenant; return
       const result = await builderApi("/tenant/site/starter", "POST", {
         requestId: starterRequest.current.id,
         brief: starterBrief.trim(),
+        useOnboarding: true,
         ...(starterTemplate ? { templateId: starterTemplate } : {}),
         language: draft.language ?? "en",
         version: saved.version,
@@ -2357,8 +2359,9 @@ function DesktopSiteBuilder({ tenant, returnTo }: { tenant: EditorTenant; return
               <div>
                 <p>
                   Tell us who you coach, how you work, and the feeling you want
-                  your website to have. The assistant selects existing sections
-                  and drafts your copy in one request.
+                  your website to have. The assistant uses your saved public onboarding details,
+                  selected website photos and actual offers to assemble a complete draft.
+                  Private chat files stay private.
                 </p>
                 <EditorField
                   label="Describe your coaching website"
@@ -2430,7 +2433,8 @@ function DesktopSiteBuilder({ tenant, returnTo }: { tenant: EditorTenant; return
                 </p>
                 <ul>
                   <li>Multiple pages with useful structure</li>
-                  <li>Your existing coaching offers</li>
+                  <li>Your own selected photos and suitable scroll sections</li>
+                  <li>Your saved coaching details and real offer prices</li>
                   <li>Desktop, tablet and phone layouts</li>
                   <li>No automatic publishing</li>
                 </ul>

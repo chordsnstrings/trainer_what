@@ -1020,8 +1020,11 @@ export function registerCoachSite(app: FastifyInstance, db: Database) {
       );
       const draft = siteSchema.parse(site?.draft ?? {});
       const galleries = await listGalleries(tx);
+      const [brand] = await tx.query("SELECT data FROM coach_design_drafts WHERE tenant_id=$1", [a.tenantId]);
+      const savedBrand = brand?.data;
+      const previewTenant = savedBrand ? { ...tenant, name: savedBrand.name || tenant.name, theme: { ...tenant.theme, headline: savedBrand.headline, bio: savedBrand.bio, category: savedBrand.category, design: savedBrand.design ?? tenant.theme?.design } } : tenant;
       return {
-        tenant,
+        tenant: previewTenant,
         site: draft,
         galleries,
         boundGalleries: await listBoundGalleries(
@@ -1032,7 +1035,7 @@ export function registerCoachSite(app: FastifyInstance, db: Database) {
           false,
         ),
         products: await tx.query(
-          "SELECT id,data FROM records WHERE kind='product' ORDER BY created_at",
+          "SELECT id,data,status FROM records WHERE kind='product' AND status<>'archived' ORDER BY created_at",
         ),
         preview: true,
       };

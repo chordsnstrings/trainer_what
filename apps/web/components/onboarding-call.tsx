@@ -15,7 +15,7 @@ const clock = (n: number) => Math.floor(n / 60).toString().padStart(2, "0") + ":
 type Resources = { context: AudioContext; stream: MediaStream; input?: VoiceInput; echo: boolean; tentative?: boolean; capture: ConversationAudio; player?: VoicePlayback; cue?: AudioBufferSourceNode };
 export function OnboardingCall({ audience, mode, purpose = "onboarding", coachName = "Kamran", open, onOpenChange, onConversation, onActiveChange }: {
   purpose?: "onboarding" | "coaching"; coachName?: string;
-  audience: "coach" | "member"; mode: "setup" | "teach"; open: boolean; onOpenChange: (v: boolean) => void;
+  audience: "coach" | "member"; mode: "setup" | "teach" | "website"; open: boolean; onOpenChange: (v: boolean) => void;
   onConversation: (state: any) => void; onActiveChange: (active: boolean) => void;
 }) {
   const prefix = purpose === "coaching" ? "/coaching/calls" : "/onboarding-chat/calls";

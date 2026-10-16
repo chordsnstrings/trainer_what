@@ -71,6 +71,16 @@ jobs:
           RTL_API_PORT: "4137"
           RTL_DATA_DIR: .data/backend-ui-check
           AUTHENTICATOR_REQUIRED: "false"
+      - name: Complete website from onboarding (desktop and Arabic phone)
+        run: node --import tsx scripts/run-onboarding-chat-check.mjs
+        env:
+          WEBSITE_ONBOARDING_FIXTURE: "true"
+          RTL_CHECK_MODULE: ./onboarding-website-check.mjs
+          RTL_WEB_MODE: start
+          RTL_WEB_PORT: "3213"
+          RTL_API_PORT: "4213"
+          RTL_DATA_DIR: .data/onboarding-website-check
+          AUTHENTICATOR_REQUIRED: "false"
       - name: Domain settings recovery and confirmations
         run: node scripts/run-rtl-check.mjs
         env:

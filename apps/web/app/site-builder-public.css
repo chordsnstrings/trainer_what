@@ -2630,6 +2630,11 @@
   gap: 20px;
 }
 .sb-preview-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 20px;
   padding: 12px 24px;
   margin: 0;
   font-size: 0.78rem;
@@ -2638,6 +2643,7 @@
   text-align: center;
   border-block-end: 1px solid var(--sb-border, #dce0d7);
 }
+.sb-preview-notice a { text-decoration: underline; text-underline-offset: 3px; }
 .sb-site [contenteditable="true"] {
   cursor: text;
   min-width: 20px;

@@ -3,6 +3,10 @@
 
 ## Work in progress
 
+### Active — onboarding website assembly, 16 October 2026
+
+The owner wants onboarding to prepare a complete reviewable website from the trainer's own photos, specific training and confirmed prices, including suitable scroll modules. Audit/plan: `docs/ONBOARDING_WEBSITE_2026-10-16.md`. Work is on `feat/onboarding-website-draft-2026-10-16`, based on `ba44008b0dc47321a0b09fb65d5d47249d97e3b8`. Preserve My Brain teaching, private attachment boundaries, actual offer pricing, draft/version checks and explicit publication. Implementation is complete, including six-package confirmation and eight-photo selection. Local typecheck/build, 88 focused tests and desktop/Arabic-phone browser journeys pass; screenshots were inspected. Next: finish the conversation regression and normal final-head CI gates, merge, verify exact-main and serving, then record the receipt. No new release is claimed.
+
 ### Builder scroll modules — live, 14 October 2026
 
 [PR #68](https://github.com/chordsnstrings/trainer_what/pull/68) is implemented, merged and verified live as `932498b18c3ba0f0d4907b22a4982673d3b762c4`. [Serving verification](https://github.com/chordsnstrings/trainer_what/actions/runs/38574329818) confirmed that exact release at **13:50:36 UTC**. Independent readiness and homepage requests at **13:51 UTC / 17:51 Dubai** returned HTTP 200 and the same release; readiness returned `status: ready`. No implementation or deployment remains open for this request.

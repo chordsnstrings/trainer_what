@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { starterPublicContext } from "./onboarding-website.ts";
 import { z } from "zod";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
@@ -60,6 +61,7 @@ export const siteStarterRequestSchema = z
     templateId: z.string().min(1).max(80).optional(),
     language: z.enum(["en", "ar"]).default("en"),
     version: z.number().int().min(0).optional(),
+    useOnboarding: z.boolean().optional(),
   })
   .strict()
   .superRefine((v, ctx) => {
@@ -233,6 +235,7 @@ export function registerSiteBuilderStarter(app: FastifyInstance, db: Database) {
         brief: submitted.brief,
         templateId: submitted.templateId ?? null,
         language: submitted.language,
+        useOnboarding: submitted.useOnboarding === true,
       });
       const config = await resolveSiteStarterConfig(db);
       const claim = await ownerTransaction(db, actor, async (tx, tenant) => {
@@ -280,7 +283,7 @@ export function registerSiteBuilderStarter(app: FastifyInstance, db: Database) {
           brief: submitted.brief,
           templateId: submitted.templateId,
           language: submitted.language,
-          identity: publicIdentity(tenant),
+          ...(submitted.useOnboarding ? await starterPublicContext(tx, actor, tenant) : { identity: publicIdentity(tenant) }),
         };
         // A profile can contain contact details; remove them from the prompt
         // without touching the saved brand or requesting member data.
@@ -296,6 +299,7 @@ export function registerSiteBuilderStarter(app: FastifyInstance, db: Database) {
         const cacheKey = hash({
           inputHash,
           identity: input.identity,
+          content: input.content,
           catalogue: catalogueDigest(),
           prompt: SITE_STARTER_PROMPT_VERSION,
           connection: config
