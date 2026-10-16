@@ -63,6 +63,16 @@ try {
     await page.locator(".onboarding-website-ready").getByRole("link", { name: "Review my website", exact: true }).click();
     await expect(page.locator(".sb-preview-notice")).toContainText("Private draft preview", { timeout: 30000 });
     await expect(page.locator(".sb-preview h1")).toContainText(facts.headline);
+    const skip = page.locator(".sb-preview .sb-skip");
+    await expect(skip).toHaveCSS("pointer-events", "none");
+    await page.locator('.sb-preview-notice a[href="/trainer/website"]').focus();
+    await page.keyboard.press("Tab");
+    await expect(skip).toBeFocused();
+    await expect(skip).toHaveCSS("clip-path", "none");
+    await expect(skip).toHaveCSS("pointer-events", "auto");
+    await page.keyboard.press("Tab");
+    await expect(skip).not.toBeFocused();
+    await expect(skip).toHaveCSS("pointer-events", "none");
     const imageCount = await page.locator('.sb-preview img[src^="/api/v1/media/"]:visible').count(); assert.ok(imageCount >= 2);
     for (const image of await page.locator('.sb-preview img[src^="/api/v1/media/"]:visible').all()) await image.scrollIntoViewIfNeeded();
     await page.evaluate(() => window.scrollTo(0, 0));

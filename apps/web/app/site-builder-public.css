@@ -103,10 +103,13 @@
   background: var(--sb-text);
   color: var(--sb-bg);
   z-index: 30;
-  transform: translateY(-200%);
+  /* Clip within the site: translating upward can cover the preview controls. */
+  clip-path: inset(50%);
+  pointer-events: none;
 }
 .sb-site .sb-skip:focus {
-  transform: none;
+  clip-path: none;
+  pointer-events: auto;
 }
 .sb-site .sb-container {
   width: min(100% - 96px, var(--sb-use-width, var(--sb-width, 1200px)));
