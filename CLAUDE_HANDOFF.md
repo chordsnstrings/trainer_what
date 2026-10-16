@@ -3,6 +3,10 @@
 
 ## Work in progress
 
+### Builder preview motion — implemented, release checks pending, 16 October 2026
+
+Fixed the reproduced phone-preview failure at a 1280 × 720 laptop size: the copy-fit check double-counted space already reserved for controls. Phone detection now matches the website CSS container, and private preview explains intentional motion fallbacks. Branch `fix/builder-preview-motion-2026-10-16`, base `bb17457d9e3a099c7f4136a188cee5f2b8d52f0e`. The new regression failed before the fix and passes after it. Typecheck, production build, 13 focused tests, the hydrated motion/print suite and all 17 actual editor journeys pass. The editor journey now verifies wheel-driven transforms, forward/reverse scene changes, sticky geometry and navigation at desktop/tablet/phone sizes and 75% zoom, plus standalone draft preview. Screenshots inspected. Next: final-head CI, merge, exact-main CI and serving verification; no new release is claimed yet. Audit: `docs/BUILDER_PREVIEW_MOTION_2026-10-16.md`. Synthetic fixtures only; no migration or dependency.
+
 ### Onboarding websites — live, 16 October 2026
 
 [PR #69](https://github.com/chordsnstrings/trainer_what/pull/69) is implemented, merged and verified live as `9d6ae42cb0681052025113adbe83f848bba65639`. [Serving verification](https://github.com/chordsnstrings/trainer_what/actions/runs/38887938055) confirmed that exact release at **10:39:59 UTC**. Independent readiness and homepage checks at **10:41:18–20 UTC / 14:41 Dubai** returned HTTP 200 and the same SHA; readiness returned `status: ready`. Implementation, merge, deployment and exact serving verification are complete.
