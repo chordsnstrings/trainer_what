@@ -219,7 +219,7 @@ export function finishChatTurn(c: ChatData, answer: ChatReply, asked: Question, 
   // re-ask an answered/deferred field or mark a required field complete by choosing it.
   const eligible = c.audience === "member" && answer.questionField && remaining.includes(answer.questionField) && !c.skipped.includes(answer.questionField);
   if (eligible) question = { field: answer.questionField!, text: memberQuestions[answer.questionField!]! };
-  if (answer.questionField === question.field && answer.question) question.text = chatText(answer.question, question.text);
+  if (answer.questionField === question.field && answer.question && !(c.mode === "website" && (question.field.startsWith("website.") || ["priceAed", "baseTrainingPriceAed"].includes(question.field)))) question.text = chatText(answer.question, question.text);
   if (question.field === asked.field && state(c).attempts[asked.field] === 1 && question.text === asked.text)
     question.text = help[asked.field] ?? "What would help make this easier to answer? You can give an example or leave it for later.";
   if (remaining.includes("availableWeekdays") && !c.skipped.includes("availableWeekdays") && c.facts.availableWeekdays?.length < c.facts.daysPerWeek)

@@ -1,14 +1,15 @@
 import { z } from "zod";
+import { websiteMissingFacts, websitePriceQuestion, type WebsitePreparation } from "./website-interview.ts";
 import { groundSetupDraft, mentionsModelVendor, setupFields, type Specialty } from "./setup-assistant.ts";
 import { givesMedicalAdvice } from "./text-screen.ts";
 import { coachingUpdateSchema, nextCoachingQuestion, coachingCoverage, type CoachingInterview } from "./coaching-interview.ts";
 import { statedWeekdays, statedMinutes } from "./onboarding-language.ts";
 
-export const CHAT_VERSION = "onboarding-chat-v5";
+export const CHAT_VERSION = "onboarding-chat-v6";
 export type ChatAudience = "coach" | "member";
-export type ChatMode = "setup" | "teach";
+export type ChatMode = "setup" | "teach" | "website";
 export type OnboardingAttachment = { id: string; name: string; bytes: number; format: string; characters: number; warnings: string[]; image: boolean; preview?: string };
-export type ChatMessage = { id: string; from: "person" | "assistant"; text: string; at: string; attachments?: OnboardingAttachment[]; source?: "voice"; questionField?: string; destination?: "training" | "nutrition" };
+export type ChatMessage = { id: string; from: "person" | "assistant"; text: string; at: string; attachments?: OnboardingAttachment[]; source?: "voice"; questionField?: string; destination?: "training" | "nutrition" | "website" };
 export type ChatMemory = Record<string, { evidence: string; messageId: string; at: string; origin?: "suggested" }>;
 export type ChatPreference = { status: "delegated" | "recommendation" | "accepted" | "deferred" | "unknown"; evidence: string; messageId: string; at: string; available?: number[]; value?: number | number[] };
 export type ChatDialogue = { preferences: Record<string, ChatPreference>; attempts: Record<string, number> };
@@ -21,6 +22,7 @@ export type ChatData = {
   interview?: CoachingInterview;
   dialogue?: ChatDialogue;
   profileEditing?: boolean;
+  website?: WebsitePreparation;
 };
 export const replySchema = z.object({
   reply: z.string().trim().min(1).max(700),
@@ -98,6 +100,7 @@ export function hasFact(facts: Record<string, any>, key: string) {
   return value !== undefined && value !== null && value !== "" && (!Array.isArray(value) || value.length > 0 || ["allergens", "exclusions", "kitchenEquipment"].includes(key));
 }
 export function missingFacts(c: ChatData, nutrition = false) {
+  if (c.audience === "coach" && c.mode === "website") return websiteMissingFacts(c.facts);
   const keys = c.audience === "coach" ? coachOrder : [...trainingFields, ...(nutrition ? nutritionFields : [])];
   const missing = keys.filter(k => !hasFact(c.facts, k));
   if (c.audience === "coach" && c.facts.billing === "upfront" && !hasFact(c.facts, "programmeDays")) missing.push("programmeDays");
@@ -108,6 +111,14 @@ export function missingFacts(c: ChatData, nutrition = false) {
 export function nextChatQuestion(c: ChatData, specialties: readonly Specialty[], nutrition = false) {
   if (c.paused) return { field: "paused", text: "Saved. We can pick this up whenever you're ready." };
   const field = missingFacts(c, nutrition).find(f => !c.skipped.includes(f));
+  if (c.audience === "coach" && c.mode === "website") {
+    if (field) return { field, text: websitePriceQuestion(field, c.facts) ?? coachSpecs(specialties)[field]?.question ?? "Tell me a little more for your website." };
+    if (missingFacts(c).length) return { field: "website.incomplete", text: "Your answers are saved. We still need the deferred website details before preparing a complete draft. You can return to them in conversation options." };
+    if (!c.website?.offersComplete) return { field: "website.offers", text: "Review this package and price below. Would you like to add another package, or is your offer list complete?" };
+    if (!c.website.photos) return { field: "website.photos", text: "Choose a portrait and some photos of your training for your website below. Add a short description so I can place them properly. You can also start with text and add photos later." };
+    if (c.website.result) return { field: "website.review", text: "Your website is ready to review. You can change the draft before publishing, or keep teaching your Brain." };
+    return { field: "website.prepare", text: "I have the details for your website. I’m preparing your pages, photos and package prices for you to review." };
+  }
   if (c.audience === "coach") {
     if (field === "audience" && c.mode !== "teach") return { field, text: coachSpecs(specialties)[field]!.question };
     const coaching = nextCoachingQuestion(c);

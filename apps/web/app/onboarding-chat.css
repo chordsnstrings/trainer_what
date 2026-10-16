@@ -271,3 +271,17 @@ html[data-reduce-motion="on"] .onboarding-chat *::before, html[data-reduce-motio
 .onboarding-chat .onboarding-motion-choice select { width: auto; max-width: 180px; min-height: 40px; }
 .onboarding-motion-choice small { grid-column: 1 / -1; color: var(--chat-muted); font-size: 12px; line-height: 1.5; }
 @media (max-width: 420px) { .onboarding-motion-choice { grid-template-columns: minmax(0, 1fr); } .onboarding-chat .onboarding-motion-choice select { width: 100%; max-width: none; } }
+
+/* Public website photo selection stays separate from private conversation files. */
+.onboarding-website-photos { width: min(100%, 680px); margin-block: 16px; }
+.onboarding-website-photos h3 { margin: 0 0 8px; }
+.onboarding-website-photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; margin-block: 16px; }
+.onboarding-website-photo-grid button { min-width: 0; border: 1px solid var(--line, #d8dddf); border-radius: 12px; padding: 5px; background: var(--surface, #fff); color: inherit; text-align: start; }
+.onboarding-website-photo-grid button[aria-pressed="true"] { outline: 2px solid var(--accent, #175b4a); outline-offset: 2px; }
+.onboarding-website-photo-grid img { width: 100%; height: 120px; object-fit: cover; border-radius: 8px; }
+.onboarding-website-photo-grid span { display: block; padding: 6px 3px; font-size: 12px; overflow-wrap: anywhere; }
+.onboarding-website-photo-detail { padding-block: 12px; border-top: 1px solid var(--line, #d8dddf); }
+.onboarding-website-photo-detail label { display: grid; gap: 6px; margin-block: 10px; }
+.onboarding-website-photo-detail input, .onboarding-website-photo-detail select { width: 100%; min-width: 0; }
+.onboarding-website-photo-actions, .onboarding-website-ready { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.onboarding-website-ready strong, .onboarding-website-ready p { flex-basis: 100%; }

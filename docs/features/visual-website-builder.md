@@ -43,9 +43,19 @@ Public projection strips hidden pages, globally hidden sections/elements, reusab
 
 The generator resolves the existing configured Seed 2.0 connection or a tested Seed profile independently of the active coaching model. It respects the global integration switch and never falls back to a more expensive model. Model/provider names stay out of trainer UI.
 
-One request is capped at 3,000 output tokens, 60 seconds, 5 pages and 24 sections. The model selects catalogue module/layout IDs and bounded plain-text fields. Code constructs and validates the final document; the response cannot provide executable code, custom CSS, arbitrary embeds, invented prices or evidence. Only the trainer's public brand and entered brief go into the prompt. Existing cost events and daily call limits apply.
+One request is capped at 3,000 output tokens, 60 seconds, 5 pages and 24 sections. The model selects catalogue module/layout IDs and bounded plain-text fields. Code constructs and validates the final document; the response cannot provide executable code, custom CSS, arbitrary embeds, invented prices or evidence. Only the trainer's public brand, entered brief and optional approved onboarding projection go into the prompt. Existing cost events and daily call limits apply.
 
 Persistent request IDs prevent duplicate paid retries, including unknown outcomes. Equivalent requests can reuse a tenant/catalogue/brand/model-scoped result. If no eligible connection exists or the answer is invalid, the API returns a clearly labelled ready-made template. Manual templates and editing work without AI.
+
+## Complete website from onboarding — 16 October 2026
+
+The setup conversation now gathers public coaching identity, specific training services, delivery style and up to six packages with their own prices, inclusions and monthly/upfront terms. Trainers confirm the package list, then upload or select up to eight website photos with descriptions, roles and public-use permission. A text-only draft remains available. Private chat files are never converted into website assets automatically.
+
+Once those details are complete, the studio prepares and saves the first private website draft. Approved facts populate native modules, FAQs, photos, scroll sections and search descriptions. Pricing sections bind the saved offers; the model does not invent amounts, testimonials or qualifications. Draft offers still require the normal activation checks before publication. No automatic charge or website publication occurs.
+
+The private review at `/trainer/website/preview` works on phones and desktop, including internal page and section navigation. The full editor remains desktop-based. An existing edited or published website is preserved. The editor's AI starter uses `useOnboarding: true` to deliberately propose a replacement from current public details, chosen photos and real offers, while retaining its existing review/apply flow.
+
+The onboarding assembly uses stable provider intents, product deduplication and optimistic site versions. Its populated template fallback is clearly labelled when AI is unavailable. Audit and verification: `docs/ONBOARDING_WEBSITE_2026-10-16.md`.
 
 ## Routes and verification
 

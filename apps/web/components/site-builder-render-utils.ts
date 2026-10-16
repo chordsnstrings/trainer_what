@@ -10,6 +10,7 @@ import type { CSSProperties } from "react";
 
 export type BuilderProduct = {
   id: string;
+  status?: string;
   data: {
     name?: string;
     description?: string;
@@ -59,6 +60,8 @@ export type BuilderContext = {
   /** Explicitly selected galleries beyond the first public page. */
   boundGalleries?: BuilderGallery[];
   preview?: boolean;
+  /** Standalone private review can follow internal links; the editor owns its canvas navigation. */
+  allowPreviewNavigation?: boolean;
   onInquiry?: (inquiry: BuilderInquiry) => Promise<void>;
   onNavigate?: (slug: string) => void;
 };

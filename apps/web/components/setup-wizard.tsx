@@ -138,7 +138,7 @@ export function SetupWizard({ path, tenant, onSaved }: { path: string; tenant: T
   const router = useRouter();
   const close = () => { setDetails(false); if (explicitDetails) router.replace(path); };
   if (details || explicitDetails) return <div className="onboarding-fallback"><button className="button secondary" type="button" onClick={close}><MessageCircle size={16} /> Back to conversation</button><SetupWizardDetails path={path} tenant={tenant} onSaved={onSaved} /></div>;
-  return <OnboardingChat audience="coach" mode={setupView(path).keepTraining ? "teach" : "setup"} onSaved={onSaved} onDetails={() => setDetails(true)} />;
+  return <OnboardingChat audience="coach" mode={setupView(path).keepTraining ? "teach" : "website"} onSaved={onSaved} onDetails={() => setDetails(true)} />;
 }
 
 function SetupWizardDetails({

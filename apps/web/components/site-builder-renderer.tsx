@@ -201,7 +201,7 @@ function PageLink({
         if (context.onNavigate) {
           event.preventDefault();
           context.onNavigate(page.slug);
-        } else if (context.preview) event.preventDefault();
+        } else if (context.preview && !context.allowPreviewNavigation) event.preventDefault();
         event.currentTarget
           .closest<HTMLDetailsElement>(".sb-mobile-menu")
           ?.removeAttribute("open");
@@ -245,7 +245,7 @@ function Action({
       target={action.newTab ? "_blank" : undefined}
       rel={action.newTab ? "noopener noreferrer" : undefined}
       onClick={(event) => {
-        if (context.preview) event.preventDefault();
+        if (context.preview && !(context.allowPreviewNavigation && ["page", "programmes", "contact"].includes(action.kind) && (href === context.basePath || href.startsWith(context.basePath + "/") || href.startsWith(context.basePath + "#")))) event.preventDefault();
         if (context.onNavigate && builder && action.kind === "page") {
           const page = builder.pages.find(
             (candidate) => candidate.id === action.pageId,
@@ -871,6 +871,7 @@ function Pricing({ props }: { props: SectionProps }) {
             );
             return (
               <article className="sb-plan" key={product.id}>
+                {context.preview && product.status === "draft" && <small className="sb-note">{context.language === "ar" ? "مسودة باقة · تحتاج إلى تفعيل" : "Draft offer · activation required"}</small>}
                 <p className="sb-eyebrow">
                   {product.data.tier === "workout_nutrition"
                     ? t("tierNutrition")

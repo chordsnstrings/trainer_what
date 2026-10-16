@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { populateSiteStarter, type SiteStarterContent } from "./site-builder-content.ts";
 import {
   SITE_BUILDER_MODULE_IDS,
   SITE_BUILDER_MODULES,
@@ -16,7 +17,7 @@ import { modelCompletion, type ModelAccounting } from "./model-accounting.ts";
 import { MODEL_PROFILE_KEYS, modelReplyJson } from "./model-request.ts";
 
 /** The model selects existing modules and supplies small plain-text fields only. */
-export const SITE_STARTER_PROMPT_VERSION = "site-starter-v2";
+export const SITE_STARTER_PROMPT_VERSION = "site-starter-v3";
 export const SITE_STARTER_LIMITS = {
   pages: 5,
   sections: 24,
@@ -38,6 +39,7 @@ export type SiteStarterInput = {
   templateId?: string;
   language: "en" | "ar";
   identity: SiteStarterIdentity;
+  content?: SiteStarterContent;
 };
 
 /** A coach cannot silently pay for a different active or fallback model. */
@@ -151,11 +153,11 @@ export function screenedStarterText(
 }
 
 export function starterTemplate(input: SiteStarterInput): SiteBuilderDocument {
-  const templateId = input.templateId ?? SITE_BUILDER_TEMPLATES[0]?.id;
+  const templateId = input.templateId ?? input.content?.style ?? SITE_BUILDER_TEMPLATES[0]?.id;
   if (!templateId || !SITE_BUILDER_TEMPLATES.some((t) => t.id === templateId))
     throw new ModelOutputInvalid("Choose an available starting design.");
   const sources = Object.values(input.identity);
-  return siteBuilderSchema.parse(
+  return populateSiteStarter(siteBuilderSchema.parse(
     createTemplate(templateId, {
       name: input.identity.name,
       headline: screenedStarterText(input.identity.headline, sources) ?? "",
@@ -163,7 +165,7 @@ export function starterTemplate(input: SiteStarterInput): SiteBuilderDocument {
       category: screenedStarterText(input.identity.category, sources) ?? "",
       language: input.language,
     }),
-  );
+  ), input);
 }
 
 /** Rebuild from curated constructors; the model cannot send HTML, CSS, media or links. */
@@ -234,12 +236,12 @@ export function materializeSiteStarter(
       label: input.language === "ar" ? "تواصل" : "Get in touch",
       newTab: false,
     };
-  return siteBuilderSchema.parse({
+  return populateSiteStarter(siteBuilderSchema.parse({
     ...builder,
     pages,
     savedSections: [],
     redirects: [],
-  });
+  }), input);
 }
 
 export function siteStarterInstruction() {
@@ -254,7 +256,7 @@ export function siteStarterInstruction() {
     "Never write prices or payment terms in copy; pricing and programmes modules display the existing live offers. Booking/contact/signup use their built-in actions. Never invent availability, facilities, services or credentials.",
     "Select an appropriate hero, introduction or about section, explain the approach, include native programmes/pricing where relevant, an FAQ and a useful contact or call-to-action. Use variety deliberately and avoid repeating modules unnecessarily.",
     "When the brief asks for before-and-after photos, client transformations or coached client progress (including Arabic requests), select moduleId transformation, not a generic gallery. It pairs beforeImage and afterImage for each client story. Select a compatible layout only; leave all proof copy and photos for the coach to provide with the client's permission. Never fabricate or infer results.",
-    "Images, video and proof are filled in later by the coach. No member, health or financial records are available or needed.",
+    "When websiteContent is provided it contains approved public coaching details, available photo roles/descriptions, and actual package descriptions. Use it to choose appropriate layouts. Code fills those sections with the approved facts and binds real offers; never invent prices, photos, URLs, credentials or testimonials. With several approved photos use a scroll-journey when motion is permitted, or scroll-image for one photo. Do not create empty proof, video, team or schedule sections. Without websiteContent images and proof are filled in later by the coach. No private conversation, member, health or payment records are available or needed.",
   ].join("\n");
 }
 
@@ -274,6 +276,7 @@ export async function siteStarterModel(
     chosenTemplateId: input.templateId ?? null,
     coach: input.identity,
     brief: input.brief,
+    ...(input.content ? { websiteContent: { ...input.content, photos: input.content.photos.map(({ role, alt }) => ({ role, alt })), offers: input.content.offers.slice(0, 12).map(({ name, description, tier, premiumVoice }) => ({ name, description: description.slice(0, 300), tier, premiumVoice })) } } : {}),
     templates: SITE_BUILDER_TEMPLATES.map((t) => ({
       id: t.id,
       label: t.label,

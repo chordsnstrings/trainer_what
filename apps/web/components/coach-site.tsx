@@ -840,7 +840,8 @@ export function CoachWebsite({
         {preview && (
           <div className="sb-preview-notice">
             <span>Private draft preview</span>
-            <Link href="/trainer/website">Return to editor</Link>
+            <Link href="/setup/page">Back to website conversation</Link>
+            <Link href="/trainer/website">Open desktop editor</Link>
           </div>
         )}
         <BuilderWebsite
@@ -862,6 +863,7 @@ export function CoachWebsite({
             galleries: data.galleries ?? [],
             boundGalleries: data.boundGalleries ?? [],
             preview,
+            allowPreviewNavigation: preview,
             onInquiry: async (inquiry) => {
               if (preview)
                 throw new Error(

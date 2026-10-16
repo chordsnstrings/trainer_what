@@ -1,4 +1,6 @@
 import { randomUUID, createHash } from "node:crypto";
+import { checkWebsitePhotos, prepareOnboardingWebsite, saveCoachWebsiteProfile, saveWebsiteOffer } from "./onboarding-website.ts";
+import { websitePhotosSchema, websiteOffer, websiteMissingFacts, websiteOfferFacts, WEBSITE_OFFER_FIELDS, type WebsitePreparation } from "../../../packages/domain/src/website-interview.ts";
 import { z } from "zod";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { type Actor, type Database, type Tx, putRecord, event } from "@trainer/db";
@@ -30,7 +32,7 @@ const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(va
 type Row = { id: string; version: number; data: ChatData };
 const common = { id: z.string().uuid(), version: z.number().int().nonnegative() };
 const messageSchema = z.object({
-  ...common, text: z.string().trim().max(4000), retryOf: z.string().uuid().optional(), mode: z.enum(["setup", "teach"]).default("setup"),
+  ...common, text: z.string().trim().max(4000), retryOf: z.string().uuid().optional(), mode: z.enum(["setup", "teach", "website"]).default("setup"),
   attachmentIds: z.array(z.string().uuid()).max(3).optional(), attachmentRights: z.literal(true).optional(),
   source: z.literal("voice").optional(), callId: z.string().uuid().optional(),
   timezone: z.string().max(100).optional(),
@@ -38,12 +40,14 @@ const messageSchema = z.object({
 }).strict().refine(b => b.text.length > 0 || !!b.attachmentIds?.length, "Add a message or a file.").refine(b => !b.attachmentIds?.length || b.attachmentRights, "Confirm that you can share these files.");
 const actionSchema = z.object({
   ...common,
-  action: z.enum(["pause", "resume", "skip", "profile", "discard-profile", "offer", "nutrition", "compile", "approve", "quiz", "quiz-answer", "scenario", "publish"]),
+  action: z.enum(["pause", "resume", "skip", "profile", "discard-profile", "offer", "nutrition", "compile", "approve", "quiz", "quiz-answer", "scenario", "publish", "website-offers", "website-photos", "website"]),
   timezone: z.string().max(100).optional(),
   rules: z.array(z.object({ id: z.string().uuid(), version: z.number().int().positive() }).strict()).min(1).max(100).optional(),
   roundId: z.string().uuid().optional(), caseId: z.string().uuid().optional(),
   verdict: z.enum(["yes", "change"]).optional(), text: z.string().trim().max(4000).optional(),
   ruleId: z.string().uuid().optional(), escalate: z.boolean().optional(),
+  websitePhotos: websitePhotosSchema.optional(),
+  offerChoice: z.enum(["another", "complete"]).optional(),
 }).strict();
 
 async function load(tx: Tx, a: Actor): Promise<Row | undefined> {
@@ -61,7 +65,7 @@ async function save(tx: Tx, a: Actor, row: Row, data: ChatData): Promise<Row> {
   if (!saved) throw fail(409, "CHAT_CHANGED", "This conversation changed. Your text is still here; reload to continue.");
   return saved as Row;
 }
-async function initialize(tx: Tx, a: Actor, mode: "setup" | "teach", p: Awaited<ReturnType<typeof permissions>>) {
+async function initialize(tx: Tx, a: Actor, mode: "setup" | "teach" | "website" | undefined, p: Awaited<ReturnType<typeof permissions>>) {
   let row = await load(tx, a);
   if (row) {
     // Form edits and other sessions share the same authoritative profile. Refresh
@@ -78,6 +82,12 @@ async function initialize(tx: Tx, a: Actor, mode: "setup" | "teach", p: Awaited<
         row = await save(tx, a, row, data);
       }
     }
+    if (a.role === "owner" && !row.data.pending && mode && row.data.mode !== mode) {
+      const data = structuredClone(row.data); data.mode = mode;
+      data.lastQuestion = nextChatQuestion(data, specialties, p.nutrition);
+      say(data, data.lastQuestion.text, randomUUID(), data.lastQuestion.field);
+      row = await save(tx, a, row, data);
+    }
     return row;
   }
   const data = emptyChat(a.role === "owner" ? "coach" : "member", mode);
@@ -93,7 +103,7 @@ async function initialize(tx: Tx, a: Actor, mode: "setup" | "teach", p: Awaited<
     const spec = specialties.find(s => s.label === (theme.category ?? identity.category));
     if (spec) data.facts.specialty = spec.id;
     const product = rows.find(r => r.kind === "product");
-    if (product) Object.assign(data.facts, { name: product.data.name, priceAed: product.data.priceMinor / 100, billing: product.data.billing ?? "monthly", programmeDays: product.data.programmeDays });
+    if (product) Object.assign(data.facts, { name: product.data.name, priceAed: product.data.priceMinor / 100, billing: product.data.billing ?? "monthly", programmeDays: product.data.programmeDays, description: product.data.description, offerIncludes: product.data.tier === "workout_nutrition" ? product.data.premiumVoice ? "training_nutrition_voice" : "training_nutrition" : product.data.premiumVoice ? "training_voice" : "training" });
     const teaching = await brainTrainingState(tx);
     data.teachingIds = teaching.uncompiledTeaching.map(r => r.id);
   } else if (p.coaching) {
@@ -110,13 +120,13 @@ async function initialize(tx: Tx, a: Actor, mode: "setup" | "teach", p: Awaited<
   }
   const at = new Date().toISOString();
   for (const k of Object.keys(data.facts)) data.memory[k] = { evidence: "Previously saved profile or teaching", messageId: "saved", at };
-  appendChatMessage(data, { id: randomUUID(), from: "assistant", text: a.role === "owner" ? (mode === "teach" ? "Let's keep building on what you've taught your Brain, one message at a time." : "Hey. Let's get to know how you coach, one message at a time.") : "Hey. Let's make this fit your life. We'll talk through your goals and what works for you.", at });
+  appendChatMessage(data, { id: randomUUID(), from: "assistant", text: a.role === "owner" ? (mode === "teach" ? "Let's keep building on what you've taught your Brain, one message at a time." : mode === "website" ? "Let’s prepare your website. Tell me about your coaching, packages and prices, then choose your photos. I’ll put together a private draft for you to review before anything is published." : "Hey. Let's get to know how you coach, one message at a time.") : "Hey. Let's make this fit your life. We'll talk through your goals and what works for you.", at });
   data.lastQuestion = nextChatQuestion(data, specialties, p.nutrition);
   appendChatMessage(data, { id: randomUUID(), from: "assistant", text: data.lastQuestion.text, at, questionField: data.lastQuestion.field });
   row = await putRecord(tx, a, "onboarding_chat", data, { status: "active" }) as Row;
   return row;
 }
-function say(data: ChatData, text: string, id = randomUUID(), questionField?: string, destination?: "training" | "nutrition") {
+function say(data: ChatData, text: string, id = randomUUID(), questionField?: string, destination?: "training" | "nutrition" | "website") {
   appendChatMessage(data, { id, from: "assistant", text, at: new Date().toISOString(), ...(questionField ? { questionField } : {}), ...(destination ? { destination } : {}) });
 }
 const pick = (facts: Record<string, any>, keys: string[]) => Object.fromEntries(keys.filter(k => facts[k] !== undefined).map(k => [k, facts[k]]));
@@ -159,11 +169,11 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
       throw fail(409, "PROFILE_CHANGED", "Your saved profile changed elsewhere. Keep the current saved profile, then tell me which changes you still want.");
     return forward(app, req, "POST", "/api/v1/intake", { ...intakeSchema.parse({ ...pick(data.facts, trainingFields), timezone: timezone ?? current?.data.timezone ?? "Asia/Dubai", consent: true }), expectedProfileId: current?.id ?? null });
   };
-  const snapshot = async (req: FastifyRequest, a: Actor, mode: "setup" | "teach" = "setup", conversationOnly = false) => {
+  const snapshot = async (req: FastifyRequest, a: Actor, mode: "setup" | "teach" | "website" | undefined = undefined, conversationOnly = false) => {
     const state = await db.tenant(a, async tx => {
       await lock(tx, a);
       const p = await permissions(tx, a);
-      let row = await initialize(tx, a, mode ?? "setup", p);
+      let row = await initialize(tx, a, mode, p);
       if (row.data.pending && Date.now() - Date.parse(row.data.pending.at) > MODEL_CALL_TIMEOUT_CAP_MS + 30000) {
         await tx.query("UPDATE records SET status='interrupted',updated_at=now() WHERE id=$1 AND kind='onboarding_chat_request'", [row.data.pending.id]);
         const data = structuredClone(row.data);
@@ -182,7 +192,7 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
       }
       const data = p.coaching ? row.data : { ...emptyChat("member"), messages: row.data.messages.filter(m => m.from === "assistant").slice(0, 1) };
       const [program] = a.role === "subscriber" ? await tx.query("SELECT id,status FROM records WHERE owner_user_id=$1 AND kind='program' AND status='assigned' ORDER BY created_at DESC LIMIT 1", [a.userId]) : [];
-      return { id: row.id, version: row.version, ...data, permissions: p, ready: profileReady(data), profileDirty: !!data.applied.profile && data.applied.profile !== digest(pick(data.facts, trainingFields)), missing: missingFacts(data, p.nutrition), programReady: !!program, ...(a.role === "owner" ? { coachingCoverage: coachingCoverage(data) } : {}) };
+      return { id: row.id, version: row.version, ...data, permissions: p, ready: profileReady(data), profileDirty: !!data.applied.profile && data.applied.profile !== digest(pick(data.facts, a.role === "owner" ? ["publicName", "businessName", "city", "specialty", "audience", "headline", "bio"] : trainingFields)), missing: missingFacts(data, p.nutrition), programReady: !!program, ...(a.role === "owner" ? { coachingCoverage: coachingCoverage(data) } : {}) };
     });
     if (a.role === "owner" && !conversationOnly) {
       const [setup, brain] = await Promise.all([forward(app, req, "GET", "/api/v1/setup"), forward(app, req, "GET", "/api/v1/brain/teach")]);
@@ -192,7 +202,7 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
   };
   app.get(prefix, async (req, reply) => {
     reply.header("Cache-Control", "private, no-store");
-    const mode = z.enum(["setup", "teach"]).default("setup").parse((req.query as any)?.mode);
+    const mode = z.enum(["setup", "teach", "website"]).optional().parse((req.query as any)?.mode);
     const view = z.enum(["full", "conversation"]).default("full").parse((req.query as any)?.view);
     return snapshot(req, actor(req), mode, view === "conversation");
   });
@@ -208,7 +218,7 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
     });
   });
   // The request row makes retries/reloads idempotent, including after a process restart.
-  async function claim(a: Actor, b: { id: string; version: number }, type: string, fingerprint: string, mode?: "setup" | "teach") {
+  async function claim(a: Actor, b: { id: string; version: number }, type: string, fingerprint: string, mode?: "setup" | "teach" | "website") {
     return db.tenant(a, async tx => {
       await lock(tx, a);
       const p = await permissions(tx, a);
@@ -217,14 +227,15 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
         if (request.data.fingerprint !== fingerprint) throw fail(409, "REQUEST_CHANGED", "Send this as a new message.");
         return null;
       }
-      let row = await initialize(tx, a, mode ?? "setup", p);
+      let row = await initialize(tx, a, undefined, p);
       if (row.version !== b.version) throw fail(409, "CHAT_CHANGED", "Your conversation changed in another tab. Reload, then send your message.");
       if (row.data.pending) throw fail(409, "CHAT_BUSY", "A reply is still in progress.");
       if (a.role === "subscriber" && !p.coaching) throw fail(403, "CONSENT_REQUIRED", "Choose whether to allow coaching before sharing your profile.");
       await putRecord(tx, a, "onboarding_chat_request", { fingerprint, type, conversationId: row.id }, { id: b.id, status: "processing" });
       const data = structuredClone(row.data);
       data.pending = { id: b.id, at: new Date().toISOString() };
-      data.mode = a.role === "owner" ? mode ?? data.mode : "setup";
+      const nextMode = a.role === "owner" ? mode ?? data.mode : "setup";
+      if (data.mode !== nextMode) { data.mode = nextMode; data.lastQuestion = nextChatQuestion(data, specialties, p.nutrition); }
       delete data.error;
       row = await save(tx, a, row, data);
       return { row, p };
@@ -390,11 +401,12 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
   app.post(prefix + "/actions", async (req, reply) => {
     reply.header("Cache-Control", "private, no-store");
     const a = actor(req), b = actionSchema.parse(req.body);
-    if (a.role !== "owner" && ["offer", "compile", "approve", "quiz", "quiz-answer", "scenario", "publish"].includes(b.action)) throw fail(403, "OWNER_REQUIRED", "Trainer access required.");
+    if (a.role !== "owner" && ["offer", "compile", "approve", "quiz", "quiz-answer", "scenario", "publish", "website-offers", "website-photos", "website"].includes(b.action)) throw fail(403, "OWNER_REQUIRED", "Trainer access required.");
     if (a.role === "owner" && b.action === "nutrition") throw fail(403, "MEMBER_REQUIRED", "Client access required.");
     const claimed = await claim(a, b, b.action, digest({ ...b, version: undefined }));
     if (!claimed) return snapshot(req, a);
     let line = "", applied: [string, string] | undefined, compiled: string[] = [];
+    let websiteResult: WebsitePreparation["result"] | undefined;
     try {
       const data = claimed.row.data, f = data.facts;
       if (b.action === "pause") line = "Saved. Come back whenever you're ready.";
@@ -407,18 +419,7 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
             const result = await applyMemberProfile(req, a, data, b.timezone);
             line = result.trainingHeld || result.reviewRequired ? "Your profile is saved. Your coach needs to review the health details before you train." : "Your profile is with your coach. Your first workout will appear in Training when it's ready.";
           } else {
-            const setup = await forward(app, req, "GET", "/api/v1/setup");
-            const city = String(f.city).toLowerCase().replace(/[^a-z]+/g, " ");
-            const emirate = setup.about.emirates.find((v: string) => city.includes(v.replaceAll("_", " "))) ?? (city.includes("al ain") ? "abu_dhabi" : undefined);
-            await forward(app, req, "PUT", "/api/v1/setup/about", { version: setup.about.version, values: { ...Object.fromEntries(Object.entries(setup.about.values).filter(([, v]) => v != null)), name: f.publicName, specialty: f.specialty, audience: f.audience, ...(emirate ? { emirate } : {}) } });
-            const [identity] = await db.tenant(a, tx => tx.query("SELECT version,data FROM records WHERE kind='onboarding_step' AND data->>'step'='identity'"));
-            await forward(app, req, "PUT", "/api/v1/onboarding/identity", { version: identity?.version ?? 0, values: { ...(identity?.data.values ?? {}), publicName: f.publicName, businessName: f.businessName ?? f.publicName, city: f.city, audience: f.audience, category: specialties.find(s => s.id === f.specialty)?.label, country: "AE" }, defer: false });
-            const draft = await forward(app, req, "GET", "/api/v1/tenant/design-draft");
-            const [tenant] = await db.tenant(a, tx => tx.query("SELECT trainer_brand_tenant() AS tenant"));
-            const theme = tenant?.tenant?.theme ?? {};
-            const base = draft?.data ?? { name: f.publicName, bio: theme.bio ?? "", category: theme.category ?? "", accent: theme.accent ?? "#0F766E", headline: theme.headline ?? "", ...(theme.design ? { design: theme.design } : {}) };
-            const { expectedVersion: _drop, ...rest } = base;
-            await forward(app, req, "PUT", "/api/v1/tenant/design-draft", { version: draft?.version ?? 0, data: { ...rest, name: f.publicName, headline: f.headline, bio: f.bio, category: specialties.find(s => s.id === f.specialty)?.label ?? "" } });
+            await saveCoachWebsiteProfile(app, req, db, a, f);
             line = "Your profile and page draft are saved. You can preview and publish from Page details.";
           }
           applied = ["profile", hash];
@@ -426,13 +427,21 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
       } else if (b.action === "offer") {
         if (!f.name || !f.priceAed || !f.billing || (f.billing === "upfront" && !f.programmeDays))
           throw fail(409, "OFFER_INCOMPLETE", "Tell me the offer name, price and billing first.");
-        const payload = { name: f.name, description: f.description ?? "", priceMinor: Math.round(f.priceAed * 100), billing: f.billing, programmeDays: f.billing === "upfront" ? f.programmeDays : null };
-        const hash = digest(payload);
-        const products = await db.tenant(a, tx => tx.query("SELECT id,data FROM records WHERE kind='product' AND status<>'archived'"));
-        if (data.applied.offer !== hash && !products.some(r => Object.entries(payload).every(([k, v]) => (r.data[k] ?? null) === v)))
-          await forward(app, req, "POST", "/api/v1/products", payload);
-        applied = ["offer", hash];
+        await saveWebsiteOffer(app, req, db, a, f);
+        applied = ["offer", digest(websiteOffer(f))];
         line = "Your offer draft is saved. Offer details has the remaining activation checks.";
+      } else if (b.action === "website-offers") {
+        if (!b.offerChoice || websiteMissingFacts(f).length) throw fail(409, "WEBSITE_OFFER_INCOMPLETE", "Finish this package’s details and price first.");
+        if (b.offerChoice === "another" && (data.website?.offers?.length ?? 0) >= 5) throw fail(409, "WEBSITE_OFFER_LIMIT", "Use up to six packages for this draft. You can add more in Offer details later.");
+        line = b.offerChoice === "another" ? "That package is kept. Tell me about the next package and its price." : "Your package list is confirmed for the website draft.";
+      } else if (b.action === "website-photos") {
+        if (!b.websitePhotos) throw fail(400, "WEBSITE_PHOTOS_REQUIRED", "Choose your website photos or a text-only draft.");
+        await db.tenant(a, tx => checkWebsitePhotos(tx, a, b.websitePhotos!));
+        line = b.websitePhotos.choice === "photos" ? "Your chosen website photos are saved for the draft." : "I’ll prepare the draft without photos. You can add your own photos later.";
+      } else if (b.action === "website") {
+        websiteResult = await prepareOnboardingWebsite(app, req, db, a, data);
+        applied = ["website", digest({ facts: f, photos: data.website?.photos })];
+        line = websiteResult.status === "existing" ? websiteResult.message! : "Your website draft is ready: your coaching, chosen photos and package prices. Review it on this device, then make changes or publish when you’re ready.";
       } else if (b.action === "nutrition") {
         if (!claimed.p.nutrition) throw fail(403, "CONSENT_REQUIRED", "Allow nutrition processing and AI planning before saving food preferences.");
         if (missingFacts(data, true).length) throw fail(409, "PROFILE_INCOMPLETE", "Let's finish the missing food and training details first.");
@@ -487,11 +496,28 @@ export function onboardingChatRoutes(app: FastifyInstance, db: Database, identit
           const q = c.lastQuestion ?? nextChatQuestion(c, specialties, claimed.p.nutrition);
           if (!["review", "teaching", "paused", "coaching.review"].includes(q.field)) c.skipped = [...new Set([...c.skipped, q.field])];
         }
+        if (b.action === "website-offers") {
+          c.website = { ...c.website, offersComplete: b.offerChoice === "complete" };
+          if (b.offerChoice === "another") {
+            c.website.offers = [...(c.website.offers ?? []), websiteOfferFacts(c.facts)];
+            for (const field of WEBSITE_OFFER_FIELDS) { delete c.facts[field]; delete c.memory[field]; }
+            c.skipped = c.skipped.filter(field => !WEBSITE_OFFER_FIELDS.includes(field));
+          }
+        }
+        if (b.action === "website-photos") c.website = { ...c.website, photos: b.websitePhotos };
+        if (websiteResult) {
+          c.website = { ...c.website, result: websiteResult };
+          if (websiteResult.status === "ready") {
+            c.applied.profile = digest(pick(c.facts, ["publicName", "businessName", "city", "specialty", "audience", "headline", "bio"]));
+            c.applied.offer = digest(websiteOffer(c.facts));
+            c.profileEditing = false;
+          }
+        }
         if (applied) { c.applied[applied[0]] = applied[1]; if (applied[0] === "profile") c.profileEditing = false; }
         c.compiledIds = [...new Set([...c.compiledIds, ...compiled])];
         if (b.text && ["quiz-answer", "scenario"].includes(b.action)) appendChatMessage(c, { id: b.id, from: "person", text: b.text, at: new Date().toISOString() });
-        if (line) say(c, line);
-        if (["resume", "skip"].includes(b.action)) {
+        if (line) say(c, line, randomUUID(), undefined, websiteResult ? "website" : undefined);
+        if (["resume", "skip", "website-offers", "website-photos", "website"].includes(b.action)) {
           c.lastQuestion = nextChatQuestion(c, specialties, claimed.p.nutrition);
           say(c, c.lastQuestion.text);
         }

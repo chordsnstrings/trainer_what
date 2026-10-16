@@ -153,6 +153,10 @@ export function setupFields(
     };
   if (step === "page")
     return {
+      trainingServices: { kind: "text", min: 5, max: 900, publicText: true, question: "For your website, what specific training do you offer? Tell me the styles you actually coach, who they suit and what a session involves." },
+      deliveryMode: { kind: "enum", values: ["online", "in_person", "hybrid"], question: "Do you coach online, in person, or both?" },
+      websiteStyle: { kind: "enum", values: ["editorial", "strength", "minimal", "warm", "performance"], question: "What feel would you like for your website: editorial, bold strength, minimal, warm or performance?" },
+      websiteMotion: { kind: "enum", values: ["cinematic", "subtle", "still"], question: "Would you like cinematic photo scrolling, subtle movement or a still design?" },
       headline: {
         kind: "text",
         min: 3,
@@ -233,6 +237,8 @@ export function setupFields(
       publicText: true,
       question: "In a sentence or two, what does a client get on this plan?",
     },
+    offerIncludes: { kind: "enum", values: ["training", "training_nutrition", "training_voice", "training_nutrition_voice"], question: "What is included in this package: training, training with nutrition, training with voice-guided workouts, or all three?" },
+    baseTrainingPriceAed: { kind: "number", min: 199, max: 10000, question: "What would the same training cost without nutrition or voice?" },
     priceAed: {
       kind: "number",
       min: 2,

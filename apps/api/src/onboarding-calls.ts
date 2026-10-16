@@ -112,7 +112,7 @@ export function onboardingCallRoutes(app: FastifyInstance, db: Database, purpose
   });
   app.post(prefix, { config: { rateLimit: { max: 8, timeWindow: "10 minutes" } } }, async (req, reply) => {
     reply.header("Cache-Control", "private, no-store");
-    const a = actor(req), b = z.object({ id: uuid, language: z.enum(["en", "ar"]), mode: z.enum(["setup", "teach"]).default("setup"), consent: z.literal(true), cloneConsent: cloneConsent.optional() }).strict().parse(req.body);
+    const a = actor(req), b = z.object({ id: uuid, language: z.enum(["en", "ar"]), mode: z.enum(["setup", "teach", "website"]).default("setup"), consent: z.literal(true), cloneConsent: cloneConsent.optional() }).strict().parse(req.body);
     if (b.cloneConsent && a.role !== "owner") throw fail(403, "OWNER_REQUIRED", "Only a trainer can create their own voice.");
     const consentEpoch = await db.tenant(a, async tx => { await permit(tx, a); return onboardingConsentEpoch(tx, a); });
     const c = contracts(), selected = await selection(a), voiceId = selected.id;
