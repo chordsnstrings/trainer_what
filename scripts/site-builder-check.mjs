@@ -204,6 +204,69 @@ const sections = () => page.locator(".sbe-canvas-section");
 const heroSection = () =>
   page.locator('.sbe-canvas-section:has([data-module="hero"])').first();
 
+async function verifyScrollMotion(sectionId) {
+  const story = page.locator(`[data-section-id="${sectionId}"] .sb-scroll`);
+  await expect(story).toHaveAttribute("data-motion", "true");
+  const scenes = story.locator(".sb-scroll-scene");
+  const count = await scenes.count();
+  const track = story.locator(".sb-scroll-track");
+  async function seek(index) {
+    await track.evaluate((node, index) => {
+      const host = node.parentElement;
+      const root = document.querySelector(".sbe-canvas-stage");
+      const scale = host.getBoundingClientRect().width / host.offsetWidth;
+      const css = getComputedStyle(host);
+      const travel =
+        parseFloat(css.getPropertyValue("--sb-scroll-travel")) * scale;
+      const top = parseFloat(css.getPropertyValue("--sb-scroll-top")) * scale;
+      (root ?? window).scrollBy({
+        top:
+          node.getBoundingClientRect().top -
+          (root?.getBoundingClientRect().top ?? 0) -
+          top +
+          (travel * (index + 0.2)) /
+            host.querySelectorAll(".sb-scroll-scene").length,
+        behavior: "instant",
+      });
+    }, index);
+    await expect(scenes.nth(index)).not.toHaveAttribute("aria-hidden", "true");
+    await expect(
+      story.locator('.sb-scroll-scene[aria-hidden="true"]'),
+    ).toHaveCount(count - 1);
+    await expect
+      .poll(() =>
+        story.evaluate((host) => {
+          const root = document.querySelector(".sbe-canvas-stage");
+          const scale = host.getBoundingClientRect().width / host.offsetWidth;
+          const top =
+            parseFloat(
+              getComputedStyle(host).getPropertyValue("--sb-scroll-top"),
+            ) * scale;
+          return Math.abs(
+            host.querySelector(".sb-scroll-stage").getBoundingClientRect().top -
+              (root?.getBoundingClientRect().top ?? 0) -
+              top,
+          );
+        }),
+      )
+      .toBeLessThan(3);
+  }
+  await seek(0);
+  const photo = scenes.first().locator(".sb-scroll-photo");
+  const before = await photo.evaluate(
+    (node) => getComputedStyle(node).transform,
+  );
+  const stage = await story.locator(".sb-scroll-stage").boundingBox();
+  await page.mouse.move(stage.x + stage.width / 2, stage.y + stage.height / 3);
+  await page.mouse.wheel(0, 90);
+  await expect
+    .poll(() => photo.evaluate((node) => getComputedStyle(node).transform))
+    .not.toBe(before);
+  for (const index of [1, count - 1, 0]) await seek(index);
+  await story.getByRole("button", { name: /^Scene 2:/ }).click();
+  await expect(scenes.nth(1)).not.toHaveAttribute("aria-hidden", "true");
+}
+
 // The journeys below intentionally use the visible editor and its actual
 // persistence endpoints. Catalogue internals are never edited through JS.
 try {
@@ -1025,9 +1088,38 @@ try {
       await expect(
         page.locator(`[data-section-id="${journey.id}"] .sb-scroll`),
       ).toHaveAttribute("data-motion", "true");
+      for (const { size, device, zoom } of [
+        { size: { width: 1366, height: 768 }, device: "Desktop", zoom: "fit" },
+        { size: { width: 1280, height: 720 }, device: "Phone", zoom: "fit" },
+        { size: { width: 1280, height: 720 }, device: "Phone", zoom: "0.75" },
+        { size: { width: 1280, height: 720 }, device: "Tablet", zoom: "fit" },
+      ]) {
+        await page.setViewportSize(size);
+        await page
+          .getByRole("button", { name: `${device} preview`, exact: true })
+          .click();
+        await page
+          .getByLabel("Canvas zoom", { exact: true })
+          .selectOption(zoom);
+        await verifyScrollMotion(journey.id);
+        if (zoom === "fit" && device !== "Tablet")
+          await capture(page, `motion-preview-${device.toLowerCase()}`);
+      }
+      await page.setViewportSize({ width: 1440, height: 1050 });
+      await page
+        .getByRole("button", { name: "Desktop preview", exact: true })
+        .click();
       await page
         .getByRole("button", { name: "Back to editing", exact: true })
         .click();
+      await expect(canvas.locator(".sb-scroll")).toHaveAttribute(
+        "data-motion",
+        "false",
+      );
+      await page.goto(base + "/trainer/website/preview");
+      await verifyScrollMotion(journey.id);
+      await page.goto(base + "/trainer/website");
+      await saved();
       await publish();
       await publicPage.goto(base + "/coach/alex-morgan");
       await expect(

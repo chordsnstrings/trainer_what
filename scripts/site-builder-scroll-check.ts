@@ -41,7 +41,7 @@ const bundle = await build({
       doc.pages[0].sections=options.removed?[after]:[journey,photo,after];
       const context = {name:'Studio coaching',tenantSlug:'fixture',basePath:'/coach/fixture',joinPath:'/join-coach/fixture',language:options.ar?'ar':'en',preview:!!options.preview};
       const site = options.editing ? <BuilderTheme theme={doc.theme} language={context.language}>{doc.pages[0].sections.map(section=><BuilderSection key={section.id} section={section} context={context} builder={doc} onSelect={()=>{}} />)}</BuilderTheme> : <BuilderWebsite builder={doc} context={context} />;
-      return options.preview ? <div id="preview-root" style={{height:650,overflow:'auto'}}><div style={{width:1200,zoom:options.zoom || .65}}>{site}</div></div> : site;
+      return options.preview ? <div id="preview-root" style={{height:options.previewHeight || 650,overflow:'auto'}}><div className="sbe-canvas-frame" style={{width:options.previewWidth || 1200,zoom:options.zoom || .65}}>{site}</div></div> : site;
     }
     createRoot(document.getElementById('root')).render(<StrictMode><Fixture /></StrictMode>);
   `,
@@ -247,6 +247,25 @@ try {
 
   // A new page mount clears the visitor-only reading choice.
   await configure({ removed: true });
+  // A laptop's editor toolbar leaves less height than a full browser page.
+  // This ordinary phone scene (including its action) still fits the stage.
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await configure({
+    preview: true,
+    previewWidth: 390,
+    previewHeight: 575,
+    zoom: 1,
+  });
+  await expect(story).toHaveAttribute("data-motion", "true");
+  await scrollToScene(1);
+  checks.push(
+    "phone-sized laptop preview animates ordinary copy and a scene action",
+  );
+  await expect(story.locator(".sb-scroll-preview-status")).toHaveCount(0);
+  await configure({ preview: true, previewWidth: 700, stacked: true, zoom: 1 });
+  await expect(story).toHaveAttribute("data-motion", "true");
+  await scrollToScene(1);
+  await page.setViewportSize({ width: 1280, height: 900 });
   await configure({ preview: true, editing: true });
   await expect(story).toHaveAttribute("data-motion", "false");
   await configure({ preview: true });
@@ -270,6 +289,33 @@ try {
   await page.evaluate(() => window.dispatchEvent(new Event("resize")));
   checks.push(
     "static editing, nested zoomed preview, focused-link preservation and unmount cleanup",
+  );
+  for (const [options, reason] of [
+    [{ disabled: true }, "turned off"],
+    [{ previewWidth: 390, stacked: true }, "stacked photos"],
+    [{ previewHeight: 350, zoom: 1 }, "too short"],
+    [{ long: true, previewWidth: 390, zoom: 1 }, "text stays readable"],
+  ] as const) {
+    await configure({ preview: true, ...options });
+    await expect(story).toHaveAttribute("data-motion", "false");
+    await expect(story.getByRole("status")).toContainText(reason);
+    await expect(story.locator("[inert]")).toHaveCount(0);
+  }
+  await page.emulateMedia({ media: "print" });
+  await expect(story.getByRole("status")).not.toBeVisible();
+  await page.emulateMedia({ media: "screen" });
+  await configure({ preview: true });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(story.getByRole("status")).toContainText(
+    "reduced-motion setting",
+  );
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await expect(story).toHaveAttribute("data-motion", "true");
+  await expect(story.getByRole("status")).toHaveCount(0);
+  await configure({ long: true });
+  await expect(story.getByRole("status")).toHaveCount(0);
+  checks.push(
+    "preview explains intentional fallbacks, clears them on recovery and never adds editor guidance to public pages",
   );
   assert.deepEqual(errors, []);
   await writeFile(

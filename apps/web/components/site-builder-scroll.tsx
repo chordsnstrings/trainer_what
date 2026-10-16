@@ -23,6 +23,30 @@ function scrollParent(node: HTMLElement): HTMLElement | null {
   return null;
 }
 
+const motionReasons = {
+  disabled: [
+    "Scroll effect is turned off for this section.",
+    "تأثير التمرير متوقف لهذا القسم.",
+  ],
+  reduced: [
+    "Motion is paused to respect your device’s reduced-motion setting.",
+    "الحركة متوقفة احترامًا لإعداد تقليل الحركة في جهازك.",
+  ],
+  short: [
+    "This preview is too short for motion. Reduce the canvas zoom or use a taller window.",
+    "هذه المعاينة قصيرة جدًا للحركة. قلّل تكبير اللوحة أو استخدم نافذة أطول.",
+  ],
+  stacked: [
+    "This section uses stacked photos on phones. Change Phone presentation in the section settings to animate it.",
+    "يعرض هذا القسم الصور متتابعة على الهواتف. غيّر طريقة العرض على الهاتف في إعدادات القسم لتفعيل الحركة.",
+  ],
+  content: [
+    "Motion is paused so all your text stays readable. Shorten the scene text or reduce the canvas zoom to see the effect.",
+    "الحركة متوقفة ليبقى النص كاملًا قابلًا للقراءة. اختصر نص المشهد أو قلّل تكبير اللوحة لرؤية التأثير.",
+  ],
+} as const;
+type MotionReason = keyof typeof motionReasons;
+
 /** Server-readable cards enhanced inside their own section, including the zoomed editor preview. */
 export function BuilderScrollSection({
   section,
@@ -42,6 +66,7 @@ export function BuilderScrollSection({
   const hostRef = useRef<HTMLDivElement>(null);
   const navigateRef = useRef<(index: number) => void>(() => {});
   const [animated, setAnimated] = useState(false);
+  const [motionReason, setMotionReason] = useState<MotionReason | null>(null);
   const [active, setActive] = useState(0);
   const [readAll, setReadAll] = useState(false);
   const config = section.scroll ?? DEFAULT_BUILDER_SCROLL;
@@ -65,6 +90,9 @@ export function BuilderScrollSection({
     const host = hostRef.current;
     if (!host || editing || readAll || !config.enabled || !scenes.length) {
       setAnimated(false);
+      setMotionReason(
+        !editing && !readAll && !config.enabled ? "disabled" : null,
+      );
       return;
     }
     const track = host.querySelector<HTMLElement>(".sb-scroll-track")!;
@@ -95,12 +123,18 @@ export function BuilderScrollSection({
       top = header ? header.getBoundingClientRect().height : 0;
       const viewport = root ? root.clientHeight : window.innerHeight;
       height = (viewport - top) / scale;
-      const narrow = host.clientWidth < 640;
-      enabled =
-        !reduced.matches &&
-        height >= 460 &&
-        host.offsetWidth > 0 &&
-        !(narrow && config.mobile === "stacked");
+      // Match the CSS container query, not a section narrowed by its gutters.
+      const narrow =
+        (host.closest<HTMLElement>(".sb-site")?.clientWidth ??
+          host.clientWidth) <= 640;
+      let reason: MotionReason | null = reduced.matches
+        ? "reduced"
+        : height < 460 || !host.offsetWidth
+          ? "short"
+          : narrow && config.mobile === "stacked"
+            ? "stacked"
+            : null;
+      enabled = reason === null;
       travel = height * scrollPace[config.pace] * cards.length;
       host.style.setProperty("--sb-scroll-height", `${height}px`);
       host.style.setProperty("--sb-scroll-top", `${top / scale}px`);
@@ -112,12 +146,17 @@ export function BuilderScrollSection({
         enabled &&
         cards.some((card) => {
           const copy = card.querySelector<HTMLElement>(".sb-scroll-copy")!;
-          return copy.scrollHeight > height * (narrow ? 0.65 : 1) - 120;
+          // scrollHeight already includes the padding reserved for controls.
+          // Subtracting it again disables normal copy in a laptop's preview.
+          return copy.scrollHeight > height * (narrow ? 0.65 : 1);
         })
-      )
+      ) {
         enabled = false;
+        reason = "content";
+      }
       host.dataset.motion = String(enabled);
       setAnimated(enabled);
+      setMotionReason(reason);
     };
     const update = () => {
       frame = 0;
@@ -251,6 +290,11 @@ export function BuilderScrollSection({
       data-scroll-variant={section.variant}
     >
       {journey && intro}
+      {context.preview && !editing && motionReason && (
+        <p className="sb-scroll-preview-status" role="status">
+          {motionReasons[motionReason][ar ? 1 : 0]}
+        </p>
+      )}
       <div className="sb-scroll-track">
         <div className="sb-scroll-stage">
           {scenes.map((scene, index) => {
