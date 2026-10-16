@@ -14,8 +14,7 @@ export async function checkMembershipCommerce({ browser, base }) {
   });
   assert.equal(login.ok(), true, await login.text());
   const page = await context.newPage(),
-    errors = [],
-    posted = [];
+    errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   let paid = false;
   const language = async (locale) => {
@@ -52,7 +51,6 @@ export async function checkMembershipCommerce({ browser, base }) {
   });
   await page.route("**/api/v1/membership/passes", async (route) => {
     if (route.request().method() === "POST") {
-      posted.push(route.request().postDataJSON());
       return route.fulfill({ json: { intentId: "synthetic-pass" } });
     }
     return route.fulfill({
@@ -66,9 +64,20 @@ export async function checkMembershipCommerce({ browser, base }) {
     });
   });
   await page.route("**/api/v1/payments/checkout", async (route) => {
-    posted.push(route.request().postDataJSON());
     await route.fulfill({ json: { intentId: "synthetic-pack" } });
   });
+  // A click can complete before the intercepted request arrives. Bind each
+  // assertion to its own completed response, never the previous purchase.
+  const purchase = async (button, path) => {
+    const [response] = await Promise.all([
+      page.waitForResponse((r) =>
+        new URL(r.url()).pathname === path && r.request().method() === "POST",
+      ),
+      button.click(),
+    ]);
+    assert.equal(response.ok(), true);
+    return response.request().postDataJSON();
+  };
   await mkdir("test-results", { recursive: true });
   try {
     for (const locale of ["en", "ar"]) {
@@ -98,10 +107,10 @@ export async function checkMembershipCommerce({ browser, base }) {
       );
       assert.match(await offer.innerText(), /1,074\.60/);
       await offer.getByRole("checkbox").check();
-      await button.click();
-      assert.equal(posted.at(-1).prepayMonths, 6);
+      const checkout = await purchase(button, "/api/v1/payments/checkout");
+      assert.equal(checkout.prepayMonths, 6);
       assert.equal(
-        posted.at(-1).acceptedPolicyVersion,
+        checkout.acceptedPolicyVersion,
         "membership-2026-10-14",
       );
       await select.selectOption("12");
@@ -137,16 +146,13 @@ export async function checkMembershipCommerce({ browser, base }) {
       has: page.locator("#module-passes-title"),
     });
     await section.getByRole("checkbox").check();
-    await section
-      .getByRole("button", { name: "Buy pass", exact: true })
-      .first()
-      .click();
-    assert.equal(posted.at(-1).module, "nutrition");
-    await section
-      .getByRole("button", { name: "Buy pass", exact: true })
-      .last()
-      .click();
-    assert.equal(posted.at(-1).module, "voice");
+    for (const [index, module] of ["nutrition", "voice"].entries()) {
+      const pass = await purchase(
+        section.getByRole("button", { name: "Buy pass", exact: true }).nth(index),
+        "/api/v1/membership/passes",
+      );
+      assert.equal(pass.module, module);
+    }
     await page.setViewportSize({ width: 390, height: 950 });
     assert.equal(
       await page.evaluate(
