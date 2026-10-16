@@ -1,0 +1,163 @@
+{
+  "feature": "Website builder preview motion",
+  "status": "live",
+  "date": "2026-10-16",
+  "repository": "https://github.com/chordsnstrings/trainer_what",
+  "pullRequest": "https://github.com/chordsnstrings/trainer_what/pull/70",
+  "baseline": "bb17457d9e3a099c7f4136a188cee5f2b8d52f0e",
+  "checkedHead": "f171349fa7cbc1a0c4cc318bb757f63c644a2394",
+  "checkedTree": "b3aa1c7d89abbe44e8496549a660b17afdff4422",
+  "release": "e8760ff1f8170df3865ff734e9b35726c92b1822",
+  "mergedTreeMatchesCheckedHead": true,
+  "changes": [
+    "Correct double-counted controls padding in the text-fit check so ordinary phone scenes animate in a laptop-height preview.",
+    "Match the 640px website-container breakpoint used by CSS.",
+    "Explain intentional motion fallbacks in private English/Arabic previews; preserve public content, accessibility and static editing.",
+    "Exercise actual wheel-driven transforms, scene navigation and pinning across desktop, tablet, phone, zoom and standalone preview."
+  ],
+  "localVerification": {
+    "beforeFixRegression": "Failed with data-motion=false in the 575px-high phone preview; passed after the fix.",
+    "typecheck": "passed",
+    "productionBuild": "passed",
+    "focusedTestsPassed": 13,
+    "actualEditorJourneysPassed": 17,
+    "hydratedMotionAndPrint": "passed",
+    "screenshotReview": "Desktop and phone preview screenshots inspected.",
+    "fixtures": "Isolated synthetic loopback coach, local placeholders and routed synthetic image assets."
+  },
+  "pullRequestChecks": {
+    "run": "https://github.com/chordsnstrings/trainer_what/actions/runs/38899493510",
+    "result": "success",
+    "application": {
+      "passed": 1911,
+      "failed": 0,
+      "skipped": 5
+    },
+    "postgres": {
+      "tests": 1916,
+      "pass": 1910,
+      "fail": 0,
+      "skipped": 6
+    },
+    "jobs": [
+      {
+        "id": 116967926532,
+        "name": "subscriber-ui",
+        "result": "success"
+      },
+      {
+        "id": 116967926823,
+        "name": "compose-topology",
+        "result": "success"
+      },
+      {
+        "id": 116967926855,
+        "name": "wildcard-edge",
+        "result": "success"
+      },
+      {
+        "id": 116967926988,
+        "name": "application",
+        "result": "success"
+      },
+      {
+        "id": 116967927024,
+        "name": "postgres-and-container",
+        "result": "success"
+      },
+      {
+        "id": 116967927043,
+        "name": "homepage-call",
+        "result": "success"
+      },
+      {
+        "id": 116967927162,
+        "name": "ux-spacing",
+        "result": "success"
+      }
+    ]
+  },
+  "mainChecks": {
+    "run": "https://github.com/chordsnstrings/trainer_what/actions/runs/38903865774",
+    "result": "success",
+    "application": {
+      "passed": 1911,
+      "failed": 0,
+      "skipped": 5
+    },
+    "postgres": {
+      "tests": 1916,
+      "pass": 1910,
+      "fail": 0,
+      "skipped": 6
+    },
+    "jobs": [
+      {
+        "id": 116982461657,
+        "name": "homepage-call",
+        "result": "success"
+      },
+      {
+        "id": 116982461932,
+        "name": "subscriber-ui",
+        "result": "success"
+      },
+      {
+        "id": 116982461945,
+        "name": "compose-topology",
+        "result": "success"
+      },
+      {
+        "id": 116982462007,
+        "name": "ux-spacing",
+        "result": "success"
+      },
+      {
+        "id": 116982462021,
+        "name": "application",
+        "result": "success"
+      },
+      {
+        "id": 116982462046,
+        "name": "wildcard-edge",
+        "result": "success"
+      },
+      {
+        "id": 116982462171,
+        "name": "postgres-and-container",
+        "result": "success"
+      }
+    ]
+  },
+  "servingVerification": {
+    "run": "https://github.com/chordsnstrings/trainer_what/actions/runs/38908432521",
+    "job": 116997824038,
+    "confirmedAtUTC": "2026-10-16T13:39:10.4526795Z",
+    "independentHttpsChecks": {
+      "readiness": {
+        "url": "https://trainsyou.com/api/v1/ready",
+        "httpStatus": 200,
+        "curlExit": 0,
+        "date": "Fri, 16 Oct 2026 13:40:40 GMT",
+        "release": "e8760ff1f8170df3865ff734e9b35726c92b1822",
+        "status": "ready",
+        "verified": true
+      },
+      "homepage": {
+        "url": "https://trainsyou.com/",
+        "httpStatus": 200,
+        "curlExit": 0,
+        "date": "Fri, 16 Oct 2026 13:40:41 GMT",
+        "release": "e8760ff1f8170df3865ff734e9b35726c92b1822",
+        "html": true,
+        "verified": true
+      }
+    }
+  },
+  "audit": "docs/BUILDER_PREVIEW_MOTION_2026-10-16.md",
+  "boundaries": [
+    "No schema migration, animation dependency, live trainer-content test, paid provider call or billing operation.",
+    "Physical-device acceptance is separate from browser viewport evidence.",
+    "This receipt identifies the verified application release; the documentation-only follow-up changes no application behavior and follows automatic checks separately."
+  ]
+}
