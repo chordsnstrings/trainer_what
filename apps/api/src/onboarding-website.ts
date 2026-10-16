@@ -40,7 +40,7 @@ export async function starterPublicContext(tx: Tx, actor: Actor, tenant: any): P
   const photos = selected.success ? (await checkWebsitePhotos(tx, actor, selected.data)).photos : [];
   const offers = await tx.query("SELECT id,data FROM records WHERE kind='product' AND status<>'archived' ORDER BY created_at DESC,id DESC LIMIT 24");
   return { identity, content: {
-    audience: clean(f.audience, 500), city: clean(f.city, 100), trainingServices: clean(f.trainingServices || f.approach, 900),
+    audience: clean(f.audience, 500), city: clean(f.city, 100), trainingServices: clean(f.trainingServices, 900),
     deliveryMode: ["online", "in_person", "hybrid"].includes(f.deliveryMode) ? f.deliveryMode : "",
     ...(["editorial", "strength", "minimal", "warm", "performance"].includes(f.websiteStyle) ? { style: f.websiteStyle } : {}),
     motion: ["cinematic", "subtle", "still"].includes(f.websiteMotion) ? f.websiteMotion : "cinematic",

@@ -215,3 +215,15 @@ test("separate packages retain separate prices and billing, and switching modes 
     assert.equal(next.data.priceMinor, 24900); assert.equal(next.data.billing, "upfront"); assert.equal(next.data.programmeDays, 30);
   }, context => context.websiteContent ? plan : context.conversation.at(-1).text.includes(second.name) ? { reply: "The next package is recorded.", patch: second, evidence: Object.fromEntries(Object.entries(second).map(([key, value]) => [key, String(value)])) } : { reply: "Saved", patch: facts, evidence });
 });
+test("legacy private approach answers never become public website fallback content", async () => {
+  const owner = await ctx.person({ role: "owner" }), state = await snap(owner);
+  await ctx.db.tenant({ ...owner, role: "owner" }, tx => tx.query("UPDATE records SET data=jsonb_set(data,'{facts}',$2::jsonb) WHERE id=$1", [state.id, JSON.stringify({ approach: "private-method-not-approved-for-website", neverDo: ["private-rule-not-approved-for-website"] })]));
+  await model(async sent => {
+    const draft = await ok(owner, "/tenant/site/starter", { requestId: randomUUID(), brief: "Prepare a public coaching website", useOnboarding: true, language: "en", version: 0 });
+    assert.equal(draft.source, "ai"); assert.equal(sent.length, 1);
+    assert.equal(sent[0].websiteContent.trainingServices, "");
+    assert.equal(JSON.stringify(sent[0]).includes("not-approved-for-website"), false);
+    assert.equal(JSON.stringify(draft.builder).includes("not-approved-for-website"), false);
+    assert.equal((await ok(owner, "/tenant/site")).version, 0);
+  });
+});
