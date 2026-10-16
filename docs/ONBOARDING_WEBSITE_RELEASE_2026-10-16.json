@@ -1,0 +1,198 @@
+{
+  "featureRelease": "9d6ae42cb0681052025113adbe83f848bba65639",
+  "pullRequest": "https://github.com/chordsnstrings/trainer_what/pull/69",
+  "finalPrHead": "52304c8961ea6ceb3dd7ca446c5c8be46d194304",
+  "checkedPrTree": "c42f3199b8b420ae078a43008ef38e7f453a8017",
+  "featureMerge": "15d505158cfe4edf7a646c954127395b090d12ce",
+  "mergedFeatureTreeMatchesCheckedPrTree": true,
+  "releaseTree": "73856a7f96e8eee17b9325aa2537c5ba0e91cf6c",
+  "applicationSourceMatchesCheckedPr": true,
+  "postMergeChanges": [
+    "scripts/membership-commerce-check.mjs",
+    "CLAUDE_HANDOFF.md",
+    "docs/PROJECT_MEMORY.md",
+    "docs/ONBOARDING_WEBSITE_2026-10-16.md"
+  ],
+  "prApplicationRun": "https://github.com/chordsnstrings/trainer_what/actions/runs/38877487850",
+  "prConversationRun": "https://github.com/chordsnstrings/trainer_what/actions/runs/38877487824",
+  "mainApplicationRun": "https://github.com/chordsnstrings/trainer_what/actions/runs/38884450039",
+  "prGatesPassed": 8,
+  "mainGatesPassed": 7,
+  "prGates": [
+    {
+      "name": "subscriber-ui",
+      "job": 116895938941,
+      "conclusion": "success"
+    },
+    {
+      "name": "application",
+      "job": 116895939285,
+      "conclusion": "success"
+    },
+    {
+      "name": "compose-topology",
+      "job": 116895939373,
+      "conclusion": "success"
+    },
+    {
+      "name": "wildcard-edge",
+      "job": 116895939407,
+      "conclusion": "success"
+    },
+    {
+      "name": "homepage-call",
+      "job": 116895939437,
+      "conclusion": "success"
+    },
+    {
+      "name": "ux-spacing",
+      "job": 116895939470,
+      "conclusion": "success"
+    },
+    {
+      "name": "postgres-and-container",
+      "job": 116895939547,
+      "conclusion": "success"
+    },
+    {
+      "name": "conversation",
+      "job": 116895938775,
+      "conclusion": "success"
+    }
+  ],
+  "mainGates": [
+    {
+      "name": "subscriber-ui",
+      "job": 116918684014,
+      "conclusion": "success"
+    },
+    {
+      "name": "homepage-call",
+      "job": 116918684256,
+      "conclusion": "success"
+    },
+    {
+      "name": "wildcard-edge",
+      "job": 116918684309,
+      "conclusion": "success"
+    },
+    {
+      "name": "ux-spacing",
+      "job": 116918684365,
+      "conclusion": "success"
+    },
+    {
+      "name": "application",
+      "job": 116918684369,
+      "conclusion": "success"
+    },
+    {
+      "name": "compose-topology",
+      "job": 116918684405,
+      "conclusion": "success"
+    },
+    {
+      "name": "postgres-and-container",
+      "job": 116918684450,
+      "conclusion": "success"
+    }
+  ],
+  "prApplicationTests": {
+    "tests": 1916,
+    "pass": 1911,
+    "fail": 0,
+    "skipped": 5
+  },
+  "prPostgresTests": {
+    "tests": 1916,
+    "pass": 1910,
+    "fail": 0,
+    "skipped": 6
+  },
+  "prConversationTests": {
+    "tests": 151,
+    "pass": 151,
+    "fail": 0,
+    "skipped": 0
+  },
+  "mainApplicationTests": {
+    "tests": 1916,
+    "pass": 1911,
+    "fail": 0,
+    "skipped": 5
+  },
+  "mainPostgresTests": {
+    "tests": 1916,
+    "pass": 1910,
+    "fail": 0,
+    "skipped": 6
+  },
+  "mainWorkflowAttempt": 1,
+  "localChecks": {
+    "typecheck": "passed",
+    "productionBuild": "passed",
+    "focusedTests": 88,
+    "websiteRegressionTests": 11,
+    "boundaryTestsBeforeMultiPackageAddition": 41,
+    "unchangedGatewayTests": 27,
+    "completeWebsiteBrowserJourneys": 2,
+    "screenshotsCaptured": 8,
+    "screenshots": "inspected",
+    "commerceRepeatJourneys": 3
+  },
+  "browserEvidence": {
+    "completeWebsite": "Desktop and Arabic phone: confirmed packages, explicit photo uploads, automatic AI draft, scroll modules, native prices, keyboard skip-link access, private navigation and reload persistence.",
+    "commerce": "English/Arabic, phone/desktop, prepaid terms and totals, nutrition/voice request payloads; synthetic intercepted checkouts only.",
+    "pageErrors": 0
+  },
+  "ciCorrections": [
+    {
+      "reason": "Hidden skip-to-content link could intercept the Arabic-phone preview return link.",
+      "resolution": "Clip and disable pointer events while unfocused; retain keyboard focus access and add checks to both website journeys.",
+      "commit": "52304c8961ea6ceb3dd7ca446c5c8be46d194304"
+    },
+    {
+      "reason": "Earlier PR attempt crashed in the Node/V8 native JIT while running the unchanged model-gateway PGlite fixture.",
+      "evidenceJob": 116886793292,
+      "resolution": "All 27 targeted tests passed locally; subsequent final-head and exact-main complete suites passed without that crash."
+    },
+    {
+      "failedRun": 38881723574,
+      "failedJob": 116909794984,
+      "reason": "The existing commerce browser harness checked a shared previous request immediately after click, before the voice POST was observed; it read the previous nutrition payload.",
+      "fixCommit": "9d6ae42cb0681052025113adbe83f848bba65639",
+      "resolution": "Await each matching completed POST response and assert that response's request payload; all amount/consent/module assertions retained, purchase implementation unchanged.",
+      "localRepeatedJourneys": 3
+    }
+  ],
+  "schemaMigration": false,
+  "newAnimationDependency": false,
+  "noFailedGateWaived": true,
+  "limits": [
+    "Verification used isolated synthetic providers and accounts; no live trainer content, paid provider call or billing operation was used.",
+    "Automated viewport checks do not constitute physical-device acceptance.",
+    "Website publication and offer activation remain explicit owner actions; existing edited/published sites are preserved."
+  ],
+  "servingVerificationRun": "https://github.com/chordsnstrings/trainer_what/actions/runs/38887938055",
+  "servingVerification": "passed",
+  "watcherConfirmedAt": "2026-10-16T10:39:59.8647836Z",
+  "ready": {
+    "url": "https://trainsyou.com/api/v1/ready",
+    "checkedAt": "2026-10-16T10:41:18.924270+00:00",
+    "httpStatus": 200,
+    "serverDate": "Fri, 16 Oct 2026 10:41:18 GMT",
+    "release": "9d6ae42cb0681052025113adbe83f848bba65639",
+    "body": {
+      "status": "ready"
+    }
+  },
+  "homepage": {
+    "url": "https://trainsyou.com/",
+    "checkedAt": "2026-10-16T10:41:20.376003+00:00",
+    "httpStatus": 200,
+    "serverDate": "Fri, 16 Oct 2026 10:41:19 GMT",
+    "release": "9d6ae42cb0681052025113adbe83f848bba65639",
+    "htmlReceived": true
+  },
+  "scope": "Verified feature release, including the test-only commerce synchronization correction. The documentation-only receipt follows ordinary automatic checks separately."
+}
