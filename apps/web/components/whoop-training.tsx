@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useLocale } from "../lib/i18n/react";
 import { memberApiUrl } from "../lib/trainer-preview-routing";
 import Link from "./preview-navigation";
@@ -236,6 +236,7 @@ export function WhoopTrainingCard({
 }) {
   const t = useWords(),
     locale = useLocale(),
+    consentId = useId(),
     [data, setData] = useState<any>(),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
@@ -320,29 +321,34 @@ export function WhoopTrainingCard({
         </dl>
       )}
       {settings ? (
-        <label>
-          <input
-            type="checkbox"
-            checked={data.optedIn}
-            disabled={
-              busy || (!data.optedIn && (!data.connected || !data.available))
-            }
-            onChange={(e) => {
-              setBusy(true);
-              setError("");
-              void request("/integrations/whoop/training", {
-                enabled: e.target.checked,
-                version: data.preferenceVersion,
-                consentVersion: WHOOP_TRAINING_VERSION,
-              })
-                .then(setData)
-                .catch((e) => setError(e.message))
-                .finally(() => setBusy(false));
-            }}
-          />{" "}
-          <strong>{t.allow}</strong>
-          <p className="muted">{t.consent}</p>
-        </label>
+        <div>
+          <label>
+            <input
+              type="checkbox"
+              aria-describedby={consentId}
+              checked={data.optedIn}
+              disabled={
+                busy || (!data.optedIn && (!data.connected || !data.available))
+              }
+              onChange={(e) => {
+                setBusy(true);
+                setError("");
+                void request("/integrations/whoop/training", {
+                  enabled: e.target.checked,
+                  version: data.preferenceVersion,
+                  consentVersion: WHOOP_TRAINING_VERSION,
+                })
+                  .then(setData)
+                  .catch((e) => setError(e.message))
+                  .finally(() => setBusy(false));
+              }}
+            />{" "}
+            <strong>{t.allow}</strong>
+          </label>
+          <p className="muted" id={consentId}>
+            {t.consent}
+          </p>
+        </div>
       ) : (
         <Link className="text-link" href="/app/wearables">
           {t.connections}

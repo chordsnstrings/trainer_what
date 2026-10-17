@@ -45,7 +45,21 @@ async function screenshot(page, name) {
     ),
     "No horizontal overflow",
   );
-  await page.screenshot({ path: `${folder}/${name}.png`, fullPage: true });
+  await page.screenshot({
+    path: `${folder}/${name}.png`,
+    fullPage: true,
+    animations: "disabled",
+  });
+}
+async function declineAnalytics(page) {
+  const notice = page.getByRole("complementary", {
+    name: "Optional analytics",
+    exact: true,
+  });
+  if (await notice.count())
+    await notice
+      .getByRole("button", { name: "No thanks", exact: true })
+      .click();
 }
 try {
   const coach = await login("coach@example.test");
@@ -55,6 +69,7 @@ try {
     exact: true,
   });
   await expect(rules).toBeVisible();
+  await declineAnalytics(coach.page);
   await rules.getByLabel("Use my recovery rules", { exact: true }).check();
   await rules.locator('[name="low-load"]').fill("10");
   await rules.locator('[name="low-volume"]').fill("25");
@@ -77,6 +92,7 @@ try {
     exact: true,
   });
   await expect(recovery).toContainText("25%");
+  await declineAnalytics(member.page);
   const permission = recovery.getByRole("checkbox");
   await expect(permission).not.toBeChecked();
   await permission.click();
@@ -109,6 +125,7 @@ try {
   await expect(receipt).toBeVisible();
   await receipt.getByText("See what changed", { exact: true }).click();
   await expect(receipt).toContainText("→");
+  await expect(receipt.locator("ul")).toHaveCSS("opacity", "1");
   await screenshot(member.page, "adjusted-workout-phone");
   report.checks.push(
     "Today starts an adjusted workout and displays the real change receipt",
@@ -121,7 +138,22 @@ try {
     }),
   ).toBeVisible();
   report.checks.push("Guided session shows the same recovery adjustment");
-  await member.page.goto(base + "/app/wearables?lang=ar");
+  // Signed-in members use their saved language, rather than a public URL hint.
+  await member.page.goto(base + "/app/profile");
+  await member.page
+    .getByLabel("Message language", { exact: true })
+    .selectOption("ar");
+  const languageSaved = member.page.waitForResponse(
+    (r) =>
+      new URL(r.url()).pathname === "/api/v1/notifications/preferences" &&
+      r.request().method() === "PUT",
+  );
+  await member.page
+    .getByRole("button", { name: "Save preferences", exact: true })
+    .click();
+  assert.equal((await languageSaved).status(), 200);
+  await expect(member.page.locator("html")).toHaveAttribute("lang", "ar");
+  await member.page.goto(base + "/app/wearables");
   await expect(member.page.locator("html")).toHaveAttribute("dir", "rtl");
   const arabic = member.page.getByRole("region", {
     name: "التعافي من WHOOP",
