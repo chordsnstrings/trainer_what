@@ -1044,6 +1044,12 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
         "boolean",
         { defaultValue: "false" },
       ),
+      field(
+        "WHOOP_TRAINING_APPROVED",
+        "WHOOP workout adaptation use approved",
+        "boolean",
+        { defaultValue: "false", help: "Enable after account/data-use approval covers trainer-rule adaptations and use of adjusted prescriptions by coaching and voice services. Members must also opt in. Raw WHOOP readings remain outside model prompts." },
+      ),
     ],
   },
   {

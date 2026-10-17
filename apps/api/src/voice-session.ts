@@ -304,6 +304,7 @@ async function sessionPlan(tx: Tx, session: any) {
       ? {
           status: w.status as string,
           program: w.data?.program,
+          recoveryAdjustment: w.data?.recoveryAdjustment ?? null,
           workoutId: session.workout_id as string | null,
         }
       : null;
@@ -323,6 +324,7 @@ async function sessionPlan(tx: Tx, session: any) {
       ? {
           status: w.status as string,
           program: w.data?.program,
+          recoveryAdjustment: w.data?.recoveryAdjustment ?? null,
           workoutId: p.data.workoutId as string,
         }
       : null;
@@ -495,6 +497,7 @@ async function sessionView(
   return {
     id: session.id,
     workoutId: session.workout_id,
+    recoveryAdjustment: plan?.recoveryAdjustment ?? null,
     plannedSessionId: session.planned_session_id,
     mode: session.mode,
     status: session.status,
@@ -922,6 +925,7 @@ export function registerVoiceSessions(app: FastifyInstance, db: Database) {
       return {
         gate,
         workoutStatus: workout.status,
+        recoveryAdjustment: workout.data?.recoveryAdjustment ?? null,
         stale: !!found?.stale,
         session:
           found && !found.stale ? await sessionView(tx, found.session, gate) : null,

@@ -111,6 +111,8 @@ try {
     await run(["--import", "tsx", "scripts/seed-brain-fidelity.ts"], root, seedEnv);
     await run(["--import", "tsx", "scripts/seed-trainer-preview.ts"], root, seedEnv);
   }
+  if (process.env.WHOOP_TRAINING_FIXTURE === "true")
+    await run(["--import", "tsx", "scripts/seed-whoop-training.ts"], root, seedEnv);
   start(["--import", "tsx", "src/server.ts"], root + "apps/api", {
     NODE_ENV: "development",
     API_HOST: "127.0.0.1",

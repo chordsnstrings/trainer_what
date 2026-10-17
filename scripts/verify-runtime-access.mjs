@@ -365,6 +365,7 @@ export async function verifyRuntimeAccess(client) {
     "guided_voice()",
     "member_training_readiness()",
     "coach_wearable_policy()",
+    "whoop_training_policy()",
     "withdraw_accepted_invitation_emails(uuid,text)",
     "personal_export_records(uuid)",
     "personal_export_followups(uuid)",

@@ -21,6 +21,7 @@ declare module "fastify" {
 export function previewRouteAllowed(method: string, path: string) {
   const p = path.split("?")[0].replace(/^\/api\/v1/, "");
   const read = method === "GET" || method === "HEAD";
+  if (read && p === "/integrations/whoop/training") return true;
   if (read && /^\/(bootstrap|programme\/(today|timeline)|brain\/plans\/mine|training\/(overview|holds|exercises)|messages\/thread|clients\/[^/]+\/(twin|context)|workspace\/pages\/[^/]+|notifications(?:\/preferences)?|account\/preferences)$/.test(p)) return true;
   if (method === "POST" && /^\/(intake|messages|coaching\/ask|privacy\/consent|settings)$/.test(p)) return true;
   if (/^\/onboarding-chat(?:\/(history|messages|actions|attachments(?:\/[^/]+)?|calls(?:\/options|\/[^/]+\/(?:end|cues)|\/[^/]+\/turns(?:\/[^/]+)?)?))?$/.test(p)) return ["GET", "HEAD", "POST", "DELETE"].includes(method);

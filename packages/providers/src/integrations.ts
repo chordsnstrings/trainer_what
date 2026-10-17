@@ -60,6 +60,9 @@ export const observationSchema = z.object({
   id: z.string().min(1).max(300),
   type: z.enum([
     "recovery_score",
+    "hrv_rmssd_ms",
+    "resting_heart_rate",
+    "sleep_performance",
     "sleep_seconds",
     "strain",
     "average_heart_rate",
@@ -71,6 +74,9 @@ export const observationSchema = z.object({
   unit: z.string().min(1).max(30),
   measuredAt: z.iso.datetime(),
   sourceVersion: z.string().max(100).default("v2"),
+  sleepId: z.string().max(100).optional(),
+  calibrating: z.boolean().optional(),
+  trainingReady: z.boolean().optional(),
 });
 export type Observation = z.infer<typeof observationSchema>;
 
@@ -234,7 +240,8 @@ export async function fetchWearableObservations(
   beforeSend?: () => Promise<void>,
 ): Promise<Observation[]> {
   const c = wearableContract(provider),
-    observations: Observation[] = [];
+    observations: Observation[] = [],
+    whoopRows: Array<{ path: string; row: any }> = [];
   const paths =
     provider === "whoop"
       ? [
@@ -275,47 +282,7 @@ export async function fetchWearableObservations(
           observations.push(observationSchema.parse(row));
           continue;
         }
-        if (row.score_state !== "SCORED" || !row.score) continue;
-        const measuredAt = new Date(
-          row.end ?? row.created_at ?? row.updated_at,
-        ).toISOString();
-        const metric = (
-          type: Observation["type"],
-          value: unknown,
-          unit: string,
-        ) => {
-          if (typeof value === "number" && Number.isFinite(value))
-            observations.push(
-              observationSchema.parse({
-                id: `${path}:${row.id ?? row.cycle_id}:${type}`,
-                type,
-                value,
-                unit,
-                measuredAt,
-                sourceVersion: "whoop-v2",
-              }),
-            );
-        };
-        if (path === "recovery")
-          metric("recovery_score", row.score.recovery_score, "percent");
-        if (path === "activity/sleep") {
-          const s = row.score.stage_summary;
-          if (s)
-            metric(
-              "sleep_seconds",
-              (Number(s.total_light_sleep_time_milli) +
-                Number(s.total_slow_wave_sleep_time_milli) +
-                Number(s.total_rem_sleep_time_milli)) /
-                1000,
-              "seconds",
-            );
-        }
-        if (path === "activity/workout" || path === "cycle") {
-          metric("strain", row.score.strain, "score");
-          metric("average_heart_rate", row.score.average_heart_rate, "bpm");
-          metric("max_heart_rate", row.score.max_heart_rate, "bpm");
-          metric("energy_kj", row.score.kilojoule, "kJ");
-        }
+        whoopRows.push({ path, row });
       }
       page = typeof body.next_token === "string" ? body.next_token : "";
       if (!page) break;
@@ -324,6 +291,47 @@ export async function fetchWearableObservations(
           "Provider pagination exceeded safe bounds; narrow the synchronization range.",
         );
       seen.add(page);
+    }
+  }
+  return provider === "whoop" ? normalizeWhoopObservations(whoopRows) : observations;
+}
+
+/** Normalize v2 facts before persistence; calibration/nap data can never drive a workout. */
+export function normalizeWhoopObservations(items: Array<{ path: string; row: any }>): Observation[] {
+  const observations: Observation[] = [];
+  const sleeps = new Map(items.filter(x => x.path === "activity/sleep").map(x => [String(x.row.id), x.row]));
+  for (const { path, row } of items) {
+    if (row?.score_state !== "SCORED" || !row.score || (row.id == null && row.cycle_id == null)) continue;
+    const sleep = path === "recovery" ? sleeps.get(String(row.sleep_id)) : path === "activity/sleep" ? row : null;
+    const timestamp = path === "recovery" ? sleep?.end ?? row.created_at : row.end ?? row.created_at;
+    if (!Number.isFinite(Date.parse(timestamp))) continue;
+    const measuredAt = new Date(timestamp).toISOString();
+    const sleepId = path === "recovery" ? row.sleep_id : path === "activity/sleep" ? row.id : null;
+    const metric = (type: Observation["type"], value: unknown, unit: string, max = 1e10) => {
+      if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > max) return;
+      observations.push(observationSchema.parse({
+        id: `${path}:${row.id ?? row.cycle_id}:${type}`, type, value, unit, measuredAt, sourceVersion: "whoop-v2",
+        ...(sleepId != null ? { sleepId: String(sleepId) } : {}),
+        ...(path === "recovery" ? { calibrating: row.score.user_calibrating !== false,
+          trainingReady: row.score.user_calibrating === false && sleep?.score_state === "SCORED" && sleep.nap === false && !!sleep.end } : {}),
+      }));
+    };
+    if (path === "recovery") {
+      metric("recovery_score", row.score.recovery_score, "percent", 100);
+      metric("hrv_rmssd_ms", row.score.hrv_rmssd_milli, "ms", 1000);
+      metric("resting_heart_rate", row.score.resting_heart_rate, "bpm", 300);
+    }
+    if (path === "activity/sleep") {
+      const stages = row.score.stage_summary;
+      if (stages && [stages.total_light_sleep_time_milli, stages.total_slow_wave_sleep_time_milli, stages.total_rem_sleep_time_milli].every(v => typeof v === "number" && Number.isFinite(v) && v >= 0))
+        metric("sleep_seconds", (stages.total_light_sleep_time_milli + stages.total_slow_wave_sleep_time_milli + stages.total_rem_sleep_time_milli) / 1000, "seconds", 86400);
+      metric("sleep_performance", row.score.sleep_performance_percentage, "percent", 100);
+    }
+    if (path === "activity/workout" || path === "cycle") {
+      metric("strain", row.score.strain, "score", 21);
+      metric("average_heart_rate", row.score.average_heart_rate, "bpm", 300);
+      metric("max_heart_rate", row.score.max_heart_rate, "bpm", 300);
+      metric("energy_kj", row.score.kilojoule, "kJ");
     }
   }
   return observations;

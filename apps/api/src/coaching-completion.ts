@@ -1,3 +1,4 @@
+import { prepareWhoopWorkout } from "./whoop-training.ts";
 import { workMeasure } from "../../../packages/domain/src/prescription.ts";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { memberChatAction } from "./member-chat-actions.ts";
@@ -427,6 +428,7 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
             "This planned session is unavailable",
           );
       }
+      const prescription = await prepareWhoopWorkout(tx, a, planned?.data.program ?? p.data, planned);
       const r = await putRecord(
         tx,
         a,
@@ -434,7 +436,7 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
         {
           programId: p.id,
           programVersion: p.version,
-          program: planned?.data.program ?? p.data,
+          ...prescription,
           plannedSessionId: planned?.id ?? null,
           startedAt: new Date().toISOString(),
         },
@@ -446,6 +448,12 @@ export function registerCoachingCompletion(app: FastifyInstance, db: Database) {
           [planned.id, JSON.stringify({ workoutId: r.id })],
         );
       await event(tx, a, "workout.started", r.id);
+      if (prescription.recoveryAdjustment)
+        await event(tx, a, "workout.recovery_adjusted", r.id, {
+          policyId: prescription.recoveryAdjustment.policyId,
+          policyVersion: prescription.recoveryAdjustment.policyVersion,
+          consentVersion: prescription.recoveryAdjustment.consentVersion,
+        });
       return r;
     });
   });

@@ -273,6 +273,10 @@ export async function disableUserIntegrations(
 ) {
   if (kind !== "voice") {
     await tx.query(
+      "UPDATE records SET data=jsonb_set(data,'{enabled}','false'),version=version+1,updated_at=now() WHERE kind='preferences' AND owner_user_id=$1 AND data->>'key'='whoop_training'",
+      [userId],
+    );
+    await tx.query(
       "UPDATE integration_connections SET status=CASE WHEN credentials IS NULL THEN 'revoked' ELSE 'revocation_pending' END,version=version+1,summary='{\"message\":\"Local access revoked; provider revocation queued.\"}',lease_until=NULL,next_sync_at=now(),updated_at=now() WHERE user_id=$1 AND status<>'revoked'",
       [userId],
     );
@@ -481,6 +485,12 @@ export async function syncWearableConnection(
           inserted++;
         }
       }
+      // A rescore, deletion or now-unscored recovery must not leave old facts eligible.
+      // This applies only inside the completely fetched overlap window.
+      if (provider === "whoop") await tx.query(
+        "UPDATE records SET status='superseded',version=version+1,updated_at=now() WHERE kind='wearable' AND owner_user_id=$1 AND status='imported' AND data->>'source'='whoop' AND data->'observations'->0->>'measuredAt'>=$2 AND NOT(data->>'providerKey'=ANY($3::text[]))",
+        [a.userId, since, observations.map(o => hash(provider + ":" + o.id))],
+      );
       const summary = {
         observations: observations.length,
         inserted,
@@ -908,6 +918,10 @@ export function registerIntegrationCompletion(
     return db.tenant(a, async (tx) => {
       await lock(tx, a);
       await consent(tx, a, "wearable:" + provider, false);
+      if (provider === "whoop") await tx.query(
+        "UPDATE records SET data=jsonb_set(data,'{enabled}','false'),version=version+1,updated_at=now() WHERE kind='preferences' AND owner_user_id=$1 AND data->>'key'='whoop_training'",
+        [a.userId],
+      );
       await tx.query(
         "UPDATE integration_oauth_states SET consumed_at=now(),verifier='' WHERE user_id=$1 AND provider=$2 AND consumed_at IS NULL",
         [a.userId, provider],

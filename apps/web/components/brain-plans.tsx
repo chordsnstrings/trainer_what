@@ -1,4 +1,5 @@
 "use client";
+import { WhoopTrainerRules } from "./whoop-training";
 import { memberApiUrl } from "../lib/trainer-preview-routing";
 import { useLocale, useT } from "../lib/i18n/react";
 import { formatDate, formatDateRange, formatSetsReps } from "../lib/format";
@@ -1192,6 +1193,7 @@ export function BrainPlans({ role }: { role: string }) {
               </button>
             </div>
           </section>
+          {owner && <WhoopTrainerRules />}
           {owner && (
             <SettingsCard
               key={data.settingsVersion ?? "default"}
