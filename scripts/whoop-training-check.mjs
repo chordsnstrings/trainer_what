@@ -141,7 +141,7 @@ try {
   // Signed-in members use their saved language, rather than a public URL hint.
   await member.page.goto(base + "/app/profile");
   await member.page
-    .getByLabel("Message language", { exact: true })
+    .getByLabel(/Message language|لغة الرسائل/)
     .selectOption("ar");
   const languageSaved = member.page.waitForResponse(
     (r) =>
