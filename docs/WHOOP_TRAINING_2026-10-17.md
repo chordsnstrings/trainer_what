@@ -38,3 +38,9 @@ Live operation requires the platform's WHOOP client credentials, registered HTTP
 - Rollback: disable `WHOOP_TRAINING_APPROVED` or the trainer rule to stop new adjustments. Running workouts retain their frozen prescriptions. The additive migration need not be removed.
 
 No live WHOOP read, paid model/voice call, provider approval, data-accuracy claim or physical-device acceptance was made for this change. CI and exact serving evidence will be recorded after they complete.
+
+## Release check progress
+
+PR #71 opened at head `0784fdd2c942f84e877632e04e059eb8721a61a3` (tree `848a7fbec63c220446dae429b242e70663552bdf`). Initial CI run `39003597429` passed migration/runtime-grant checks and both edge/topology gates. The existing subscriber intake browser journey timed out on the workspace opening screen before the WHOOP journey; its deliberately queued bootstrap returned HTTP 200 in 26 ms. The harness now awaits that response before asserting rendered visibility, preserving the assertion and every subsequent interaction. Today also avoids a WHOOP read when the integration is unconfigured/unapproved. Fresh complete head checks are required; the initial failure is not waived.
+
+The existing `docs/PROJECT_MEMORY.md` remains unchanged: automatic approval review rejected republishing its operational payload. Task progress is recorded here and in the approved Claude handoff. Repository code publication used the connected GitHub API; remote blob and tree hashes were checked against the tested local tree.

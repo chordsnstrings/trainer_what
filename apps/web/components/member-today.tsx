@@ -190,7 +190,7 @@ export function MemberToday({
         </p>
         <h1>{t("greeting", { name: firstName })}</h1>
       </header>
-      {!hold && !active && <WhoopTrainingCard />}
+      {!hold && !active && state.integrations?.some((i: any) => i.id === "whoop" && i.configured && i.approved) && <WhoopTrainingCard />}
       {hold ? (
         <section
           className="card today-focus is-hold"

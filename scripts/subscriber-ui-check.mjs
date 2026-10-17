@@ -26,7 +26,13 @@ async function login(ctx, email = credentials.email) {
   assert.equal(r.status(), 200);
 }
 async function go(path) {
+  // API requests are deliberately queued above. Start the render assertion
+  // after bootstrap has actually arrived, not while it is still in that queue.
+  const loaded = page.waitForResponse(response => new URL(response.url()).pathname === "/api/v1/bootstrap" && response.request().method() === "GET");
   await page.goto(base + path);
+  const bootstrap = await loaded;
+  assert.equal(bootstrap.status(), 200, await bootstrap.text());
+  await bootstrap.finished();
   await expect(page.locator(".member-shell")).toBeVisible();
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
 }
