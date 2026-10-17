@@ -1143,3 +1143,27 @@ test("proxy removes forged provenance, signs the exact target, and scopes public
   );
   assert.equal(partner.searchParams.get("code_challenge_method"), "S256");
 });
+
+test("WHOOP sync retires a previously scored recovery on rescore and revocation clears training permission", async () => {
+  const a = await actor(tenantId, "subscriber");
+  await seedConnection(a);
+  let scored = true;
+  const end = new Date(Date.now() - 1000).toISOString();
+  const transport = async (input: any) => {
+    const u = String(input);
+    if (u.includes("/recovery")) return Response.json({ records: [{ cycle_id: 921, sleep_id: "main-sleep", created_at: end, score_state: scored ? "SCORED" : "PENDING_SCORE", score: scored ? { recovery_score: 20, user_calibrating: false } : null }] });
+    if (u.includes("/activity/sleep")) return Response.json({ records: [{ id: "main-sleep", end, nap: false, score_state: "SCORED", score: { sleep_performance_percentage: 80 } }] });
+    if (u.includes("/activity/workout")) return Response.json({ records: [] });
+    throw Error("Unexpected fixture request");
+  };
+  const sync = () => withIntegrationFixtureTransport(transport, () => withRuntimeConfig(config, () => syncWearableConnection(db, a, "whoop")));
+  await sync();
+  const get = () => db.tenant(a, tx => tx.query("SELECT status,data FROM records WHERE kind='wearable' AND owner_user_id=$1 AND data->'observations'->0->>'type'='recovery_score'", [a.userId]));
+  assert.equal((await get())[0].data.observations[0].trainingReady, true);
+  scored = false; await sync(); assert.equal((await get())[0].status, "superseded");
+  scored = true; await sync(); assert.equal((await get())[0].status, "imported");
+  await db.tenant(a, tx => putRecord(tx, a, "preferences", { key: "whoop_training", enabled: true, consentVersion: "whoop-training-v1" }, { status: "saved" }));
+  await ok("/integrations/whoop/revoke", "POST", {}, a);
+  const [preference] = await db.tenant(a, tx => tx.query("SELECT data FROM records WHERE kind='preferences' AND owner_user_id=$1 AND data->>'key'='whoop_training'", [a.userId]));
+  assert.equal(preference.data.enabled, false);
+});

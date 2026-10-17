@@ -3,6 +3,12 @@
 
 ## Work in progress
 
+### WHOOP recovery and training — release checks pending, 17 October 2026
+
+Owner requested WHOOP integration that can change training. Branch `work/whoop-training-2026-10-17`, baseline `bf5df60fbd9c49bb38447432e585b6663825d140`. Implemented trainer-configured low/moderate recovery reductions, separate member permission, fresh scored/main-sleep checks, frozen workout receipts, consistent guided playback and weekly outcomes, and withdrawal/rescore handling. Raw readings stay outside model prompts. The platform approval setting defaults off; no live account settings or provider calls were made.
+
+Typecheck, production build, 36 focused WHOOP/integration tests and 85 affected regression tests pass (overlap in counts). Local browser archives failed to download; the actual trainer/member English/Arabic phone/desktop journey is added to CI. Next: all PR gates, merge, exact main gates and serving verification under the standing release instruction. Do not claim deployed yet. Audit, use and setup: `docs/WHOOP_TRAINING_2026-10-17.md`.
+
 ### Builder preview motion — live, 16 October 2026
 
 [PR #70](https://github.com/chordsnstrings/trainer_what/pull/70) is implemented, merged and verified live as `e8760ff1f8170df3865ff734e9b35726c92b1822`. [Serving verification](https://github.com/chordsnstrings/trainer_what/actions/runs/38908432521) confirmed it at **13:39:10 UTC**; independent readiness/homepage HTTPS requests returned HTTP 200 and the same release at **13:40:40–41 UTC / 17:40 Dubai**, with readiness `status: ready`. This request has no remaining implementation or deployment work.

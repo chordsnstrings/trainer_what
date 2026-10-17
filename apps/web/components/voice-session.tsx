@@ -1,4 +1,5 @@
 "use client";
+import { WhoopWorkoutAdjustment } from "./whoop-training";
 import { memberApiUrl } from "../lib/trainer-preview-routing";
 import { sessionOrder } from "../../../packages/domain/src/session-structure.ts";
 // Hands-free, voice-led workout session. The pure state machine
@@ -163,6 +164,7 @@ type Gate = {
   budget: { spentUsd: number; capUsd: number; reached: boolean } | null;
 };
 type SessionView = {
+  recoveryAdjustment?: any;
   id: string;
   workoutId: string | null;
   plannedSessionId?: string | null;
@@ -269,6 +271,7 @@ type Planned = {
   workoutId: string | null;
 };
 type Loaded = {
+  recoveryAdjustment?: any;
   gate: Gate;
   session: SessionView | null;
   stale?: boolean;
@@ -300,6 +303,7 @@ export function VoiceSessionRunner({
 }) {
   const [gate, setGate] = useState<Gate | null>(null),
     [session, setSession] = useState<SessionView | null>(null),
+    [recoveryAdjustment, setRecoveryAdjustment] = useState<any>(null),
     [planned, setPlanned] = useState<Planned | null>(null),
     [stale, setStale] = useState(false),
     [notice, setNotice] = useState(""),
@@ -330,6 +334,7 @@ export function VoiceSessionRunner({
     if (epoch !== refreshEpoch.current || starting.current) return r;
     setGate(r.gate);
     setSession(r.session);
+    setRecoveryAdjustment(r.recoveryAdjustment ?? r.session?.recoveryAdjustment ?? null);
     setStale(!!r.stale);
     setPlanned(r.planned ?? null);
     setLoaded(true);
@@ -460,6 +465,7 @@ export function VoiceSessionRunner({
   return (
     <div className="stack voice-session">
       <audio ref={player} preload="none" hidden />
+      <WhoopWorkoutAdjustment adjustment={session?.recoveryAdjustment ?? recoveryAdjustment} />
       <div className="page-heading">
         <p className="eyebrow">
           {session?.mode === "text" ||

@@ -1,4 +1,5 @@
 "use client";
+import { WhoopTrainingCard } from "./whoop-training";
 import {
   useCallback,
   useEffect,
@@ -239,6 +240,7 @@ function HealthConnections({
   return (
     <>
       <Notice value={action.message} />
+      {!trainer && <WhoopTrainingCard settings refreshKey={JSON.stringify(data.connections.find((c: any) => c.provider === "whoop") ?? null)} />}
       {/* Members see only devices they can connect; the rest is one line. */}
       {!trainer && comingDevices.length > 0 && (
         <p className="muted">

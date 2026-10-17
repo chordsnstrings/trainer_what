@@ -135,6 +135,11 @@ jobs:
           RTL_API_PORT: "4193"
           RTL_DATA_DIR: .data/music-agent-check
           AUTHENTICATOR_REQUIRED: "false"
+      - name: WHOOP trainer rules and member recovery workout journey
+        run: node scripts/run-whoop-training-check.mjs
+        env:
+          RTL_WEB_MODE: start
+          AUTHENTICATOR_REQUIRED: "false"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

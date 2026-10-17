@@ -1,4 +1,5 @@
 "use client";
+import { WhoopWorkoutAdjustment } from "./whoop-training";
 import { isTrainerPreview } from "../lib/trainer-preview-routing";
 import { TrainingPrograms } from "./training-workspace";
 import { confirmWorkspace } from "./workspace-feedback";
@@ -372,6 +373,7 @@ export function Workout({ state, records, action, busy, path }: ViewProps) {
   return (
     <>
       <TrainingHoldNotice records={state.records} />
+      <WhoopWorkoutAdjustment adjustment={workout.data.recoveryAdjustment} />
       <Heading
         eyebrow={t("eyebrow")}
         title={workout.data.program.title}

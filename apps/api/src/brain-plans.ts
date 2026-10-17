@@ -1310,12 +1310,12 @@ const expandedSessions = (rows: any[]) =>
     sessionKey: (s.data.sessionKey ?? "A") as string,
     exercises: (s.data.program?.exercises ?? []).map(fromProgramExercise),
   }));
-async function weekOutcomes(tx: Tx, userId: string, current: any[], today: string) {
+export async function weekOutcomes(tx: Tx, userId: string, current: any[], today: string) {
   // A session is due once its date has passed or it was completed early.
   const due = current.filter((s) => s.data.date <= today || s.status === "completed");
   const workouts = current.length
     ? await tx.query(
-        "SELECT id,status,data->>'plannedSessionId' AS planned FROM records WHERE kind='workout' AND owner_user_id=$1 AND data->>'plannedSessionId'=ANY($2::text[])",
+        "SELECT id,status,data,data->>'plannedSessionId' AS planned FROM records WHERE kind='workout' AND owner_user_id=$1 AND data->>'plannedSessionId'=ANY($2::text[])",
         [userId, current.map((s) => s.id)],
       )
     : [];
@@ -1333,8 +1333,11 @@ async function weekOutcomes(tx: Tx, userId: string, current: any[], today: strin
     : [];
   const effective = effectiveWorkoutSets(sets, corrections);
   const exercises = new Map<string, any>();
-  for (const s of current)
-    for (const e of s.data.program?.exercises ?? []) {
+  for (const s of current) {
+    // Assess completed work against the prescription the member actually ran,
+    // including a consented recovery reduction, rather than the earlier plan.
+    const workout = workouts.find((w) => w.id === s.data.workoutId);
+    for (const e of (workout?.data?.program ?? s.data.program)?.exercises ?? []) {
       const key = normalizeTerm(e.name);
       const row = exercises.get(key) ?? {
         exercise: e.name,
@@ -1345,6 +1348,7 @@ async function weekOutcomes(tx: Tx, userId: string, current: any[], today: strin
       row.prescribed.loadKg = Math.max(row.prescribed.loadKg, e.loadKg ?? 0);
       exercises.set(key, row);
     }
+  }
   for (const set of effective) {
     const row = exercises.get(normalizeTerm(String(set.data.exercise ?? "")));
     if (!row) continue;

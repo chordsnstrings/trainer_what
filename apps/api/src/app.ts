@@ -1,3 +1,4 @@
+import { registerWhoopTraining } from "./whoop-training.ts";
 import { onboardingChatRoutes } from "./onboarding-chat.ts";
 import {
   candidateCommunication,
@@ -704,6 +705,7 @@ export async function buildApp(
       maxAge: 604800,
     });
   }
+  registerWhoopTraining(app, db);
   registerCoachingCompletion(app, db);
   registerCoachingFollowups(app, db);
   registerTrainerInbox(app, db);

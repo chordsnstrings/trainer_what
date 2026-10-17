@@ -1,0 +1,40 @@
+# WHOOP recovery and training — 17 October 2026
+
+Status: implemented and locally verified; CI and release pending. Baseline `bf5df60fbd9c49bb38447432e585b6663825d140`; branch `work/whoop-training-2026-10-17`. Owner request: include WHOOP and allow it to change training.
+
+## Audit
+
+The repository already has WHOOP v2 OAuth, encrypted rotating credentials, hourly sync, revocation, settings and member connection controls. Imported observations explicitly permit deterministic features and exclude model prompts. The workout-start path currently copies the assigned prescription unchanged. Recovery does not influence training. The adapter omits HRV/resting heart rate and does not carry calibration eligibility; recovery timing currently uses record creation time rather than its associated sleep.
+
+## Implementation contract
+
+1. Extend the existing approved adapter with bounded recovery, HRV, resting heart rate and sleep-performance facts. Associate recovery with scored main sleep when available; do not use naps, calibration, invalid or stale readings for automatic changes. Preserve provider provenance and data-use restrictions.
+2. Let trainers explicitly enable and configure low/moderate-recovery rules. Rules only reduce prescribed load and repetition/time/distance volume; retain exercise choice, order, sets, rests, warm-up and cool-down. Green recovery retains the assigned workload. These are trainer choices, not medical thresholds or measured efficacy claims.
+3. Require an explicit subscriber opt-in and platform approval of the intended WHOOP training use. Show recovery, freshness and the rule in Connections/Today. At workout start, recheck current permissions, source, policy and existing safety/access gates in the same transaction, then freeze the adjusted session. Repeated starts reuse the same workout. Never rewrite a running session or the trainer's programme.
+4. Guided playback must use the actual frozen workout and retire any stale pre-generated script. Retain the original prescription and an auditable adjustment receipt. Raw WHOOP observations remain outside model prompts, learning and advertising; downstream use of adjusted workout prescriptions is covered by the explicit feature consent and provider-use approval.
+5. Test parsing/freshness, bounded changes across exercise measures, permission/policy changes, isolation, duplicate starts and guided-plan consistency. Run normal release gates, update handoff, merge and verify serving release. Do not make live provider calls or enable provider settings without account evidence.
+
+## Current official sources checked
+
+- [WHOOP API v2](https://developer.whoop.com/api/): recovery, sleep, workouts and cycle read scopes; scored recovery includes calibration state, HRV and resting heart rate.
+- [OAuth](https://developer.whoop.com/docs/developing/oauth/): confidential OAuth authorization and rotating refresh tokens.
+- [WHOOP 101](https://developer.whoop.com/docs/whoop-101/): recovery zones are low 0–33, moderate 34–66 and high 67–100.
+- [API terms, effective 6 October 2026](https://developer.whoop.com/api-terms-of-use/): data-use restrictions include AI uses and derived data, with an express authorization exception in section 4.2. General API restrictions also apply. A generic OAuth grant is not treated as approval of every downstream use; existing contract approval stays intact and training use receives a separate gate and consent.
+
+## Verification and remaining setup
+
+Local TypeScript and production build pass. The 36 focused WHOOP/integration checks and 85 affected regression checks pass (overlapping suites; do not add the counts). Tests cover provider normalization/rescoring, main-sleep linkage, current-day/freshness limits, calibration, bounded reductions, policy/consent revisions, workspace isolation, safety holds, idempotent starts, privacy withdrawal, actual weekly prescriptions and stale guided-script rebuilding. The full Chromium and headless-shell downloads both returned invalid archives in this workspace; no local browser pass is claimed. The real trainer/member desktop/phone/Arabic journey is included in the subscriber UI CI gate.
+
+Live operation requires the platform's WHOOP client credentials, registered HTTPS callback, approved scopes and account/data-use approval. Synthetic verification cannot prove WHOOP app approval, member data accuracy or training outcomes.
+
+
+## Setup and use
+
+- In Superadmin WHOOP settings, configure the registered client ID, client secret, HTTPS redirect and approved scopes, including `offline read:recovery read:sleep`. Preserve the existing contract-verification gate. Enable `WHOOP_TRAINING_APPROVED` only when account/data-use approval covers this training use and downstream coaching/voice use of the adjusted prescription. This release does not enable or edit any live provider setting.
+- In **My Brain → Plans** (`/trainer/brain/plans`), enable recovery rules and set low/moderate reductions. Load reductions are bounded to 0–30%; reps/time/distance reductions to 0–50%. The initial choices are 10%/25% for low and 0%/10% for moderate; they are inactive until the trainer enables them. These defaults are configurable product choices, not efficacy claims.
+- A member connects WHOOP through **Connections** (`/app/wearables`) and separately enables **Use recovery for my workouts**. Today shows the last reading and applicable rule. The existing hourly sync/manual sync provides updates.
+- Workout start freezes the adjusted programme with its original, policy/permission/source versions and per-exercise before/after receipt. Manual logging and guided playback display the receipt. Weekly reviews use the actual workout prescription. High recovery, stale/unscored/calibrating/unlinked data, permission withdrawal, disabled rules or a future/past planned date cause no automatic adjustment. Existing safety/access gates remain authoritative.
+- Migration `099_whoop_training.sql` adds only the tenant-scoped read function for the published policy; policies/preferences/receipts use existing records. Runtime grants are explicitly allowlisted. No dependency was added.
+- Rollback: disable `WHOOP_TRAINING_APPROVED` or the trainer rule to stop new adjustments. Running workouts retain their frozen prescriptions. The additive migration need not be removed.
+
+No live WHOOP read, paid model/voice call, provider approval, data-accuracy claim or physical-device acceptance was made for this change. CI and exact serving evidence will be recorded after they complete.

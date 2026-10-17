@@ -1,4 +1,5 @@
 "use client";
+import { WhoopTrainingCard } from "./whoop-training";
 import { memberApiUrl, isTrainerPreview } from "../lib/trainer-preview-routing";
 import { useCallback, useEffect, useState } from "react";
 import Link from "./preview-navigation";
@@ -189,6 +190,7 @@ export function MemberToday({
         </p>
         <h1>{t("greeting", { name: firstName })}</h1>
       </header>
+      {!hold && !active && <WhoopTrainingCard />}
       {hold ? (
         <section
           className="card today-focus is-hold"
