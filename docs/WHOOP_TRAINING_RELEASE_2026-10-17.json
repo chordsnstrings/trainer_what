@@ -1,0 +1,222 @@
+{
+  "feature": "WHOOP recovery and training",
+  "status": "live",
+  "date": "2026-10-17",
+  "repository": "https://github.com/chordsnstrings/trainer_what",
+  "pullRequest": "https://github.com/chordsnstrings/trainer_what/pull/71",
+  "baseline": "bf5df60fbd9c49bb38447432e585b6663825d140",
+  "checkedHead": "799b9cbae82005d260e30afc8c2bf8f33e326d78",
+  "checkedTree": "66e26218b7cd2b8c3d94716066fe5f2145550015",
+  "release": "517fd6d0fb868fad748ec1614f491d148d45af09",
+  "mergedTreeMatchesCheckedHead": true,
+  "changes": [
+    "Extend the WHOOP v2 adapter with scored main-sleep timing, HRV, resting heart rate and calibration eligibility.",
+    "Apply trainer-configured bounded reductions only with fresh recovery, platform approval and explicit member permission.",
+    "Freeze the actual workout with its original prescription and adjustment receipt; guided playback and weekly outcomes use the actual prescription.",
+    "Retire rescored observations and clear training permission on disconnection or privacy withdrawal."
+  ],
+  "localVerification": {
+    "typecheck": "passed",
+    "build": "passed",
+    "focusedTests": 36,
+    "affectedRegressionTests": 85,
+    "countsOverlap": true,
+    "browser": "download unavailable; CI used"
+  },
+  "pullRequestChecks": {
+    "postgres": {
+      "tests": 1936,
+      "pass": 1930,
+      "fail": 0,
+      "skipped": 6
+    },
+    "conversation": {
+      "tests": 151,
+      "pass": 151,
+      "fail": 0,
+      "skipped": 0
+    },
+    "application": {
+      "tests": 1936,
+      "pass": 1931,
+      "fail": 0,
+      "skipped": 5
+    },
+    "result": "success",
+    "jobs": [
+      {
+        "id": 117314718170,
+        "name": "postgres-and-container",
+        "result": "success"
+      },
+      {
+        "id": 117314718380,
+        "name": "subscriber-ui",
+        "result": "success"
+      },
+      {
+        "id": 117314718417,
+        "name": "compose-topology",
+        "result": "success"
+      },
+      {
+        "id": 117314718459,
+        "name": "ux-spacing",
+        "result": "success"
+      },
+      {
+        "id": 117314718488,
+        "name": "application",
+        "result": "success"
+      },
+      {
+        "id": 117314718499,
+        "name": "homepage-call",
+        "result": "success"
+      },
+      {
+        "id": 117314718549,
+        "name": "wildcard-edge",
+        "result": "success"
+      },
+      {
+        "id": 117315322677,
+        "name": "conversation",
+        "result": "success"
+      }
+    ],
+    "runs": [
+      {
+        "name": "Application checks",
+        "url": "https://github.com/chordsnstrings/trainer_what/actions/runs/39004718707"
+      },
+      {
+        "name": "Onboarding conversation",
+        "url": "https://github.com/chordsnstrings/trainer_what/actions/runs/39004718705"
+      }
+    ]
+  },
+  "mainChecks": {
+    "run": 39006464271,
+    "result": "success",
+    "application": {
+      "tests": 1936,
+      "pass": 1931,
+      "fail": 0,
+      "skipped": 5
+    },
+    "postgres": {
+      "tests": 1936,
+      "pass": 1930,
+      "fail": 0,
+      "skipped": 6
+    },
+    "jobs": [
+      {
+        "id": 117319850462,
+        "name": "compose-topology",
+        "result": "success"
+      },
+      {
+        "id": 117319850567,
+        "name": "postgres-and-container",
+        "result": "success"
+      },
+      {
+        "id": 117319850586,
+        "name": "homepage-call",
+        "result": "success"
+      },
+      {
+        "id": 117319850619,
+        "name": "ux-spacing",
+        "result": "success"
+      },
+      {
+        "id": 117319850622,
+        "name": "subscriber-ui",
+        "result": "success"
+      },
+      {
+        "id": 117319850623,
+        "name": "wildcard-edge",
+        "result": "success"
+      },
+      {
+        "id": 117319850795,
+        "name": "application",
+        "result": "success"
+      }
+    ],
+    "url": "https://github.com/chordsnstrings/trainer_what/actions/runs/39006464271"
+  },
+  "browserVerification": {
+    "run": 39004718707,
+    "job": 117314718380,
+    "artifact": 12090169003,
+    "head": "799b9cbae82005d260e30afc8c2bf8f33e326d78",
+    "checks": 5,
+    "clientErrors": 0,
+    "screenshotsReviewed": [
+      "trainer-desktop",
+      "member-opt-in-phone",
+      "adjusted-workout-phone",
+      "member-arabic-phone"
+    ],
+    "completedAt": "2026-10-17T05:04:24Z",
+    "artifactSha256": "62ae3e4357f4a464f11090dcfc7d2b4e40d9357dfca9c937e25d2608713e5517",
+    "main": {
+      "run": 39006464271,
+      "job": 117319850622,
+      "checksPassed": 5,
+      "clientErrors": 0,
+      "completedAtUTC": "2026-10-17T05:33:02.6665840Z"
+    },
+    "artifactUrl": "https://github.com/chordsnstrings/trainer_what/actions/runs/39004718707/artifacts/12090169003"
+  },
+  "servingVerification": {
+    "run": "https://github.com/chordsnstrings/trainer_what/actions/runs/39008719476",
+    "job": 117326431110,
+    "confirmedAtUTC": "2026-10-17T06:14:14.6993806Z",
+    "independentHttpsChecks": {
+      "readiness": {
+        "url": "https://trainsyou.com/api/v1/ready",
+        "httpStatus": 200,
+        "curlExit": 0,
+        "date": "Sat, 17 Oct 2026 06:14:52 GMT",
+        "release": "517fd6d0fb868fad748ec1614f491d148d45af09",
+        "status": "ready",
+        "verified": true
+      },
+      "homepage": {
+        "url": "https://trainsyou.com/",
+        "httpStatus": 200,
+        "curlExit": 0,
+        "date": "Sat, 17 Oct 2026 06:14:52 GMT",
+        "release": "517fd6d0fb868fad748ec1614f491d148d45af09",
+        "html": true,
+        "verified": true
+      }
+    }
+  },
+  "runtimeSetup": {
+    "newApprovalFlag": "WHOOP_TRAINING_APPROVED",
+    "default": "false",
+    "productionSettingsChanged": false,
+    "liveProviderCalls": false
+  },
+  "releaseCheckNotes": [
+    "Initial subscriber bootstrap timing failure was fixed by waiting for its actual response before the unchanged visibility assertion.",
+    "The WHOOP Arabic browser fixture now uses saved Profile language preference and the established label selector.",
+    "Final-head conversation attempt crashed inside Node/V8 WASM allocation management; the unchanged targeted retry passed 151 tests and its browser journeys.",
+    "No failed gate was waived."
+  ],
+  "audit": "docs/WHOOP_TRAINING_2026-10-17.md",
+  "boundaries": [
+    "Physical-device and live WHOOP account acceptance are separate",
+    "Provider credentials and approved use are required",
+    "Existing project-memory publication was rejected by automatic approval review; that file remains unchanged",
+    "No live WHOOP read, paid model or voice call, production provider-setting change or physical-device acceptance was performed.",
+    "This receipt covers the verified application release; the documentation-only follow-up changes no application behavior and follows automatic checks separately."
+  ]
+}

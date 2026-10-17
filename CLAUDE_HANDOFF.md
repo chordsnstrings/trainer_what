@@ -3,11 +3,17 @@
 
 ## Work in progress
 
-### WHOOP recovery and training — release checks pending, 17 October 2026
+### WHOOP recovery and training — live, 17 October 2026
 
-Owner requested WHOOP integration that can change training. Branch `work/whoop-training-2026-10-17`, baseline `bf5df60fbd9c49bb38447432e585b6663825d140`. Implemented trainer-configured low/moderate recovery reductions, separate member permission, fresh scored/main-sleep checks, frozen workout receipts, consistent guided playback and weekly outcomes, and withdrawal/rescore handling. Raw readings stay outside model prompts. The platform approval setting defaults off; no live account settings or provider calls were made.
+[PR #71](https://github.com/chordsnstrings/trainer_what/pull/71) is implemented, merged and verified live as `517fd6d0fb868fad748ec1614f491d148d45af09`. [Serving verification](https://github.com/chordsnstrings/trainer_what/actions/runs/39008719476) confirmed the exact release at **06:14:14 UTC**. Independent readiness and homepage requests at **06:14:52 UTC / 10:14:52 Dubai** returned HTTP 200 and the same release; readiness reported `status: ready`. Implementation and deployment are complete. Live WHOOP account activation remains a separate configuration step.
 
-Typecheck, production build, 36 focused WHOOP/integration tests and 85 affected regression tests pass (overlap in counts). Local browser archives failed to download; the actual trainer/member English/Arabic phone/desktop journey is added to CI. Next: all PR gates, merge, exact main gates and serving verification under the standing release instruction. Do not claim deployed yet. Audit, use and setup: `docs/WHOOP_TRAINING_2026-10-17.md`.
+Trainers configure bounded low/moderate recovery reductions in **My Brain → Plans**. Members connect WHOOP in **Connections** and separately enable **Use recovery for my workouts**. Fresh scored recovery from the main sleep can reduce the next workout's load and reps/time/distance. Started sessions retain their prescription, guided playback shows the same receipt, and weekly outcomes use the actual workout. High recovery adds no work; stale, unscored, calibrating, revoked or unlinked data causes no automatic adjustment.
+
+All eight [final-head PR gates](https://github.com/chordsnstrings/trainer_what/actions/runs/39004718707) / [conversation checks](https://github.com/chordsnstrings/trainer_what/actions/runs/39004718705) and all seven [exact-main gates](https://github.com/chordsnstrings/trainer_what/actions/runs/39006464271) passed. Application: **1,931 passed / 0 failed / 5 skipped**; PostgreSQL: **1,930 passed / 0 failed / 6 skipped**, on PR and main. Conversation passed 151 tests and its browser journeys. All five WHOOP browser checks pass on PR and main with no client exceptions; English/Arabic phone and desktop screenshots were inspected. The merged tree exactly matches checked head `799b9cbae82005d260e30afc8c2bf8f33e326d78`, tree `66e26218b7cd2b8c3d94716066fe5f2145550015`. Initial fixture timing/language issues were fixed. A native Node/V8 conversation-run crash passed on an unchanged targeted retry. No failing gate was waived.
+
+Migration 099 adds a scoped policy-read function; no dependency was added. `WHOOP_TRAINING_APPROVED` defaults off and requires approval for the intended data use, alongside the existing WHOOP credentials/scopes/contract gate. Trainer rules and explicit member permission remain required. Raw WHOOP readings stay outside model prompts. No live provider setting, live WHOOP read or paid model/voice call was used. Physical-device and live-account acceptance remain separate.
+
+Audit, setup and rollback: `docs/WHOOP_TRAINING_2026-10-17.md`; receipt: `docs/WHOOP_TRAINING_RELEASE_2026-10-17.json`. Automatic approval review rejected republishing the existing project-memory payload, so that file remains unchanged; this handoff and the feature audit hold the task record. This receipt covers the verified application release; the documentation-only follow-up changes no application behavior and follows automatic checks separately.
 
 ### Builder preview motion — live, 16 October 2026
 

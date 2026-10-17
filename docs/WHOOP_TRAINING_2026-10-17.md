@@ -1,6 +1,6 @@
 # WHOOP recovery and training — 17 October 2026
 
-Status: implemented and locally verified; CI and release pending. Baseline `bf5df60fbd9c49bb38447432e585b6663825d140`; branch `work/whoop-training-2026-10-17`. Owner request: include WHOOP and allow it to change training.
+Status: implemented, merged and verified live as `517fd6d0fb868fad748ec1614f491d148d45af09` through PR #71. Baseline `bf5df60fbd9c49bb38447432e585b6663825d140`; branch `work/whoop-training-2026-10-17`. Owner request: include WHOOP and allow it to change training. Live WHOOP activation still requires approved provider configuration, trainer rules and member permission.
 
 ## Audit
 
@@ -37,7 +37,7 @@ Live operation requires the platform's WHOOP client credentials, registered HTTP
 - Migration `099_whoop_training.sql` adds only the tenant-scoped read function for the published policy; policies/preferences/receipts use existing records. Runtime grants are explicitly allowlisted. No dependency was added.
 - Rollback: disable `WHOOP_TRAINING_APPROVED` or the trainer rule to stop new adjustments. Running workouts retain their frozen prescriptions. The additive migration need not be removed.
 
-No live WHOOP read, paid model/voice call, provider approval, data-accuracy claim or physical-device acceptance was made for this change. CI and exact serving evidence will be recorded after they complete.
+No live WHOOP read, paid model/voice call, provider approval, data-accuracy claim or physical-device acceptance was made for this change. Completed CI and exact serving evidence are recorded below.
 
 ## Release check progress
 
@@ -48,3 +48,16 @@ The existing `docs/PROJECT_MEMORY.md` remains unchanged: automatic approval revi
 Second-head CI (`8cfb87bde8e485fa86872ff2b0e76382a7827251`, run `39003923480`) passed the complete existing subscriber and guided/music browser journeys. The WHOOP browser journey passed trainer-rule saves, persistent explicit member permission, the real reduced workout and the guided receipt. Its Arabic step used a public URL language hint instead of the signed-in member's saved preference; the fixture now changes language through the real Profile settings form. The initial desktop/phone screenshots were inspected: the consent explanation needed its own block below the checkbox, which is now linked with `aria-describedby`. Screenshots also wait for expanded receipt animation and dismiss optional analytics through its real control. Final-head checks remain required.
 
 Third-head browser evidence (`09f19b0c0a635af2409860b8cb16c8a264b49fa5`, run `39004365271`, artifact `12090730977`) again passed the four WHOOP functional steps with no client exceptions. Updated phone screenshots were inspected: consent now uses the full card width and expanded before/after receipts are readable. The remaining fixture failure was an exact accessible-name selector for the existing language field, whose label includes option text. It now uses the same English/Arabic label pattern as `rtl-check.mjs`; no application language behavior or assertion was weakened.
+
+
+## Verified release
+
+[PR #71](https://github.com/chordsnstrings/trainer_what/pull/71) merged as `517fd6d0fb868fad748ec1614f491d148d45af09`. Its tree `66e26218b7cd2b8c3d94716066fe5f2145550015` exactly matches checked head `799b9cbae82005d260e30afc8c2bf8f33e326d78`.
+
+All eight final-head PR gates passed: [Application checks](https://github.com/chordsnstrings/trainer_what/actions/runs/39004718707) and [Onboarding conversation](https://github.com/chordsnstrings/trainer_what/actions/runs/39004718705). All seven [exact-main gates](https://github.com/chordsnstrings/trainer_what/actions/runs/39006464271) passed on their first attempt. Application: **1,931 passed / 0 failed / 5 skipped**; PostgreSQL: **1,930 passed / 0 failed / 6 skipped**, on both PR and main. Conversation passed **151 tests** and its browser journeys. The first final-head conversation attempt hit a native Node/V8 WASM allocation failure; an unchanged targeted retry passed. No failed gate was waived.
+
+The five WHOOP browser checks pass on both PR and main: trainer rule persistence, explicit member opt-in after reload, the actual adjusted workout and receipt, the matching guided session, and Arabic phone layout/revocation. Both report no client exceptions. Final English/Arabic phone and desktop screenshots were inspected. [PR browser artifact](https://github.com/chordsnstrings/trainer_what/actions/runs/39004718707/artifacts/12090169003), SHA-256 `62ae3e4357f4a464f11090dcfc7d2b4e40d9357dfca9c937e25d2608713e5517`.
+
+[Serving verification](https://github.com/chordsnstrings/trainer_what/actions/runs/39008719476) confirmed the exact release at **06:14:14 UTC on 17 October 2026**. Independent readiness and homepage requests at **06:14:52 UTC / 10:14:52 Dubai** returned HTTP 200 and the same SHA; readiness reported `status: ready`. Implementation, merge and deployment verification are complete.
+
+Machine-readable evidence: `docs/WHOOP_TRAINING_RELEASE_2026-10-17.json`. This receipt covers the verified application release; the documentation-only follow-up changes no application behavior and follows automatic checks separately. Live WHOOP approval/configuration and physical-device acceptance retain their limits above.
