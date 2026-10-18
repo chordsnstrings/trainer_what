@@ -18,35 +18,42 @@ import {
   MUSIC_PLAN_VERSION,
 } from "../../../packages/providers/src/music-planner.ts";
 import { resolveSiteStarterConfig } from "./site-builder-starter.ts";
-// Owner (7 October 2026): "we should be able to set it ourselves". Budgets
-// have no ceiling in code (migration 089); integer limits only stay within
-// the database's integer range.
+// Fill the finite library within the daily limits. Historical lifetime caps
+// are no longer controls; retain their database columns for rollback only.
 const MAX_INT = 2_147_483_647;
+export const MUSIC_DAILY_PLAN_LIMIT = 8;
 export const musicAgentSettings = z
   .object({
     enabled: z.boolean(),
     autoPublish: z.boolean(),
     recoveryConfirmed: z.boolean(),
-    requestLimit: z.number().int().min(1).max(MAX_INT),
-    creditLimit: z.number().positive().finite(),
     externalRequests: z.number().int().min(0).max(MAX_INT),
     externalCredits: z.number().min(0).finite(),
-    modelCallLimit: z.number().int().min(1).max(MAX_INT),
-    modelUsdLimit: z.number().positive().finite(),
+    // An already-open admin page can save after deployment. Discard its old
+    // caps instead of silently bringing them back into operation or the audit.
+    requestLimit: z.number().int().positive().optional(),
+    creditLimit: z.number().positive().finite().optional(),
+    modelCallLimit: z.number().int().positive().optional(),
+    modelUsdLimit: z.number().positive().finite().optional(),
   })
-  .strict();
+  .strict()
+  .transform(
+    ({
+      requestLimit,
+      creditLimit,
+      modelCallLimit,
+      modelUsdLimit,
+      ...settings
+    }) => settings,
+  );
 const fail = (code: string, message: string) =>
   Object.assign(new Error(message), { statusCode: 409, code });
 type AgentRow = {
   enabled: boolean;
   auto_publish: boolean;
   recovery_confirmed: boolean;
-  request_limit: number;
-  credit_limit: number;
   external_requests: number;
   external_credits: number;
-  model_call_limit: number;
-  model_usd_limit: number;
   requested_by: string | null;
   next_check_at: string | null;
   status: string;
@@ -60,13 +67,19 @@ export async function musicBudgetLock(tx: Tx) {
 }
 export async function musicAgentSummary(tx: Tx) {
   const [agent] = await tx.query<AgentRow>(
-    "SELECT * FROM workout_music_agent WHERE id=true",
+    "SELECT enabled,auto_publish,recovery_confirmed,external_requests,external_credits,requested_by,next_check_at,status,message,checked_at FROM workout_music_agent WHERE id=true",
   );
   const [totals] = await tx.query(
-    "SELECT count(*)::int AS requests,coalesce(sum(credit_limit),0) AS credits FROM workout_music_jobs WHERE NOT imported AND status<>'cancelled'",
+    "SELECT count(*)::int AS requests,coalesce(sum(credit_limit),0) AS credits,coalesce(sum(CASE WHEN status='queued' OR submitted_at>=date_trunc('day',now(),'UTC') THEN credit_limit ELSE 0 END),0) AS daily_credits FROM workout_music_jobs WHERE NOT imported AND status<>'cancelled'",
   );
   const [models] = await tx.query(
-    "SELECT count(*)::int AS calls,coalesce(sum(greatest(reserved_usd,coalesce((usage->>'cost')::numeric,0))),0) AS usd FROM workout_music_plans",
+    "SELECT count(*)::int AS calls,count(*) FILTER(WHERE created_at>=date_trunc('day',now(),'UTC'))::int AS daily_calls,coalesce(sum(greatest(reserved_usd,coalesce((usage->>'cost')::numeric,0))),0) AS usd FROM workout_music_plans",
+  );
+  const tracks = await tx.query(
+    "SELECT playlist,count(*)::int AS n FROM workout_music_tracks WHERE status='approved' GROUP BY playlist",
+  );
+  const ready = MUSIC_PLAYLISTS.map((p) =>
+    Number(tracks.find((t) => t.playlist === p.id)?.n ?? 0),
   );
   return {
     ...agent,
@@ -74,22 +87,18 @@ export async function musicAgentSummary(tx: Tx) {
     reservedCredits: Number(totals.credits) + Number(agent.external_credits),
     modelCalls: Number(models.calls),
     reservedModelUsd: Number(models.usd),
+    dailyCreditsReserved: Number(totals.daily_credits),
+    dailyCreditLimit: Number(runtimeConfig().MUSIC_DAILY_CREDIT_LIMIT) || 0,
+    dailyModelCalls: Number(models.daily_calls),
+    dailyModelCallLimit: MUSIC_DAILY_PLAN_LIMIT,
+    readyPlaylists: ready.filter((n) => n >= MUSIC_TARGET).length,
+    playlistCount: MUSIC_PLAYLISTS.length,
+    readyTracks: ready.reduce(
+      (n, count) => n + Math.min(count, MUSIC_TARGET),
+      0,
+    ),
+    targetTracks: MUSIC_PLAYLISTS.length * MUSIC_TARGET,
   };
-}
-export async function enforceMusicAgentBudget(
-  tx: Tx,
-  requests: number,
-  credits: number,
-) {
-  const a = await musicAgentSummary(tx);
-  if (
-    a.usedRequests + requests > Number(a.request_limit) ||
-    a.reservedCredits + credits > Number(a.credit_limit)
-  )
-    throw fail(
-      "MUSIC_TOTAL_BUDGET",
-      "The music library has reached its total request or credit limit.",
-    );
 }
 export async function saveMusicAgent(tx: Tx, actor: string, body: unknown) {
   const b = musicAgentSettings.parse(body);
@@ -108,28 +117,14 @@ export async function saveMusicAgent(tx: Tx, actor: string, body: unknown) {
       "MUSIC_ACCOUNTING",
       "Recorded external usage cannot be reduced. Keep earlier purchases reserved.",
     );
-  if (
-    a.usedRequests - Number(a.external_requests) + b.externalRequests >
-      b.requestLimit ||
-    a.reservedCredits - Number(a.external_credits) + b.externalCredits >
-      b.creditLimit
-  )
-    throw fail(
-      "MUSIC_TOTAL_BUDGET",
-      "The limit must include all recorded and external purchases.",
-    );
   await tx.query(
-    "UPDATE workout_music_agent SET enabled=$1,auto_publish=$2,recovery_confirmed=$3,request_limit=$4,credit_limit=$5,external_requests=$6,external_credits=$7,model_call_limit=$8,model_usd_limit=$9,requested_by=$10,status=$11,message=NULL,next_check_at=NULL,updated_at=now() WHERE id=true",
+    "UPDATE workout_music_agent SET enabled=$1,auto_publish=$2,recovery_confirmed=$3,external_requests=$4,external_credits=$5,requested_by=$6,status=$7,message=NULL,next_check_at=NULL,updated_at=now() WHERE id=true",
     [
       b.enabled,
       b.autoPublish,
       b.recoveryConfirmed,
-      b.requestLimit,
-      b.creditLimit,
       b.externalRequests,
       b.externalCredits,
-      b.modelCallLimit,
-      b.modelUsdLimit,
       actor,
       b.enabled ? "starting" : "paused",
     ],
@@ -150,7 +145,7 @@ async function state(tx: Tx, status: string, message: string, delay = 60) {
 export async function processMusicAgent(db: Database) {
   const [initial] = await db.system((tx) =>
     tx.query(
-      "SELECT * FROM workout_music_agent WHERE id=true AND enabled AND (next_check_at IS NULL OR next_check_at<=now())",
+      "SELECT * FROM workout_music_agent WHERE id=true AND enabled AND (status IN ('budget','model_budget') OR next_check_at IS NULL OR next_check_at<=now())",
     ),
   );
   if (!initial) return;
@@ -162,7 +157,8 @@ export async function processMusicAgent(db: Database) {
     !(
       Number(config.MUSIC_DAILY_CREDIT_LIMIT) >=
       Number(config.MUSIC_CREDITS_PER_JOB)
-    )
+    ) ||
+    !Number.isFinite(Number(config.MUSIC_DAILY_CREDIT_LIMIT))
   ) {
     await db.system((tx) =>
       state(
@@ -193,7 +189,9 @@ export async function processMusicAgent(db: Database) {
     const a = await musicAgentSummary(tx);
     if (
       !a.enabled ||
-      (a.next_check_at && new Date(a.next_check_at).getTime() > Date.now())
+      (!["budget", "model_budget"].includes(a.status) &&
+        a.next_check_at &&
+        new Date(a.next_check_at).getTime() > Date.now())
     )
       return;
     if (!a.recovery_confirmed || !a.requested_by) {
@@ -303,34 +301,11 @@ export async function processMusicAgent(db: Database) {
       );
       return;
     }
-    const reservedToday = jobs
-      .filter(
-        (j) =>
-          !j.imported &&
-          j.status !== "cancelled" &&
-          (j.status === "queued" ||
-            (j.submitted_at &&
-              new Date(j.submitted_at).toISOString().slice(0, 10) ===
-                new Date().toISOString().slice(0, 10))),
-      )
-      .reduce((n, j) => n + Number(j.credit_limit), 0);
-    if (reservedToday + perJob > daily) {
+    if (a.dailyCreditsReserved + perJob > daily) {
       await state(
         tx,
         "daily_budget",
         "Daily credit limit reached. The agent resumes when budget is available.",
-        300,
-      );
-      return;
-    }
-    if (
-      a.usedRequests + 1 > Number(a.request_limit) ||
-      a.reservedCredits + perJob > Number(a.credit_limit)
-    ) {
-      await state(
-        tx,
-        "budget",
-        "Total generation limit reached. Already-paid files keep downloading.",
         300,
       );
       return;
@@ -406,20 +381,11 @@ export async function processMusicAgent(db: Database) {
       );
       return;
     }
-    const today = plans.filter(
-      (p) =>
-        new Date(p.created_at).toISOString().slice(0, 10) ===
-        new Date().toISOString().slice(0, 10),
-    ).length;
-    if (
-      a.modelCalls >= Number(a.model_call_limit) ||
-      a.reservedModelUsd + reserved > Number(a.model_usd_limit) ||
-      today >= 8
-    ) {
+    if (a.dailyModelCalls >= MUSIC_DAILY_PLAN_LIMIT) {
       await state(
         tx,
-        "model_budget",
-        "Planning allowance reached. Saved briefs remain reusable; daily allowance resets tomorrow.",
+        "daily_planning_limit",
+        "Today's planning limit is reached. Saved arrangements keep generating; new planning resumes tomorrow (UTC).",
         300,
       );
       return;

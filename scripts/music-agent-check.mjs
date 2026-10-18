@@ -44,18 +44,37 @@ try {
     await expect(region).toBeVisible();
     await expect(region.getByText("Paused", { exact: true })).toBeVisible();
   });
-  await check("refresh preserves unsaved budget edits", async () => {
-    await region.locator("summary").click();
-    await region
-      .getByLabel("Total generation requests", { exact: true })
-      .fill("100");
-    await page.getByRole("button", { name: "Refresh", exact: true }).click();
-    await expect(
-      region.getByLabel("Total generation requests", { exact: true }),
-    ).toHaveValue("100");
-  });
   await check(
-    "starting persists the agent and budgets across reload",
+    "library targets replace lifetime caps and refresh preserves purchase-history edits",
+    async () => {
+      await expect(
+        region.getByText("Playlists ready", { exact: true }),
+      ).toBeVisible();
+      await expect(
+        region.getByText("Checked tracks toward target", { exact: true }),
+      ).toBeVisible();
+      await region.locator("summary").click();
+      for (const label of [
+        "Total generation requests",
+        "Total music credits",
+        "Total AI planning calls",
+        "Total AI allowance (USD)",
+      ])
+        await expect(region.getByLabel(label, { exact: true })).toHaveCount(0);
+      await region
+        .getByLabel("Requests made outside this app", { exact: true })
+        .fill("45");
+      await region
+        .getByLabel("Credits reserved outside this app", { exact: true })
+        .fill("1440");
+      await page.getByRole("button", { name: "Refresh", exact: true }).click();
+      await expect(
+        region.getByLabel("Requests made outside this app", { exact: true }),
+      ).toHaveValue("45");
+    },
+  );
+  await check(
+    "starting beyond the old total budget persists without resetting purchase history",
     async () => {
       await region.getByLabel(/Earlier purchases/).check();
       await region
@@ -70,8 +89,17 @@ try {
       ).toBeVisible();
       await region.locator("summary").click();
       await expect(
-        region.getByLabel("Total generation requests", { exact: true }),
-      ).toHaveValue("100");
+        region.getByLabel("Requests made outside this app", { exact: true }),
+      ).toHaveValue("45");
+      await expect(
+        region.getByLabel("Credits reserved outside this app", { exact: true }),
+      ).toHaveValue("1440");
+      const response = await context.request.get(base + "/api/v1/admin/music");
+      assert.equal(response.status(), 200);
+      const { agent } = await response.json();
+      assert.equal(agent.reservedCredits, 1440);
+      assert.equal(agent.targetTracks, 240);
+      assert.equal(agent.credit_limit, undefined);
     },
   );
   for (const width of [1440, 390]) {

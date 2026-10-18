@@ -5,16 +5,20 @@ export type MusicAgentData = {
   enabled: boolean;
   auto_publish: boolean;
   recovery_confirmed: boolean;
-  request_limit: number;
-  credit_limit: number;
   external_requests: number;
   external_credits: number;
-  model_call_limit: number;
-  model_usd_limit: number;
   usedRequests: number;
   reservedCredits: number;
   modelCalls: number;
   reservedModelUsd: number;
+  dailyCreditsReserved: number;
+  dailyCreditLimit: number;
+  dailyModelCalls: number;
+  dailyModelCallLimit: number;
+  readyPlaylists: number;
+  playlistCount: number;
+  readyTracks: number;
+  targetTracks: number;
   status: string;
   message: string | null;
   checked_at: string | null;
@@ -29,12 +33,8 @@ const values = (a: MusicAgentData) => ({
   enabled: a.enabled,
   autoPublish: a.auto_publish,
   recoveryConfirmed: a.recovery_confirmed,
-  requestLimit: Number(a.request_limit),
-  creditLimit: Number(a.credit_limit),
   externalRequests: Number(a.external_requests),
   externalCredits: Number(a.external_credits),
-  modelCallLimit: Number(a.model_call_limit),
-  modelUsdLimit: Number(a.model_usd_limit),
 });
 type Act = (fn: () => Promise<unknown>, message: string) => Promise<boolean>;
 export function MusicAgentControls({
@@ -82,35 +82,36 @@ export function MusicAgentControls({
       <p>
         The frontier model plans varied instrumentals in small batches. The
         server generates, downloads and saves MP3s across all eight genres. It
-        stops at 30 available songs per playlist and fills gaps within your
-        limits.
+        stops at 30 checked songs per playlist and fills gaps within your daily
+        music limit. There is no separate lifetime budget to increase.
       </p>
       <div className="music-agent-metrics">
         <div>
           <strong>
-            {agent.usedRequests} / {agent.request_limit}
+            {agent.readyPlaylists} / {agent.playlistCount}
           </strong>
-          <span>Requests reserved</span>
+          <span>Playlists ready</span>
         </div>
         <div>
           <strong>
-            {Number(agent.reservedCredits).toLocaleString()} /{" "}
-            {Number(agent.credit_limit).toLocaleString()}
+            {agent.readyTracks} / {agent.targetTracks}
           </strong>
-          <span>Music credits reserved</span>
+          <span>Checked tracks toward target</span>
         </div>
         <div>
           <strong>
-            {agent.modelCalls} / {agent.model_call_limit}
+            {Number(agent.dailyCreditsReserved).toLocaleString()} /{" "}
+            {agent.dailyCreditLimit > 0
+              ? Number(agent.dailyCreditLimit).toLocaleString()
+              : "Not set"}
           </strong>
-          <span>AI planning calls</span>
+          <span>Today's music credits reserved (UTC)</span>
         </div>
         <div>
           <strong>
-            ${Number(agent.reservedModelUsd).toFixed(3)} / $
-            {Number(agent.model_usd_limit).toFixed(2)}
+            {agent.dailyModelCalls} / {agent.dailyModelCallLimit}
           </strong>
-          <span>AI allowance reserved</span>
+          <span>Today's AI planning calls (UTC)</span>
         </div>
       </div>
       {agent.message && (
@@ -166,29 +167,15 @@ export function MusicAgentControls({
           quality. Turn this off for listening review before publication.
         </p>
         <details>
-          <summary>Budgets and previous purchases</summary>
+          <summary>Usage and previous purchases</summary>
+          <p className="muted">
+            Recorded usage: {agent.usedRequests} generation requests,{" "}
+            {Number(agent.reservedCredits).toLocaleString()} music credits,{" "}
+            {agent.modelCalls} AI planning calls and $
+            {Number(agent.reservedModelUsd).toFixed(3)} reserved for planning.
+            These totals are a usage history, not spending limits.
+          </p>
           <div className="music-agent-fields">
-            <label>
-              Total generation requests
-              <input
-                type="number"
-                min="1"
-                required
-                value={draft.requestLimit}
-                onChange={(e) => set("requestLimit", Number(e.target.value))}
-              />
-            </label>
-            <label>
-              Total music credits
-              <input
-                type="number"
-                min="1"
-                step="0.01"
-                required
-                value={draft.creditLimit}
-                onChange={(e) => set("creditLimit", Number(e.target.value))}
-              />
-            </label>
             <label>
               Requests made outside this app
               <input
@@ -212,33 +199,13 @@ export function MusicAgentControls({
                 onChange={(e) => set("externalCredits", Number(e.target.value))}
               />
             </label>
-            <label>
-              Total AI planning calls
-              <input
-                type="number"
-                min="1"
-                required
-                value={draft.modelCallLimit}
-                onChange={(e) => set("modelCallLimit", Number(e.target.value))}
-              />
-            </label>
-            <label>
-              Total AI allowance (USD)
-              <input
-                type="number"
-                min="0.01"
-                step="0.01"
-                required
-                value={draft.modelUsdLimit}
-                onChange={(e) => set("modelUsdLimit", Number(e.target.value))}
-              />
-            </label>
           </div>
           <p className="muted">
-            Totals include previous purchases and never reset when you pause or
-            restart. Count imported tasks under outside-app purchases. Daily
-            music limits are in Settings; AI planning is limited to eight
-            batches daily. No automatic credit purchases.
+            Count imported tasks under outside-app purchases. Usage history is
+            kept when you pause or restart. Daily music limits are in Settings;
+            AI planning is limited to eight batches daily. Daily limits reset at
+            midnight UTC and generation resumes automatically. No automatic
+            credit purchases.
           </p>
         </details>
         <label className="voice-check">
