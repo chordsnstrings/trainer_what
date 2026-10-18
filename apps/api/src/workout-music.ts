@@ -17,7 +17,6 @@ import {
 import { runtimeConfig } from "../../../packages/providers/src/configuration.ts";
 import { requireRecentMfa } from "./security.ts";
 import {
-  enforceMusicAgentBudget,
   musicAgentSummary,
   saveMusicAgent,
   useStandardMusicPlan,
@@ -259,10 +258,9 @@ export function registerWorkoutMusic(
           return { queued: true, requestId: b.requestId };
         }
         const [reserved] = await tx.query(
-          "SELECT coalesce(sum(CASE WHEN status='queued' OR submitted_at >= date_trunc('day',now()) THEN credit_limit ELSE 0 END),0) AS total,coalesce(sum(CASE WHEN status IN ('queued','submitting','pending','unknown') THEN credit_limit ELSE 0 END),0) AS outstanding FROM workout_music_jobs WHERE NOT imported AND status<>'cancelled'",
+          "SELECT coalesce(sum(CASE WHEN status='queued' OR submitted_at >= date_trunc('day',now(),'UTC') THEN credit_limit ELSE 0 END),0) AS total,coalesce(sum(CASE WHEN status IN ('queued','submitting','pending','unknown') THEN credit_limit ELSE 0 END),0) AS outstanding FROM workout_music_jobs WHERE NOT imported AND status<>'cancelled'",
         );
         const cost = perJob * b.requests;
-        await enforceMusicAgentBudget(tx, b.requests, cost);
         if (
           Number(reserved.total) + cost > daily ||
           Number(reserved.outstanding) + cost > credits
@@ -489,10 +487,9 @@ export async function processWorkoutMusic(db: Database) {
         );
         if (hold) return null;
       }
-      await enforceMusicAgentBudget(tx, 0, 0);
       const { perJob, daily } = limits();
       const [spent] = await tx.query(
-        "SELECT coalesce(sum(credit_limit),0) AS total FROM workout_music_jobs WHERE submitted_at>=date_trunc('day',now()) AND NOT imported",
+        "SELECT coalesce(sum(credit_limit),0) AS total FROM workout_music_jobs WHERE submitted_at>=date_trunc('day',now(),'UTC') AND NOT imported",
       );
       if (
         perJob !== Number(row.credit_limit) ||
