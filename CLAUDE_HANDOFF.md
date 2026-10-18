@@ -3,6 +3,10 @@
 
 ## Work in progress
 
+### WHOOP live activation — 18 October 2026 (Claude)
+
+Owner: "go for whoop integration", supplying the WHOOP app's client ID and secret in chat (rotate the secret in the WHOOP developer dashboard; it is not stored in Git, logs or this file). Through Super admin Settings → WHOOP (revision 1): client ID saved, secret saved encrypted, `WHOOP_REDIRECT_URI=https://trainsyou.com/api/v1/integrations/whoop/callback`, scopes `offline read:recovery read:sleep read:workout`, and on the owner's instruction `WHOOP_CONTRACT_VERIFIED=true` and `WHOOP_TRAINING_APPROVED=true` (the owner should confirm their WHOOP app approval covers this use; WHOOP's API terms, effective 6 October 2026, restrict AI and derived-data uses unless expressly authorised, section 4.2; raw WHOOP readings stay outside model prompts). The settings test returned "validated". A read-only probe of WHOOP's authorize endpoint with this client ID and callback redirected to WHOOP's sign-in page (no client or redirect error), so the callback is registered. The test coach kamran@arks.ae now has recovery rules enabled with the defaults (low: load −10%, volume −25%; moderate: load 0%, volume −10%). Not done: a real WHOOP account connection, sync and adjusted workout — the owner connects WHOOP as the test client in Connections (`/app/wearables`), turns on "Use recovery for my workouts", then starts a workout. Rollback: switch off `WHOOP_TRAINING_APPROVED` or the coach rule.
+
 ### WHOOP recovery and training — live, 17 October 2026
 
 [PR #71](https://github.com/chordsnstrings/trainer_what/pull/71) is implemented, merged and verified live as `517fd6d0fb868fad748ec1614f491d148d45af09`. [Serving verification](https://github.com/chordsnstrings/trainer_what/actions/runs/39008719476) confirmed the exact release at **06:14:14 UTC**. Independent readiness and homepage requests at **06:14:52 UTC / 10:14:52 Dubai** returned HTTP 200 and the same release; readiness reported `status: ready`. Implementation and deployment are complete. Live WHOOP account activation remains a separate configuration step.
