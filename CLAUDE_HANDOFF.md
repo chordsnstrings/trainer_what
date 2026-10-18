@@ -3,6 +3,10 @@
 
 ## Work in progress
 
+### Music library after PR #73 — checked 18 October 2026 (Claude)
+
+PR #73 (live as `5c2cd71`) removed the lifetime music caps, so the earlier owner step "set the Admin Music budget to 5,000 credits / 157 requests" no longer applies. Read-only Admin Music check at 05:37 UTC: agent enabled and `generating` ("Downloading and checking the current batch."); 53 requests and 1,696 credits used in total; 96 of 240 tracks ready, 0 of 8 playlists complete; today 256 of 5,000 daily credits and 3 of 8 planning calls used. Nothing was changed. Next: none for the owner; the worker continues within the daily limit until all eight playlists reach 30 approved tracks.
+
 ### WHOOP live activation — 18 October 2026 (Claude)
 
 Owner: "go for whoop integration", supplying the WHOOP app's client ID and secret in chat (rotate the secret in the WHOOP developer dashboard; it is not stored in Git, logs or this file). Through Super admin Settings → WHOOP (revision 1): client ID saved, secret saved encrypted, `WHOOP_REDIRECT_URI=https://trainsyou.com/api/v1/integrations/whoop/callback`, scopes `offline read:recovery read:sleep read:workout`, and on the owner's instruction `WHOOP_CONTRACT_VERIFIED=true` and `WHOOP_TRAINING_APPROVED=true` (the owner should confirm their WHOOP app approval covers this use; WHOOP's API terms, effective 6 October 2026, restrict AI and derived-data uses unless expressly authorised, section 4.2; raw WHOOP readings stay outside model prompts). The settings test returned "validated". A read-only probe of WHOOP's authorize endpoint with this client ID and callback redirected to WHOOP's sign-in page (no client or redirect error), so the callback is registered. The test coach kamran@arks.ae now has recovery rules enabled with the defaults (low: load −10%, volume −25%; moderate: load 0%, volume −10%). Not done: a real WHOOP account connection, sync and adjusted workout — the owner connects WHOOP as the test client in Connections (`/app/wearables`), turns on "Use recovery for my workouts", then starts a workout. Rollback: switch off `WHOOP_TRAINING_APPROVED` or the coach rule.
