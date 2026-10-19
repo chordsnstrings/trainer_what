@@ -145,15 +145,24 @@ const FALLBACK = "Standard arrangements used automatically.";
 /** Why a plan was not used, built by code. Provider error text is not stored. */
 function planFailure(e: unknown) {
   if (e instanceof MusicPlanRejected) return e.message;
-  const code = (e as any)?.code,
-    label =
-      typeof code === "string" && /^[A-Z][A-Z0-9_]{1,40}$/.test(code)
-        ? code
-        : (e as any)?.name === "TimeoutError" ||
-            (e as any)?.name === "AbortError"
-          ? "timeout"
-          : "error";
-  return `The AI request did not complete (${label}).`;
+  const x = e as {
+    providerUnreachable?: unknown;
+    providerStatus?: unknown;
+    name?: unknown;
+  } | null;
+  if (x?.providerUnreachable === true)
+    return "The AI request got no response (timeout or lost connection).";
+  const status = x?.providerStatus;
+  if (
+    typeof status === "number" &&
+    Number.isInteger(status) &&
+    status >= 100 &&
+    status <= 599
+  )
+    return `The AI provider returned HTTP ${status}.`;
+  if (x?.name === "ConfigurationError")
+    return "The AI request could not be sent.";
+  return "The AI request did not complete.";
 }
 async function state(tx: Tx, status: string, message: string, delay = 60) {
   await tx.query(
@@ -441,8 +450,9 @@ export async function processMusicAgent(db: Database) {
     return { id, playlist: genre.id, slots };
   });
   if (!result || !seed) return;
+  let briefs: Awaited<ReturnType<typeof planMusic>>;
   try {
-    const briefs = await withRuntimeConfig(seed, () =>
+    briefs = await withRuntimeConfig(seed, () =>
       planMusic(result.playlist, result.slots, {
         reserve: async () => null,
         record: async (usage) => {
@@ -455,18 +465,6 @@ export async function processMusicAgent(db: Database) {
         },
       }),
     );
-    await db.system(async (tx) => {
-      await tx.query(
-        "UPDATE workout_music_plans SET status='ready',briefs=$2,leased_until=NULL,updated_at=now() WHERE id=$1 AND status='planning'",
-        [result.id, JSON.stringify(briefs)],
-      );
-      await state(
-        tx,
-        "generating",
-        "Music arrangements saved. The worker will fill each playlist.",
-        0,
-      );
-    });
   } catch (e) {
     const reason = planFailure(e),
       name =
@@ -488,7 +486,22 @@ export async function processMusicAgent(db: Database) {
         0,
       );
     });
+    return;
   }
+  // A failure saving a valid reply is not an AI failure: it propagates to the
+  // worker, and the lease-expiry sweep later gives the plan standard arrangements.
+  await db.system(async (tx) => {
+    await tx.query(
+      "UPDATE workout_music_plans SET status='ready',briefs=$2,leased_until=NULL,updated_at=now() WHERE id=$1 AND status='planning'",
+      [result.id, JSON.stringify(briefs)],
+    );
+    await state(
+      tx,
+      "generating",
+      "Music arrangements saved. The worker will fill each playlist.",
+      0,
+    );
+  });
 }
 export async function useStandardMusicPlan(tx: Tx, id: string, actor: string) {
   await musicBudgetLock(tx);

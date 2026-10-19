@@ -71,21 +71,21 @@ async function fixture<T>(
       "version",
     ]);
     aiCalls++;
+    // An override may return a provider Response, raw text or an object, or throw.
+    const reply = planReply?.(prompt.slots, prompt.bpm) ?? {
+      tracks: prompt.slots.map((slot: number) => ({
+        slot,
+        bpm: prompt.bpm,
+        arrangement: `Original layered percussion with warm keys and bass motif number ${slot + 1}; gradual build and spacious steady groove`,
+      })),
+    };
+    if (reply instanceof Response) return reply;
     return Response.json({
       id: "fixture",
       choices: [
         {
           message: {
-            content: ((reply) =>
-              typeof reply === "string" ? reply : JSON.stringify(reply))(
-              planReply?.(prompt.slots, prompt.bpm) ?? {
-                tracks: prompt.slots.map((slot: number) => ({
-                  slot,
-                  bpm: prompt.bpm,
-                  arrangement: `Original layered percussion with warm keys and bass motif number ${slot + 1}; gradual build and spacious steady groove`,
-                })),
-              },
-            ),
+            content: typeof reply === "string" ? reply : JSON.stringify(reply),
           },
         },
       ],
@@ -273,7 +273,43 @@ test("planner validates reserved slots, tempo and distinct bounded arrangements"
   );
   assert.equal(
     reason({ tracks: [{ ...track, mood: "calm" }] }),
-    "The track for slot 0 had extra fields: mood.",
+    "The track for slot 0 had 1 extra field.",
+  );
+  assert.equal(
+    reason({ tracks: [track], genre: "Flow", version: "v2" }),
+    "The reply had 2 extra fields.",
+  );
+  // The reason describes the trimmed text the check actually saw.
+  assert.equal(
+    reason({
+      tracks: [
+        { ...track, arrangement: track.arrangement + " www.example.test\n" },
+      ],
+    }),
+    "The track for slot 0 had a web address in its description.",
+  );
+  assert.equal(
+    reason({
+      tracks: [
+        { ...track, arrangement: "\n\t\r" + track.arrangement + " \u2122" },
+      ],
+    }),
+    "The track for slot 0 used characters that are not allowed: U+2122.",
+  );
+  assert.equal(
+    validateMusicPlan(
+      {
+        tracks: [
+          {
+            ...track,
+            arrangement: 'Warm keys with a "four on the floor" pulse and bass',
+          },
+        ],
+      },
+      "flow",
+      [0],
+    ).length,
+    1,
   );
   assert.equal(
     reason({ tracks: [{ ...track, bpm: 150 }] }),
@@ -759,6 +795,51 @@ test("a rejected AI reply records why, uses standard arrangements for its slots 
       second.error,
       "Standard arrangements used automatically. The reply was not valid JSON.",
     );
+    assert.equal((await fresh.system(musicAgentSummary)).status, "generating");
+    // Provider failures are labelled from status fields, never provider text.
+    const tick = () =>
+      fresh
+        .system((tx) =>
+          tx.query("UPDATE workout_music_agent SET next_check_at=NULL"),
+        )
+        .then(() => fixture(() => processMusicAgent(fresh)));
+    const plannedError = async () => {
+      const [p] = await fresh.system((tx) =>
+        tx.query(
+          "SELECT status,error FROM workout_music_plans ORDER BY created_at DESC LIMIT 1",
+        ),
+      );
+      assert.equal(p.status, "ready");
+      return p.error;
+    };
+    planReply = null;
+    await tick(); // queues the second playlist's standard arrangement
+    planReply = () =>
+      Response.json(
+        { error: { message: "internal detail that must not be stored" } },
+        { status: 500 },
+      );
+    await tick();
+    assert.equal(aiCalls, callsBefore + 3);
+    assert.equal(
+      await plannedError(),
+      "Standard arrangements used automatically. The AI provider returned HTTP 500.",
+    );
+    planReply = null;
+    await tick();
+    planReply = () => {
+      throw new TypeError("socket hang up with internal detail");
+    };
+    await tick();
+    assert.equal(aiCalls, callsBefore + 4);
+    assert.equal(
+      await plannedError(),
+      "Standard arrangements used automatically. The AI request got no response (timeout or lost connection).",
+    );
+    const stored = await fresh.system((tx) =>
+      tx.query("SELECT error FROM workout_music_plans"),
+    );
+    assert.ok(stored.every((p) => !/internal detail/.test(p.error ?? "")));
     assert.equal((await fresh.system(musicAgentSummary)).status, "generating");
   } finally {
     planReply = null;

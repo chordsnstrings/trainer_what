@@ -18,7 +18,7 @@ const plain = (v: unknown) =>
     ? v
         .replace(/[\u2010-\u2015\u2212]/g, "-")
         .replace(
-          /[\u2018\u2019\u201A\u201B\u2032\u201C\u201D\u201E\u201F\u2033]/g,
+          /["\u2018\u2019\u201A\u201B\u2032\u201C\u201D\u201E\u201F\u2033]/g,
           "'",
         )
         .replace(/\u2026/g, "...")
@@ -53,24 +53,32 @@ const schema = z
 /** Code-built reason for a schema failure; never echoes the model's text. */
 function issueReason(error: z.ZodError, raw: unknown) {
   const issue = error.issues[0];
-  if (!issue || !issue.path.length)
-    return "The reply did not match the music plan format.";
+  if (!issue) return "The reply did not match the music plan format.";
   const [, index, field] = issue.path;
   const track = (raw as any)?.tracks?.[index as number],
     where =
       typeof index === "number"
         ? `The track for slot ${Number.isInteger(track?.slot) ? track.slot : `#${index + 1}`}`
         : "The reply";
+  // Field names the model invented are counted, not repeated.
+  if (issue.code === "unrecognized_keys") {
+    const n = issue.keys.length;
+    return `${where} had ${n} extra field${n === 1 ? "" : "s"}.`;
+  }
+  if (!issue.path.length)
+    return "The reply did not match the music plan format.";
   if (field === "arrangement") {
     const text = plain(track?.arrangement);
     if (typeof text === "string") {
-      const length = text.trim().length;
+      // The same trimmed text the schema checks.
+      const checked = text.trim(),
+        length = checked.length;
       if (length > MUSIC_ARRANGEMENT_MAX)
         return `${where} had a description of ${length} characters (limit ${MUSIC_ARRANGEMENT_MAX}).`;
       if (length < 30)
         return `${where} had a description of ${length} characters (minimum 30).`;
       const bad = [
-        ...new Set([...text].filter((c) => !ARRANGEMENT_CHARS.test(c))),
+        ...new Set([...checked].filter((c) => !ARRANGEMENT_CHARS.test(c))),
       ].slice(0, 3);
       if (bad.length)
         return `${where} used characters that are not allowed: ${bad
@@ -82,17 +90,12 @@ function issueReason(error: z.ZodError, raw: unknown) {
       return `${where} had a web address in its description.`;
     }
   }
-  const name = (key: PropertyKey) =>
-    String(key)
-      .replace(/[^a-zA-Z0-9_]/g, "")
-      .slice(0, 24);
-  if (issue.code === "unrecognized_keys")
-    return `${where} had extra fields: ${issue.keys.slice(0, 3).map(name).join(", ")}.`;
   if (issue.code === "too_big" && issue.path.length === 1)
     return `The reply had more than ${MUSIC_PLAN_SIZE} tracks.`;
   if (issue.code === "too_small" && issue.path.length === 1)
     return "The reply had no tracks.";
-  return `${where} had a missing or invalid ${name(field ?? issue.path[0] ?? "value")} value.`;
+  // Only schema-defined keys (tracks, slot, bpm) reach this point.
+  return `${where} had a missing or invalid ${String(field ?? issue.path[0])} value.`;
 }
 export function validateMusicPlan(
   raw: unknown,

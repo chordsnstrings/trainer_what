@@ -16,8 +16,15 @@ Owner (19 October): "yeah go for it for both", meaning restart the paused music 
   4. The prompt asks for 80–300 characters (the check still allows 30–420). Typographic dashes and quotes are made plain before the check. The prompt version is bumped to `music-plan-v2`.
 
   Admin Music lists the three most recent fallbacks with their reasons.
-- **Checks run.** All 18 tests in `tests/music-agent.test.ts` and `tests/workout-music.test.ts` passed. Root `tsc --noEmit` reports no errors in the changed files. Its only errors, and the web typecheck's, are three in `apps/web/lib/voice-input.ts` that also occur on unchanged `main`, because `onnxruntime-web` and `@sapphi-red/web-noise-suppressor` are not installed in this container. An adversarial review is running.
-- **Next.** Finish the review, open the PR, get CI green, merge, confirm the live release, then re-check the library.
+- **Review (adversarial workflow: 3 lenses, each finding verified).** It confirmed 6 findings, all low severity, which reduce to 4 fixes, all made:
+  - provider failures are now labelled from `providerUnreachable` / `providerStatus` (for example "The AI provider returned HTTP 500."); before, they all read "(error)";
+  - field names invented by the model are counted, not stored;
+  - extra top-level fields get a specific reason;
+  - the reason now uses the same trimmed text the check uses.
+  
+  A database error while saving a valid reply now propagates instead of being reported as an AI failure. An ASCII double quote is now converted to an apostrophe. One finding was refuted: the double quote was already rejected before this change.
+- **Checks run.** All 18 tests in `tests/music-agent.test.ts` and `tests/workout-music.test.ts` passed. New tests cover HTTP 500, no response, invalid JSON, an overlong description, extra fields and leftover failed/unknown plans. Root and web `tsc --noEmit` report no errors in the changed files. The only errors are three in `apps/web/lib/voice-input.ts`; they also occur on unchanged `main`, because `onnxruntime-web` and `@sapphi-red/web-noise-suppressor` are not installed in this container. Draft PR #77 is open.
+- **Next.** Get CI green on PR #77, merge, confirm the live release with `scripts/watch-release.sh`, then re-check the library.
 - **WHOOP.** The test client kamran+testclient@arks.ae has not connected yet; that is an owner action.
 
 ### WHOOP live activation — 18 October 2026 (Claude)
