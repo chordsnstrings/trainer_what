@@ -6,6 +6,8 @@ import { defineMessages } from "../core";
  */
 export default defineMessages(
   {
+    selectedOfferReview: "Your selected offer is first. Review its current price and terms before paying.",
+    selectedOfferUnavailable: "That offer is no longer available. Choose from your coach’s current offers.",
     audioPreparing: "Your coach is preparing audio guidance. Text workouts remain available.",
     audioMessageCoach: "Message your coach",
     eyebrow: "CLEAR NUMBERS. NO GUESSWORK.",
@@ -200,6 +202,8 @@ export default defineMessages(
     refund_denied: "Declined",
   },
   {
+    selectedOfferReview: "هذه الباقة التي اخترتها. راجع السعر الحالي والشروط قبل الدفع.",
+    selectedOfferUnavailable: "الباقة المختارة لم تعد متاحة. يمكنك اختيار إحدى الباقات الحالية.",
     audioPreparing: "مدربك يجهز التوجيه الصوتي. تبقى التمارين النصية متاحة.",
     audioMessageCoach: "مراسلة مدربك",
     eyebrow: "أرقام واضحة، بلا تخمين.",

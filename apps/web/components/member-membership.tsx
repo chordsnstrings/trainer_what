@@ -283,7 +283,7 @@ export function MemberMembership({
         <section className="card" aria-labelledby="offers-title" id="offers">
           <h2 id="offers-title">{t("choosePlan")}</h2>
           <p className="muted">{t("mPlansIntro")}</p>
-          {chosenOffer && <p className="notice">{published.some(p => p.id === chosenOffer) ? (locale === "ar" ? "هذه الباقة التي اخترتها. راجع السعر الحالي والشروط قبل الدفع." : "Your selected offer is first. Review its current price and terms before paying.") : (locale === "ar" ? "الباقة المختارة لم تعد متاحة. اختر إحدى الباقات الحالية." : "That offer is no longer available. Choose from your coach’s current offers.")}</p>}
+          {chosenOffer && <p className="notice">{published.some(p => p.id === chosenOffer) ? (t("selectedOfferReview")) : (t("selectedOfferUnavailable"))}</p>}
           <ul className="membership-offers">
             {published.map((p) => (
               <li key={p.id} className={p.id === chosenOffer ? "selected-purchase" : undefined}>

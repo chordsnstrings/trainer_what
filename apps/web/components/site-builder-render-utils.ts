@@ -7,6 +7,7 @@ import {
   type SiteBuilderStyle,
 } from "@trainer/contracts";
 import type { CSSProperties } from "react";
+import { safeJoinReturn } from "../lib/join-intent";
 
 export type BuilderProduct = {
   id: string;
@@ -111,8 +112,8 @@ export function resolveBuilderActionHref(
     }
   }
   // Booking and choosing a coaching plan happen inside the member app, after
-  // joining. Do not invent a public checkout or carry an unsupported plan ID.
-  return isSafeBuilderLink(context.joinPath) ? context.joinPath : null;
+  // joining. Offer intent is allowlisted; prices and eligibility remain server-owned.
+  return safeJoinReturn(context.joinPath) ?? (isSafeBuilderLink(context.joinPath) ? context.joinPath : null);
 }
 
 export function safeBuilderImage(

@@ -115,7 +115,7 @@ test("native pricing displays only recorded public offers, exact terms and the r
   );
   assert.match(html, /Strength Essentials/);
   assert.match(html, /AED\s250\.00 \/ month/);
-  assert.match(html, /href="\/join-coach\/amina"/);
+  assert.match(html, /href="\/join-coach\/amina\?offer=a"/);
   assert.doesNotMatch(
     html,
     /Invented discount|AED 9|Unknown charge|productId=/,

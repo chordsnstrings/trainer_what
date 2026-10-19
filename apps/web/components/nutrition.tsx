@@ -2778,7 +2778,7 @@ export function NutritionSubscriber({
               <BottomSheet title={t("chooseAlternative")} open={!!swap} onClose={() => { if (!r.busy) { setSwap(null); setOptions(null); } }}>
                 <p>{formatDate(swap.date, { locale })} · {swap.slot}</p>
                 {r.error && <p className="notice error" role="alert">{r.error}<ReadRetry onRetry={async () => { setOptions(await api("/nutrition/plans/" + plan.id + "/options")); r.setError(""); }} /></p>}
-                {!options && !r.error && <p role="status">{locale === "ar" ? "جارٍ تحميل البدائل…" : "Loading alternatives…"}</p>}
+                {!options && !r.error && <p role="status">{t("loadingAlternatives")}</p>}
                 {options && <form
                   onSubmit={(e) => {
                     e.preventDefault();
@@ -3224,11 +3224,11 @@ function GroceryList({
           </label>);
   return (
     <>
-      <p>{locale === "ar" ? "المتبقي" : "Still needed"}: {plan.data.view.groceries.filter((g: any) => !selected.includes(g.food.id)).length}</p>
+      <p>{t("groceriesRemaining")}: {plan.data.view.groceries.filter((g: any) => !selected.includes(g.food.id)).length}</p>
       <NutritionShopping plan={plan} readOnly={disabled} />
       <div className="nutrition-groceries">
         {plan.data.view.groceries.filter((g: any) => !selected.includes(g.food.id)).map(row)}
-        <details><summary>{locale === "ar" ? "متوفر أو تم شراؤه" : "Already have or purchased"} · {plan.data.view.groceries.filter((g: any) => selected.includes(g.food.id)).length}</summary>{plan.data.view.groceries.filter((g: any) => selected.includes(g.food.id)).map(row)}</details>
+        <details><summary>{t("alreadyHave")} · {plan.data.view.groceries.filter((g: any) => selected.includes(g.food.id)).length}</summary>{plan.data.view.groceries.filter((g: any) => selected.includes(g.food.id)).map(row)}</details>
       </div>
       <p>{t("pantryHelp")}</p>
       <button

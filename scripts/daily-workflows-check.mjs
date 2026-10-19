@@ -49,7 +49,8 @@ async function capture(name) {
     false,
     name + " horizontal overflow",
   );
-  await page.screenshot({ path: `${folder}/${name}.png`, fullPage: true });
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: `${folder}/${name}.png`, fullPage: true, animations: "disabled" });
 }
 try {
   await login(context, "coach@example.test");

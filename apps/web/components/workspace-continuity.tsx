@@ -96,7 +96,7 @@ export function useWorkspaceValue<T>(key: string, initial: T, draft = false) {
 /** Native history keeps filters shareable without remounting the workspace. */
 export function useWorkspaceQuery(key: string, initial = "") {
   const params = useSearchParams();
-  const value = params.get(key) ?? initial;
+  const value = params?.get(key) ?? initial;
   const set = useCallback((next: string) => {
     const url = new URL(window.location.href);
     if (next && next !== initial) url.searchParams.set(key, next);

@@ -304,8 +304,8 @@ export function MemberToday({
         </section>
       )}
       {!hold && !active && state.integrations?.some((i: any) => i.id === "whoop" && i.configured && i.approved) && <WhoopTrainingCard compact />}
-      {data && failed && <p className="notice" role="status">{locale === "ar" ? "تعذر تحديث يومك. تظهر آخر بيانات محفوظة." : "Your day could not refresh. Showing the last loaded view."}<button className="text-button" onClick={() => void load()}>{t("tryAgain")}</button></p>}
-      {!hold && !active && nutrition && <nav className="daily-member-links" aria-label={locale === "ar" ? "التغذية" : "Food today"}><Link className="button secondary" href="/app/nutrition">{locale === "ar" ? "وجبات اليوم" : "Today’s meals"}</Link><Link className="button secondary" href="/app/nutrition/log">{locale === "ar" ? "تسجيل وجبة" : "Log a meal"}</Link></nav>}
+      {data && failed && <p className="notice" role="status">{t("staleView")}<button className="text-button" onClick={() => void load()}>{t("tryAgain")}</button></p>}
+      {!hold && !active && nutrition && <nav className="daily-member-links" aria-label={t("foodToday")}><Link className="button secondary" href="/app/nutrition">{t("todaysMeals")}</Link><Link className="button secondary" href="/app/nutrition/log">{t("logMeal")}</Link></nav>}
       {!hold && !active && <MemberSetupChecklist steps={data?.setup} />}
       {!hold && status.length > 0 && (
         <ul className="today-status" aria-label={t("fProgressAria")}>

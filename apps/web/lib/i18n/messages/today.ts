@@ -3,6 +3,9 @@ import { defineMessages } from "../core";
 /** Today, the day-by-day programme card and the programme timeline. */
 export default defineMessages(
   {
+    staleView: "Your day could not refresh. Showing the last loaded view.",
+    foodToday: "Food today",
+    todaysMeals: "Today’s meals",
     fWorkoutLog: "Use workout log",
     fOpenGuided: "Open guided session",
     greeting: "Good to see you, {name}.",
@@ -276,6 +279,9 @@ export default defineMessages(
     fYourWorkout: "Your workout",
   },
   {
+    staleView: "تعذر تحديث يومك. تظهر آخر بيانات محفوظة.",
+    foodToday: "التغذية",
+    todaysMeals: "وجبات اليوم",
     fWorkoutLog: "استخدام سجل التمرين",
     fOpenGuided: "فتح الجلسة الموجّهة",
     greeting: "سعداء برؤيتك، {name}.",
