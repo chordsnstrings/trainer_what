@@ -2,7 +2,7 @@
 
 Application implementation and the job audit are complete for the current phase. [PR #1](https://github.com/chordsnstrings/trainer_what/pull/1) contains the work; [combined verification](VERIFICATION_2026-09-27.md) records the passing final code revision. The owner authorized merge to main. Real services and deployment remain the next phase; screenshots were waived. Historical entries below record the evidence available at each stage and may contain superseded pending-check statements.
 
-## Stage 2026-10-19 — music agent never stalls on a failed AI plan (PR #77, CI pending)
+## Stage 2026-10-19 — music agent never stalls on a failed AI plan (PR #77, live `15de319`)
 
 On 19 October one rejected Rock plan stopped all eight playlists at 196 of 240 tracks. The owner asked to restart the music now and to fix four things ("yeah go for it for both"). Claude restarted it with standard arrangements at 05:47 UTC; by 05:54 UTC it was generating, with 205 tracks.
 
@@ -15,7 +15,7 @@ Code changes:
 
 An adversarial review confirmed 6 low-severity findings, all fixed, and refuted 1. Checks: 18 of 18 music tests pass on PGlite and on a local PostgreSQL 16 run with the CI per-file isolation and non-owner role. The first CI run's database failure was a test reusing its file's database; the scenario moved to `tests/music-agent-fallback.test.ts`. Root and web TypeScript are clean apart from 3 errors in `voice-input.ts`, which also occur on `main` because packages are missing in this container.
 
-**Not yet done:** PR CI, merge and live release verification.
+**Release:** the final head `44e9b8b` passed all 7 CI jobs. Merged as `15de319a43c0a61f8d77b64925f5ca9bf221b193`; `scripts/watch-release.sh` saw it live at 09:19:02 UTC on 19 October (HTTP 200). The library reached 240 of 240 approved tracks (8 of 8 playlists) at 08:18 UTC, before the deploy, and was re-checked as still full afterwards. No live fallback has happened yet, so the new path has only been exercised in tests.
 
 ## Stage 2026-10-12 — preview voice worker discovery (live)
 
