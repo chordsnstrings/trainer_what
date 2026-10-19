@@ -4,8 +4,8 @@ import { api } from "./workspace-ui";
 import type { InboxItem } from "./workspace-inbox";
 
 export const INBOX_CHANGED = "trainer-inbox-changed";
-type Snapshot = { items: InboxItem[] | null; count: number; error: string };
-const empty: Snapshot = { items: null, count: 0, error: "" };
+type Snapshot = { items: InboxItem[] | null; count: number; error: string; updatedAt: number };
+const empty: Snapshot = { items: null, count: 0, error: "", updatedAt: 0 };
 type Entry = { snapshot: Snapshot; listeners: Set<() => void>; pending?: Promise<void>; at: number; epoch: number; stop?: () => void };
 const entries = new Map<string, Entry>();
 let listening = false;
@@ -20,7 +20,7 @@ function load(e: Entry): Promise<void> {
   const epoch = e.epoch;
   e.pending = api("/trainer/inbox").then(r => {
     if (e.epoch !== epoch) return;
-    e.at = Date.now(); publish(e, { items: r.items, count: Number(r.counts?.total ?? r.items.length), error: "" });
+    e.at = Date.now(); publish(e, { items: r.items, count: Number(r.counts?.total ?? r.items.length), error: "", updatedAt: Date.now() });
   }, error => { if (e.epoch === epoch) publish(e, { ...e.snapshot, error: error.message }); }).finally(() => { e.pending = undefined; });
   return e.pending;
 }

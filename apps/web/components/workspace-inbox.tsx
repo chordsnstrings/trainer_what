@@ -35,7 +35,8 @@ type InboxType =
   | "chat"
   | "plan_draft"
   | "followup"
-  | "booking";
+  | "booking"
+  | "inquiry";
 export type InboxItem = {
   id: string;
   type: InboxType;
@@ -69,6 +70,7 @@ const KIND_LABEL: Record<InboxType, string> = {
   plan_draft: "Plan",
   followup: "Scheduled message",
   booking: "Booking",
+  inquiry: "Website inquiry",
 };
 const KIND_TONE: Partial<Record<InboxType, string>> = {
   safety: "amber",
@@ -82,6 +84,7 @@ const KIND_ICON: Record<InboxType, ReactNode> = {
   plan_draft: <Brain size={16} aria-hidden="true" />,
   followup: <Calendar size={16} aria-hidden="true" />,
   booking: <Calendar size={16} aria-hidden="true" />,
+  inquiry: <MessageCircle size={16} aria-hidden="true" />,
 };
 
 const when = (at: string) => formatWhen(at);
@@ -358,18 +361,20 @@ function InboxCard({
   );
 }
 
-export function useChats() {
+export function useChats(enabled = true) {
   const [chats, setChats] = useState<ChatSummary[] | null>(null),
     [error, setError] = useState("");
   const load = useCallback(async () => {
+    if (!enabled) return;
     try {
       setChats((await api("/trainer/chats")).chats);
       setError("");
     } catch (e) {
       setError((e as Error).message);
     }
-  }, []);
+  }, [enabled]);
   useEffect(() => {
+    if (!enabled) return;
     void load();
     const timer = setInterval(() => {
       if (document.visibilityState === "visible") void load();
@@ -450,9 +455,9 @@ export function ChatList({
   );
 }
 
-export function Inbox({ state }: { state: State }) {
+export function Inbox({ state, compact = false }: { state: State; compact?: boolean }) {
   const { items, error, load, setItems } = useSharedInbox(useContext(WorkspaceScope));
-  const chats = useChats();
+  const chats = useChats(!compact);
   const [done, setDone] = useState(""),
     [view, setView] = useWorkspaceQuery("view", "todo");
   const onDone = (id: string, message: string) => {
@@ -464,23 +469,22 @@ export function Inbox({ state }: { state: State }) {
   const unread = chats.chats?.filter((c) => c.awaitingReply).length ?? 0;
   const setupOpen = coachSetupOpen(state);
   return (
-    <div className="trainer-inbox">
-      <div className="page-heading">
+    <div className={"trainer-inbox" + (compact ? " is-compact" : "")}>
+      {!compact && <div className="page-heading">
         <div>
           <h1>Inbox</h1>
           <p className="muted">
             Everything waiting for you, most urgent first.
           </p>
         </div>
-      </div>
-      {setupOpen && (
+      </div>}
+      {!compact && setupOpen && (
         <Link href={SETUP_HREF} className="card trainer-setup-banner">
           <CheckCircle size={20} aria-hidden="true" />
           <span>
             <strong>Finish setting up</strong>
             <small>
-              About 15 minutes to your page going live. Your answers are saved
-              as you go.
+              Your answers are saved. Continue from where you left off.
             </small>
           </span>
           <ChevronRight size={18} aria-hidden="true" />
@@ -491,7 +495,7 @@ export function Inbox({ state }: { state: State }) {
           <Check size={17} /> {done}
         </p>
       )}
-      <div className="inbox-switch" role="tablist" aria-label="Inbox view">
+      {!compact && <div className="inbox-switch" role="tablist" aria-label="Inbox view">
         <button
           type="button"
           role="tab"
@@ -510,12 +514,13 @@ export function Inbox({ state }: { state: State }) {
         >
           Chats{unread ? ` (${unread})` : ""}
         </button>
-      </div>
-      <div className={"inbox-layout show-" + view}>
+      </div>}
+      <div className={"inbox-layout show-" + (compact ? "todo" : view)}>
         <section className="inbox-todo" aria-label="To do">
           {error && (
             <p className="notice error" role="alert">
               {error}
+              <button className="text-button" onClick={() => void load()}>Refresh inbox</button>
             </p>
           )}
           {!items && !error && <p className="muted">Loading your inbox…</p>}
@@ -529,13 +534,13 @@ export function Inbox({ state }: { state: State }) {
           )}
           {!!items?.length && (
             <ul className="inbox-list">
-              {items.map((item) => (
+              {(compact ? items.slice(0, 5) : items).map((item) => (
                 <InboxCard key={item.id} item={item} onDone={onDone} />
               ))}
             </ul>
           )}
         </section>
-        <aside className="inbox-chats card" aria-label="Chats">
+        {!compact && <aside className="inbox-chats card" aria-label="Chats">
           <div className="card-heading">
             <h2>Chats</h2>
             <Link className="text-button" href="/trainer/messages">
@@ -543,7 +548,7 @@ export function Inbox({ state }: { state: State }) {
             </Link>
           </div>
           <ChatList chats={chats.chats} error={chats.error} compact />
-        </aside>
+        </aside>}
       </div>
     </div>
   );

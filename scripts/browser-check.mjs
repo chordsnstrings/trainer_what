@@ -170,8 +170,8 @@ try {
   // The demo coach is also a Superadmin, and Superadmins land in Super admin.
   await page.waitForURL(/\/(trainer|admin\/settings)$/);
   await page.goto(base + "/trainer");
-  // The trainer's home is the one inbox; the old dashboard is the summary.
-  await page.getByRole("heading", { name: "Inbox", exact: true }).waitFor();
+  // Today keeps the queue alongside the working schedule.
+  await page.getByRole("heading", { name: /Good to see you/ }).waitFor();
   await capture(page, {
     path: "test-results/trainer-desktop.png",
     fullPage: true,
@@ -552,7 +552,11 @@ try {
     .getByRole("heading", { name: "One list for the week", exact: true })
     .waitFor();
   await subscriber.getByText("2800 g", { exact: true }).first().waitFor();
-  await subscriber.getByRole("checkbox", { name: /^Oat mixture/ }).check();
+  // Checking an item moves it into the purchased group. Follow that move
+  // before asserting its state, rather than retrying the now-hidden control.
+  await subscriber.getByRole("checkbox", { name: /^Oat mixture/ }).click();
+  await subscriber.locator(".nutrition-groceries > details > summary").click();
+  assert.equal(await subscriber.getByRole("checkbox", { name: /^Oat mixture/ }).isChecked(), true);
   await subscriber
     .getByRole("button", { name: "Save shopping progress", exact: true })
     .click();
@@ -567,6 +571,7 @@ try {
   await subscriber
     .getByRole("tab", { name: "Weekly groceries", exact: true })
     .click();
+  await subscriber.locator(".nutrition-groceries > details > summary").click();
   const persistedPantry = subscriber.getByRole("checkbox", {
     name: /^Oat mixture/,
   });

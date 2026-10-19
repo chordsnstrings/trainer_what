@@ -1136,7 +1136,7 @@ export function registerCoachSite(app: FastifyInstance, db: Database) {
           dedupeKey: `website-inquiry:${r.id}`,
           title: "New website inquiry",
           body: "Someone contacted you through your coaching website. Open your website inquiries to read the message and reply.",
-          href: "/trainer/website",
+          href: "/trainer/website/settings#inquiries",
           templateKey: "website-inquiry",
           ...(alert ? {} : { email: false, push: false }),
           source: { type: "website_inquiry", id: r.id },

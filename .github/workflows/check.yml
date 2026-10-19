@@ -7,6 +7,33 @@ on:
 permissions:
   contents: read
 jobs:
+  daily-workflows:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium --only-shell
+      - name: Trainer and subscriber daily workflow journeys
+        run: node scripts/run-rtl-check.mjs
+        env:
+          RTL_CHECK_MODULE: ./daily-workflows-check.mjs
+          RTL_WEB_MODE: start
+          RTL_WEB_PORT: "3229"
+          RTL_API_PORT: "4229"
+          RTL_DATA_DIR: .data/daily-workflows
+          AUTHENTICATOR_REQUIRED: "false"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: daily-workflows-evidence
+          path: test-results/daily-workflows/
+          if-no-files-found: ignore
   homepage-call:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -54,15 +81,23 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y python3 python3-xlrd antiword poppler-utils tesseract-ocr ffmpeg
       - run: npm run check
       - run: npx playwright install --with-deps chromium --only-shell
+      # These journeys own separate fixtures. Collect every result after the
+      # build/browser foundation succeeds; any failed step still fails this job.
       - run: npm run seed:demo
+        id: browser_fixture
       - run: node scripts/run-browser-check.mjs
+        if: ${{ !cancelled() && steps.browser_fixture.outcome == 'success' }}
       - name: Visual website builder journey
+        if: ${{ !cancelled() && steps.browser_fixture.outcome == 'success' }}
         run: npm run test:site-builder
       - name: Section layout matrix (three widths, English and Arabic)
+        if: ${{ !cancelled() && steps.browser_fixture.outcome == 'success' }}
         run: node --import tsx scripts/site-builder-layout-check.ts
       - name: Scroll modules (motion, accessibility and zoomed preview)
+        if: ${{ !cancelled() && steps.browser_fixture.outcome == 'success' }}
         run: node --import tsx scripts/site-builder-scroll-check.ts
       - name: Backend onboarding, navigation and responsive UI
+        if: ${{ !cancelled() && steps.browser_fixture.outcome == 'success' }}
         run: node scripts/run-rtl-check.mjs
         env:
           RTL_CHECK_MODULE: ./backend-ui-check.mjs
@@ -72,6 +107,7 @@ jobs:
           RTL_DATA_DIR: .data/backend-ui-check
           AUTHENTICATOR_REQUIRED: "false"
       - name: Complete website from onboarding (desktop and Arabic phone)
+        if: ${{ !cancelled() && steps.browser_fixture.outcome == 'success' }}
         run: node --import tsx scripts/run-onboarding-chat-check.mjs
         env:
           WEBSITE_ONBOARDING_FIXTURE: "true"
@@ -82,6 +118,7 @@ jobs:
           RTL_DATA_DIR: .data/onboarding-website-check
           AUTHENTICATOR_REQUIRED: "false"
       - name: Domain settings recovery and confirmations
+        if: ${{ !cancelled() && steps.browser_fixture.outcome == 'success' }}
         run: node scripts/run-rtl-check.mjs
         env:
           RTL_CHECK_MODULE: ./domain-ui-check.mjs

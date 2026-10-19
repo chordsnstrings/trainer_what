@@ -255,8 +255,8 @@ export function TrainerGrowth({
           </p>
         </div>
       </div>
-      <FollowerEstimate />
       <ShareYourLink slug={slug} published={published} />
+      <details className="card"><summary>Explore a growth estimate</summary><p className="muted">Modeled outcomes, not measured conversions.</p><FollowerEstimate /></details>
     </>
   );
 }

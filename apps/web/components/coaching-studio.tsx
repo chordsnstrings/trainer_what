@@ -1,4 +1,6 @@
 "use client";
+import { saveAndRefresh, readSignal, refreshMessage } from "../lib/action-outcome";
+import { ReadRetry } from "./read-retry";
 import { promptWorkspace } from "./workspace-feedback";
 import { Field } from "./field";
 import { BrainProgress } from "./brain-progress";
@@ -8,6 +10,7 @@ import { coachingActions } from "../../../packages/domain/src/coaching-completio
 async function api(path: string, method = "GET", body?: unknown) {
   const r = await fetch("/api/v1" + path, {
     method,
+    signal: readSignal(method),
     credentials: "same-origin",
     headers:
       body === undefined ? undefined : { "Content-Type": "application/json" },
@@ -56,10 +59,10 @@ export function CoachingStudio({ path }: { path: string }) {
     setMessage("");
     setError("");
     try {
-      const r = await fn();
-      await load();
+      const { result, refreshed } = await saveAndRefresh(fn, load);
       setMessage(success);
-      return r;
+      if (!refreshed) setError(refreshMessage());
+      return result;
     } catch (e) {
       setError((e as Error).message);
       return null;
@@ -110,6 +113,7 @@ export function CoachingStudio({ path }: { path: string }) {
       {error && (
         <p className="notice" role="alert">
           {error}
+          <ReadRetry onRetry={async () => { await load(); setError(""); }} />
         </p>
       )}
       {message && (

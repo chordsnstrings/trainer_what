@@ -95,6 +95,7 @@ export function Finance({
       {!sub && offer === "payouts" && state.user.role === "owner" && (
         <TrainerFinanceTools />
       )}
+      {!sub && offer === "offers" && state.user.role === "owner" && <TrainerFinanceTools area="offers" />}
       {sub ? (
         <>
           <MemberAccessCard />

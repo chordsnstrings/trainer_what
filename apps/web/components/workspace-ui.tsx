@@ -1,4 +1,5 @@
 "use client";
+import { readSignal } from "../lib/action-outcome";
 import { memberApiUrl } from "../lib/trainer-preview-routing";
 import { pageKey } from "./workspace-paging";
 import { useId, type ButtonHTMLAttributes, type ReactNode } from "react";
@@ -83,6 +84,7 @@ export async function api(
 ) {
   const r = await fetch(memberApiUrl("/api/v1" + path), {
     method,
+    signal: readSignal(method),
     headers:
       body !== undefined
         ? { "Content-Type": "application/json", ...headers }

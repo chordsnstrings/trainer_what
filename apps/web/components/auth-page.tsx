@@ -1,4 +1,5 @@
 "use client";
+import { JoinContinuity } from "./join-continuity";
 import type { ReactNode } from "react";
 import { useT } from "../lib/i18n/react";
 import { useInvalidShake } from "./motion";
@@ -32,7 +33,7 @@ export function AuthPage({
         <h1>{title}</h1>
         {intro && <div className="auth-page-intro">{intro}</div>}
       </header>
-      <section className="auth-card">{children}</section>
+      <section className="auth-card"><JoinContinuity />{children}</section>
     </main>
   );
 }

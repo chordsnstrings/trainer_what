@@ -407,3 +407,29 @@ test("a note is needed only when closing an item without sending anything", asyn
   assert.equal(row.data.outcome, "closed");
   assert.equal(row.data.resolution, "Answered on the phone");
 });
+
+test("website inquiries join the owner's queue without becoming visible to coaching staff or another tenant", async () => {
+  const owner = await workspace(), other = await workspace();
+  const staff = await person(owner.tenantId, "staff", "Synthetic staff");
+  const inquiry = await db.tenant(owner, tx => putRecord(tx, owner, "website_inquiry", { name: "Visitor", email: "visitor@example.test", message: "What coaching is available?" }, { status: "open" }));
+  const own = (await call(owner, "/trainer/inbox")).json();
+  assert.ok(own.items.some((item: any) => item.recordId === inquiry.id && item.type === "inquiry"));
+  for (const actor of [staff, other]) assert.equal((await call(actor, "/trainer/inbox")).json().items.some((item: any) => item.recordId === inquiry.id), false);
+});
+
+test("client task filters search the server's full authorized collection", async () => {
+  const owner = await workspace(), other = await workspace();
+  const needing = await client(owner, "Review me"), clear = await client(owner, "Assigned client"), foreign = await client(other, "Other tenant");
+  await db.tenant(owner, async tx => {
+    await putRecord(tx, owner, "exception", { subscriberId: needing.userId, question: "Please review" }, { ownerId: needing.userId, status: "open" });
+    await putRecord(tx, owner, "program", { title: "Assigned" }, { ownerId: clear.userId, status: "assigned" });
+    await tx.query("UPDATE subscriptions SET status='past_due' WHERE user_id=$1", [needing.userId]);
+  });
+  for (const filter of ["needs_review", "no_plan", "membership_issue"]) {
+    const response = await call(owner, `/workspace/pages/members?role=subscriber&filter=${filter}`);
+    assert.equal(response.statusCode, 200, response.body);
+    assert.deepEqual(response.json().items.map((item: any) => item.id), [needing.userId]);
+    assert.ok(!response.json().items.some((item: any) => item.id === foreign.userId));
+  }
+  assert.equal((await call(owner, "/workspace/pages/members?filter=untrusted")).statusCode, 400);
+});

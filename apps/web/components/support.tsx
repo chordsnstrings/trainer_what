@@ -58,7 +58,9 @@ export function Support({
   const t = useT("support"),
     locale = useLocale();
   const [selected, setSelected] = useState("");
-  const thread = records.find((r) => r.id === selected);
+  const [acceptedThread, setAcceptedThread] = useState<any>(null);
+  const visibleRecords = acceptedThread && !records.some((r) => r.id === acceptedThread.id) ? [acceptedThread, ...records] : records;
+  const thread = visibleRecords.find((r) => r.id === selected);
   const threadRef = useRef<HTMLElement>(null);
   useEffect(() => {
     if (selected)
@@ -105,9 +107,9 @@ export function Support({
       </div>
       <section className="card" aria-labelledby="support-list">
         <h2 id="support-list">{t("yours")}</h2>
-        {!records.length && <p className="muted">{t("empty")}</p>}
+        {!visibleRecords.length && <p className="muted">{t("empty")}</p>}
         <ul className="support-list">
-          {records.map((r) => (
+          {visibleRecords.map((r) => (
             <li key={r.id}>
               <button
                 type="button"
@@ -191,11 +193,15 @@ export function Support({
           id="support-new-form"
           onSubmit={(e) => {
             e.preventDefault();
-            const f = new FormData(e.currentTarget);
-            void action(
-              () => post("", Object.fromEntries(f)),
-              t("saved"),
-            );
+            const form = e.currentTarget;
+            const f = new FormData(form);
+            void action(async () => {
+              const result = await post("", Object.fromEntries(f));
+              setAcceptedThread(result);
+              setSelected(result.id);
+              form.reset();
+              return result;
+            }, t("saved"));
           }}
         >
           <label className="field">

@@ -55,6 +55,7 @@ import "./analytics-consent.css";
 // and the reduced-motion rules (docs/features/motion.md).
 import "./motion.css";
 import "./workspace-system.css";
+import "./daily-workflows.css";
 import "./affiliates.css";
 import "./onboarding-chat.css";
 

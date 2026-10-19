@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { money, paymentBreakdown } from "@trainer/domain";
-import { monthlyMinimum } from "@trainer/contracts";
+import { minimumOfferPrice } from "@trainer/contracts";
 import { Field } from "./field";
 import { translator, type Locale } from "../lib/i18n/core";
 import offersMessages from "../lib/i18n/messages/offers";
@@ -211,11 +211,12 @@ export function OfferForm({
 }) {
   const [billing, setBilling] = useState<"monthly" | "upfront">("monthly");
   const [rolling, setRolling] = useState(true);
+  const [days, setDays] = useState(84);
   const [price, setPrice] = useState("");
   const [voicePrice, setVoicePrice] = useState("");
   const [tier, setTier] = useState("workout");
   const [premiumVoice, setPremiumVoice] = useState(false);
-  const floor = monthlyMinimum({ tier, premiumVoice }) / 100;
+  const floor = minimumOfferPrice({ tier, premiumVoice, billing, programmeDays: days }) / 100;
   const upfront = billing === "upfront";
   return (
     <form
@@ -238,7 +239,7 @@ export function OfferForm({
                 billing,
                 programmeDays:
                   upfront || !rolling ? Number(f.get("programmeDays")) : null,
-                voiceAddOnMinor: voice ? Math.round(Number(voice) * 100) : null,
+                voiceAddOnMinor: !premiumVoice && voice ? Math.round(Number(voice) * 100) : null,
                 ...(f.get("baseProductId")
                   ? { baseProductId: f.get("baseProductId") }
                   : {}),
@@ -314,7 +315,8 @@ export function OfferForm({
               min={7}
               max={365}
               step={1}
-              defaultValue={upfront ? 84 : 28}
+              value={days}
+              onChange={e => setDays(Number(e.target.value))}
               required
               aria-label="Programme length in days"
             />{" "}
@@ -322,8 +324,8 @@ export function OfferForm({
           </label>
         )}
       </fieldset>
-      <Field label="Comparable workout offer (required for the combined tier)">
-        <select name="baseProductId">
+      {tier === "workout_nutrition" && <Field label="Comparable workout offer (required for the combined tier)">
+        <select name="baseProductId" required>
           <option value="">Choose for combined tier</option>
           {products
             .filter((p) => (p.data.tier ?? "workout") === "workout")
@@ -333,7 +335,7 @@ export function OfferForm({
               </option>
             ))}
         </select>
-      </Field>
+      </Field>}
       <Field label="What is included">
         <textarea name="description" rows={3} />
       </Field>
@@ -356,7 +358,7 @@ export function OfferForm({
         resolved. For a custom upfront programme, the minimum is the monthly
         floor for each started 30 days.
       </p>
-      <Field label="Premium voice add-on, monthly (AED, optional)">
+      {!premiumVoice && <details><summary>Optional voice add-on</summary><Field label="Premium voice add-on, monthly (AED, optional)">
         <input
           name="voicePrice"
           type="number"
@@ -367,7 +369,8 @@ export function OfferForm({
           onChange={(e) => setVoicePrice(e.target.value)}
         />
       </Field>
-      <PaymentEstimate price={voicePrice} />
+      <PaymentEstimate price={voicePrice} /></details>}
+      {Number(price) > 0 && <section className="selected-purchase" aria-label="Subscriber purchase preview"><h3>What your subscriber sees</h3><OfferTerms data={{ priceMinor: Math.round(Number(price) * 100), billing, programmeDays: upfront || !rolling ? days : null, premiumVoice, voiceAddOnMinor: !premiumVoice && voicePrice ? Math.round(Number(voicePrice) * 100) : null }} /><p>{tier === "workout_nutrition" ? "Training and nutrition" : "Training"}</p></section>}
       <button className="button" type="submit" disabled={busy}>
         Create offer
       </button>

@@ -102,11 +102,15 @@ try {
     await go("/trainer/subscribers"); await page.getByRole("textbox", { name: "Search clients" }).fill("Sam");
     await expect(page.locator(".table-wrap tbody a").first()).toBeVisible(); await page.waitForLoadState("networkidle");
     await page.locator(".table-wrap tbody a").first().click(); await page.waitForURL(url => /^\/trainer\/subscribers\/[^/]+$/.test(url.pathname)); await settled();
+    await page.getByRole("navigation", { name: "Client sections" }).getByRole("link", { name: "Message", exact: true }).click();
+    await page.waitForURL(url => /^\/trainer\/subscribers\/[^/]+\/message$/.test(url.pathname)); await settled();
     await page.getByRole("textbox", { name: "Your message", exact: true }).fill("A recoverable coaching reply");
     await page.getByRole("link", { name: "All clients" }).click(); await page.waitForURL(url => url.pathname === "/trainer/subscribers"); await settled();
     await expect(page.getByRole("textbox", { name: "Search clients" })).toHaveValue("Sam");
     await page.locator(".table-wrap tbody a").first().click();
     await page.waitForURL(url => /^\/trainer\/subscribers\/[^/]+$/.test(url.pathname)); await settled();
+    await page.getByRole("navigation", { name: "Client sections" }).getByRole("link", { name: "Message", exact: true }).click();
+    await page.waitForURL(url => /^\/trainer\/subscribers\/[^/]+\/message$/.test(url.pathname)); await settled();
     await expect(page.getByRole("textbox", { name: "Your message", exact: true })).toHaveValue("A recoverable coaching reply");
   });
   await check("settings tabs support keyboard and privacy deep links", async () => {
@@ -167,10 +171,11 @@ try {
     await expect(page.locator(".sidebar")).toHaveClass(/is-open/); await page.keyboard.press("Escape");
     await expect(page.getByRole("button", { name: "Open navigation" })).toBeFocused();
   });
-  await check("the website editor remains desktop only", async () => {
+  await check("phone website quick edit keeps the full desktop editor unmounted", async () => {
     await go("/trainer/website");
     await expect(page.getByTestId("site-builder-desktop-required")).toBeVisible();
     await expect(page.getByTestId("site-builder-editor")).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Quick edit", exact: true })).toBeVisible();
   });
   await check("affiliate forms stay aligned and recover without losing drafts", async () => {
     const affiliatePage = await context.newPage();

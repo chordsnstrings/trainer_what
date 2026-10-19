@@ -419,8 +419,7 @@ export function unreadCoachMessages(
   const since = Math.max(time(lastSeen), ownLatest);
   return messages.filter(
     (m) =>
-      (m.data?.author === "trainer" ||
-        m.data?.author === "digital_qualified") &&
+      ["trainer", "digital_qualified", "digital_reviewed", "trainer_reviewed"].includes(m.data?.author ?? "") &&
       time(m.created_at) > since,
   ).length;
 }

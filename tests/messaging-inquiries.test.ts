@@ -144,7 +144,7 @@ test("each website inquiry notifies the owner, follows preferences and caps emai
   const first = notices[0];
   assert.equal(first.title, "New website inquiry");
   assert.equal(first.category, "coaching");
-  assert.equal(first.href, "/trainer/website");
+  assert.equal(first.href, "/trainer/website/settings#inquiries");
   assert.equal(first.email_status, "pending");
   assert.equal(first.data.topic, "inquiry");
   assert.equal(first.data.source.type, "website_inquiry");

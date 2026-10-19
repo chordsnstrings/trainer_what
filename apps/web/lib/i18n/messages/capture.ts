@@ -6,6 +6,7 @@ import { defineMessages } from "../core";
  */
 export default defineMessages(
   {
+    editNutritionValues: "Review or edit nutrition values",
     alreadyRecorded:
       "This meal has already been recorded. Find it in your diary.",
     stillPreparing:
@@ -233,6 +234,7 @@ export default defineMessages(
     tickChecked: "Tick the box above once you have checked the values.",
   },
   {
+    editNutritionValues: "مراجعة القيم الغذائية وتعديلها",
     alreadyRecorded: "سُجّلت هذه الوجبة بالفعل، ويمكن العثور عليها في مذكرتك.",
     stillPreparing:
       "ما زال تجهيز هذا الالتقاط جاريًا. يُرجى تحديث المسودة بعد قليل؛ لن تُرسل مرتين.",

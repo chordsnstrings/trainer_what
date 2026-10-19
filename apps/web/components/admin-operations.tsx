@@ -102,6 +102,9 @@ const REVENUE_LABELS: Record<string, string> = {
   other_charges_minor: "Other charges",
   paid_out_minor: "Paid out",
 };
+export function businessTableRows(rows: any[] = []) {
+  return rows.map(row => Object.fromEntries(Object.entries(row).map(([key, value]) => [key, key.endsWith("_minor") ? money(Number(value ?? 0)) : value])));
+}
 export function TrainerAnalytics() {
   const [data, setData] = useState<any>(null),
     [error, setError] = useState("");
@@ -128,11 +131,11 @@ export function TrainerAnalytics() {
           <p className="muted">{data.note}</p>
           <section className="card">
             <h2>Current subscriptions</h2>
-            <Table rows={data.members} />
+            <Table rows={businessTableRows(data.members)} labels={{ recurring_minor: "Recurring amount (AED)", status: "Status", members: "Members" }} />
           </section>
           <section className="card">
             <h2>Member cohorts</h2>
-            <Table rows={data.cohorts} />
+            <Table rows={businessTableRows(data.cohorts)} labels={{ cohort: "Joined in", month: "Month", members: "Members", recurring_minor: "Recurring amount (AED)" }} />
           </section>
           <LeadAnalytics leads={data.leads} />
           <section className="card">

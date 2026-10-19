@@ -1,4 +1,5 @@
 "use client";
+import { JoinRecoveryLink } from "./join-continuity";
 import { confirmWorkspace } from "./workspace-feedback";
 import {
   useCallback,
@@ -300,7 +301,7 @@ export function AccountJoinForm({
           <input
             name="password"
             type="password"
-            minLength={12}
+            minLength={mode === "new" ? 12 : undefined}
             maxLength={128}
             autoComplete={mode === "new" ? "new-password" : "current-password"}
             enterKeyHint={needCode ? "next" : "done"}
@@ -308,6 +309,7 @@ export function AccountJoinForm({
             required
           />
         </Field>
+        {mode === "existing" && <p className="auth-inline-link"><JoinRecoveryLink /></p>}
         {mode === "new" && (
           <small className="field-hint" id={`${formId}-password-hint`}>
             {t("atLeast12")}

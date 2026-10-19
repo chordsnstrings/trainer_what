@@ -1,0 +1,184 @@
+/* Shared working surfaces: calm daily hierarchy, usable at 320px and in RTL. */
+.daily-work-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(260px, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+.daily-work-grid > *,
+.daily-queue,
+.client-hub {
+  min-width: 0;
+}
+.daily-next-step,
+.brain-next-action {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.daily-next-step > div,
+.brain-next-action > div {
+  flex: 1 1 260px;
+}
+.daily-agenda {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.daily-agenda li + li {
+  border-top: 1px solid var(--border, #dce2dd);
+}
+.daily-agenda a {
+  display: grid;
+  gap: 5px;
+  padding-block: 16px;
+  color: inherit;
+  text-decoration: none;
+}
+.trainer-inbox.is-compact .inbox-layout {
+  display: block;
+}
+.trainer-inbox.is-compact .inbox-todo {
+  display: block;
+}
+.client-hub-tabs,
+.nutrition-tabs {
+  overflow-x: auto;
+  flex-wrap: nowrap;
+  padding-block-end: 6px;
+}
+.client-hub-tabs > *,
+.nutrition-tabs > * {
+  flex: 0 0 auto;
+  min-height: 44px;
+}
+.whoop-training.is-compact {
+  padding: 16px;
+}
+.whoop-training.is-compact h2 {
+  font-size: 1rem;
+}
+.whoop-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+}
+.whoop-summary strong {
+  font-size: 1.5rem;
+}
+.whoop-training details > summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+.daily-member-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.daily-member-links > a {
+  flex: 1 1 140px;
+}
+.client-overview-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.selected-purchase {
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--surface-secondary, #f0f4f1);
+}
+.nutrition-groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-block-end: 12px;
+}
+.nutrition-groups button {
+  min-height: 44px;
+}
+.booking-create summary {
+  cursor: pointer;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  font-weight: 600;
+}
+@media (max-width: 760px) {
+  .daily-work-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+  .client-list-table {
+    overflow: visible;
+  }
+  .client-list-table table,
+  .client-list-table tbody,
+  .client-list-table tr,
+  .client-list-table td {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+  .client-list-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .client-list-table tr {
+    padding: 12px;
+    margin-block: 10px;
+    border: 1px solid var(--border, #dce2dd);
+    border-radius: 14px;
+  }
+  .client-list-table td {
+    border: 0;
+    padding: 6px 0;
+    overflow-wrap: anywhere;
+  }
+  .client-list-table td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 0.75rem;
+    color: var(--muted, #59655e);
+    margin-block-end: 4px;
+  }
+  .daily-next-step .button {
+    width: 100%;
+  }
+}
+
+.sbe-desktop-required:has(.website-quick-edit) {
+  text-align: start;
+  max-width: 760px;
+  align-items: stretch;
+  margin-inline: auto;
+}
+.website-quick-edit {
+  width: 100%;
+}
+.website-quick-edit fieldset {
+  border: 0;
+  padding: 0;
+  min-width: 0;
+}
+.quick-site-preview {
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid #dce2dd;
+  border-radius: 16px;
+  margin-block: 12px;
+}
+.capture-nutrient-details summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}

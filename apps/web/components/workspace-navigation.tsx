@@ -47,8 +47,9 @@ export function WorkspaceNavigation({ state, path, count, setupOpen }: { state: 
       {!state.platformWorkspace && <Link href="/trainer" className="nav-workspace-link">Coaching workspace</Link>}
     </> : <>
       {setupOpen && <Link className="nav-setup" href={SETUP_HREF}>Finish setup</Link>}
-      <NavLink path={path} item={[role === "finance" ? "Summary" : "Inbox", "/trainer"]}><Inbox size={18} />{count > 0 && <span className="nav-count">{count}</span>}</NavLink>
+      <NavLink path={path} item={[role === "finance" ? "Summary" : "Today", "/trainer"]}><Activity size={18} /></NavLink>
       {role !== "finance" && <>
+        <NavLink path={path} item={["Inbox", "/trainer/inbox"]}><Inbox size={18} />{count > 0 && <span className="nav-count">{count}</span>}</NavLink>
         <NavLink path={path} item={["Clients", "/trainer/subscribers"]}><Users size={18} /></NavLink>
         <NavLink path={path} item={["My Brain", "/trainer/brain"]}><Brain size={18} /></NavLink>
         <NavLink path={path} item={["Bookings", "/trainer/bookings"]}><Calendar size={18} /></NavLink>

@@ -33,7 +33,7 @@ import { setAppBadge } from "./pwa";
  * and More grouped into Business, My page and Account. Every older address
  * still opens; each belongs to one section for highlighting.
  */
-export type SectionKey = "inbox" | "clients" | "brain" | "more";
+export type SectionKey = "today" | "inbox" | "clients" | "brain" | "more";
 export type Section = {
   key: SectionKey;
   label: string;
@@ -55,13 +55,14 @@ export type MoreGroup = { title: string; links: MoreLink[] };
 export const SETUP_HREF = SETUP_PATH;
 
 const SECTIONS: Section[] = [
-  { key: "inbox", label: "Inbox", href: "/trainer", icon: InboxIcon },
+  { key: "today", label: "Today", href: "/trainer", icon: LayoutDashboard },
+  { key: "inbox", label: "Inbox", href: "/trainer/inbox", icon: InboxIcon },
   { key: "clients", label: "Clients", href: "/trainer/subscribers", icon: Users },
   { key: "brain", label: "My Brain", href: "/trainer/brain", icon: Brain },
   { key: "more", label: "More", href: "/trainer/more", icon: MoreHorizontal },
 ];
 const FINANCE_SECTIONS: Section[] = [
-  { key: "inbox", label: "Summary", href: "/trainer", icon: LayoutDashboard },
+  { key: "today", label: "Summary", href: "/trainer", icon: LayoutDashboard },
   { key: "more", label: "Earnings", href: "/trainer/finance", icon: Wallet },
   { key: "clients", label: "Account", href: "/trainer/settings", icon: Settings },
 ];
@@ -229,8 +230,8 @@ export const CLIENT_TOOLS: MoreLink[] = [
 /** The section an address belongs to, for highlighting the nav. */
 export function sectionFor(path: string): SectionKey {
   const under = (p: string) => path === p || path.startsWith(p + "/");
+  if (path === "/trainer") return "today";
   if (
-    path === "/trainer" ||
     under("/trainer/messages") ||
     under("/trainer/exceptions") ||
     under("/trainer/inbox")
@@ -251,7 +252,8 @@ export function sectionFor(path: string): SectionKey {
 /** The page title in the top bar for any trainer address. */
 export function trainerTitle(path: string, role: string): string {
   const exact: Record<string, string> = {
-    "/trainer": role === "finance" ? "Summary" : "Inbox",
+    "/trainer": role === "finance" ? "Summary" : "Today",
+    "/trainer/inbox": "Inbox",
     "/trainer/messages": "Chats",
     "/trainer/exceptions": "Needs you",
     "/trainer/subscribers": "Clients",

@@ -265,7 +265,7 @@ test("the workspace opens the wizard, redirects the older checklist and lands si
   assert.match(brain, /href=\{setupHref\(KEEP_TRAINING\)\}/);
   // Sign-in landing lives in superadmin-access.tsx (a Superadmin opens Super
   // admin); a coach who just signed up still lands in the wizard.
-  assert.match(workspace, /router\.push\(signInLanding\(s, path\)\)/);
+  assert.match(workspace, /router\.push\(offerDestination \?\? signInLanding\(s, path\)\)/);
   const landing = await source("components/superadmin-access.tsx");
   assert.match(landing, /from === "\/signup" \? SETUP_PATH/);
   const layout = await source("app/layout.tsx");

@@ -7,6 +7,9 @@ import { defineMessages } from "../core";
  */
 export default defineMessages(
   {
+    loadingAlternatives: "Loading alternatives…",
+    groceriesRemaining: "Still needed",
+    alreadyHave: "Already have or purchased",
     personalTargetSource: "Personal energy target calculated with your coach’s approved rule",
     currentMethodWeight: "Current weight in kg (for your coach's method)",
     individualTargetSource: "Individual target set by your coach",
@@ -316,6 +319,9 @@ export default defineMessages(
     ringOf: "of {kcal} kcal planned · {date}",
   },
   {
+    loadingAlternatives: "جارٍ تحميل البدائل…",
+    groceriesRemaining: "المتبقي",
+    alreadyHave: "متوفر أو تم شراؤه",
     personalTargetSource: "هدف طاقة شخصي محسوب وفق قاعدة مدربك المعتمدة",
     currentMethodWeight: "الوزن الحالي بالكيلوغرام (لطريقة مدربك)",
     individualTargetSource: "هدف فردي حدده مدربك",

@@ -1,4 +1,6 @@
 "use client";
+import { saveAndRefresh, readSignal, refreshMessage } from "../lib/action-outcome";
+import { ReadRetry } from "./read-retry";
 import { WhoopTrainingCard } from "./whoop-training";
 import {
   useCallback,
@@ -34,6 +36,7 @@ import {
 async function api(path: string, method = "GET", body?: unknown) {
   const response = await fetch("/api/v1" + path, {
     method,
+    signal: readSignal(method),
     credentials: "same-origin",
     headers:
       body === undefined ? undefined : { "Content-Type": "application/json" },
@@ -60,24 +63,27 @@ function Notice({ value }: { value: string }) {
   ) : null;
 }
 function useAction(refresh: () => Promise<unknown>) {
+  const [stale, setStale] = useState(false);
   const [busy, setBusy] = useState(false),
     [message, setMessage] = useState("");
+  const locale = useLocale();
   const t = useT("connect"),
     toError = useErrorText();
   const run = async (fn: () => Promise<unknown>, success?: string) => {
     setBusy(true);
     setMessage("");
     try {
-      await fn();
-      await refresh();
-      setMessage(success ?? t("saved"));
+      const { result, refreshed } = await saveAndRefresh(fn, refresh);
+      setStale(!refreshed);
+      setMessage(refreshed ? (success ?? t("saved")) : refreshMessage(locale));
+      return result;
     } catch (e) {
       setMessage(e instanceof Error ? toError(e) : t("tryAgain"));
     } finally {
       setBusy(false);
     }
   };
-  return { busy, message, setMessage, run };
+  return { busy, message, setMessage, run, stale, retry: async () => { await refresh(); setStale(false); setMessage(""); } };
 }
 async function base64(file: File) {
   const buffer = new Uint8Array(await file.arrayBuffer());
@@ -240,6 +246,7 @@ function HealthConnections({
   return (
     <>
       <Notice value={action.message} />
+      {action.stale && <ReadRetry onRetry={action.retry} />}
       {!trainer && <WhoopTrainingCard settings refreshKey={JSON.stringify(data.connections.find((c: any) => c.provider === "whoop") ?? null)} />}
       {/* Members see only devices they can connect; the rest is one line. */}
       {!trainer && comingDevices.length > 0 && (
@@ -504,6 +511,7 @@ function VoiceEnrollment() {
   return (
     <>
       <Notice value={action.message} />
+      {action.stale && <ReadRetry onRetry={action.retry} />}
       <Panel title="Trainer voice enrollment">
         <p>
           Your voice can read the instructions in a client's assigned workout.
@@ -637,6 +645,7 @@ function DomainCenter({
   return (
     <>
       <Notice value={action.message} />
+      {action.stale && <ReadRetry onRetry={action.retry} />}
       {action.message && (
         <button
           type="button"
@@ -915,6 +924,7 @@ export function IntegrationOperations() {
         </p>
       </div>
       <Notice value={action.message} />
+      {action.stale && <ReadRetry onRetry={action.retry} />}
       <WebAddressOperations />
       <VoiceCloneOperations />
       {voices.map((voice) => (

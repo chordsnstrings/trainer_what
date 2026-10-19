@@ -1,4 +1,5 @@
 "use client";
+import { WebsiteQuickEdit } from "./website-quick-edit";
 import "../app/site-builder-editor.css";
 import { confirmWorkspace } from "./workspace-feedback";
 import { useSearchParams } from "next/navigation";
@@ -273,12 +274,14 @@ function ModuleThumbnail({
 export function SiteBuilderEditor({ tenant }: { tenant: EditorTenant }) {
   const returnTo = useSearchParams().get("from") === "setup" ? "/setup/page" : "/trainer";
   const [mountedDesktop, setMountedDesktop] = useState(false);
+  const [viewportChecked, setViewportChecked] = useState(false);
   useEffect(() => {
     const query = window.matchMedia(
       "(min-width: 1100px) and (hover: hover) and (pointer: fine)",
     );
     const update = () => {
       if (query.matches) setMountedDesktop(true);
+      setViewportChecked(true);
     };
     update();
     query.addEventListener("change", update);
@@ -291,16 +294,10 @@ export function SiteBuilderEditor({ tenant }: { tenant: EditorTenant }) {
         data-testid="site-builder-desktop-required"
         tabIndex={-1}
       >
-        <div className="sbe-desktop-illustration">
-          <Monitor size={52} strokeWidth={1.2} />
-        </div>
-        <span className="sbe-eyebrow">WEBSITE STUDIO</span>
-        <h1>A bigger canvas for your ideas.</h1>
-        <p>
-          Open the website editor on a desktop or laptop with a mouse or
-          trackpad, and a window at least 1,100 pixels wide. Your published
-          website still works beautifully on phones and tablets.
-        </p>
+        {viewportChecked && !mountedDesktop && <WebsiteQuickEdit slug={tenant.slug} />}
+        {mountedDesktop && (
+          <p>Your desktop draft is kept open. Widen this window to continue editing.</p>
+        )}
         <a className="button" href={returnTo}>
           {returnTo === "/setup/page" ? "Back to setup" : "Back to workspace"}
         </a>
