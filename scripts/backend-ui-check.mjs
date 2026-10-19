@@ -102,11 +102,15 @@ try {
     await go("/trainer/subscribers"); await page.getByRole("textbox", { name: "Search clients" }).fill("Sam");
     await expect(page.locator(".table-wrap tbody a").first()).toBeVisible(); await page.waitForLoadState("networkidle");
     await page.locator(".table-wrap tbody a").first().click(); await page.waitForURL(url => /^\/trainer\/subscribers\/[^/]+$/.test(url.pathname)); await settled();
+    await page.getByRole("navigation", { name: "Client sections" }).getByRole("link", { name: "Message", exact: true }).click();
+    await page.waitForURL(url => /^\/trainer\/subscribers\/[^/]+\/message$/.test(url.pathname)); await settled();
     await page.getByRole("textbox", { name: "Your message", exact: true }).fill("A recoverable coaching reply");
     await page.getByRole("link", { name: "All clients" }).click(); await page.waitForURL(url => url.pathname === "/trainer/subscribers"); await settled();
     await expect(page.getByRole("textbox", { name: "Search clients" })).toHaveValue("Sam");
     await page.locator(".table-wrap tbody a").first().click();
     await page.waitForURL(url => /^\/trainer\/subscribers\/[^/]+$/.test(url.pathname)); await settled();
+    await page.getByRole("navigation", { name: "Client sections" }).getByRole("link", { name: "Message", exact: true }).click();
+    await page.waitForURL(url => /^\/trainer\/subscribers\/[^/]+\/message$/.test(url.pathname)); await settled();
     await expect(page.getByRole("textbox", { name: "Your message", exact: true })).toHaveValue("A recoverable coaching reply");
   });
   await check("settings tabs support keyboard and privacy deep links", async () => {

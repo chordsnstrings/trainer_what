@@ -81,15 +81,23 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y python3 python3-xlrd antiword poppler-utils tesseract-ocr ffmpeg
       - run: npm run check
       - run: npx playwright install --with-deps chromium --only-shell
+      # These journeys own separate fixtures. Collect every result after the
+      # build/browser foundation succeeds; any failed step still fails this job.
       - run: npm run seed:demo
+        id: browser_fixture
       - run: node scripts/run-browser-check.mjs
+        if: ${{ !cancelled() && steps.browser_fixture.outcome == 'success' }}
       - name: Visual website builder journey
+        if: ${{ !cancelled() && steps.browser_fixture.outcome == 'success' }}
         run: npm run test:site-builder
       - name: Section layout matrix (three widths, English and Arabic)
+        if: ${{ !cancelled() && steps.browser_fixture.outcome == 'success' }}
         run: node --import tsx scripts/site-builder-layout-check.ts
       - name: Scroll modules (motion, accessibility and zoomed preview)
+        if: ${{ !cancelled() && steps.browser_fixture.outcome == 'success' }}
         run: node --import tsx scripts/site-builder-scroll-check.ts
       - name: Backend onboarding, navigation and responsive UI
+        if: ${{ !cancelled() && steps.browser_fixture.outcome == 'success' }}
         run: node scripts/run-rtl-check.mjs
         env:
           RTL_CHECK_MODULE: ./backend-ui-check.mjs
@@ -99,6 +107,7 @@ jobs:
           RTL_DATA_DIR: .data/backend-ui-check
           AUTHENTICATOR_REQUIRED: "false"
       - name: Complete website from onboarding (desktop and Arabic phone)
+        if: ${{ !cancelled() && steps.browser_fixture.outcome == 'success' }}
         run: node --import tsx scripts/run-onboarding-chat-check.mjs
         env:
           WEBSITE_ONBOARDING_FIXTURE: "true"
@@ -109,6 +118,7 @@ jobs:
           RTL_DATA_DIR: .data/onboarding-website-check
           AUTHENTICATOR_REQUIRED: "false"
       - name: Domain settings recovery and confirmations
+        if: ${{ !cancelled() && steps.browser_fixture.outcome == 'success' }}
         run: node scripts/run-rtl-check.mjs
         env:
           RTL_CHECK_MODULE: ./domain-ui-check.mjs
