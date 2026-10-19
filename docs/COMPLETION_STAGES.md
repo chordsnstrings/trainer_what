@@ -13,7 +13,7 @@ Code changes:
 - The prompt asks for 80–300 characters against the 420 limit. Typographic dashes and quotes are made plain before the check (`music-plan-v2`).
 - Admin Music lists recent fallbacks.
 
-An adversarial review confirmed 6 low-severity findings, all fixed, and refuted 1. Checks: 18 of 18 music tests pass. Root and web TypeScript are clean apart from 3 errors in `voice-input.ts`, which also occur on `main` because packages are missing in this container.
+An adversarial review confirmed 6 low-severity findings, all fixed, and refuted 1. Checks: 18 of 18 music tests pass on PGlite and on a local PostgreSQL 16 run with the CI per-file isolation and non-owner role. The first CI run's database failure was a test reusing its file's database; the scenario moved to `tests/music-agent-fallback.test.ts`. Root and web TypeScript are clean apart from 3 errors in `voice-input.ts`, which also occur on `main` because packages are missing in this container.
 
 **Not yet done:** PR CI, merge and live release verification.
 
