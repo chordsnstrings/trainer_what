@@ -159,12 +159,12 @@ export function Bookings({ role }: { role: string }) {
           </a>
         </div>
       </div>
-      {notice && (
+      {notice && !sheet && (
         <p className="notice" role="status">
           {notice}
         </p>
       )}
-      {readError && (
+      {readError && !sheet && (
         <div className="notice error" role="alert">
           <p>{t("loadFailed")}</p>
           <button type="button" className="button secondary" disabled={reading} onClick={() => void load()}>
@@ -550,8 +550,8 @@ export function Bookings({ role }: { role: string }) {
             </>
           }
         >
-          {notice && <p role="status" className="notice">{notice}</p>}
-          {readError && <p role="alert">{common("tryAgain")}</p>}
+          {sheet && notice && <p role="status" className="notice">{notice}</p>}
+          {sheet && readError && <div role="alert" className="notice error"><p>{t("loadFailed")}</p><button type="button" className="button secondary" disabled={reading} onClick={() => void load()}>{reading ? common("loading") : common("retry")}</button></div>}
           {sheet && (
             <ul className="sheet-facts">
               <li>
