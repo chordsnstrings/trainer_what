@@ -1,0 +1,457 @@
+{
+  "schema_version": 1,
+  "task": "Daily trainer and subscriber UX workflows",
+  "date": "2026-10-19",
+  "status": "live",
+  "repository": "chordsnstrings/trainer_what",
+  "baseline": "686e158779ddcd4585e5622373d4ff2c04930c8c",
+  "pr": 79,
+  "pr_url": "https://github.com/chordsnstrings/trainer_what/pull/79",
+  "followup_pr": 80,
+  "followup_pr_url": "https://github.com/chordsnstrings/trainer_what/pull/80",
+  "feature_merged_sha": "ef8a74ba0e95164e8ff9e223a3d2c7099dcf55c0",
+  "merged_sha": "b65051ae69798d7446a549eb7a22ef4eebc4683b",
+  "checked_head": "e6f73759194f0fee79f4799e933aae99ad6c14bf",
+  "checked_tree": "ef5289dfc550deb081040d212ccf94facf25a652",
+  "merged_tree_matches_checked_head": true,
+  "coverage": {
+    "original_findings": 25,
+    "implemented_in_this_release": 24,
+    "previously_completed": {
+      "finding": "F09",
+      "pr": 77,
+      "approved_tracks": 240,
+      "playlists": 8
+    },
+    "page_and_workflow_reviews": 51,
+    "meaning": "Reviews include changed and deliberately retained behavior; not 51 new screens."
+  },
+  "original_feature": {
+    "checked_head": "476e343ffd7cb39060b2de3d15231c178fa456ad",
+    "checked_tree": "6e4542a1fbec3e97c5366b993d792fe53a85ee14",
+    "merged_sha": "ef8a74ba0e95164e8ff9e223a3d2c7099dcf55c0",
+    "merged_tree_matches_checked_head": true,
+    "pr_workflow_url": "https://github.com/chordsnstrings/trainer_what/actions/runs/39254041296",
+    "conversation_workflow_url": "https://github.com/chordsnstrings/trainer_what/actions/runs/39254041264",
+    "main_workflow_url": "https://github.com/chordsnstrings/trainer_what/actions/runs/39259271510",
+    "pr_checks": {
+      "jobs": [
+        {
+          "id": 118064723936,
+          "name": "compose-topology",
+          "conclusion": "success"
+        },
+        {
+          "id": 118064724232,
+          "name": "homepage-call",
+          "conclusion": "success"
+        },
+        {
+          "id": 118064724253,
+          "name": "application",
+          "conclusion": "success"
+        },
+        {
+          "id": 118064724276,
+          "name": "postgres-and-container",
+          "conclusion": "success"
+        },
+        {
+          "id": 118064724289,
+          "name": "ux-spacing",
+          "conclusion": "success"
+        },
+        {
+          "id": 118064724303,
+          "name": "subscriber-ui",
+          "conclusion": "success"
+        },
+        {
+          "id": 118064724444,
+          "name": "wildcard-edge",
+          "conclusion": "success"
+        },
+        {
+          "id": 118064724539,
+          "name": "daily-workflows",
+          "conclusion": "success"
+        },
+        {
+          "id": 118064722409,
+          "name": "conversation",
+          "conclusion": "success"
+        }
+      ],
+      "application": {
+        "tests": 1945,
+        "pass": 1940,
+        "fail": 0,
+        "skipped": 5
+      },
+      "postgres": {
+        "tests": 1945,
+        "pass": 1939,
+        "fail": 0,
+        "skipped": 6
+      },
+      "conversation": {
+        "tests": 151,
+        "pass": 151,
+        "fail": 0,
+        "skipped": 0
+      }
+    },
+    "main_checks": {
+      "jobs": [
+        {
+          "id": 118082386186,
+          "name": "subscriber-ui",
+          "conclusion": "success"
+        },
+        {
+          "id": 118082386567,
+          "name": "application",
+          "conclusion": "success"
+        },
+        {
+          "id": 118082386803,
+          "name": "ux-spacing",
+          "conclusion": "success"
+        },
+        {
+          "id": 118082386850,
+          "name": "postgres-and-container",
+          "conclusion": "success"
+        },
+        {
+          "id": 118082386876,
+          "name": "daily-workflows",
+          "conclusion": "success"
+        },
+        {
+          "id": 118082386997,
+          "name": "compose-topology",
+          "conclusion": "success"
+        },
+        {
+          "id": 118082387006,
+          "name": "homepage-call",
+          "conclusion": "success"
+        },
+        {
+          "id": 118082387133,
+          "name": "wildcard-edge",
+          "conclusion": "success"
+        }
+      ],
+      "application": {
+        "tests": 1945,
+        "pass": 1940,
+        "fail": 0,
+        "skipped": 5
+      },
+      "postgres": {
+        "tests": 1945,
+        "pass": 1939,
+        "fail": 0,
+        "skipped": 6
+      }
+    },
+    "release": {
+      "serving_sha": "ef8a74ba0e95164e8ff9e223a3d2c7099dcf55c0",
+      "ready_status": 200,
+      "verified_at": "2026-10-19T14:05:42.3700193Z",
+      "workflow_url": "https://github.com/chordsnstrings/trainer_what/actions/runs/39264626681",
+      "verification": "Existing production HTTPS readiness verifier; exact X-Gymmembership-Release response header matched."
+    },
+    "independent_https_checks": [
+      {
+        "path": "/api/v1/ready",
+        "status": 200,
+        "release": "ef8a74ba0e95164e8ff9e223a3d2c7099dcf55c0",
+        "body_status": "ready",
+        "verified_at": "2026-10-19T15:35:13.616420+00:00"
+      },
+      {
+        "path": "/",
+        "status": 200,
+        "release": "ef8a74ba0e95164e8ff9e223a3d2c7099dcf55c0",
+        "verified_at": "2026-10-19T15:35:24.017708+00:00"
+      }
+    ]
+  },
+  "final_pr_workflow_url": "https://github.com/chordsnstrings/trainer_what/actions/runs/39267441115",
+  "final_main_workflow_url": "https://github.com/chordsnstrings/trainer_what/actions/runs/39280780392",
+  "final_pr_checks": [
+    {
+      "id": 118110591212,
+      "name": "subscriber-ui",
+      "conclusion": "success",
+      "html_url": "https://github.com/chordsnstrings/trainer_what/actions/runs/39267441115/job/118110591212"
+    },
+    {
+      "id": 118110591518,
+      "name": "compose-topology",
+      "conclusion": "success",
+      "html_url": "https://github.com/chordsnstrings/trainer_what/actions/runs/39267441115/job/118110591518"
+    },
+    {
+      "id": 118110591639,
+      "name": "postgres-and-container",
+      "conclusion": "success",
+      "html_url": "https://github.com/chordsnstrings/trainer_what/actions/runs/39267441115/job/118110591639"
+    },
+    {
+      "id": 118110591648,
+      "name": "ux-spacing",
+      "conclusion": "success",
+      "html_url": "https://github.com/chordsnstrings/trainer_what/actions/runs/39267441115/job/118110591648"
+    },
+    {
+      "id": 118110591801,
+      "name": "daily-workflows",
+      "conclusion": "success",
+      "html_url": "https://github.com/chordsnstrings/trainer_what/actions/runs/39267441115/job/118110591801"
+    },
+    {
+      "id": 118110591813,
+      "name": "wildcard-edge",
+      "conclusion": "success",
+      "html_url": "https://github.com/chordsnstrings/trainer_what/actions/runs/39267441115/job/118110591813"
+    },
+    {
+      "id": 118110591974,
+      "name": "homepage-call",
+      "conclusion": "success",
+      "html_url": "https://github.com/chordsnstrings/trainer_what/actions/runs/39267441115/job/118110591974"
+    },
+    {
+      "id": 118110592051,
+      "name": "application",
+      "conclusion": "success",
+      "html_url": "https://github.com/chordsnstrings/trainer_what/actions/runs/39267441115/job/118110592051"
+    }
+  ],
+  "final_pr_totals": {
+    "application": {
+      "tests": 1945,
+      "pass": 1940,
+      "fail": 0,
+      "skipped": 5
+    },
+    "postgres": {
+      "tests": 1945,
+      "pass": 1939,
+      "fail": 0,
+      "skipped": 6
+    }
+  },
+  "final_main_checks": [
+    {
+      "id": 118154259159,
+      "name": "subscriber-ui",
+      "conclusion": "success",
+      "html_url": "https://github.com/chordsnstrings/trainer_what/actions/runs/39280780392/job/118154259159"
+    },
+    {
+      "id": 118154259375,
+      "name": "compose-topology",
+      "conclusion": "success",
+      "html_url": "https://github.com/chordsnstrings/trainer_what/actions/runs/39280780392/job/118154259375"
+    },
+    {
+      "id": 118154259403,
+      "name": "homepage-call",
+      "conclusion": "success",
+      "html_url": "https://github.com/chordsnstrings/trainer_what/actions/runs/39280780392/job/118154259403"
+    },
+    {
+      "id": 118154259495,
+      "name": "application",
+      "conclusion": "success",
+      "html_url": "https://github.com/chordsnstrings/trainer_what/actions/runs/39280780392/job/118154259495"
+    },
+    {
+      "id": 118154259514,
+      "name": "postgres-and-container",
+      "conclusion": "success",
+      "html_url": "https://github.com/chordsnstrings/trainer_what/actions/runs/39280780392/job/118154259514"
+    },
+    {
+      "id": 118154259561,
+      "name": "ux-spacing",
+      "conclusion": "success",
+      "html_url": "https://github.com/chordsnstrings/trainer_what/actions/runs/39280780392/job/118154259561"
+    },
+    {
+      "id": 118154259581,
+      "name": "daily-workflows",
+      "conclusion": "success",
+      "html_url": "https://github.com/chordsnstrings/trainer_what/actions/runs/39280780392/job/118154259581"
+    },
+    {
+      "id": 118154259597,
+      "name": "wildcard-edge",
+      "conclusion": "success",
+      "html_url": "https://github.com/chordsnstrings/trainer_what/actions/runs/39280780392/job/118154259597"
+    }
+  ],
+  "final_main_totals": {
+    "application": {
+      "tests": 1945,
+      "pass": 1940,
+      "fail": 0,
+      "skipped": 5
+    },
+    "postgres": {
+      "tests": 1945,
+      "pass": 1939,
+      "fail": 0,
+      "skipped": 6
+    }
+  },
+  "release": {
+    "serving_sha": "f67ce8de69310b9eb6a9972919eb33769a165cda",
+    "ready_status": 200,
+    "verified_at": "2026-10-19T16:42:26.4808131Z",
+    "workflow_url": "https://github.com/chordsnstrings/trainer_what/actions/runs/39286492105",
+    "workflow_run_id": 39286492105,
+    "job_id": 118174262311,
+    "workflow_job_status_at_observation": "completed",
+    "workflow_job_conclusion_at_observation": "success",
+    "verification": "Existing production HTTPS readiness verifier; complete expected X-Gymmembership-Release header matched. No independent final homepage/body check is claimed.",
+    "workflow_job_completed_at": "2026-10-19T16:42:28Z",
+    "observed_at": "2026-10-19T16:47:45.025Z"
+  },
+  "verification": {
+    "counts_overlap": true,
+    "local": "Root/web type checks, clean production build and focused checks passed during earlier implementation. Final acceptance uses exact-head CI after a temporary workspace disconnect.",
+    "daily_journeys": [
+      "Trainer Today/Inbox/client navigation at desktop and 320px",
+      "Selected-client context into plan preparation",
+      "Quick website editing, unchanged publication, save/reload, resize retention, explicit saved-draft switch and hidden desktop action on phones",
+      "Subscriber Today action ordering",
+      "Current-day meals and scoped swaps",
+      "Arabic onboarding with actual coach identity and localized controls"
+    ],
+    "browser_gates": "Subscriber recovery, guided sessions, compact music, WHOOP permission/adjustment receipts, full editor journeys, layout matrix/scroll accessibility, backend draft recovery, onboarding website creation, domain recovery, homepage calls and spacing.",
+    "screenshot_review": "Representative desktop, phone and Arabic screenshots inspected during implementation. The corrected phone quick-edit screenshot was reviewed on final head e6f7375.",
+    "corrected_phone_screenshot_artifact": {
+      "id": 12192604194,
+      "run_id": 39267441115,
+      "head_sha": "e6f73759194f0fee79f4799e933aae99ad6c14bf"
+    },
+    "no_failed_gate_waived": true,
+    "ci_corrections": "Navigation/offer/grocery assertion contracts, active-sheet errors, localized weekday copy, editor hydration timing, resize draft retention and a shared CSS selector exposing a desktop action on phones were corrected. Independent browser steps retain failed-job status when any step fails."
+  },
+  "boundaries": {
+    "schema_migration": false,
+    "new_dependency": false,
+    "production_test_account_mutation": false,
+    "live_paid_provider_call": false,
+    "cloud_browser_used": false,
+    "physical_device_acceptance": false,
+    "measured_conversion_or_retention_gain": false,
+    "live_whoop_account_connected": false,
+    "whoop": "Members authorize their own account and separately permit recovery-based workouts; connection, freshness and server-confirmed adjustments remain distinct.",
+    "music": "Already complete in PR #77; this task did not restart generation."
+  },
+  "documentation_followup": "This receipt covers the verified serving commit, whose application source is identical to the checked PR #80 merge. The final documentation-only receipt follows normal automatic main checks separately.",
+  "deployed_sha": "f67ce8de69310b9eb6a9972919eb33769a165cda",
+  "first_followup_main": {
+    "sha": "b65051ae69798d7446a549eb7a22ef4eebc4683b",
+    "workflow_url": "https://github.com/chordsnstrings/trainer_what/actions/runs/39273154848",
+    "run_id": 39273154848,
+    "jobs": [
+      {
+        "id": 118130476535,
+        "name": "subscriber-ui",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 118130476574,
+        "name": "ux-spacing",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 118130476584,
+        "name": "homepage-call",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 118130476605,
+        "name": "daily-workflows",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 118130476761,
+        "name": "application",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 118130476982,
+        "name": "wildcard-edge",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 118130477014,
+        "name": "postgres-and-container",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 118130477424,
+        "name": "compose-topology",
+        "status": "completed",
+        "conclusion": "success"
+      }
+    ],
+    "application_log": {
+      "job_id": 118130476761,
+      "totals": {
+        "tests": 1945,
+        "pass": 1940,
+        "fail": 0,
+        "skipped": 5
+      },
+      "cleanup_at": "2026-10-19T15:31:22.3725476Z",
+      "observed_errors": []
+    },
+    "postgres_totals": {
+      "tests": 1945,
+      "pass": 1939,
+      "fail": 0,
+      "skipped": 6
+    },
+    "status_boundary": "GitHub initially reported the application job active beyond its configured timeout despite a completed successful log, and rejected a targeted rerun as already running. The API later finalized the original run successfully; all eight jobs passed, with application completed_at 2026-10-19T15:32:13Z observed at 15:52 UTC. No rerun started and no failed gate was waived.",
+    "not_used_as_final_release_gate": true,
+    "resolved": true
+  },
+  "recovery_checkpoint": {
+    "pr": 81,
+    "head_sha": "7149d830b691dcc4a980d97256b051ee17d1fe50",
+    "merged_sha": "f67ce8de69310b9eb6a9972919eb33769a165cda",
+    "tree_sha": "e017331d81a2170e5e426c1e95e125ad511736ab",
+    "changed_files": [
+      "CLAUDE_HANDOFF.md",
+      "docs/PROJECT_MEMORY.md"
+    ],
+    "application_source_unchanged": true,
+    "verification": "GitHub commit metadata and local git diff confirm only the two documentation files changed from application merge b65051ae69798d7446a549eb7a22ef4eebc4683b.",
+    "purpose": "Accurate sanitized handoff and a fresh normal main validation run after the earlier job failed to finalize. All gates remain required."
+  },
+  "html_audit_update": {
+    "status": "blocked",
+    "reason": "The execution workspace stopped responding again before the downloadable HTML could be regenerated. The final repository audit preserves all 25 findings and 51 page/workflow reviews.",
+    "original_filename": "trainsyou-ux-ui-audit-2026-10-19.html",
+    "original_version_retained": 1
+  },
+  "independent_https_checks": [],
+  "generated_at": "2026-10-19T16:47:45.025Z"
+}
