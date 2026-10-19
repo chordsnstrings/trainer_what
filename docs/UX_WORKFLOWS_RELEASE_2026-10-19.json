@@ -317,9 +317,11 @@
     "workflow_url": "https://github.com/chordsnstrings/trainer_what/actions/runs/39286492105",
     "workflow_run_id": 39286492105,
     "job_id": 118174262311,
-    "workflow_job_status_at_observation": "in_progress",
-    "workflow_job_conclusion_at_observation": null,
-    "verification": "Existing production HTTPS readiness verifier; complete expected X-Gymmembership-Release header matched. No independent final homepage/body check is claimed."
+    "workflow_job_status_at_observation": "completed",
+    "workflow_job_conclusion_at_observation": "success",
+    "verification": "Existing production HTTPS readiness verifier; complete expected X-Gymmembership-Release header matched. No independent final homepage/body check is claimed.",
+    "workflow_job_completed_at": "2026-10-19T16:42:28Z",
+    "observed_at": "2026-10-19T16:47:45.025Z"
   },
   "verification": {
     "counts_overlap": true,
@@ -451,5 +453,5 @@
     "original_version_retained": 1
   },
   "independent_https_checks": [],
-  "generated_at": "2026-10-19T16:44:55.383Z"
+  "generated_at": "2026-10-19T16:47:45.025Z"
 }
