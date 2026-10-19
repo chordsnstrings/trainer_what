@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { money, paymentBreakdown } from "@trainer/domain";
-import { monthlyMinimum } from "@trainer/contracts";
+import { minimumOfferPrice } from "@trainer/contracts";
 import { Field } from "./field";
 import { translator, type Locale } from "../lib/i18n/core";
 import offersMessages from "../lib/i18n/messages/offers";
@@ -216,7 +216,7 @@ export function OfferForm({
   const [voicePrice, setVoicePrice] = useState("");
   const [tier, setTier] = useState("workout");
   const [premiumVoice, setPremiumVoice] = useState(false);
-  const floor = monthlyMinimum({ tier, premiumVoice }) / 100;
+  const floor = minimumOfferPrice({ tier, premiumVoice, billing, programmeDays: days }) / 100;
   const upfront = billing === "upfront";
   return (
     <form

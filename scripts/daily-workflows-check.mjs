@@ -113,7 +113,9 @@ try {
       .getByLabel("Headline", { exact: true })
       .fill("Synthetic daily workflow headline");
     await page.getByRole("button", { name: "Save draft", exact: true }).click();
-    await expect(page.getByRole("status")).toContainText("Draft saved");
+    await expect(
+      page.locator(".website-quick-edit").getByRole("status"),
+    ).toContainText("Draft saved");
     await page.reload();
     await expect(page.getByLabel("Headline", { exact: true })).toHaveValue(
       "Synthetic daily workflow headline",
@@ -169,11 +171,23 @@ try {
   await check(
     "Arabic member onboarding keeps coach identity and localized controls",
     async () => {
+      await go("/app/profile");
+      await page.getByLabel(/Message language|لغة الرسائل/).selectOption("ar");
+      const languageSaved = page.waitForResponse(
+        (r) =>
+          new URL(r.url()).pathname === "/api/v1/notifications/preferences" &&
+          r.request().method() === "PUT",
+      );
+      await page
+        .getByRole("button", { name: "Save preferences", exact: true })
+        .click();
+      assert.equal((await languageSaved).status(), 200);
+      await expect(page.locator("html")).toHaveAttribute("lang", "ar");
       await go("/app/intake");
-      await page.evaluate(() => {
-        document.documentElement.lang = "ar";
-        document.documentElement.dir = "rtl";
-      });
+      await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
+      await expect(
+        page.getByRole("button", { name: "خيارات المحادثة", exact: true }),
+      ).toBeVisible();
       await expect(
         page.locator(".onboarding-chat-header h1"),
       ).not.toContainText("Kamran");

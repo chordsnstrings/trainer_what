@@ -59,7 +59,8 @@ export function Support({
     locale = useLocale();
   const [selected, setSelected] = useState("");
   const [acceptedThread, setAcceptedThread] = useState<any>(null);
-  const thread = records.find((r) => r.id === selected) ?? (acceptedThread?.id === selected ? acceptedThread : null);
+  const visibleRecords = acceptedThread && !records.some((r) => r.id === acceptedThread.id) ? [acceptedThread, ...records] : records;
+  const thread = visibleRecords.find((r) => r.id === selected);
   const threadRef = useRef<HTMLElement>(null);
   useEffect(() => {
     if (selected)
@@ -106,9 +107,9 @@ export function Support({
       </div>
       <section className="card" aria-labelledby="support-list">
         <h2 id="support-list">{t("yours")}</h2>
-        {!records.length && <p className="muted">{t("empty")}</p>}
+        {!visibleRecords.length && <p className="muted">{t("empty")}</p>}
         <ul className="support-list">
-          {records.map((r) => (
+          {visibleRecords.map((r) => (
             <li key={r.id}>
               <button
                 type="button"

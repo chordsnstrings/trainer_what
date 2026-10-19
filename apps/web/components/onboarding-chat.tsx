@@ -257,14 +257,14 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails, c
           {!!((choices[field ?? ""] ?? []).length || field === "availableWeekdays" || field === "specialty") && <button type="button" className="onboarding-tool-action" disabled={busy} onClick={() => { setShowSuggestions(!showSuggestions); setPanel(null); }}><MessageCircle size={18} /><span>{showSuggestions ? copy("Hide suggested replies") : copy("Suggested replies")}<small>{copy("Optional shortcuts for this question")}</small></span></button>}
         </>}
         <div className="onboarding-tool-links">
-          {onDetails && <button className="text-link" onClick={() => { setPanel(null); onDetails(); }}>{teaching ? "Use setup forms" : copy("Use profile form")}</button>}
+          {onDetails && <button className="text-link" onClick={() => { setPanel(null); onDetails(); }}>{teaching ? "Use setup forms" : copy("Use profile forms")}</button>}
           {teaching && <><Link className="text-link" href="/setup/page?details=1">Page details</Link><Link className="text-link" href="/setup/plan?details=1">Offer details</Link><Link className="text-link" href="/setup/live?details=1">Launch checks</Link></>}
           {!teaching && state.applied.nutrition && <Link className="text-link" href="/app/nutrition">{copy("Open Nutrition")}</Link>}
         </div>
       </div>}
           {panel === "details" && <div className="onboarding-inline-card onboarding-review">
             <p>{copy("Tell me what to change.")} {teaching ? "Draft rules need your approval before they can be used." : copy("Your coach uses the profile you confirm below.")}</p>
-            {rows.length ? <dl>{rows.map(([key, value]) => <div key={key}><dt>{copy(labels[key] ?? key)}</dt><dd>{key === "availableWeekdays" ? value.map((day: number) => copy(days[day])).join("، ") : copy(valueText(key, value, state))} <button className="text-link" aria-label={copy("Change") + " " + copy(labels[key] ?? key)} onClick={() => { setText("Change my " + (labels[key] ?? key).toLowerCase() + " to "); setPanel(null); requestAnimationFrame(() => requestAnimationFrame(() => input.current?.focus())); }}>{copy("Change")}</button></dd></div>)}</dl> : <p>{copy("Your answers will appear here.")}</p>}
+            {rows.length ? <dl>{rows.map(([key, value]) => <div key={key}><dt>{copy(labels[key] ?? key)}</dt><dd>{key === "availableWeekdays" ? value.map((day: number) => copy(days[day])).join(locale === "ar" ? "، " : ", ") : copy(valueText(key, value, state))} <button className="text-link" aria-label={copy("Change") + " " + copy(labels[key] ?? key)} onClick={() => { setText("Change my " + (labels[key] ?? key).toLowerCase() + " to "); setPanel(null); requestAnimationFrame(() => requestAnimationFrame(() => input.current?.focus())); }}>{copy("Change")}</button></dd></div>)}</dl> : <p>{copy("Your answers will appear here.")}</p>}
             {state.missing.length > 0 && <p className="muted">{copy("Still to cover:")} {state.missing.map(k => copy(labels[k] ?? k)).join(locale === "ar" ? "، " : ", ")}.</p>}
             {state.ready && <button className="button" disabled={busy} onClick={() => void act("profile")}>{teaching ? "Save profile and page draft" : copy("Confirm my coaching profile")}</button>}
             {teaching && state.facts.name && state.facts.priceAed && state.facts.billing && <button className="button secondary" disabled={busy} onClick={() => void act("offer")}>Save offer draft</button>}
@@ -344,7 +344,7 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails, c
           <label className="onboarding-choice"><input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} /> {copy("I allow my information to be used for coaching.")}</label>
           <a className="text-link" href="/privacy" target="_blank" rel="noreferrer">{copy("Privacy policy")}</a>
           <button className="button" disabled={!consent || busy} onClick={() => void allow()}>{copy("Let's start")}</button>
-          {onDetails && <button className="text-link" onClick={onDetails}>{copy("Use profile form")}</button>}
+          {onDetails && <button className="text-link" onClick={onDetails}>{copy("Use profile forms")}</button>}
         </div>}
         {state.permissions.coaching && <>
           {teaching && currentCase && <div className="onboarding-message assistant onboarding-practice">
@@ -367,7 +367,7 @@ export function OnboardingChat({ audience, mode = "setup", onSaved, onDetails, c
         {problem && <div className="onboarding-error" role="alert"><p>{problem}</p><div className="onboarding-options">
           {restoreRequest.current ? <button className="text-link" disabled={busy} onClick={() => { const saved = restoreRequest.current!; void transmit(saved.path, saved.body, saved.sentText); }}><RotateCcw size={14} /> {copy("Retry saved request")}</button> : <button className="text-link" disabled={busy} onClick={() => void load()}>{copy("Refresh conversation")}</button>}
           {mode === "website" && state.website?.photos && !state.website.result && !websiteMissingFacts(state.facts).length ? <button className="text-link" disabled={busy} onClick={() => void act("website")}>Retry website preparation</button> : state.error && lastPerson && <button className="text-link" disabled={busy} onClick={() => void transmit("/onboarding-chat/messages", { id: crypto.randomUUID(), version: state.version, mode, text: lastPerson.text, retryOf: lastPerson.id })}>{copy("Try reply again")}</button>}
-          {onDetails && <button className="text-link" onClick={onDetails}>Use {teaching ? "setup" : "profile"} forms</button>}
+          {onDetails && <button className="text-link" onClick={onDetails}>{teaching ? "Use setup forms" : copy("Use profile forms")}</button>}
         </div></div>}
         <div ref={end} />
       </div>

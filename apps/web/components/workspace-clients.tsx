@@ -333,7 +333,7 @@ export function Members({ state }: ViewProps) {
       <WorkspaceTabs label="Client administration" items={[["clients", "Clients"], ["invitations", "Invitations"], ["access", "Complimentary access"], ["former", "Former clients"]]} value={["clients", "invitations", "access", "former"].includes(view) ? view : "clients"} onChange={setView} panelId="clients-panel" />
       <div id="clients-panel" role="tabpanel" aria-label="Client administration">
         {!["invitations", "access", "former"].includes(view) && <Card>
-          <label className="field"><span>Show clients</span><select value={filter} onChange={e => setFilter(e.target.value)}><option value="">All clients</option><option value="needs_review">Needs review</option><option value="no_plan">No assigned plan</option><option value="membership_issue">Membership needs attention</option></select></label>
+          <label className="field"><span>Show clients</span><select aria-label="Show clients" value={filter} onChange={e => setFilter(e.target.value)}><option value="">All clients</option><option value="needs_review">Needs review</option><option value="no_plan">No assigned plan</option><option value="membership_issue">Membership needs attention</option></select></label>
           <input
             className="search"
             placeholder="Search by name or email"

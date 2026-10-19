@@ -51,7 +51,7 @@ const arabic: Record<string, string> = {
   "Hide suggested replies": "إخفاء الردود المقترحة",
   "Suggested replies": "ردود مقترحة",
   "Optional shortcuts for this question": "خيارات سريعة لهذا السؤال",
-  "Use profile form": "استخدام نموذج الملف",
+  "Use profile forms": "استخدام نماذج الملف",
   "Open Nutrition": "فتح التغذية",
   "Tell me what to change.": "أخبرني بما تريد تغييره.",
   "Your coach uses the profile you confirm below.":

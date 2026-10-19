@@ -132,12 +132,14 @@ export function TrainerToday({ state }: { state: State }) {
             <p className="muted">
               Teach a decision, review its work or check what it can handle.
             </p>
-            <Link className="button secondary" href="/trainer/brain">
-              Open My Brain
-            </Link>
-            <Link className="text-button" href="/trainer/brain/actions">
-              Review activity
-            </Link>
+            <div className="client-overview-actions">
+              <Link className="button secondary" href="/trainer/brain">
+                Open My Brain
+              </Link>
+              <Link className="text-button" href="/trainer/brain/actions">
+                Review activity
+              </Link>
+            </div>
           </section>
           {state.user.role === "owner" && (
             <section className="card">
