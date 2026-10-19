@@ -273,29 +273,25 @@ function ModuleThumbnail({
 
 export function SiteBuilderEditor({ tenant }: { tenant: EditorTenant }) {
   const returnTo = useSearchParams().get("from") === "setup" ? "/setup/page" : "/trainer";
-  const [mountedDesktop, setMountedDesktop] = useState(false);
-  const [viewportChecked, setViewportChecked] = useState(false);
+  const [editorMode, setEditorMode] = useState<"desktop" | "quick" | null>(null);
   useEffect(() => {
-    const query = window.matchMedia(
+    // Choose once for this visit. A resize must not unmount an unsaved draft.
+    setEditorMode(window.matchMedia(
       "(min-width: 1100px) and (hover: hover) and (pointer: fine)",
-    );
-    const update = () => {
-      if (query.matches) setMountedDesktop(true);
-      setViewportChecked(true);
-    };
-    update();
-    query.addEventListener("change", update);
-    return () => query.removeEventListener("change", update);
+    ).matches ? "desktop" : "quick");
   }, []);
   return (
     <>
       <div
-        className="sbe-desktop-required"
+        className={`sbe-desktop-required${editorMode === "quick" ? " sbe-quick-mode" : ""}`}
         data-testid="site-builder-desktop-required"
         tabIndex={-1}
       >
-        {viewportChecked && !mountedDesktop && <WebsiteQuickEdit slug={tenant.slug} />}
-        {mountedDesktop && (
+        {editorMode === "quick" && <WebsiteQuickEdit slug={tenant.slug} onOpenDesktop={() => {
+          if (window.matchMedia("(min-width: 1100px) and (hover: hover) and (pointer: fine)").matches)
+            setEditorMode("desktop");
+        }} />}
+        {editorMode === "desktop" && (
           <p>Your desktop draft is kept open. Widen this window to continue editing.</p>
         )}
         <a className="button" href={returnTo}>
@@ -307,11 +303,11 @@ export function SiteBuilderEditor({ tenant }: { tenant: EditorTenant }) {
           </a>
         )}
       </div>
-      {mountedDesktop ? (
+      {editorMode === "desktop" ? (
         <DesktopSiteBuilder tenant={tenant} returnTo={returnTo} />
-      ) : (
+      ) : editorMode === null ? (
         <div className="sbe-desktop-loading">Opening Website Studio…</div>
-      )}
+      ) : null}
     </>
   );
 }
