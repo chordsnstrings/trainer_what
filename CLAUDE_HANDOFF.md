@@ -3,9 +3,9 @@
 
 ## Work in progress
 
-### Music library after PR #73 — checked 18 October 2026 (Claude)
+### Music library and WHOOP status — checked 19 October 2026, 05:00 UTC (Claude, read-only)
 
-PR #73 (live as `5c2cd71`) removed the lifetime music caps, so the earlier owner step "set the Admin Music budget to 5,000 credits / 157 requests" no longer applies. Read-only Admin Music check at 05:37 UTC: agent enabled and `generating` ("Downloading and checking the current batch."); 53 requests and 1,696 credits used in total; 96 of 240 tracks ready, 0 of 8 playlists complete; today 256 of 5,000 daily credits and 3 of 8 planning calls used. Nothing was changed. Next: none for the owner; the worker continues within the daily limit until all eight playlists reach 30 approved tracks.
+No new commits since `02cd5ad`; live release unchanged. Music: PR #73 removed lifetime caps, so the owner's earlier "5,000 credits / 157 requests" step no longer applies. The agent is stalled at `planner_review` since about 00:04 UTC: the Rock planning batch (plan `9b554083…`) failed with "No checked music plan was saved. Use standard briefs without another model call." Library: 196 approved of 240 (Flow 26, EDM 26, Afro/Latin 24, Hip-Hop 24, Recovery 24, R&B 24 + 2 rejected, Rock 24, Synthwave 24); 0 of 8 playlists full; 100 requests / 3,200 credits used in total; 99 jobs complete, 1 failed. Next: an operator presses "Use standard briefs" on that plan in Admin Music (no AI call; generation then resumes within the 5,000-credit daily limit) — waiting on the owner's go-ahead. WHOOP: test client kamran+testclient@arks.ae is not yet connected (owner action); integration reports available.
 
 ### WHOOP live activation — 18 October 2026 (Claude)
 
