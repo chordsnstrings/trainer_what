@@ -18,6 +18,7 @@ import { flushWorkspaceEdits, useSaveBeforeLeave, useWorkspaceValue } from "./wo
 const WebsitePreview = dynamic(() => import("./coach-site").then(m => m.CoachWebsite), { loading: () => <p role="status">Loading your website preview…</p> });
 import { AssistantPanel } from "./setup-assistant-panel";
 import { BrainStep, KeepTraining, useTeach } from "./setup-brain";
+import { TryMyAI } from "./trainer-preview";
 import { OnboardingChat } from "./onboarding-chat";
 import { useSearchParams } from "next/navigation";
 import { setupApi } from "./setup-wizard-api";
@@ -138,7 +139,7 @@ export function SetupWizard({ path, tenant, onSaved }: { path: string; tenant: T
   const router = useRouter();
   const close = () => { setDetails(false); if (explicitDetails) router.replace(path); };
   if (details || explicitDetails) return <div className="onboarding-fallback"><button className="button secondary" type="button" onClick={close}><MessageCircle size={16} /> Back to conversation</button><SetupWizardDetails path={path} tenant={tenant} onSaved={onSaved} /></div>;
-  return <OnboardingChat audience="coach" mode={setupView(path).keepTraining ? "teach" : "website"} onSaved={onSaved} onDetails={() => setDetails(true)} />;
+  return <>{setupView(path).keepTraining && <TryMyAI />}<OnboardingChat audience="coach" mode={setupView(path).keepTraining ? "teach" : "website"} onSaved={onSaved} onDetails={() => setDetails(true)} /></>;
 }
 
 function SetupWizardDetails({

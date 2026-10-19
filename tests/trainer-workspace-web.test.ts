@@ -14,10 +14,10 @@ import { hubTab } from "../apps/web/components/workspace-clients.tsx";
 const source = (path: string) =>
   readFile(new URL("../" + path, import.meta.url), "utf8");
 
-test("four sections, with More grouped into Business, My page and Account", () => {
+test("five daily sections, with More grouped into Business, My page and Account", () => {
   assert.deepEqual(
     trainerSections("owner").map((s) => s.label),
-    ["Inbox", "Clients", "My Brain", "More"],
+    ["Today", "Inbox", "Clients", "My Brain", "More"],
   );
   assert.deepEqual(
     moreGroups("owner").map((g) => g.title),
@@ -45,7 +45,7 @@ test("four sections, with More grouped into Business, My page and Account", () =
 
 test("every older address still belongs to one section", () => {
   const cases: [string, string][] = [
-    ["/trainer", "inbox"],
+    ["/trainer", "today"],
     ["/trainer/messages", "inbox"],
     ["/trainer/messages/abc", "inbox"],
     ["/trainer/exceptions", "inbox"],
@@ -61,12 +61,12 @@ test("every older address still belongs to one section", () => {
   ];
   for (const [path, section] of cases)
     assert.equal(sectionFor(path), section, path);
-  assert.equal(trainerTitle("/trainer", "owner"), "Inbox");
+  assert.equal(trainerTitle("/trainer", "owner"), "Today");
   assert.equal(trainerTitle("/trainer/exceptions", "owner"), "Needs you");
   assert.equal(trainerTitle("/trainer/domains", "owner"), "Web address");
-  assert.equal(hubTab("/trainer/subscribers/abc"), "message");
+  assert.equal(hubTab("/trainer/subscribers/abc"), "overview");
   assert.equal(hubTab("/trainer/subscribers/abc/notes"), "notes");
-  assert.equal(hubTab("/trainer/subscribers/abc/unknown"), "message");
+  assert.equal(hubTab("/trainer/subscribers/abc/unknown"), "overview");
 });
 
 test("the shell routes the inbox, chats, client hub and More", async () => {
@@ -74,7 +74,7 @@ test("the shell routes the inbox, chats, client hub and More", async () => {
   assert.match(shell, /<Inbox state=\{view\} \/>/);
   assert.match(shell, /path === "\/trainer\/messages" \? \(\s*<Chats \/>/);
   assert.match(shell, /<ChatThread state=\{view\} clientId=/);
-  assert.match(shell, /\(plan\|notes\|membership\)/);
+  assert.match(shell, /\(overview\|message\|plan\|nutrition\|notes\|membership\)/);
   assert.match(shell, /<TrainerMore/);
   assert.match(shell, /<TrainerTabBar/);
   // The old 21-item menu is gone.

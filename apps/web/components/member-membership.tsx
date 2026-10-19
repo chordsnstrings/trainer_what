@@ -1,11 +1,13 @@
 "use client";
+import { saveAndRefresh, refreshMessage } from "../lib/action-outcome";
+import { ReadRetry } from "./read-retry";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { BottomSheet } from "./phone-ui";
 import { MemberAccessCard } from "./complimentary-access";
 import { UpfrontMembership, VoiceAddOnCard } from "./programme-membership";
 import { MembershipPurchase, ModulePassCards } from "./membership-commerce";
-import { OfferTerms } from "./programme-offers";
+import { useWorkspaceQuery } from "./workspace-continuity";
 import { BillingHistory } from "./finance-completion";
 import { formatDate, formatMoney } from "../lib/format";
 import { translator, type Locale } from "../lib/i18n/core";
@@ -104,11 +106,13 @@ export function MemberMembership({
     !["canceled", "incomplete_expired"].includes(subscription.status)
       ? subscription
       : null;
-  const published = offers.filter((p) => p.status === "published");
+  const [chosenOffer] = useWorkspaceQuery("offer");
+  const published = offers.filter((p) => p.status === "published").sort((a, b) => Number(b.id === chosenOffer) - Number(a.id === chosenOffer));
   const [code, setCode] = useState(""),
     [busy, setBusy] = useState(""),
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
+    [stale, setStale] = useState(false),
     [stopOpen, setStopOpen] = useState(false),
     [pending, setPending] = useState(false),
     [checkout, setCheckout] = useState<{ status: string; url?: string } | null>(
@@ -134,10 +138,10 @@ export function MemberMembership({
     setError("");
     setNotice("");
     try {
-      const r = await fn();
-      if (success) setNotice(success);
-      await onChanged();
-      return r;
+      const { result, refreshed } = await saveAndRefresh(fn, async () => { await onChanged(); });
+      setStale(!refreshed);
+      if (success || !refreshed) setNotice(refreshed ? success! : refreshMessage(locale));
+      return result;
     } catch (e) {
       setError(membershipError(e, doing, locale));
       return null;
@@ -164,6 +168,7 @@ export function MemberMembership({
           {notice}
         </p>
       )}
+      {stale && <ReadRetry onRetry={async () => { await onChanged(); setStale(false); setNotice(""); }} />}
       <MemberAccessCard />
       {membership?.data?.billing === "upfront" ? (
         <section className="card" aria-labelledby="plan-title">
@@ -262,7 +267,7 @@ export function MemberMembership({
                       renewsOn
                         ? t("mStoppedUntil", { date: renewsOn })
                         : t("mStopped"),
-                    ).then(() => setStopOpen(false))
+                    ).then(result => { if (result) setStopOpen(false); })
                   }
                 >
                   {busy === "stop" ? t("mStopping") : t("mStopRenewal")}
@@ -271,18 +276,19 @@ export function MemberMembership({
             }
           >
             <p className="muted">{t("mStopNote")}</p>
+            {error && <p className="notice error" role="alert">{error}</p>}
           </BottomSheet>
         </section>
       ) : published.length ? (
         <section className="card" aria-labelledby="offers-title" id="offers">
           <h2 id="offers-title">{t("choosePlan")}</h2>
           <p className="muted">{t("mPlansIntro")}</p>
+          {chosenOffer && <p className="notice">{published.some(p => p.id === chosenOffer) ? (locale === "ar" ? "هذه الباقة التي اخترتها. راجع السعر الحالي والشروط قبل الدفع." : "Your selected offer is first. Review its current price and terms before paying.") : (locale === "ar" ? "الباقة المختارة لم تعد متاحة. اختر إحدى الباقات الحالية." : "That offer is no longer available. Choose from your coach’s current offers.")}</p>}
           <ul className="membership-offers">
             {published.map((p) => (
-              <li key={p.id}>
+              <li key={p.id} className={p.id === chosenOffer ? "selected-purchase" : undefined}>
                 <h3 dir="auto">{p.data.name}</h3>
                 {p.data.description && <p dir="auto">{p.data.description}</p>}
-                <OfferTerms data={p.data} />
                 <MembershipPurchase
                   offer={p}
                   busy={!!busy}

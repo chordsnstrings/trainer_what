@@ -1,7 +1,9 @@
 "use client";
+import { joinedOfferDestination, readJoinReturn } from "../lib/join-intent";
 import dynamic from "next/dynamic";
 import { isTrainerPreview, subscriberPath, previewDestinationAllowed } from "../lib/trainer-preview-routing";
 import { TrainerPreviewBar, PreviewUnavailable, endTrainerPreview, previewChanged } from "./trainer-preview";
+import { TrainerToday } from "./trainer-today";
 import { Inbox, Chats, ChatThread } from "./workspace-inbox";
 import {
   TrainerMore,
@@ -590,7 +592,9 @@ export default function Workspace({
             return null;
           });
           if (!s) return;
-          router.push(signInLanding(s, path));
+          let offerDestination: string | null = null;
+          try { if (s.user.role === "subscriber") offerDestination = joinedOfferDestination(readJoinReturn(sessionStorage), s.tenant.slug); } catch {}
+          router.push(offerDestination ?? signInLanding(s, path));
         }}
       />
     );
@@ -936,6 +940,8 @@ export default function Workspace({
             <SetupRedirect to={legacySetupRedirect(path)!} />
           ) : path === "/trainer" &&
             ["owner", "staff"].includes(state.user.role) ? (
+            <TrainerToday state={view} />
+          ) : path === "/trainer/inbox" ? (
             <Inbox state={view} />
           ) : path === "/trainer/summary" ? (
             <Overview {...props} />
@@ -1042,7 +1048,7 @@ export default function Workspace({
             <BrainPlans role={state.user.role} />
           ) : path.includes("/brain") ? (
             <BrainView {...props} />
-          ) : /^\/trainer\/subscribers\/[^/]+(\/(plan|notes|membership))?$/.test(
+          ) : /^\/trainer\/subscribers\/[^/]+(\/(overview|message|plan|nutrition|notes|membership))?$/.test(
               path,
             ) ? (
             <SubscriberDetail

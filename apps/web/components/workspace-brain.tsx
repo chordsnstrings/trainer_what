@@ -131,6 +131,7 @@ function BrainDetails({
           <button
             key={id}
             className={tab === id ? "selected" : ""}
+            aria-pressed={tab === id}
             onClick={() => setTab(id)}
           >
             {label}

@@ -1,4 +1,7 @@
 "use client";
+import { OfferTerms } from "./programme-offers";
+import { useWorkspaceQuery } from "./workspace-continuity";
+import { JoinContinuity } from "./join-continuity";
 /**
  * The public pages the workspace renders outside the apps: sign-in, recovery
  * and email-link pages, joining a coach (/join-coach/<name>, /join/<link>),
@@ -121,7 +124,7 @@ export function Public({
   colorScheme: ColorSchemeChoice;
   onAuthenticated: () => Promise<void>;
 }) {
-  const [store, setStore] = useState<{ trainer: Trainer } | null>(null),
+  const [store, setStore] = useState<{ trainer: Trainer; products?: any[] } | null>(null),
     [invited, setInvited] = useState<{ name: string; slug: string } | null>(
       null,
     );
@@ -219,6 +222,7 @@ export function Public({
         <JoinCoachPage
           slug={enrollSlug}
           name={coachName}
+          products={store?.products}
           onAuthenticated={onAuthenticated}
         />
       ) : join ? (
@@ -518,15 +522,19 @@ function SignInPage({
  * <coach>" in thumb reach. No trainer story, no "Welcome back".
  */
 function JoinCoachPage({
+  products,
   slug,
   name,
   onAuthenticated,
 }: {
+  products?: any[];
   slug: string;
   name: string | null;
   onAuthenticated: () => Promise<void>;
 }) {
   const legal = useLegalStatus();
+  const [offerIntent] = useWorkspaceQuery("offer");
+  const selectedOffer = products?.find(p => p.id === offerIntent);
   const t = useT("join");
   const coachName = name ?? t("yourCoach");
   return (
@@ -535,6 +543,8 @@ function JoinCoachPage({
       title={name ? t("joinTitle", { name }) : t("joinYourCoach")}
       intro={t("joinIntro", { coach: coachName })}
     >
+      <JoinContinuity remember />
+      {selectedOffer && <section className="selected-purchase"><h2 dir="auto">{selectedOffer.data.name}</h2><OfferTerms data={selectedOffer.data} /></section>}
       <AccountJoinForm
         legal={legal}
         formId="join-coach-form"

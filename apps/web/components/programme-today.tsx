@@ -1,4 +1,5 @@
 "use client";
+import { PlanNavigation } from "./plan-navigation";
 import { memberApiUrl } from "../lib/trainer-preview-routing";
 import { useEffect, useState } from "react";
 import Link from "./preview-navigation";
@@ -224,6 +225,7 @@ export function ProgrammeTimeline({ programLabel }: { programLabel?: string }) {
           </p>
         )}
       </header>
+      <PlanNavigation timeline />
       {data.planState === "awaiting_coach" && (
         <section className="card" role="status">
           <h2>{t("preparing")}</h2>

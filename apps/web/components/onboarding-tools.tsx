@@ -1,4 +1,6 @@
 "use client";
+import { useLocale } from "../lib/i18n/react";
+import { onboardingCopy } from "../lib/onboarding-copy";
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, X } from "lucide-react";
@@ -13,6 +15,8 @@ export function ConversationTools({ panel, onPanel, children, motionEnabled }: {
   children: ReactNode;
   motionEnabled?: boolean;
 }) {
+  const locale = useLocale();
+  const copy = (text: string) => onboardingCopy(locale, text);
   const dialog = useRef<HTMLDialogElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [closing, setClosing] = useState(false);
@@ -40,9 +44,9 @@ export function ConversationTools({ panel, onPanel, children, motionEnabled }: {
       if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) close();
     }}>
     <header className="onboarding-tools-header">
-      {panel !== "menu" && <button type="button" className="onboarding-icon" aria-label="Back to conversation options" onClick={() => onPanel("menu")}><ArrowLeft size={19} /></button>}
-      <h2 id={heading}>{panel === "details" ? "Saved details" : panel === "brain" ? "Your Brain" : "Conversation options"}</h2>
-      <button type="button" className="onboarding-icon" aria-label={panel === "details" ? "Close review" : "Close conversation options"} onClick={close}><X size={19} /></button>
+      {panel !== "menu" && <button type="button" className="onboarding-icon" aria-label={copy("Back to conversation options")} onClick={() => onPanel("menu")}><ArrowLeft size={19} /></button>}
+      <h2 id={heading}>{panel === "details" ? copy("Saved details") : panel === "brain" ? copy("Your Brain") : copy("Conversation options")}</h2>
+      <button type="button" className="onboarding-icon" aria-label={panel === "details" ? copy("Close review") : copy("Close conversation options")} onClick={close}><X size={19} /></button>
     </header>
     <div key={panel} className="onboarding-tools-content">{children}</div>
   </dialog>;

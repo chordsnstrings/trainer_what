@@ -367,6 +367,7 @@ export function memberPage(
     cursor?: string;
     limit?: number;
     detail?: boolean;
+    filter?: "needs_review" | "no_plan" | "membership_issue";
   },
 ) {
   const team = q.role === "team";
@@ -375,6 +376,9 @@ export function memberPage(
     "m.tenant_id=$1",
     team ? "m.role<>'subscriber'" : "m.role='subscriber'",
   ];
+  if (!team && q.filter === "needs_review") where.push("EXISTS(SELECT 1 FROM records r WHERE (r.owner_user_id=u.id OR r.data->>'subscriberId'=u.id::text) AND ((r.kind='exception' AND r.status='open') OR (r.kind='training_hold' AND r.status='active') OR (r.kind='plan_generation' AND r.status IN ('pending_review','failed'))))");
+  if (!team && q.filter === "no_plan") where.push("NOT EXISTS(SELECT 1 FROM records p WHERE p.owner_user_id=u.id AND p.kind='program' AND p.status='assigned')");
+  if (!team && q.filter === "membership_issue") where.push("EXISTS(SELECT 1 FROM subscriptions s WHERE s.user_id=u.id AND s.status IN ('past_due','unpaid','incomplete','paused'))");
   if (q.userId) {
     params.push(q.userId);
     where.push(`u.id=$${params.length}::uuid`);
@@ -418,6 +422,7 @@ type PageQuery = {
   workoutId?: string;
   role?: "subscriber" | "team";
   terms?: string[];
+  filter?: "needs_review" | "no_plan" | "membership_issue";
   userId?: string;
 };
 const simple =
@@ -517,6 +522,7 @@ export const COLLECTIONS: Record<string, Collection> = {
       memberPage(tx, a, {
         role: q.role,
         terms: q.terms,
+        filter: q.filter,
         userId: q.userId,
         cursor: q.cursor,
         limit: q.limit,
@@ -792,6 +798,7 @@ const pageQuery = z
       .optional(),
     workoutId: uuid.optional(),
     role: z.enum(["subscriber", "team"]).optional(),
+    filter: z.enum(["needs_review", "no_plan", "membership_issue"]).optional(),
     // Search terms. Clients send each word as its own `q` value: a space
     // inside a proxied query value does not survive the web proxy's signed
     // host proof (see docs/features/bounded-bootstrap.md).

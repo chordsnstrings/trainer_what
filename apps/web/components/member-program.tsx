@@ -1,4 +1,5 @@
 "use client";
+import { PlanNavigation } from "./plan-navigation";
 import { memberApiUrl } from "../lib/trainer-preview-routing";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import Link from "./preview-navigation";
@@ -272,6 +273,7 @@ export function MemberProgram({
       <header className="page-heading">
         <h1>{t("title")}</h1>
       </header>
+      <PlanNavigation />
       {error && (
         <div role="alert" className="notice error">
           <p>{error}</p>

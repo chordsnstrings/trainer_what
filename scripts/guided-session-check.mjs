@@ -429,6 +429,7 @@ try {
   await root()
     .getByRole("button", { name: "Workout library", exact: true })
     .click();
+  await root().locator("details.guided-music > summary").click();
   await expect(root().getByLabel("Playlist", { exact: true })).toBeVisible();
   await root().getByRole("button", { name: "Play music", exact: true }).click();
   await check("music changes never advance sets", async () => {

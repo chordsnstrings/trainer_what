@@ -1,4 +1,5 @@
 "use client";
+import { confirmWorkspace } from "./workspace-feedback";
 import { useErrorText, useLocale, useT } from "../lib/i18n/react";
 import {
   formatDateTime,
@@ -179,8 +180,8 @@ export function Bookings({ role }: { role: string }) {
         </p>
       )}
       {!sub && (
-        <section className="card">
-          <h2>Add sessions</h2>
+        <details className="card booking-create">
+          <summary>Add sessions</summary>
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -273,7 +274,7 @@ export function Bookings({ role }: { role: string }) {
               Add sessions
             </button>
           </form>
-        </section>
+        </details>
       )}
       {role === "owner" && data && (
         <details className="card">
@@ -332,6 +333,73 @@ export function Bookings({ role }: { role: string }) {
           </form>
         </details>
       )}
+      <section className="card">
+        <h2>{sub ? t("yourReservations") : "Reservations and attendance"}</h2>
+        {data?.bookings.map((b: any) => {
+          const slot = data.slots.find((s: any) => s.id === b.slot_id);
+          return (
+            <div className="list-row" key={b.id}>
+              <div>
+                <strong dir="auto">
+                  {sub ? (slot?.title ?? t("session")) : b.name}
+                </strong>
+                <p dir="auto">
+                  {sub ? "" : `${slot?.title ?? "Session"} · `}
+                  {slot ? date(slot.starts_at, zone, locale) : ""}
+                  {" · "}
+                  <span className="badge">{statusText(b.status)}</span>
+                </p>
+                <p className="muted">
+                  {sub
+                    ? paymentText(b.payment_status)
+                    : `Payment: ${paymentText(b.payment_status)}`}
+                  {b.cancel_reason &&
+                  !/^Canceled by (member|coach)$/.test(b.cancel_reason)
+                    ? " · " + b.cancel_reason
+                    : ""}
+                </p>
+              </div>
+              {!sub && b.status === "confirmed" && (
+                <div className="button-row">
+                  <button
+                    className="button secondary"
+                    disabled={busy || readError}
+                    onClick={async () => {
+                      if (await confirmWorkspace({ title: "Cancel this reservation?", detail: `${b.name} · ${slot?.title ?? "Session"}. The member will lose this reserved place. The existing cancellation and refund rules apply.`, confirm: "Cancel reservation", danger: true })) {
+                        await act(`/${b.id}/cancel`, { revision: b.version, reason: "Canceled by coach" });
+                      }
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  {slot &&
+                    new Date(slot.ends_at).getTime() < Date.now() &&
+                    ["attended", "no_show"].map((status) => (
+                      <button
+                        className="button secondary"
+                        disabled={busy || readError}
+                        key={status}
+                        onClick={() =>
+                          void act(`/${b.id}/outcome`, {
+                            status,
+                            revision: b.version,
+                          })
+                        }
+                      >
+                        {bookingStatus(status)}
+                      </button>
+                    ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {data && !data.bookings.length && (
+          <p className="muted">
+            {sub ? t("noReservationsMember") : t("noReservations")}
+          </p>
+        )}
+      </section>
       <section className="card">
         <h2>{t("upcoming")}</h2>
         {/* Loading: a placeholder, never an empty card. */}
@@ -431,74 +499,6 @@ export function Bookings({ role }: { role: string }) {
             (s: any) => new Date(s.starts_at).getTime() > Date.now(),
           ) && <p className="muted">{t("noUpcoming")}</p>}
       </section>
-      <section className="card">
-        <h2>{sub ? t("yourReservations") : "Reservations and attendance"}</h2>
-        {data?.bookings.map((b: any) => {
-          const slot = data.slots.find((s: any) => s.id === b.slot_id);
-          return (
-            <div className="list-row" key={b.id}>
-              <div>
-                <strong dir="auto">
-                  {sub ? (slot?.title ?? t("session")) : b.name}
-                </strong>
-                <p dir="auto">
-                  {sub ? "" : `${slot?.title ?? "Session"} · `}
-                  {slot ? date(slot.starts_at, zone, locale) : ""}
-                  {" · "}
-                  <span className="badge">{statusText(b.status)}</span>
-                </p>
-                <p className="muted">
-                  {sub
-                    ? paymentText(b.payment_status)
-                    : `Payment: ${paymentText(b.payment_status)}`}
-                  {b.cancel_reason &&
-                  !/^Canceled by (member|coach)$/.test(b.cancel_reason)
-                    ? " · " + b.cancel_reason
-                    : ""}
-                </p>
-              </div>
-              {!sub && b.status === "confirmed" && (
-                <div className="button-row">
-                  <button
-                    className="button secondary"
-                    disabled={busy || readError}
-                    onClick={() =>
-                      void act(`/${b.id}/cancel`, {
-                        revision: b.version,
-                        reason: "Canceled by coach",
-                      })
-                    }
-                  >
-                    Cancel
-                  </button>
-                  {slot &&
-                    new Date(slot.ends_at).getTime() < Date.now() &&
-                    ["attended", "no_show"].map((status) => (
-                      <button
-                        className="button secondary"
-                        disabled={busy || readError}
-                        key={status}
-                        onClick={() =>
-                          void act(`/${b.id}/outcome`, {
-                            status,
-                            revision: b.version,
-                          })
-                        }
-                      >
-                        {bookingStatus(status)}
-                      </button>
-                    ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
-        {data && !data.bookings.length && (
-          <p className="muted">
-            {sub ? t("noReservationsMember") : t("noReservations")}
-          </p>
-        )}
-      </section>
       {sub && (
         <BottomSheet
           open={!!sheet}
@@ -538,7 +538,7 @@ export function Bookings({ role }: { role: string }) {
                           reason: "Canceled by member",
                         })
                       : act(`/slots/${sheet.slot.id}/reserve`, {});
-                  void done.then(() => setSheet(null));
+                  void done.then((result) => { if (result) setSheet(null); });
                 }}
               >
                 {sheet?.kind === "cancel"
@@ -550,6 +550,8 @@ export function Bookings({ role }: { role: string }) {
             </>
           }
         >
+          {notice && <p role="status" className="notice">{notice}</p>}
+          {readError && <p role="alert">{common("tryAgain")}</p>}
           {sheet && (
             <ul className="sheet-facts">
               <li>

@@ -16,7 +16,8 @@ export type InboxType =
   | "chat"
   | "plan_draft"
   | "followup"
-  | "booking";
+  | "booking"
+  | "inquiry";
 export type InboxAction =
   | "approve"
   | "edit_send"
@@ -64,6 +65,7 @@ const URGENCY: Record<InboxType, number> = {
   plan_draft: 3,
   followup: 3,
   booking: 4,
+  inquiry: 2,
 };
 const LIMIT = 100;
 const fail = (statusCode: number, code: string, message: string) =>
@@ -320,6 +322,12 @@ export async function inboxItems(tx: Tx, a: Actor): Promise<InboxItem[]> {
       actions: ["review"],
       href: clientId ? `/trainer/messages/${clientId}` : "/trainer/messages",
     });
+  }
+
+  // Website inquiries are owner-only, matching the existing website-settings authority.
+  if (a.role === "owner") {
+    const inquiries = await tx.query("SELECT id,version,data,created_at FROM records WHERE kind='website_inquiry' AND status='open' ORDER BY created_at LIMIT $1", [LIMIT]);
+    for (const row of inquiries) push({ type: "inquiry", recordId: row.id, version: row.version, clientId: null, title: `Website inquiry · ${clip(row.data?.name, 80)}`, preview: clip(row.data?.message), draft: null, createdAt: iso(row.created_at), actions: ["review"], href: "/trainer/website/settings#inquiries" });
   }
 
   // Sessions that ended without attendance recorded, and today's bookings.

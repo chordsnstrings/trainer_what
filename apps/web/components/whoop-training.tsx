@@ -11,6 +11,7 @@ async function request(path: string, body?: unknown) {
     method: body === undefined ? "GET" : "PUT",
     credentials: "same-origin",
     cache: "no-store",
+    signal: body === undefined ? AbortSignal.timeout(20000) : undefined,
     ...(body === undefined
       ? {}
       : {
@@ -230,16 +231,19 @@ export function WhoopTrainerRules() {
 export function WhoopTrainingCard({
   settings = false,
   refreshKey = "",
+  compact = false,
 }: {
   settings?: boolean;
   refreshKey?: string;
+  compact?: boolean;
 }) {
   const t = useWords(),
     locale = useLocale(),
     consentId = useId(),
     [data, setData] = useState<any>(),
     [error, setError] = useState(""),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [retry, setRetry] = useState(0);
   useEffect(() => {
     let active = true;
     void request("/integrations/whoop/training")
@@ -255,9 +259,9 @@ export function WhoopTrainingCard({
     return () => {
       active = false;
     };
-  }, [refreshKey]);
+  }, [refreshKey, retry]);
   if (!data?.hasConnection)
-    return settings && error ? <p role="alert">{error}</p> : null;
+    return error ? <div className="notice" role="alert">{error}<button className="text-button" onClick={() => setRetry(v => v + 1)}>{locale === "ar" ? "إعادة المحاولة" : "Retry WHOOP"}</button></div> : null;
   const recovery = data.recovery;
   const message =
     data.reason === "ready"
@@ -265,9 +269,19 @@ export function WhoopTrainingCard({
         ? t.ready
         : t.unchanged
       : (t[data.reason as keyof typeof t] ?? t.unavailable);
+  if (compact) return <section className="card whoop-training is-compact" data-recovery-state={data.reason} aria-label={t.title}>
+    <h2>{t.title}</h2><div className="whoop-summary">{recovery.score != null && <strong><bdi>{recovery.score}%</bdi></strong>}{recovery.sleepHours != null && <span>{t.sleep}: <bdi>{recovery.sleepHours} {t.hours}</bdi></span>}</div>
+    <p>{message}</p>
+    <details><summary>{locale === "ar" ? "لماذا؟ عرض القراءة وتأثيرها" : "Why? Reading and training effect"}</summary>
+      {recovery.measuredAt && <p className="muted">{t.measured} <bdi>{new Intl.DateTimeFormat(locale === "ar" ? "ar-AE" : "en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: data.timezone }).format(new Date(recovery.measuredAt))}</bdi></p>}
+      {data.reason === "ready" && data.rule && <p>{reductionText(t.lower, data.rule)}</p>}
+      <p>{t.limits}</p><Link className="text-button" href="/app/wearables">{t.connections}</Link>
+    </details>
+  </section>;
   return (
     <section className="card whoop-training" aria-label={t.title}>
       <h2>{t.title}</h2>
+      {settings && <p className="badge">{data.connected ? (locale === "ar" ? "متصل بـ WHOOP" : "Connected to WHOOP") : (locale === "ar" ? "يلزم إعادة الربط" : "Reconnect WHOOP")}</p>}
       {recovery.score != null && (
         <p>
           <strong>
@@ -289,7 +303,7 @@ export function WhoopTrainingCard({
         </p>
       )}
       <p>{message}</p>
-      {data.rule && <p>{reductionText(t.lower, data.rule)}</p>}
+      {data.reason === "ready" && data.rule && <p>{reductionText(t.lower, data.rule)}</p>}
       {(recovery.sleepHours != null ||
         recovery.hrvMs != null ||
         recovery.restingHeartRate != null) && (

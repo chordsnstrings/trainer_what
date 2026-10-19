@@ -9,6 +9,7 @@ import {
 } from "@trainer/contracts";
 import { useLocale, useT } from "../lib/i18n/react";
 import { formatDate, formatDateTime, formatMoney } from "../lib/format";
+import { OfferTerms } from "./programme-offers";
 
 export function MembershipPurchase({
   offer,
@@ -35,6 +36,10 @@ export function MembershipPurchase({
       : null;
   return (
     <div className="offer-terms membership-purchase">
+      {quote ? <div className="selected-purchase-terms" aria-live="polite">
+        <strong>{t("total", { price: formatMoney(quote.amountMinor, locale), months: quote.months })}</strong>
+        <p>{locale === "ar" ? "دفعة واحدة. لا يتجدد تلقائياً." : "One payment. Does not renew automatically."}</p>
+      </div> : <OfferTerms data={offer.data} />}
       {!valid && <p className="notice">{t("floor")}</p>}
       {monthly && (
         <label className="field">
@@ -55,12 +60,6 @@ export function MembershipPurchase({
       )}
       {quote && (
         <div className="notice prepaid-terms">
-          <strong>
-            {t("total", {
-              price: formatMoney(quote.amountMinor, locale),
-              months: quote.months,
-            })}
-          </strong>
           <p>
             {t("refund", {
               price: formatMoney(quote.monthlyPriceMinor, locale),

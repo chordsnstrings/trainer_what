@@ -1,4 +1,5 @@
 "use client";
+import { saveAndRefresh, refreshMessage } from "../lib/action-outcome";
 import { formatDate, formatMoney, humanize } from "../lib/format";
 import { useErrorText, useLocale, useT } from "../lib/i18n/react";
 import { useEffect, useState } from "react";
@@ -40,9 +41,8 @@ export function BillingHistory({ active = false }: { active?: boolean }) {
     setBusy(true);
     setMessage("");
     try {
-      await request(url, body);
-      await refresh();
-      setMessage(t("billingUpdated"));
+      const { refreshed } = await saveAndRefresh(() => request(url, body), refresh);
+      setMessage(refreshed ? t("billingUpdated") : refreshMessage(locale));
     } catch (e) {
       setMessage(toError(e));
     } finally {
@@ -182,7 +182,7 @@ export function BillingHistory({ active = false }: { active?: boolean }) {
   );
 }
 
-export function TrainerFinanceTools() {
+export function TrainerFinanceTools({ area = "payouts" }: { area?: "payouts" | "offers" }) {
   const [data, setData] = useState<any>(null),
     [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false);
@@ -194,9 +194,8 @@ export function TrainerFinanceTools() {
     setBusy(true);
     setMessage("");
     try {
-      await request(path, body);
-      await refresh();
-      setMessage("Saved.");
+      const { refreshed } = await saveAndRefresh(() => request(path, body), refresh);
+      setMessage(refreshed ? "Saved." : refreshMessage());
     } catch (e) {
       setMessage((e as Error).message);
     } finally {
@@ -205,8 +204,8 @@ export function TrainerFinanceTools() {
   }
   return (
     <>
-      <FinancialStatementView />
-      <section className="card">
+      {area === "payouts" && <FinancialStatementView />}
+      {area === "offers" && <section className="card">
         <h2>Offers and promotions</h2>
         {message && (
           <p role="status" className="notice">
@@ -363,7 +362,7 @@ export function TrainerFinanceTools() {
               ))}
           </>
         )}
-      </section>
+      </section>}
     </>
   );
 }

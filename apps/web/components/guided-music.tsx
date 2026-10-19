@@ -251,7 +251,19 @@ export function GuidedMusic({
   }, [enabled]);
   if (!enabled) return null;
   return (
-    <details className="guided-music" open>
+    <div className="guided-audio-bar"><div className="button-row">          <button
+            className="button"
+            disabled={!tracks.length || blocked}
+            onClick={() => {
+              if (!track) move();
+              setWanted(!playing);
+            }}
+          >
+            {playing
+              ? tr("Pause music", "إيقاف الموسيقى")
+              : tr("Play music", "تشغيل الموسيقى")}
+          </button><span className="muted">{track?.title || tr("Workout music", "موسيقى التمرين")}</span></div>
+    <details className="guided-music">
       <summary>
         {tr("Workout music", "موسيقى التمرين")}{" "}
         {track ? `· ${track.title}` : ""}
@@ -327,18 +339,7 @@ export function GuidedMusic({
           >
             {tr("Previous song", "المقطع السابق")}
           </button>
-          <button
-            className="button"
-            disabled={!tracks.length || blocked}
-            onClick={() => {
-              if (!track) move();
-              setWanted(!playing);
-            }}
-          >
-            {playing
-              ? tr("Pause music", "إيقاف الموسيقى")
-              : tr("Play music", "تشغيل الموسيقى")}
-          </button>
+
           <button
             className="button secondary"
             disabled={!tracks.length}
@@ -517,6 +518,6 @@ export function GuidedMusic({
           </details>
         )}
       </div>
-    </details>
+    </details></div>
   );
 }

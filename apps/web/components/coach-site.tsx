@@ -609,7 +609,7 @@ export function WebsiteInquiries() {
     };
   }, []);
   return (
-    <section className="card">
+    <section className="card" id="inquiries">
       <h2>Website inquiries</h2>
       <Notice message={message} />
       {loading ? (

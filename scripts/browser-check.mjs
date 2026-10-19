@@ -170,8 +170,8 @@ try {
   // The demo coach is also a Superadmin, and Superadmins land in Super admin.
   await page.waitForURL(/\/(trainer|admin\/settings)$/);
   await page.goto(base + "/trainer");
-  // The trainer's home is the one inbox; the old dashboard is the summary.
-  await page.getByRole("heading", { name: "Inbox", exact: true }).waitFor();
+  // Today keeps the queue alongside the working schedule.
+  await page.getByRole("heading", { name: /Good to see you/ }).waitFor();
   await capture(page, {
     path: "test-results/trainer-desktop.png",
     fullPage: true,

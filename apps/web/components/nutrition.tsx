@@ -1,4 +1,6 @@
 "use client";
+import { saveAndRefresh, readSignal, refreshMessage } from "../lib/action-outcome";
+import { ReadRetry } from "./read-retry";
 import { NutritionPreferencesFields, nutritionPreferencesFromForm, NutritionGuidance, NutritionKitchenButton } from "./nutrition-household";
 import { memberApiUrl, memberHref } from "../lib/trainer-preview-routing";
 import { confirmWorkspace } from "./workspace-feedback";
@@ -16,6 +18,7 @@ import {
 import { type Locale } from "../lib/i18n/core";
 import { Rich, useErrorText, useLocale, useT } from "../lib/i18n/react";
 import {
+  BottomSheet,
   ProgressRing,
   ResponsiveTable,
   ScrollTabs,
@@ -63,6 +66,7 @@ async function api(
 ) {
   const r = await fetch(memberApiUrl("/api/v1" + path), {
     method,
+    signal: readSignal(method),
     credentials: "same-origin",
     headers:
       body === undefined
@@ -106,11 +110,13 @@ function useNutrition(path: string) {
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [message, setMessage] = useState("");
+  const locale = useLocale();
   const t = useT("nutrition"),
     toError = useErrorText();
   const load = useCallback(async () => {
     const d = await api(path);
     setData(d);
+    setError("");
     return d;
   }, [path]);
   useEffect(() => {
@@ -122,9 +128,9 @@ function useNutrition(path: string) {
     setError("");
     setMessage("");
     try {
-      const result = await fn();
-      await load();
+      const { result, refreshed } = await saveAndRefresh(fn, load);
       setMessage(result?.status === "exception" ? result.message : success);
+      if (!refreshed) setError(refreshMessage(locale));
       return result;
     } catch (e) {
       setError(toError(e));
@@ -172,10 +178,18 @@ export function NutritionCoach({
   const r = useNutrition("/nutrition/coach"),
     [section, setSection] = useState(initialSection),
     [draftRecipe, setDraftRecipe] = useState<any>(null);
+  const groups = [
+    { label: "Overview", keys: ["overview"] },
+    { label: "Client work", keys: ["clients", "exceptions"] },
+    { label: "Teach & check", keys: ["cases", "learning", "policy", "scenarios", "preview", "readiness"] },
+    { label: "Food library", keys: ["recipes", "methods", "purchases"] },
+    { label: "Advanced", keys: ["recovery", "versions"] },
+  ];
+  const group = groups.find(g => g.keys.includes(section)) ?? groups[0];
   const d = r.data;
   const submit = (url: string, body: any, message?: string) =>
     r.action(() => api("/nutrition" + url, "POST", body), message);
-  if (!d) return <Notice>{r.error || "Loading nutrition workspace…"}</Notice>;
+  if (!d) return <Notice>{r.error || "Loading nutrition workspace…"}{r.error && <ReadRetry onRetry={r.load} />}</Notice>;
   const preview = d.records.find((x: any) => x.kind === "nutrition_preview"),
     evaluation = d.records.find((x: any) => x.kind === "nutrition_evaluation");
   const policyDraft = d.records.find(
@@ -201,11 +215,13 @@ export function NutritionCoach({
               : "Optional combined tier"}
         </span>
       </div>
+      <nav className="nutrition-groups" aria-label="Nutrition tasks">{groups.map(g => <button type="button" key={g.label} className={group === g ? "button" : "button secondary"} aria-pressed={group === g} onClick={() => setSection(g.keys[0])}>{g.label}</button>)}</nav>
       <nav className="tabs nutrition-tabs" aria-label="Nutrition workspace">
-        {sections.map(([key, label]) => (
+        {sections.filter(([key]) => group.keys.includes(key)).map(([key, label]) => (
           <button
             key={key}
             className={section === key ? "selected" : ""}
+            aria-pressed={section === key}
             onClick={() => setSection(key)}
           >
             {label}
@@ -215,6 +231,7 @@ export function NutritionCoach({
       {r.error && (
         <p className="notice error" role="alert">
           {r.error}
+          <ReadRetry onRetry={r.load} />
         </p>
       )}
       {r.message && <Notice>{r.message}</Notice>}
@@ -2099,8 +2116,10 @@ export function WeekView({
   onLog,
   onSwap,
   testData = false,
+  today,
 }: {
   plan: any;
+  today?: string;
   onLog?: (day: any, meal: any) => void;
   onSwap?: (day: any, meal: any) => void;
   /** Development only: a made-up week may show its test description. */
@@ -2109,7 +2128,7 @@ export function WeekView({
   const view = plan.data.view;
   const synthetic =
     !!plan.data.synthetic || plan.data.origin === "synthetic_fixture";
-  const [date, setDate] = useState(view.days[0]?.date);
+  const [date, setDate] = useState(() => view.days.find((day: any) => day.date === today)?.date ?? view.days[0]?.date);
   const day = view.days.find((d: any) => d.date === date) ?? view.days[0];
   const daysRow = useRef<HTMLElement>(null);
   useEdgeFade(daysRow);
@@ -2139,6 +2158,7 @@ export function WeekView({
           <button
             key={d.date}
             className={date === d.date ? "selected" : ""}
+            aria-pressed={date === d.date}
             onClick={() => setDate(d.date)}
           >
             <span>{weekdayShort(d.date, locale)}</span>
@@ -2447,7 +2467,7 @@ export function NutritionSubscriber({
   const d = r.data;
   if (!d)
     return r.error ? (
-      <Notice>{r.error}</Notice>
+      <Notice>{r.error} <ReadRetry onRetry={r.load} /></Notice>
     ) : (
       <Skeleton label={t("loading")} lines={4} block />
     );
@@ -2593,6 +2613,7 @@ export function NutritionSubscriber({
       {r.error && (
         <p className="notice error" role="alert">
           {r.error}
+          <ReadRetry onRetry={r.load} />
         </p>
       )}
       {r.message && <Notice>{r.message}</Notice>}
@@ -2718,6 +2739,7 @@ export function NutritionSubscriber({
                 <WeekView
                   key={plan.id}
                   plan={plan}
+                  today={d.today}
                   testData={testData}
                   onLog={
                     !coachView &&
@@ -2737,15 +2759,9 @@ export function NutritionSubscriber({
                             variantKey: m.variantKey,
                             servings: m.servings,
                           });
-                          void r
-                            .action(
-                              () =>
-                                api("/nutrition/plans/" + plan.id + "/options"),
-                              "",
-                            )
-                            .then((x) => {
-                              if (x) setOptions(x);
-                            });
+                          setOptions(null);
+                          r.setError("");
+                          void api("/nutrition/plans/" + plan.id + "/options").then(setOptions).catch(e => r.setError(r.toError(e)));
                         }
                       : undefined
                   }
@@ -2758,9 +2774,12 @@ export function NutritionSubscriber({
             )}
             {/* This week's meals first; planning the next one follows. */}
             {plan && nextWeek}
-            {swap && options && (
-              <Card title={t("chooseAlternative")}>
-                <form
+            {swap && (
+              <BottomSheet title={t("chooseAlternative")} open={!!swap} onClose={() => { if (!r.busy) { setSwap(null); setOptions(null); } }}>
+                <p>{formatDate(swap.date, { locale })} · {swap.slot}</p>
+                {r.error && <p className="notice error" role="alert">{r.error}<ReadRetry onRetry={async () => { setOptions(await api("/nutrition/plans/" + plan.id + "/options")); r.setError(""); }} /></p>}
+                {!options && !r.error && <p role="status">{locale === "ar" ? "جارٍ تحميل البدائل…" : "Loading alternatives…"}</p>}
+                {options && <form
                   onSubmit={(e) => {
                     e.preventDefault();
                     void r
@@ -2831,7 +2850,7 @@ export function NutritionSubscriber({
                     />
                   </Field>
                   <p>{t("recheckedNote")}</p>
-                  <button className="button">{t("applyChange")}</button>
+                  <button className="button" disabled={r.busy}>{t("applyChange")}</button>
                   <button
                     type="button"
                     className="button secondary"
@@ -2839,8 +2858,8 @@ export function NutritionSubscriber({
                   >
                     {t("cancel")}
                   </button>
-                </form>
-              </Card>
+                </form>}
+              </BottomSheet>
             )}
           </>
         )}
@@ -3173,12 +3192,7 @@ function GroceryList({
     () => setSelected(pantry?.data.foodIds ?? []),
     [plan.id, pantry?.id],
   );
-  return (
-    <>
-      <NutritionShopping plan={plan} readOnly={disabled} />
-      <div className="nutrition-groceries">
-        {plan.data.view.groceries.map((g: any) => (
-          <label className="nutrition-grocery" key={g.food.id}>
+  const row = (g: any) => (<label className="nutrition-grocery" key={g.food.id}>
             <input
               type="checkbox"
               checked={selected.includes(g.food.id)}
@@ -3207,8 +3221,14 @@ function GroceryList({
               </small>
             </span>
             <b>{t("grams", { grams: g.grams })}</b>
-          </label>
-        ))}
+          </label>);
+  return (
+    <>
+      <p>{locale === "ar" ? "المتبقي" : "Still needed"}: {plan.data.view.groceries.filter((g: any) => !selected.includes(g.food.id)).length}</p>
+      <NutritionShopping plan={plan} readOnly={disabled} />
+      <div className="nutrition-groceries">
+        {plan.data.view.groceries.filter((g: any) => !selected.includes(g.food.id)).map(row)}
+        <details><summary>{locale === "ar" ? "متوفر أو تم شراؤه" : "Already have or purchased"} · {plan.data.view.groceries.filter((g: any) => selected.includes(g.food.id)).length}</summary>{plan.data.view.groceries.filter((g: any) => selected.includes(g.food.id)).map(row)}</details>
       </div>
       <p>{t("pantryHelp")}</p>
       <button
@@ -3453,7 +3473,7 @@ function NutritionRecovery() {
         provider trace confirming they were not processed. Close obsolete weeks
         so the scheduler can prepare a current week.
       </p>
-      {r.error && <Notice>{r.error}</Notice>}
+      {r.error && <Notice>{r.error} <ReadRetry onRetry={r.load} /></Notice>}
       {r.message && <Notice>{r.message}</Notice>}
       {r.data?.length === 0 && <p>No blocked weeks.</p>}
       {r.data?.map((j: any) => (
@@ -3522,7 +3542,7 @@ function NutritionVersions() {
         also withholds recipes that still use its older facts. Previous
         delivered plans retain their original snapshots.
       </p>
-      {r.error && <Notice>{r.error}</Notice>}
+      {r.error && <Notice>{r.error} <ReadRetry onRetry={r.load} /></Notice>}
       {r.message && <Notice>{r.message}</Notice>}
       {r.data &&
         [
@@ -3655,7 +3675,7 @@ function NutritionMethods({ cases }: { cases: any[] }) {
         Coefficients are chosen by you; individual results must remain within
         your confirmed policy limits.
       </p>
-      {r.error && <Notice>{r.error}</Notice>}
+      {r.error && <Notice>{r.error} <ReadRetry onRetry={r.load} /></Notice>}
       {r.message && <Notice>{r.message}</Notice>}
       <form
         onSubmit={(e) => {
@@ -3768,13 +3788,13 @@ function NutritionClientControl({
   onChange: () => Promise<any>;
 }) {
   const r = useNutrition("/nutrition/clients/" + userId + "/control");
-  if (r.error && !r.data) return <Notice>{r.error}</Notice>;
+  if (r.error && !r.data) return <Notice>{r.error} <ReadRetry onRetry={r.load} /></Notice>;
   if (!r.data) return <p>Loading client controls…</p>;
   const d = r.data,
     target = d.targets.find((t: any) => t.status === "active");
   return (
     <>
-      {r.error && <Notice>{r.error}</Notice>}
+      {r.error && <Notice>{r.error} <ReadRetry onRetry={r.load} /></Notice>}
       {r.message && <Notice>{r.message}</Notice>}
       <details>
         <summary>Set individual targets</summary>
@@ -4212,7 +4232,7 @@ function NutritionConsumed({
   const planned = latest?.planned?.kcal;
   return (
     <Card title={t("trendsTitle")}>
-      {r.error && <Notice>{r.error}</Notice>}
+      {r.error && <Notice>{r.error} <ReadRetry onRetry={r.load} /></Notice>}
       {r.data && (
         <>
           {typeof eaten === "number" && typeof planned === "number" && planned > 0 && (
@@ -4383,7 +4403,7 @@ function NutritionSavedMeals({
       >
         {t("refreshSaved")}
       </button>
-      {r.error && <Notice>{r.error}</Notice>}
+      {r.error && <Notice>{r.error} <ReadRetry onRetry={r.load} /></Notice>}
       {r.data?.length === 0 && <p>{t("saveHint")}</p>}
       {r.data?.map((f: any) => (
         <details key={f.id}>
@@ -4422,7 +4442,7 @@ function NutritionPurchaseSpecs() {
         for preparation or edible yield. The system rounds up to whole packs
         only when you provide a pack size.
       </p>
-      {r.error && <Notice>{r.error}</Notice>}
+      {r.error && <Notice>{r.error} <ReadRetry onRetry={r.load} /></Notice>}
       {r.message && <Notice>{r.message}</Notice>}
       <form
         onSubmit={(e) => {
@@ -4507,7 +4527,7 @@ function NutritionShopping({
   const grams = (value: number) => t("grams", { grams: value });
   return (
     <Card title={t("purchaseTitle")}>
-      {r.error && <Notice>{r.error}</Notice>}
+      {r.error && <Notice>{r.error} <ReadRetry onRetry={r.load} /></Notice>}
       {r.message && <Notice>{r.message}</Notice>}
       {r.data?.items.map((g: any) => (
         <details key={g.food.id}>
@@ -4632,7 +4652,7 @@ function NutritionLearningView() {
           Questions follow missing decision details, contrasting examples and
           the exceptions your clients encounter.
         </p>
-        {r.error && <Notice>{r.error}</Notice>}
+        {r.error && <Notice>{r.error} <ReadRetry onRetry={r.load} /></Notice>}
         {r.message && <Notice>{r.message}</Notice>}
         {r.data?.conflicts.map((c: any, i: number) => (
           <Notice key={i}>

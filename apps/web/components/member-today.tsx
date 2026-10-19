@@ -38,6 +38,7 @@ import {
 async function api(path: string, method = "GET", body?: unknown) {
   const r = await fetch(memberApiUrl("/api/v1" + path), {
     method,
+    signal: method === "GET" ? AbortSignal.timeout(20000) : undefined,
     credentials: "same-origin",
     headers:
       body === undefined ? undefined : { "Content-Type": "application/json" },
@@ -190,7 +191,7 @@ export function MemberToday({
         </p>
         <h1>{t("greeting", { name: firstName })}</h1>
       </header>
-      {!hold && !active && state.integrations?.some((i: any) => i.id === "whoop" && i.configured && i.approved) && <WhoopTrainingCard />}
+
       {hold ? (
         <section
           className="card today-focus is-hold"
@@ -302,6 +303,9 @@ export function MemberToday({
           )}
         </section>
       )}
+      {!hold && !active && state.integrations?.some((i: any) => i.id === "whoop" && i.configured && i.approved) && <WhoopTrainingCard compact />}
+      {data && failed && <p className="notice" role="status">{locale === "ar" ? "تعذر تحديث يومك. تظهر آخر بيانات محفوظة." : "Your day could not refresh. Showing the last loaded view."}<button className="text-button" onClick={() => void load()}>{t("tryAgain")}</button></p>}
+      {!hold && !active && nutrition && <nav className="daily-member-links" aria-label={locale === "ar" ? "التغذية" : "Food today"}><Link className="button secondary" href="/app/nutrition">{locale === "ar" ? "وجبات اليوم" : "Today’s meals"}</Link><Link className="button secondary" href="/app/nutrition/log">{locale === "ar" ? "تسجيل وجبة" : "Log a meal"}</Link></nav>}
       {!hold && !active && <MemberSetupChecklist steps={data?.setup} />}
       {!hold && status.length > 0 && (
         <ul className="today-status" aria-label={t("fProgressAria")}>

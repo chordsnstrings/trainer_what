@@ -904,7 +904,7 @@ function Pricing({ props }: { props: SectionProps }) {
                     label: t("joinName", { name: context.name }),
                     newTab: false,
                   }}
-                  context={context}
+                  context={{ ...context, joinPath: context.joinPath + (context.joinPath.includes("?") ? "&" : "?") + "offer=" + encodeURIComponent(product.id) }}
                   builder={builder}
                 />
               </article>

@@ -1174,11 +1174,12 @@ try {
       ).toBeVisible();
       await expect(page.getByTestId("site-builder-editor")).toHaveCount(0);
       assert.equal(
-        phoneEditorRequests,
-        0,
-        "a phone must not mount or load the editor",
+        await page.getByRole("heading", { name: "Quick edit", exact: true }).count(),
+        1,
+        "a phone opens quick editing while the full editor stays unmounted",
       );
-      await noOverflow(page, "desktop-only explanation on a phone");
+      await expect(page.getByLabel("Headline", { exact: true })).toBeVisible();
+      await noOverflow(page, "quick website editing on a phone");
       await capture(page, "desktop-required-phone");
     },
   );

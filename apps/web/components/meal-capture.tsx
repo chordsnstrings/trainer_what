@@ -1163,6 +1163,7 @@ export function MealCapture() {
                       <small>{t("matchHint")}</small>
                     </>
                   )}
+                  <details className="capture-nutrient-details"><summary>{locale === "ar" ? "مراجعة القيم الغذائية وتعديلها" : "Review or edit nutrition values"}</summary>
                   <div className="capture-nutrients">
                     {(
                       [
@@ -1188,6 +1189,7 @@ export function MealCapture() {
                       </label>
                     ))}
                   </div>
+                  </details>
                   <p className="capture-fine">
                     {draft.kind === "photo"
                       ? t("photoTotals")

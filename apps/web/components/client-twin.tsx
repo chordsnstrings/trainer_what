@@ -187,10 +187,12 @@ export function ClientTwin({
   userId,
   name,
   subscriber = false,
+  compact = false,
 }: {
   userId: string;
   name?: string;
   subscriber?: boolean;
+  compact?: boolean;
 }) {
   const [snapshot, setSnapshot] = useState<any>(null),
     [error, setError] = useState(""),
@@ -210,7 +212,7 @@ export function ClientTwin({
     setBusy(true);
     setError("");
     try {
-      const r = await fetch(`/api/v1/clients/${userId}/twin`),
+      const r = await fetch(`/api/v1/clients/${userId}/twin`, { signal: AbortSignal.timeout(20000) }),
         data = await r.json();
       if (!r.ok)
         throw Object.assign(new Error(data.message), {
@@ -239,6 +241,15 @@ export function ClientTwin({
     ["current", "stale", "missing", "provided", "expired"].includes(state)
       ? t(`state_${state}` as "state_current")
       : state;
+  if (compact) return <div className="client-overview-summary">
+    {error && <p className="notice error" role="alert">{error}<button className="text-button" disabled={busy} onClick={() => void load()}>Refresh client</button></p>}
+    {!data && !error && <p role="status">Loading client context…</p>}
+    {data && <><dl className="form-grid">{data.coaching.profile.filter((f: any) => ["goal", "equipment", "daysPerWeek", "limitations"].includes(f.key)).map((f: any) => <div key={f.key}><dt>{fieldLabel(f.key)}</dt><dd dir="auto">{f.value == null || f.value === "" ? t("notProvided") : String(f.value)}</dd></div>)}</dl>
+      {data.coaching.safetyHolds.length > 0 && <p className="notice">{t("safetyHolds", { count: data.coaching.safetyHolds.length })}</p>}
+      {data.coaching.adherence && <TrainingScheduleSummary adherence={data.coaching.adherence} subscriber={false} />}
+      <p>{data.coaching.training.completedSessions} completed sessions · {data.coaching.training.loggedSets} logged sets</p><p className="muted" dir="auto">{data.coaching.training.coverage}</p>
+      <Link className="text-button" href={`/trainer/subscribers/${userId}/notes`}>Full context, sources and connected readings</Link></>}
+  </div>;
   return (
     <>
       <div className="page-heading">

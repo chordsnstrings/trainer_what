@@ -3,6 +3,10 @@
 
 ## Work in progress
 
+### Daily UX workflows — implementation awaiting release checks, 19 October 2026 (Codex)
+
+Owner: “complete all.” Branch `codex/daily-workflows-2026-10-19`, baseline `686e158`. Trainer Today/shared Inbox, client task filters/hub, subscriber Today/WHOOP, nutrition swaps/groceries, joining continuity, commerce, phone website quick editing and failure recovery are implemented. Audit coverage and exact boundaries are in `docs/UX_WORKFLOWS_2026-10-19.md`. No release claimed yet. Focused checks passed (14/14 including tenant isolation; 22/22 UI/model checks). Local Chromium is unavailable; fresh CI browser gates are required. Local Turbopack persistence cache failed on reuse, so it was moved aside; root/web type checks and a clean production build passed. Existing music completion and WHOOP owner-connection boundary below remain unchanged. Next: commit/PR, all normal CI gates, merge under standing “always deploy” instruction, exact serving verification, then update this handoff.
+
 ### Music library complete; stall fix live — 19 October 2026 (Claude)
 
 Owner (19 October): "yeah go for it for both", meaning restart the paused music now and make the four code fixes. Both are done and verified live.

@@ -1,4 +1,9 @@
 "use client";
+import { ClientTwin } from "./client-twin";
+import { useRef as useIntentRef } from "react";
+import { useWorkspaceQuery } from "./workspace-continuity";
+import { saveAndRefresh, readSignal, refreshMessage } from "../lib/action-outcome";
+import { ReadRetry } from "./read-retry";
 import { WhoopTrainerRules } from "./whoop-training";
 import { memberApiUrl } from "../lib/trainer-preview-routing";
 import { useLocale, useT } from "../lib/i18n/react";
@@ -20,6 +25,7 @@ import {
 async function api(path: string, method = "GET", body?: unknown) {
   const r = await fetch(memberApiUrl("/api/v1" + path), {
     method,
+    signal: readSignal(method),
     credentials: "same-origin",
     headers:
       body === undefined ? undefined : { "Content-Type": "application/json" },
@@ -1053,11 +1059,19 @@ function LibraryCard({
 }
 
 export function BrainPlans({ role }: { role: string }) {
+  const [clientIntent] = useWorkspaceQuery("client");
+  const appliedIntent = useIntentRef("");
   const [data, setData] = useState<any>(),
     [busy, setBusy] = useState(false),
     [message, setMessage] = useState(""),
     [error, setError] = useState(""),
     [member, setMember] = useState("");
+  useEffect(() => {
+    if (!data || !clientIntent || appliedIntent.current === clientIntent) return;
+    appliedIntent.current = clientIntent;
+    if (data.members.some((m: any) => m.id === clientIntent)) setMember(clientIntent);
+    else setError("This client is no longer available in your workspace. Choose an authorized client.");
+  }, [data, clientIntent]);
   const owner = role === "owner";
   const load = async () => setData(await api("/brain/plans/workspace"));
   useEffect(() => {
@@ -1068,10 +1082,10 @@ export function BrainPlans({ role }: { role: string }) {
     setMessage("");
     setError("");
     try {
-      const r = await fn();
-      await load();
+      const { result, refreshed } = await saveAndRefresh(fn, load);
       setMessage(success);
-      return r;
+      if (!refreshed) setError(refreshMessage());
+      return result;
     } catch (e) {
       setError((e as Error).message);
       return null;
@@ -1082,6 +1096,7 @@ export function BrainPlans({ role }: { role: string }) {
   const names: string[] = (data?.library ?? []).map((e: any) => e.name);
   return (
     <>
+      {clientIntent && data?.members.some((m: any) => m.id === clientIntent) && <a className="text-link" href={`/trainer/subscribers/${encodeURIComponent(clientIntent)}/plan`}>Back to {data.members.find((m: any) => m.id === clientIntent)?.name}’s plan</a>}
       <div className="page-heading">
         <h1>Plans your Brain writes</h1>
         <p className="muted">
@@ -1104,6 +1119,7 @@ export function BrainPlans({ role }: { role: string }) {
       {error && (
         <p className="notice" role="alert">
           {error}
+          <ReadRetry onRetry={async () => { await load(); setError(""); }} />
         </p>
       )}
       {message && (
@@ -1164,6 +1180,7 @@ export function BrainPlans({ role }: { role: string }) {
           </section>
           <section className="card">
             <h2>Prepare a plan now</h2>
+            {member && <details><summary>Review this client’s goal and constraints</summary><ClientTwin key={member} userId={member} name={data.members.find((m: any) => m.id === member)?.name} compact /></details>}
             <p className="muted">
               The Brain also prepares plans on its own after intake and before
               each block ends.

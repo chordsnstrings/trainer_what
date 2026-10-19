@@ -1,4 +1,5 @@
 "use client";
+import { WebsiteQuickEdit } from "./website-quick-edit";
 import "../app/site-builder-editor.css";
 import { confirmWorkspace } from "./workspace-feedback";
 import { useSearchParams } from "next/navigation";
@@ -291,16 +292,7 @@ export function SiteBuilderEditor({ tenant }: { tenant: EditorTenant }) {
         data-testid="site-builder-desktop-required"
         tabIndex={-1}
       >
-        <div className="sbe-desktop-illustration">
-          <Monitor size={52} strokeWidth={1.2} />
-        </div>
-        <span className="sbe-eyebrow">WEBSITE STUDIO</span>
-        <h1>A bigger canvas for your ideas.</h1>
-        <p>
-          Open the website editor on a desktop or laptop with a mouse or
-          trackpad, and a window at least 1,100 pixels wide. Your published
-          website still works beautifully on phones and tablets.
-        </p>
+        {!mountedDesktop && <WebsiteQuickEdit slug={tenant.slug} />}
         <a className="button" href={returnTo}>
           {returnTo === "/setup/page" ? "Back to setup" : "Back to workspace"}
         </a>

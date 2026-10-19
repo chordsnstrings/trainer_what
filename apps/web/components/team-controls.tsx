@@ -1,4 +1,6 @@
 "use client";
+import { useWorkspaceValue } from "./workspace-continuity";
+import { saveAndRefresh, refreshMessage } from "../lib/action-outcome";
 import { useEffect, useState } from "react";
 async function request(path: string, method = "GET", body?: unknown) {
   const r = await fetch("/api/v1/team" + path, {
@@ -17,6 +19,8 @@ export function TeamControls({
   role: string;
   authenticatorRequired?: boolean;
 }) {
+  const [inviteEmail, setInviteEmail] = useWorkspaceValue("team:invite-email", "", true);
+  const [inviteRole, setInviteRole] = useWorkspaceValue("team:invite-role", "staff", true);
   const [data, setData] = useState<any>(null),
     [notice, setNotice] = useState(""),
     [url, setUrl] = useState(""),
@@ -28,10 +32,9 @@ export function TeamControls({
   async function act(path: string, method: string, body: unknown) {
     setBusy(true);
     try {
-      const result = await request(path, method, body);
-      await load();
-      setNotice("Team access updated.");
-      if (result.url) setUrl(result.url);
+      const { result, refreshed } = await saveAndRefresh(() => request(path, method, body), load);
+      setNotice(refreshed ? "Team access updated." : refreshMessage());
+      if (result.url) { setUrl(result.url); setInviteEmail(""); }
       return result;
     } catch (e) {
       setNotice((e as Error).message);
@@ -88,15 +91,16 @@ export function TeamControls({
         >
           <label className="field">
             <span>Email</span>
-            <input name="email" type="email" required />
+            <input name="email" type="email" value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} required />
           </label>
           <label className="field">
             <span>Access</span>
-            <select name="role">
+            <select name="role" value={inviteRole} onChange={e => setInviteRole(e.target.value)}>
               <option value="staff">Coaching staff</option>
               <option value="finance">Finance</option>
             </select>
           </label>
+          <dl className="permission-comparison"><div><dt>Coaching staff</dt><dd>Client coaching and review. No owner payment, website or team controls.</dd></div><div><dt>Finance</dt><dd>Billing and statements. No client coaching or Brain controls.</dd></div></dl>
           <button className="button" disabled={busy}>
             Create invitation
           </button>

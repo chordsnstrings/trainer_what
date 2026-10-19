@@ -167,10 +167,11 @@ try {
     await expect(page.locator(".sidebar")).toHaveClass(/is-open/); await page.keyboard.press("Escape");
     await expect(page.getByRole("button", { name: "Open navigation" })).toBeFocused();
   });
-  await check("the website editor remains desktop only", async () => {
+  await check("phone website quick edit keeps the full desktop editor unmounted", async () => {
     await go("/trainer/website");
     await expect(page.getByTestId("site-builder-desktop-required")).toBeVisible();
     await expect(page.getByTestId("site-builder-editor")).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Quick edit", exact: true })).toBeVisible();
   });
   await check("affiliate forms stay aligned and recover without losing drafts", async () => {
     const affiliatePage = await context.newPage();

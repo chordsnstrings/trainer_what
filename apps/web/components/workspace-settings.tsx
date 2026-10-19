@@ -136,7 +136,7 @@ export function SettingsView({
   // (member-intake.tsx); account security stays in Profile and settings.
   if (sub && path === "/app/intake")
     return (
-      <MemberOnboarding intake={records("intake")[0]?.data} onSaved={onSaved} />
+      <MemberOnboarding coachName={state.tenant.name} intake={records("intake")[0]?.data} onSaved={onSaved} />
     );
   if (sub) return <MemberSettings state={state} action={action} busy={busy} />;
   return <TrainerSettingsView state={state} action={action} busy={busy} />;

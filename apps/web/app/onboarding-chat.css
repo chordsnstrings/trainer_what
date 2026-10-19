@@ -283,5 +283,7 @@ html[data-reduce-motion="on"] .onboarding-chat *::before, html[data-reduce-motio
 .onboarding-website-photo-detail { padding-block: 12px; border-top: 1px solid var(--line, #d8dddf); }
 .onboarding-website-photo-detail label { display: grid; gap: 6px; margin-block: 10px; }
 .onboarding-website-photo-detail input, .onboarding-website-photo-detail select { width: 100%; min-width: 0; }
-.onboarding-website-photo-actions, .onboarding-website-ready { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
-.onboarding-website-ready strong, .onboarding-website-ready p { flex-basis: 100%; }
+.onboarding-website-photo-actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.onboarding-website-ready { display: flex; flex-direction: column; flex-wrap: nowrap; align-items: flex-start; gap: 12px; height: auto; min-height: fit-content; }
+.onboarding-website-ready strong, .onboarding-website-ready p { flex: 0 1 auto; width: 100%; margin: 0; }
+.onboarding-website-ready .button { max-width: 100%; white-space: normal; }
