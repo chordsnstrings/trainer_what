@@ -3,28 +3,23 @@
 
 ## Work in progress
 
-### Music agent restarted and made stall-proof — 19 October 2026 (Claude)
+### Music library complete; stall fix live — 19 October 2026 (Claude)
 
-Owner (19 October): "yeah go for it for both", meaning restart the paused music now and make the four code fixes.
+Owner (19 October): "yeah go for it for both", meaning restart the paused music now and make the four code fixes. Both are done and verified live.
 
-- **Restarted (live, done 05:47 UTC).** Called `POST /api/v1/admin/music/plans/9b554083-083b-4630-a975-0a89b66c3fe2/standard`, which returned 200; the Rock plan is now `ready` with standard arrangements and no AI call. By 05:54 UTC the agent was `generating`, with 205 of 240 tracks ready (up from 196) and 109 requests used.
-- **Why it had paused.** The model answered the Rock plan at 00:04 UTC (247 in / 740 out tokens), but the validator rejected the reply. A bare `catch {}` dropped the reason, and any failed plan stopped all eight playlists. Likeliest cause: one description over 420 characters (it had the most text per track of all 21 plans); the other candidate is a disallowed character such as an en dash. Saved AI briefs for EDM, Flow, Synthwave and R&B (10 slots) were blocked behind it.
-- **Code fixes (branch `claude/repository-overview-osejlw`; PR, CI and deploy pending).**
-  1. Rejections record a code-built reason on the plan (`MusicPlanRejected` in `music-planner.ts`; `planFailure` in `music-agent.ts`). Provider error text and model text are not stored.
-  2. A failed plan no longer blocks anything: the `planner_review` stop is removed.
-  3. Failed, rejected, interrupted and legacy failed/unknown plans switch to standard arrangements automatically, with no AI retry; cost reservations and usage are kept.
-  4. The prompt asks for 80–300 characters (the check still allows 30–420). Typographic dashes and quotes are made plain before the check. The prompt version is bumped to `music-plan-v2`.
-
-  Admin Music lists the three most recent fallbacks with their reasons.
-- **Review (adversarial workflow: 3 lenses, each finding verified).** It confirmed 6 findings, all low severity, which reduce to 4 fixes, all made:
-  - provider failures are now labelled from `providerUnreachable` / `providerStatus` (for example "The AI provider returned HTTP 500."); before, they all read "(error)";
-  - field names invented by the model are counted, not stored;
-  - extra top-level fields get a specific reason;
-  - the reason now uses the same trimmed text the check uses.
-  
-  A database error while saving a valid reply now propagates instead of being reported as an AI failure. An ASCII double quote is now converted to an apostrophe. One finding was refuted: the double quote was already rejected before this change.
-- **Checks run.** All 18 tests in `tests/music-agent.test.ts` and `tests/workout-music.test.ts` passed. New tests cover HTTP 500, no response, invalid JSON, an overlong description, extra fields and leftover failed/unknown plans. Root and web `tsc --noEmit` report no errors in the changed files. The only errors are three in `apps/web/lib/voice-input.ts`; they also occur on unchanged `main`, because `onnxruntime-web` and `@sapphi-red/web-noise-suppressor` are not installed in this container. PR #77 is open. Its first CI run failed in `postgres-and-container`, because a second `createDatabase` call in the same file reuses that file's CI database. The end-to-end scenario now lives in its own file, `tests/music-agent-fallback.test.ts`. Reproduced the failure on a local PostgreSQL 16 with the CI's per-file isolation and non-owner runtime role, then saw the fixed `music-agent`, `music-agent-fallback` and `workout-music` files pass there (9 + 1 + 8).
-- **Next.** Get CI green on PR #77, merge, confirm the live release with `scripts/watch-release.sh`, then re-check the library.
+- **Library complete.** At 05:47 UTC the stuck Rock plan was switched to standard arrangements (`POST /api/v1/admin/music/plans/9b554083…/standard`, which returned 200; no AI call). Generation resumed. By 08:18 UTC the agent was `ready`: **240 of 240 approved tracks, all 8 playlists full**, and generation stopped by design. Totals: 122 requests and 3,904 credits; 832 credits were reserved today. This was re-checked at 09:18 UTC after the deploy.
+- **Fix live.** [PR #77](https://github.com/chordsnstrings/trainer_what/pull/77) was merged as `15de319a43c0a61f8d77b64925f5ca9bf221b193`. `scripts/watch-release.sh` saw it live at **09:19:02 UTC** (HTTP 200).
+  - A failed, rejected or interrupted AI plan, including legacy failed or unknown ones, now switches automatically to standard arrangements for its slots. It makes no AI retry and keeps its cost reservation.
+  - The global `planner_review` stop is removed.
+  - The plan records a reason built by code: a description length, characters that aren't allowed, the extra-field count, "HTTP 500", "no response" or "not valid JSON". Provider and model text are never stored.
+  - The prompt asks for 80–300 characters against the 420-character limit. Typographic dashes and quotes are converted to plain ones (`music-plan-v2`).
+  - Admin Music lists the three most recent fallbacks.
+- **Checks.**
+  - Adversarial review: 6 low-severity findings confirmed and fixed, 1 refuted.
+  - The first CI run failed in `postgres-and-container`. A new test opened a second database inside a file, but CI gives each file a single database. The test moved to `tests/music-agent-fallback.test.ts`. The failure was reproduced, and the fix verified, on a local PostgreSQL 16 using the CI's per-file isolation and non-owner role.
+  - The final head `44e9b8b` passed all 7 CI jobs.
+  - Locally, 18 of 18 music tests pass, and root/web TypeScript is clean apart from 3 errors in `voice-input.ts` that also occur on `main`.
+- **Not done.** No live fallback has happened yet. The library is full, so the new path has only been exercised in tests. Nothing is waiting on the owner for music.
 - **WHOOP.** The test client kamran+testclient@arks.ae has not connected yet; that is an owner action.
 
 ### WHOOP live activation — 18 October 2026 (Claude)
