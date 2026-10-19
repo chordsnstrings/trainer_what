@@ -274,12 +274,14 @@ function ModuleThumbnail({
 export function SiteBuilderEditor({ tenant }: { tenant: EditorTenant }) {
   const returnTo = useSearchParams().get("from") === "setup" ? "/setup/page" : "/trainer";
   const [mountedDesktop, setMountedDesktop] = useState(false);
+  const [viewportChecked, setViewportChecked] = useState(false);
   useEffect(() => {
     const query = window.matchMedia(
       "(min-width: 1100px) and (hover: hover) and (pointer: fine)",
     );
     const update = () => {
       if (query.matches) setMountedDesktop(true);
+      setViewportChecked(true);
     };
     update();
     query.addEventListener("change", update);
@@ -292,7 +294,10 @@ export function SiteBuilderEditor({ tenant }: { tenant: EditorTenant }) {
         data-testid="site-builder-desktop-required"
         tabIndex={-1}
       >
-        {!mountedDesktop && <WebsiteQuickEdit slug={tenant.slug} />}
+        {viewportChecked && !mountedDesktop && <WebsiteQuickEdit slug={tenant.slug} />}
+        {mountedDesktop && (
+          <p>Your desktop draft is kept open. Widen this window to continue editing.</p>
+        )}
         <a className="button" href={returnTo}>
           {returnTo === "/setup/page" ? "Back to setup" : "Back to workspace"}
         </a>

@@ -308,8 +308,20 @@ try {
       });
       await api("/tenant/site/publish", "POST", { version: legacy.version });
       baselineRevision = (await publicSite()).publishedRevision;
+      let draftReads = 0;
+      const countDraftRead = (request) => {
+        if (request.method() === "GET" &&
+          /\/api\/v1\/tenant\/site(?:\/preview)?$/.test(new URL(request.url()).pathname))
+          draftReads++;
+      };
+      page.on("request", countDraftRead);
       await page.goto(base + "/trainer/website");
       await expect(page.getByTestId("site-builder-editor")).toBeVisible();
+      // The loading shell is visible before the draft is ready. Wait for the
+      // actual canvas under the fixture\'s deliberate API request pacing.
+      await expect(heroSection()).toBeVisible({ timeout: 20_000 });
+      page.off("request", countDraftRead);
+      assert.equal(draftReads, 2, "desktop loads its draft once without mounting the phone editor");
       await expect(
         heroSection().locator('[data-builder-field="title"]'),
       ).toHaveText(legacyHeadline);
