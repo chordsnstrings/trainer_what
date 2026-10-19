@@ -10,7 +10,10 @@ import {
   MUSIC_PLAYLISTS,
   musicBrief,
 } from "../packages/domain/src/workout-music.ts";
-import { validateMusicPlan } from "../packages/providers/src/music-planner.ts";
+import {
+  MusicPlanRejected,
+  validateMusicPlan,
+} from "../packages/providers/src/music-planner.ts";
 import { prepareMusicAudio } from "../packages/providers/src/music-audio.ts";
 import {
   processMusicAgent,
@@ -26,6 +29,8 @@ import {
 let db: Database, app: ReturnType<typeof Fastify>, actor: any, audio: Buffer;
 let aiCalls = 0,
   submits = 0;
+// Optional model reply override: tracks for the requested slots.
+let planReply: ((slots: number[], bpm: number) => unknown) | null = null;
 const config = {
   NODE_ENV: "test",
   MODEL_BASE_URL: "https://music-planner.example.test/v1",
@@ -71,13 +76,16 @@ async function fixture<T>(
       choices: [
         {
           message: {
-            content: JSON.stringify({
-              tracks: prompt.slots.map((slot: number) => ({
-                slot,
-                bpm: prompt.bpm,
-                arrangement: `Original layered percussion with warm keys and bass motif number ${slot + 1}; gradual build and spacious steady groove`,
-              })),
-            }),
+            content: ((reply) =>
+              typeof reply === "string" ? reply : JSON.stringify(reply))(
+              planReply?.(prompt.slots, prompt.bpm) ?? {
+                tracks: prompt.slots.map((slot: number) => ({
+                  slot,
+                  bpm: prompt.bpm,
+                  arrangement: `Original layered percussion with warm keys and bass motif number ${slot + 1}; gradual build and spacious steady groove`,
+                })),
+              },
+            ),
           },
         },
       ],
@@ -224,6 +232,56 @@ test("planner validates reserved slots, tempo and distinct bounded arrangements"
       "flow",
       [0],
     ),
+  );
+  // Typographic dashes and quotes are made plain rather than rejected.
+  const typographic = validateMusicPlan(
+    {
+      tracks: [
+        {
+          ...track,
+          arrangement:
+            "Warm keys \u2013 steady \u201cfour on the floor\u201d percussion\u2026 and bass",
+        },
+      ],
+    },
+    "flow",
+    [0],
+  );
+  assert.match(
+    typographic[0].brief.style,
+    /Warm keys - steady 'four on the floor' percussion\.\.\. and bass/,
+  );
+  // A rejection says exactly why, without repeating the model's text.
+  const reason = (raw: unknown, slots = [0]) => {
+    try {
+      validateMusicPlan(raw, "flow", slots);
+    } catch (e) {
+      assert.ok(e instanceof MusicPlanRejected);
+      return e.message;
+    }
+    assert.fail("plan was accepted");
+  };
+  assert.equal(
+    reason({ tracks: [{ ...track, arrangement: "Warm keys ".repeat(50) }] }),
+    "The track for slot 0 had a description of 499 characters (limit 420).",
+  );
+  assert.equal(
+    reason({
+      tracks: [{ ...track, arrangement: track.arrangement + " \u2122\u00e9" }],
+    }),
+    "The track for slot 0 used characters that are not allowed: U+2122, U+00E9.",
+  );
+  assert.equal(
+    reason({ tracks: [{ ...track, mood: "calm" }] }),
+    "The track for slot 0 had extra fields: mood.",
+  );
+  assert.equal(
+    reason({ tracks: [{ ...track, bpm: 150 }] }),
+    "The track for slot 0 was 150 BPM; allowed 98 to 122.",
+  );
+  assert.equal(
+    reason({ tracks: [track] }, [0, 1]),
+    "The reply had 1 tracks for 2 reserved slots.",
   );
 });
 test("agent starts paused and requires an administrator to reconcile prior purchases", async () => {
@@ -447,25 +505,59 @@ test("daily limits still protect both reservation and dispatch, and prior days d
     "historical and external usage remain recorded",
   );
 });
-test("an interrupted plan retains its cost and recovers with standard arrangements without another model call", async () => {
+test("interrupted and failed plans fall back to standard arrangements automatically, keep their cost and never stall the agent", async () => {
   const callsBefore = aiCalls;
-  const id = randomUUID();
-  await db.system((tx) =>
-    tx.query(
+  const [interrupted, legacy, manual] = [
+    randomUUID(),
+    randomUUID(),
+    randomUUID(),
+  ];
+  await db.system(async (tx) => {
+    await tx.query(
       "INSERT INTO workout_music_plans(id,playlist,slots,status,prompt_version,model,reserved_usd,leased_until) VALUES($1,'rnb','[0,1]','planning','music-plan-v1','seed-2-0-pro-260328',0.01,now()-interval '1 minute')",
-      [id],
+      [interrupted],
+    );
+    // Plans left failed or unknown before automatic fallback existed.
+    await tx.query(
+      "INSERT INTO workout_music_plans(id,playlist,slots,status,prompt_version,model,reserved_usd,error) VALUES($1,'hiphop','[0]','failed','music-plan-v1','seed-2-0-pro-260328',0.01,'No checked music plan was saved.'),($2,'edm','[0]','unknown','music-plan-v1','seed-2-0-pro-260328',0.01,NULL)",
+      [legacy, manual],
+    );
+  });
+  // The manual action still works on a plan that has not been picked up yet.
+  await db.system((tx) => useStandardMusicPlan(tx, manual, actor.userId));
+  const before = (await info()).reservedModelUsd;
+  await wake();
+  // A daily credit limit of one request stops this tick before any planning call.
+  await fixture(() => processMusicAgent(db), {
+    MUSIC_DAILY_CREDIT_LIMIT: "12",
+  });
+  assert.equal((await info()).status, "daily_budget");
+  const plans = await db.system((tx) =>
+    tx.query(
+      "SELECT id,status,briefs,error FROM workout_music_plans WHERE id=ANY($1::uuid[])",
+      [[interrupted, legacy, manual]],
     ),
   );
-  await wake();
-  await fixture(() => processMusicAgent(db));
-  assert.equal((await info()).status, "planner_review");
-  const before = (await info()).reservedModelUsd;
-  await db.system((tx) => useStandardMusicPlan(tx, id, actor.userId));
-  const [p] = await db.system((tx) =>
-    tx.query("SELECT * FROM workout_music_plans WHERE id=$1", [id]),
+  const plan = (id: string) => {
+    const p = plans.find((p) => p.id === id);
+    assert.ok(p);
+    return p;
+  };
+  assert.ok(plans.every((p) => p.status === "ready"));
+  assert.equal(
+    plan(interrupted).briefs[0].brief.title,
+    musicBrief("rnb", 0).title,
   );
-  assert.equal(p.status, "ready");
-  assert.equal(p.briefs[0].brief.title, musicBrief("rnb", 0).title);
+  assert.equal(plan(interrupted).briefs.length, 2);
+  assert.equal(
+    plan(interrupted).error,
+    "Standard arrangements used automatically. Planning was interrupted.",
+  );
+  assert.equal(
+    plan(legacy).error,
+    "Standard arrangements used automatically. No checked plan was saved.",
+  );
+  assert.equal(plan(manual).error, null);
   assert.equal((await info()).reservedModelUsd, before);
   assert.equal(aiCalls, callsBefore);
 });
@@ -591,4 +683,85 @@ test("a rejected track is replaced with a checked MP3, daily planning resumes an
   }
   assert.equal(aiCalls, before.aiCalls + 1);
   assert.equal(submits, before.submits + 1);
+});
+
+test("a rejected AI reply records why, uses standard arrangements for its slots and the agent keeps generating", async () => {
+  const fresh = await createDatabase({ memory: true }),
+    userId = randomUUID(),
+    callsBefore = aiCalls;
+  try {
+    await fresh.system((tx) =>
+      tx.query(
+        "INSERT INTO users(id,email,name,password_hash) VALUES($1,'reject@example.test','Reject fixture','unused')",
+        [userId],
+      ),
+    );
+    await fresh.system((tx) => saveMusicAgent(tx, userId, settings));
+    // One description over the limit: the shape of the 19 October Rock stall.
+    planReply = (slots, bpm) => ({
+      tracks: slots.map((slot, i) => ({
+        slot,
+        bpm,
+        arrangement:
+          i === 1
+            ? "Driving guitars and layered drums ".repeat(14)
+            : `Driving guitars with layered drums and bass motif ${slot + 1}; steady build`,
+      })),
+    });
+    await fixture(() => processMusicAgent(fresh));
+    assert.equal(aiCalls, callsBefore + 1);
+    const [plan] = await fresh.system((tx) =>
+      tx.query("SELECT * FROM workout_music_plans"),
+    );
+    assert.equal(plan.status, "ready");
+    assert.equal(plan.usage.input, 300, "the call's usage is still recorded");
+    assert.match(
+      plan.error,
+      /^Standard arrangements used automatically\. The track for slot \d+ had a description of 475 characters \(limit 420\)\.$/,
+    );
+    assert.equal(plan.briefs.length, plan.slots.length);
+    assert.deepEqual(
+      plan.briefs[0].brief,
+      musicBrief(plan.playlist, plan.slots[0]),
+    );
+    const a = await fresh.system(musicAgentSummary);
+    assert.equal(a.status, "generating");
+    assert.match(
+      a.message ?? "",
+      /was not used.*No AI retry was sent.*475 characters/,
+    );
+    // The next tick queues a request from the standard arrangements; no new AI call.
+    await fixture(() => processMusicAgent(fresh));
+    const jobs = await fresh.system((tx) =>
+      tx.query(
+        "SELECT playlist,slot,status,brief,plan_id FROM workout_music_jobs",
+      ),
+    );
+    assert.equal(jobs.length, 1);
+    assert.equal(jobs[0].status, "queued");
+    assert.equal(jobs[0].plan_id, plan.id);
+    assert.deepEqual(jobs[0].brief, musicBrief(plan.playlist, jobs[0].slot));
+    assert.equal(aiCalls, callsBefore + 1);
+    // A reply that is not JSON is recorded with a code-built reason and the
+    // next playlist is planned; the first playlist's request stays queued.
+    planReply = () => "Here are your tracks: not json";
+    await fresh.system((tx) =>
+      tx.query("UPDATE workout_music_agent SET next_check_at=NULL"),
+    );
+    await fixture(() => processMusicAgent(fresh));
+    assert.equal(aiCalls, callsBefore + 2);
+    const [second] = await fresh.system((tx) =>
+      tx.query("SELECT * FROM workout_music_plans WHERE id<>$1", [plan.id]),
+    );
+    assert.notEqual(second.playlist, plan.playlist);
+    assert.equal(second.status, "ready");
+    assert.equal(
+      second.error,
+      "Standard arrangements used automatically. The reply was not valid JSON.",
+    );
+    assert.equal((await fresh.system(musicAgentSummary)).status, "generating");
+  } finally {
+    planReply = null;
+    await fresh.close();
+  }
 });
