@@ -13,6 +13,7 @@ import {
 import { musicCredits } from "../../../packages/providers/src/suno-music.ts";
 import {
   planMusic,
+  MusicPlanRejected,
   MUSIC_PLAN_SIZE,
   MUSIC_PLAN_TOKENS,
   MUSIC_PLAN_VERSION,
@@ -135,6 +136,34 @@ export async function saveMusicAgent(tx: Tx, actor: string, body: unknown) {
   );
   return { ok: true };
 }
+/** Standard arrangements for a plan's reserved slots. No model call. */
+const standardBriefs = (playlist: string, slots: number[]) =>
+  JSON.stringify(
+    slots.map((slot) => ({ slot, brief: musicBrief(playlist, slot) })),
+  );
+const FALLBACK = "Standard arrangements used automatically.";
+/** Why a plan was not used, built by code. Provider error text is not stored. */
+function planFailure(e: unknown) {
+  if (e instanceof MusicPlanRejected) return e.message;
+  const x = e as {
+    providerUnreachable?: unknown;
+    providerStatus?: unknown;
+    name?: unknown;
+  } | null;
+  if (x?.providerUnreachable === true)
+    return "The AI request got no response (timeout or lost connection).";
+  const status = x?.providerStatus;
+  if (
+    typeof status === "number" &&
+    Number.isInteger(status) &&
+    status >= 100 &&
+    status <= 599
+  )
+    return `The AI provider returned HTTP ${status}.`;
+  if (x?.name === "ConfigurationError")
+    return "The AI request could not be sent.";
+  return "The AI request did not complete.";
+}
 async function state(tx: Tx, status: string, message: string, delay = 60) {
   await tx.query(
     "UPDATE workout_music_agent SET status=$1,message=$2,checked_at=now(),next_check_at=now()+($3 * interval '1 second') WHERE id=true AND enabled",
@@ -203,9 +232,21 @@ export async function processMusicAgent(db: Database) {
       );
       return;
     }
-    await tx.query(
-      "UPDATE workout_music_plans SET status='unknown',error='Planning was interrupted; use saved standard briefs without another model call.',leased_until=NULL WHERE status='planning' AND leased_until<now()",
+    // A plan that failed or was interrupted never stops the agent: its slots
+    // take standard arrangements (no model call) and every playlist continues.
+    // Its cost reservation and recorded usage are kept.
+    const stalled = await tx.query(
+      "SELECT id,playlist,slots,status,error FROM workout_music_plans WHERE status IN ('failed','unknown') OR (status='planning' AND leased_until<now())",
     );
+    for (const p of stalled)
+      await tx.query(
+        "UPDATE workout_music_plans SET status='ready',briefs=$2,error=$3,leased_until=NULL,updated_at=now() WHERE id=$1",
+        [
+          p.id,
+          standardBriefs(p.playlist, p.slots),
+          `${FALLBACK} ${p.status === "planning" ? "Planning was interrupted." : "No checked plan was saved."}`,
+        ],
+      );
     const holds = await tx.query(
       "SELECT id FROM workout_music_jobs WHERE status='unknown' OR (status='submitting' AND leased_until<now()) LIMIT 1",
     );
@@ -222,15 +263,6 @@ export async function processMusicAgent(db: Database) {
       "SELECT * FROM workout_music_plans ORDER BY created_at,id",
     );
     if (plans.some((p) => p.status === "planning")) return;
-    if (plans.some((p) => p.status === "unknown" || p.status === "failed")) {
-      await state(
-        tx,
-        "planner_review",
-        "A plan needs attention. Use standard briefs to continue without another AI call.",
-        300,
-      );
-      return;
-    }
     const jobs = await tx.query(
         "SELECT id,playlist,slot,status,credit_limit,submitted_at,imported FROM workout_music_jobs",
       ),
@@ -418,8 +450,9 @@ export async function processMusicAgent(db: Database) {
     return { id, playlist: genre.id, slots };
   });
   if (!result || !seed) return;
+  let briefs: Awaited<ReturnType<typeof planMusic>>;
   try {
-    const briefs = await withRuntimeConfig(seed, () =>
+    briefs = await withRuntimeConfig(seed, () =>
       planMusic(result.playlist, result.slots, {
         reserve: async () => null,
         record: async (usage) => {
@@ -432,32 +465,43 @@ export async function processMusicAgent(db: Database) {
         },
       }),
     );
+  } catch (e) {
+    const reason = planFailure(e),
+      name =
+        MUSIC_PLAYLISTS.find((p) => p.id === result.playlist)?.name ??
+        result.playlist;
     await db.system(async (tx) => {
       await tx.query(
-        "UPDATE workout_music_plans SET status='ready',briefs=$2,leased_until=NULL,updated_at=now() WHERE id=$1 AND status='planning'",
-        [result.id, JSON.stringify(briefs)],
+        "UPDATE workout_music_plans SET status='ready',briefs=$2,error=$3,leased_until=NULL,updated_at=now() WHERE id=$1 AND status='planning'",
+        [
+          result.id,
+          standardBriefs(result.playlist, result.slots),
+          `${FALLBACK} ${reason}`,
+        ],
       );
       await state(
         tx,
         "generating",
-        "Music arrangements saved. The worker will fill each playlist.",
+        `The AI plan for ${name} was not used, so standard arrangements fill its slots. No AI retry was sent. ${reason}`,
         0,
       );
     });
-  } catch {
-    await db.system(async (tx) => {
-      await tx.query(
-        "UPDATE workout_music_plans SET status=CASE WHEN usage IS NOT NULL AND usage->>'input' IS NOT NULL THEN 'failed' ELSE 'unknown' END,error='No checked music plan was saved. Use standard briefs without another model call.',leased_until=NULL,updated_at=now() WHERE id=$1 AND status='planning'",
-        [result.id],
-      );
-      await state(
-        tx,
-        "planner_review",
-        "A music plan needs attention. No automatic AI retry was sent.",
-        300,
-      );
-    });
+    return;
   }
+  // A failure saving a valid reply is not an AI failure: it propagates to the
+  // worker, and the lease-expiry sweep later gives the plan standard arrangements.
+  await db.system(async (tx) => {
+    await tx.query(
+      "UPDATE workout_music_plans SET status='ready',briefs=$2,leased_until=NULL,updated_at=now() WHERE id=$1 AND status='planning'",
+      [result.id, JSON.stringify(briefs)],
+    );
+    await state(
+      tx,
+      "generating",
+      "Music arrangements saved. The worker will fill each playlist.",
+      0,
+    );
+  });
 }
 export async function useStandardMusicPlan(tx: Tx, id: string, actor: string) {
   await musicBudgetLock(tx);
@@ -472,15 +516,7 @@ export async function useStandardMusicPlan(tx: Tx, id: string, actor: string) {
     );
   await tx.query(
     "UPDATE workout_music_plans SET status='ready',briefs=$2,error=NULL,updated_at=now() WHERE id=$1",
-    [
-      id,
-      JSON.stringify(
-        p.slots.map((slot: number) => ({
-          slot,
-          brief: musicBrief(p.playlist, slot),
-        })),
-      ),
-    ],
+    [id, standardBriefs(p.playlist, p.slots)],
   );
   await tx.query(
     "UPDATE workout_music_agent SET next_check_at=NULL WHERE id=true",

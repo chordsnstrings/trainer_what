@@ -258,6 +258,14 @@ export function MusicAgentControls({
             </button>
           </div>
         ))}
+      {plans
+        .filter((p) => p.status === "ready" && p.error)
+        .slice(0, 3)
+        .map((p) => (
+          <p key={p.id} className="muted">
+            {p.playlist}: {p.error}
+          </p>
+        ))}
     </section>
   );
 }

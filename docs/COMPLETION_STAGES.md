@@ -2,6 +2,21 @@
 
 Application implementation and the job audit are complete for the current phase. [PR #1](https://github.com/chordsnstrings/trainer_what/pull/1) contains the work; [combined verification](VERIFICATION_2026-09-27.md) records the passing final code revision. The owner authorized merge to main. Real services and deployment remain the next phase; screenshots were waived. Historical entries below record the evidence available at each stage and may contain superseded pending-check statements.
 
+## Stage 2026-10-19 — music agent never stalls on a failed AI plan (PR #77, CI pending)
+
+On 19 October one rejected Rock plan stopped all eight playlists at 196 of 240 tracks. The owner asked to restart the music now and to fix four things ("yeah go for it for both"). Claude restarted it with standard arrangements at 05:47 UTC; by 05:54 UTC it was generating, with 205 tracks.
+
+Code changes:
+- A rejected, failed or interrupted plan, or a failed/unknown plan left from before, now takes standard arrangements automatically. There is no AI retry, and cost reservations are kept.
+- The global `planner_review` stop is removed.
+- The plan records a code-built reason, for example "description of 463 characters (limit 420)", "HTTP 500" or "no response". Provider and model text are not stored.
+- The prompt asks for 80–300 characters against the 420 limit. Typographic dashes and quotes are made plain before the check (`music-plan-v2`).
+- Admin Music lists recent fallbacks.
+
+An adversarial review confirmed 6 low-severity findings, all fixed, and refuted 1. Checks: 18 of 18 music tests pass on PGlite and on a local PostgreSQL 16 run with the CI per-file isolation and non-owner role. The first CI run's database failure was a test reusing its file's database; the scenario moved to `tests/music-agent-fallback.test.ts`. Root and web TypeScript are clean apart from 3 errors in `voice-input.ts`, which also occur on `main` because packages are missing in this container.
+
+**Not yet done:** PR CI, merge and live release verification.
+
 ## Stage 2026-10-12 — preview voice worker discovery (live)
 
 [PR #58](https://github.com/chordsnstrings/trainer_what/pull/58) is merged and live as `929429654f4b29702f465a6840033ad712803d3b`. Direct readiness confirmed HTTP 200 and that exact release at **11:01:10 UTC / 15:01:10 Dubai on 12 October 2026**; [serving verification](https://github.com/chordsnstrings/trainer_what/actions/runs/38238940114) passed.

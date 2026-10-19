@@ -10,7 +10,10 @@ import {
   MUSIC_PLAYLISTS,
   musicBrief,
 } from "../packages/domain/src/workout-music.ts";
-import { validateMusicPlan } from "../packages/providers/src/music-planner.ts";
+import {
+  MusicPlanRejected,
+  validateMusicPlan,
+} from "../packages/providers/src/music-planner.ts";
 import { prepareMusicAudio } from "../packages/providers/src/music-audio.ts";
 import {
   processMusicAgent,
@@ -224,6 +227,92 @@ test("planner validates reserved slots, tempo and distinct bounded arrangements"
       "flow",
       [0],
     ),
+  );
+  // Typographic dashes and quotes are made plain rather than rejected.
+  const typographic = validateMusicPlan(
+    {
+      tracks: [
+        {
+          ...track,
+          arrangement:
+            "Warm keys \u2013 steady \u201cfour on the floor\u201d percussion\u2026 and bass",
+        },
+      ],
+    },
+    "flow",
+    [0],
+  );
+  assert.match(
+    typographic[0].brief.style,
+    /Warm keys - steady 'four on the floor' percussion\.\.\. and bass/,
+  );
+  // A rejection says exactly why, without repeating the model's text.
+  const reason = (raw: unknown, slots = [0]) => {
+    try {
+      validateMusicPlan(raw, "flow", slots);
+    } catch (e) {
+      assert.ok(e instanceof MusicPlanRejected);
+      return e.message;
+    }
+    assert.fail("plan was accepted");
+  };
+  assert.equal(
+    reason({ tracks: [{ ...track, arrangement: "Warm keys ".repeat(50) }] }),
+    "The track for slot 0 had a description of 499 characters (limit 420).",
+  );
+  assert.equal(
+    reason({
+      tracks: [{ ...track, arrangement: track.arrangement + " \u2122\u00e9" }],
+    }),
+    "The track for slot 0 used characters that are not allowed: U+2122, U+00E9.",
+  );
+  assert.equal(
+    reason({ tracks: [{ ...track, mood: "calm" }] }),
+    "The track for slot 0 had 1 extra field.",
+  );
+  assert.equal(
+    reason({ tracks: [track], genre: "Flow", version: "v2" }),
+    "The reply had 2 extra fields.",
+  );
+  // The reason describes the trimmed text the check actually saw.
+  assert.equal(
+    reason({
+      tracks: [
+        { ...track, arrangement: track.arrangement + " www.example.test\n" },
+      ],
+    }),
+    "The track for slot 0 had a web address in its description.",
+  );
+  assert.equal(
+    reason({
+      tracks: [
+        { ...track, arrangement: "\n\t\r" + track.arrangement + " \u2122" },
+      ],
+    }),
+    "The track for slot 0 used characters that are not allowed: U+2122.",
+  );
+  assert.equal(
+    validateMusicPlan(
+      {
+        tracks: [
+          {
+            ...track,
+            arrangement: 'Warm keys with a "four on the floor" pulse and bass',
+          },
+        ],
+      },
+      "flow",
+      [0],
+    ).length,
+    1,
+  );
+  assert.equal(
+    reason({ tracks: [{ ...track, bpm: 150 }] }),
+    "The track for slot 0 was 150 BPM; allowed 98 to 122.",
+  );
+  assert.equal(
+    reason({ tracks: [track] }, [0, 1]),
+    "The reply had 1 tracks for 2 reserved slots.",
   );
 });
 test("agent starts paused and requires an administrator to reconcile prior purchases", async () => {
@@ -447,25 +536,59 @@ test("daily limits still protect both reservation and dispatch, and prior days d
     "historical and external usage remain recorded",
   );
 });
-test("an interrupted plan retains its cost and recovers with standard arrangements without another model call", async () => {
+test("interrupted and failed plans fall back to standard arrangements automatically, keep their cost and never stall the agent", async () => {
   const callsBefore = aiCalls;
-  const id = randomUUID();
-  await db.system((tx) =>
-    tx.query(
+  const [interrupted, legacy, manual] = [
+    randomUUID(),
+    randomUUID(),
+    randomUUID(),
+  ];
+  await db.system(async (tx) => {
+    await tx.query(
       "INSERT INTO workout_music_plans(id,playlist,slots,status,prompt_version,model,reserved_usd,leased_until) VALUES($1,'rnb','[0,1]','planning','music-plan-v1','seed-2-0-pro-260328',0.01,now()-interval '1 minute')",
-      [id],
+      [interrupted],
+    );
+    // Plans left failed or unknown before automatic fallback existed.
+    await tx.query(
+      "INSERT INTO workout_music_plans(id,playlist,slots,status,prompt_version,model,reserved_usd,error) VALUES($1,'hiphop','[0]','failed','music-plan-v1','seed-2-0-pro-260328',0.01,'No checked music plan was saved.'),($2,'edm','[0]','unknown','music-plan-v1','seed-2-0-pro-260328',0.01,NULL)",
+      [legacy, manual],
+    );
+  });
+  // The manual action still works on a plan that has not been picked up yet.
+  await db.system((tx) => useStandardMusicPlan(tx, manual, actor.userId));
+  const before = (await info()).reservedModelUsd;
+  await wake();
+  // A daily credit limit of one request stops this tick before any planning call.
+  await fixture(() => processMusicAgent(db), {
+    MUSIC_DAILY_CREDIT_LIMIT: "12",
+  });
+  assert.equal((await info()).status, "daily_budget");
+  const plans = await db.system((tx) =>
+    tx.query(
+      "SELECT id,status,briefs,error FROM workout_music_plans WHERE id=ANY($1::uuid[])",
+      [[interrupted, legacy, manual]],
     ),
   );
-  await wake();
-  await fixture(() => processMusicAgent(db));
-  assert.equal((await info()).status, "planner_review");
-  const before = (await info()).reservedModelUsd;
-  await db.system((tx) => useStandardMusicPlan(tx, id, actor.userId));
-  const [p] = await db.system((tx) =>
-    tx.query("SELECT * FROM workout_music_plans WHERE id=$1", [id]),
+  const plan = (id: string) => {
+    const p = plans.find((p) => p.id === id);
+    assert.ok(p);
+    return p;
+  };
+  assert.ok(plans.every((p) => p.status === "ready"));
+  assert.equal(
+    plan(interrupted).briefs[0].brief.title,
+    musicBrief("rnb", 0).title,
   );
-  assert.equal(p.status, "ready");
-  assert.equal(p.briefs[0].brief.title, musicBrief("rnb", 0).title);
+  assert.equal(plan(interrupted).briefs.length, 2);
+  assert.equal(
+    plan(interrupted).error,
+    "Standard arrangements used automatically. Planning was interrupted.",
+  );
+  assert.equal(
+    plan(legacy).error,
+    "Standard arrangements used automatically. No checked plan was saved.",
+  );
+  assert.equal(plan(manual).error, null);
   assert.equal((await info()).reservedModelUsd, before);
   assert.equal(aiCalls, callsBefore);
 });
