@@ -103,7 +103,8 @@ try {
       await capture("client-plan-context");
     },
   );
-  await check("phone quick edit saves a draft without publishing", async () => {
+  await check("quick editing preserves drafts across resizing and switches explicitly after saving", async () => {
+    const before = await (await context.request.get(base + "/api/v1/tenant/site")).json();
     await page.setViewportSize({ width: 390, height: 844 });
     await go("/trainer/website");
     await expect(
@@ -113,6 +114,12 @@ try {
     await page
       .getByLabel("Headline", { exact: true })
       .fill("Synthetic daily workflow headline");
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await expect(page.getByRole("heading", { name: "Quick edit", exact: true })).toBeVisible();
+    await expect(page.getByLabel("Headline", { exact: true })).toHaveValue("Synthetic daily workflow headline");
+    await expect(page.getByTestId("site-builder-editor")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Save to open full editor", exact: true })).toBeDisabled();
+    await page.setViewportSize({ width: 390, height: 844 });
     await page.getByRole("button", { name: "Save draft", exact: true }).click();
     await expect(
       page.locator(".website-quick-edit").getByRole("status"),
@@ -122,6 +129,12 @@ try {
       "Synthetic daily workflow headline",
     );
     await capture("website-quick-edit-phone");
+    const after = await (await context.request.get(base + "/api/v1/tenant/site")).json();
+    assert.deepEqual(after.published, before.published, "quick saves leave the public website unchanged");
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.getByRole("button", { name: "Open full editor", exact: true }).click();
+    await expect(page.locator('.sbe-canvas-section:has([data-module="hero"])').first().locator('[data-builder-field="title"]')).toHaveText("Synthetic daily workflow headline", { timeout: 20000 });
+    await page.setViewportSize({ width: 390, height: 844 });
   });
   await login(context, "sam.taylor@example.test");
   await check(

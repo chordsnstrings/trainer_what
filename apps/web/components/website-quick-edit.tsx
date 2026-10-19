@@ -24,7 +24,7 @@ async function request(path: string, method = "GET", body?: unknown) {
 }
 
 /** The same versioned draft and publish boundary as the full editor. */
-export function WebsiteQuickEdit({ slug }: { slug: string }) {
+export function WebsiteQuickEdit({ slug, onOpenDesktop }: { slug: string; onOpenDesktop?: () => void }) {
   const [row, setRow] = useState<any>(null),
     [site, setSite] = useState<any>(null),
     [context, setContext] = useState<any>(null);
@@ -130,6 +130,9 @@ export function WebsiteQuickEdit({ slug }: { slug: string }) {
           Update your headline and contact details, then review the draft before
           publishing.
         </p>
+        {onOpenDesktop && <button type="button" className="button secondary website-quick-open-full" disabled={busy || dirty || !site} onClick={onOpenDesktop}>
+          {dirty ? "Save to open full editor" : "Open full editor"}
+        </button>}
       </header>
       {error && (
         <p className="notice error" role="alert">
