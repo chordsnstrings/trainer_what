@@ -643,7 +643,7 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
     description:
       "Subscriber checkout, subscription changes, refunds and signed payment events.",
     setupNotes:
-      "Connection testing only reads the Stripe account. Commerce and bundle changes have separate controls; a successful account check does not verify product prices or bank settlement.",
+      "Connection testing only reads the Stripe account. Commerce requires approval; a successful account check does not verify product prices or bank settlement.",
     fields: [
       field("STRIPE_SECRET_KEY", "Secret API key", "secret", {
         required: true,
@@ -662,7 +662,7 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
         "boolean",
         {
           defaultValue: "false",
-          help: "No longer has an effect: members cannot change plan after paying (owner decision, 30 September 2026).",
+          help: "Legacy control, no longer used. Monthly package upgrades now use the live-commerce approval gate, exact quotes and payment-confirmed pending updates (owner, 20 October 2026).",
         },
       ),
     ],

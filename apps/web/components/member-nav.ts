@@ -21,6 +21,8 @@ export type MemberIcon =
   | "context"
   | "intake"
   | "connections"
+  | "recovery"
+  | "voice"
   | "galleries"
   | "notifications"
   | "support"
@@ -115,6 +117,8 @@ const D = {
     icon: "intake",
     detail: "Your goals, experience and limits",
   },
+  recovery: { id: "recovery", label: "Recovery", href: "/app/recovery", icon: "recovery", detail: "WHOOP readings and workout adjustments" },
+  voice: { id: "voice", label: "Voice guidance", href: "/app/voice", icon: "voice", detail: "Guided sessions and your voice add-on" },
   connections: {
     id: "connections",
     label: "Connections",
@@ -221,6 +225,7 @@ export function moreGroups(
       items: [
         options.nutrition ? D.progress : D.nutrition,
         D.timeline,
+        D.voice,
         ...(options.nutrition ? [D.meal] : []),
         D.bookings,
         D.context,
@@ -230,7 +235,7 @@ export function moreGroups(
     },
     {
       title: t("groupUpdates"),
-      items: [D.notifications, D.connections, D.support].map((d) =>
+      items: [D.recovery, D.notifications, D.connections, D.support].map((d) =>
         tr(d, options),
       ),
     },
@@ -257,6 +262,8 @@ export function sideNavigation(
         D.chat,
         ...(options.nutrition ? [D.nutrition, D.meal] : []),
         D.progress,
+        D.voice,
+        D.recovery,
       ]),
     },
     {
@@ -295,7 +302,7 @@ function isProgramPage(path: string) {
 /** Which of the five tabs is current for a path. */
 export function activeTab(path: string, options: MemberNavOptions): string {
   const p = clean(path);
-  if (p === MEMBER_HOME) return "today";
+  if (p === MEMBER_HOME || p === "/app/recovery" || p === "/app/recovery/rules") return "today";
   if (isProgramPage(p) || p === "/app/timeline") return "program";
   if (p === "/app/chat") return "chat";
   if (
@@ -330,6 +337,9 @@ export function memberBackTarget(
   const p = clean(path);
   const tabs = memberTabs(options).map((t) => t.href);
   if (tabs.includes(p)) return null;
+  if (p === "/app/recovery/rules") return "/app/recovery";
+  if (p === "/app/recovery") return MEMBER_HOME;
+  if (p === "/app/voice") return "/app/program";
   if (p === "/app/timeline") return "/app/program";
   const guided = p.match(/^\/app\/guided\/([^/]+)$/);
   if (guided) return `/app/workouts/${guided[1]}`;
@@ -343,6 +353,9 @@ export function memberBackTarget(
 }
 
 const TITLES: Array<[RegExp, NavKey]> = [
+  [/^\/app\/recovery\/rules$/, "recoveryRules"],
+  [/^\/app\/recovery$/, "recovery"],
+  [/^\/app\/voice$/, "voice"],
   [/^\/app\/timeline$/, "timeline"],
   [/^\/app\/workouts\//, "titleWorkout"],
   [/^\/app\/guided\//, "titleGuided"],
@@ -366,6 +379,7 @@ const TITLES: Array<[RegExp, NavKey]> = [
 /** Every member app address; anything else under /app is "not found". */
 const MEMBER_ROUTES: RegExp[] = [
   /^\/app$/,
+  /^\/app\/(recovery(\/rules)?|voice)$/,
   /^\/app\/(more|program|timeline|chat|progress|bookings|twin|intake|wearables|galleries|notifications|support|membership|profile)$/,
   /^\/app\/nutrition(\/log)?$/,
   /^\/app\/(workouts|guided|voice-session)\/[A-Za-z0-9-]+$/,

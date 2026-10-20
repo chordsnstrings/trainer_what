@@ -36,7 +36,8 @@ import {
   type RejectedEntry,
   type WorkoutQueueItem,
 } from "./offline-queue";
-import { useState, useEffect, useCallback } from "react";
+import { workoutCheckpointKey, restoreWorkoutCheckpoint, type SetDraft, type WorkoutCheckpoint } from "../lib/workout-checkpoint";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "./preview-navigation";
 import Link from "./preview-navigation";
 import {
@@ -207,12 +208,70 @@ export function Workout({ state, records, action, busy, path }: ViewProps) {
     // The one set shown with its steppers: the next to log unless the
     // member opened another (phone first: one set at a time).
     [openSet, setOpenSet] = useState<string | null>(null);
+  const checkpointKey = workoutCheckpointKey(tenantId, userId, workoutId);
+  const prescription = JSON.stringify(workout?.data?.program ?? null);
+  const checkpoint = useRef<WorkoutCheckpoint | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, SetDraft>>({});
+  const [draftReady, setDraftReady] = useState("");
+  const draftIdentity = `${checkpointKey}:${prescription}`;
+  const persistCheckpoint = () => {
+    if (!checkpoint.current) return;
+    checkpoint.current.savedAt = Date.now();
+    try { localStorage.setItem(checkpointKey, JSON.stringify(checkpoint.current)); }
+    catch { setNotice(locale === "ar" ? "تعذر حفظ مسودة التمرين على هذا الجهاز." : "This device could not save your workout draft. Keep this page open until you log the set."); }
+  };
+  useEffect(() => {
+    if (!workout) return;
+    let raw: string | null = null;
+    try { raw = localStorage.getItem(checkpointKey); } catch {}
+    const saved = restoreWorkoutCheckpoint(raw, prescription);
+    if (!["active", "paused"].includes(workout.status)) {
+      saved.drafts = {}; saved.rest = null;
+      try { localStorage.removeItem(checkpointKey); } catch {}
+    }
+    checkpoint.current = saved;
+    setDrafts(saved.drafts);
+    setRestUntil(saved.rest?.until ?? null);
+    setRestTotal(saved.rest?.total ?? 0);
+    setRestLeft(saved.rest?.until ? Math.max(0, Math.ceil((saved.rest.until - Date.now()) / 1000)) : saved.rest?.remaining ?? 0);
+    setDraftReady(draftIdentity);
+  }, [checkpointKey, prescription, workout?.status]);
+  const saveDraft = (id: string, field: keyof SetDraft, value: number | null) => {
+    if (!checkpoint.current || draftReady !== draftIdentity) return;
+    checkpoint.current.drafts = { ...checkpoint.current.drafts, [id]: { ...checkpoint.current.drafts[id], [field]: value } };
+    setDrafts(checkpoint.current.drafts);
+    persistCheckpoint();
+  };
+  const startRest = (seconds: number) => {
+    const until = Date.now() + seconds * 1000;
+    setRestTotal(seconds); setRestUntil(until); setRestLeft(seconds);
+    if (checkpoint.current) { checkpoint.current.rest = { until, total: seconds }; persistCheckpoint(); }
+  };
+  const toggleRest = () => {
+    if (!restLeft || !checkpoint.current) return;
+    if (restUntil) {
+      const remaining = Math.max(0, Math.ceil((restUntil - Date.now()) / 1000));
+      setRestUntil(null); setRestLeft(remaining);
+      checkpoint.current.rest = remaining ? { until: null, total: restTotal, remaining } : null;
+    } else {
+      const until = Date.now() + restLeft * 1000;
+      setRestUntil(until); checkpoint.current.rest = { until, total: restTotal };
+    }
+    persistCheckpoint();
+  };
+  const stopRest = () => {
+    setRestUntil(null); setRestLeft(0);
+    if (checkpoint.current) { checkpoint.current.rest = null; persistCheckpoint(); }
+  };
   useEffect(() => {
     if (!restUntil) return;
     const tick = () => {
       const left = Math.max(0, Math.ceil((restUntil - Date.now()) / 1000));
       setRestLeft(left);
-      if (!left) setRestUntil(null);
+      if (!left) {
+        setRestUntil(null);
+        if (checkpoint.current) { checkpoint.current.rest = null; persistCheckpoint(); }
+      }
     };
     tick();
     const timer = setInterval(tick, 250);
@@ -547,6 +606,9 @@ export function Workout({ state, records, action, busy, path }: ViewProps) {
                         ? { distanceMeters: Number(f.get("distance")) }
                         : {}),
                   };
+                if (["load", "rir", measure === "time" ? "duration" : measure === "distance" ? "distance" : "reps"].some(field => !String(f.get(field) ?? "").trim())) {
+                  setNotice(t("checkSet")); return;
+                }
                 const endpoint = `/workouts/${workout.id}/sets`;
                 const { notes: _notes, ...setLog } = body,
                   checked = setSchema.safeParse(setLog);
@@ -569,6 +631,10 @@ export function Workout({ state, records, action, busy, path }: ViewProps) {
                   body,
                   logicalKey: row.logicalKey,
                 });
+                // Persist before showing success; a storage failure must not fake a log.
+                try { localStorage.setItem(key, JSON.stringify(pending)); }
+                catch { setNotice(locale === "ar" ? "تعذر حفظ المجموعة. حاول مرة أخرى." : "Could not save this set on your device. Please try again."); return; }
+                if (checkpoint.current) { delete checkpoint.current.drafts[row.logicalKey]; persistCheckpoint(); }
                 setSubmitted((old) => ({
                   ...old,
                   [row.logicalKey]: {
@@ -585,12 +651,10 @@ export function Workout({ state, records, action, busy, path }: ViewProps) {
                 setOpenSet(null);
                 haptic();
                 requestAnimationFrame(revealNextSet);
-                localStorage.setItem(key, JSON.stringify(pending));
                 setQueued(pending.length);
                 // The prescribed rest starts as soon as the set is logged.
                 if (ex.restSeconds > 0) {
-                  setRestTotal(ex.restSeconds);
-                  setRestUntil(Date.now() + ex.restSeconds * 1000);
+                  startRest(ex.restSeconds);
                 }
                 await sync();
                 const stillPending = readList<WorkoutQueueItem>(
@@ -671,7 +735,9 @@ export function Workout({ state, records, action, busy, path }: ViewProps) {
                       step={0.5}
                       min={0}
                       max={500}
-                      defaultValue={ex.loadKg}
+                      key={`${draftIdentity}:${row.logicalKey}:load:${draftReady === draftIdentity}`}
+                      defaultValue={Object.hasOwn(drafts[row.logicalKey] ?? {}, "load") ? drafts[row.logicalKey].load : ex.loadKg}
+                      onValueChange={value => saveDraft(row.logicalKey, "load", value)}
                       inputLabel={t("weightLabel", {
                         exercise: ex.name,
                         set: row.set,
@@ -683,7 +749,9 @@ export function Workout({ state, records, action, busy, path }: ViewProps) {
                         name="duration"
                         min={0}
                         max={36000}
-                        defaultValue={ex.durationSeconds}
+                        key={`${draftIdentity}:${row.logicalKey}:duration:${draftReady === draftIdentity}`}
+                      defaultValue={Object.hasOwn(drafts[row.logicalKey] ?? {}, "duration") ? drafts[row.logicalKey].duration : ex.durationSeconds}
+                      onValueChange={value => saveDraft(row.logicalKey, "duration", value)}
                         inputLabel={t("secondsLabel", {
                           exercise: ex.name,
                           set: row.set,
@@ -695,7 +763,9 @@ export function Workout({ state, records, action, busy, path }: ViewProps) {
                         name="distance"
                         min={0}
                         max={200000}
-                        defaultValue={ex.distanceMeters}
+                        key={`${draftIdentity}:${row.logicalKey}:distance:${draftReady === draftIdentity}`}
+                      defaultValue={Object.hasOwn(drafts[row.logicalKey] ?? {}, "distance") ? drafts[row.logicalKey].distance : ex.distanceMeters}
+                      onValueChange={value => saveDraft(row.logicalKey, "distance", value)}
                         inputLabel={t("metresLabel", {
                           exercise: ex.name,
                           set: row.set,
@@ -707,7 +777,9 @@ export function Workout({ state, records, action, busy, path }: ViewProps) {
                         name="reps"
                         min={0}
                         max={200}
-                        defaultValue={ex.reps}
+                        key={`${draftIdentity}:${row.logicalKey}:reps:${draftReady === draftIdentity}`}
+                      defaultValue={Object.hasOwn(drafts[row.logicalKey] ?? {}, "reps") ? drafts[row.logicalKey].reps : ex.reps}
+                      onValueChange={value => saveDraft(row.logicalKey, "reps", value)}
                         inputLabel={t("repsLabel", {
                           exercise: ex.name,
                           set: row.set,
@@ -719,7 +791,9 @@ export function Workout({ state, records, action, busy, path }: ViewProps) {
                       name="rir"
                       min={0}
                       max={10}
-                      defaultValue={ex.rir ?? 2}
+                      key={`${draftIdentity}:${row.logicalKey}:rir:${draftReady === draftIdentity}`}
+                      defaultValue={Object.hasOwn(drafts[row.logicalKey] ?? {}, "rir") ? drafts[row.logicalKey].rir : ex.rir ?? 2}
+                      onValueChange={value => saveDraft(row.logicalKey, "rir", value)}
                       enterKeyHint="done"
                       inputLabel={t("rirLabel", {
                         exercise: ex.name,
@@ -775,13 +849,13 @@ export function Workout({ state, records, action, busy, path }: ViewProps) {
         }}
         rest={{
           left: restLeft,
+          paused: !restUntil && restLeft > 0,
+          toggle: toggleRest,
           start: (seconds) => {
-            setRestTotal(seconds);
-            setRestUntil(Date.now() + seconds * 1000);
+            startRest(seconds);
           },
           reset: () => {
-            setRestUntil(null);
-            setRestLeft(0);
+            stopRest();
           },
         }}
       />

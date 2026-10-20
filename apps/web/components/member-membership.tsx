@@ -5,7 +5,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { BottomSheet } from "./phone-ui";
 import { MemberAccessCard } from "./complimentary-access";
-import { UpfrontMembership, VoiceAddOnCard } from "./programme-membership";
+import { MemberUpgrades } from "./member-upgrades";
+import { UpfrontMembership } from "./programme-membership";
 import { MembershipPurchase, ModulePassCards } from "./membership-commerce";
 import { useWorkspaceQuery } from "./workspace-continuity";
 import { BillingHistory } from "./finance-completion";
@@ -340,8 +341,9 @@ export function MemberMembership({
           </Link>
         </section>
       )}
+      {membership && <MemberUpgrades onChanged={onChanged} />}
       <ModulePassCards />
-      <VoiceAddOnCard />
+      <Link className="button secondary" href="/app/voice">{t("exploreVoice")}</Link>
       {pending && !membership && (
         <section className="card" aria-labelledby="checkout-title">
           <h2 id="checkout-title">{t("mCheckoutTitle")}</h2>

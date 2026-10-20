@@ -179,9 +179,11 @@ in sessions read "This device" / "Another device or browser" with
   "Memberships are not open yet" with **Message your coach**.
 - Active plan: name, `AED 199.00 a month`, status in words, what it
   includes, renewal date, **Stop renewal…** in a confirmation bottom sheet
-  (or **Turn renewal back on**). There is no plan switch: once a member
-  has paid, the plan cannot change (owner decision, 30 September 2026), so
-  the member app has no Change plan entry in English or Arabic.
+  (or **Turn renewal back on**). **Upgrade your package** lists published monthly
+  upgrades, reviews the exact amount due and new monthly price, then confirms payment.
+  Pending outcomes expose **Check status**, never a second purchase. Prepaid members keep
+  their term and can add module passes. Voice discovery and billing have a separate
+  `/app/voice` view. This follows the 20 October 2026 owner request.
 - The checkout card appears only while a membership checkout is unfinished
   (`GET /payments/checkout/pending`, read only), in plain words.
 - Errors (`membershipError`) are plain and give the next step: payments

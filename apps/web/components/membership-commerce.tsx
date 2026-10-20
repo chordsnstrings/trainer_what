@@ -121,7 +121,7 @@ async function api(path: string, body?: unknown) {
     throw Object.assign(new Error(result.message), { code: result.code });
   return result;
 }
-export function ModulePassCards() {
+export function ModulePassCards({ only }: { only?: ModulePass } = {}) {
   const t = useT("commerce"),
     locale = useLocale();
   const [data, setData] = useState<any>(null),
@@ -170,7 +170,7 @@ export function ModulePassCards() {
             />{" "}
             {t("acceptPass")}
           </label>
-          {(["nutrition", "voice"] as const).map((module) => {
+          {(["nutrition", "voice"] as const).filter(module => !only || module === only).map((module) => {
             const p = data.passes[module];
             return (
               <article className="list-row" key={module}>

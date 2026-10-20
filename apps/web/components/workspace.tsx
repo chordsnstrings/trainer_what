@@ -21,6 +21,8 @@ import {
   IntegrationCenter,
   IntegrationOperations,
 } from "./integration-center";
+import { MemberVoice } from "./member-voice";
+import { WhoopTrainingCard } from "./whoop-training";
 import { VoiceSessionRunner } from "./voice-session";
 const CoachingStudio = dynamic(() => import("./coaching-studio").then(m => m.CoachingStudio), { loading: () => <p role="status">Loading…</p> });
 import { BrainPlans } from "./brain-plans";
@@ -1059,6 +1061,10 @@ export default function Workspace({
             />
           ) : path.includes("/subscribers") ? (
             <Members {...props} />
+          ) : path === "/app/voice" ? (
+            <MemberVoice />
+          ) : path === "/app/recovery" || path === "/app/recovery/rules" ? (
+            <WhoopTrainingCard rules={path.endsWith("/rules")} activeWorkout={records("workout").find(w => ["active", "paused"].includes(w.status))} />
           ) : path === "/app/twin" ? (
             <MemberCoachingContext userId={state.user.userId} />
           ) : path.startsWith("/app/guided/") ? (

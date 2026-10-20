@@ -131,6 +131,7 @@ export async function whoopTrainingState(
   return {
     connected,
     hasConnection: !!connection,
+    lastSyncedAt: connection?.last_synced_at ? new Date(connection.last_synced_at).toISOString() : null,
     available,
     optedIn,
     preferenceVersion: Number(preference?.version ?? 0),

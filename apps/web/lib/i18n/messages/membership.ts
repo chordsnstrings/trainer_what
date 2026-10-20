@@ -6,6 +6,12 @@ import { defineMessages } from "../core";
  */
 export default defineMessages(
   {
+    exploreVoice: "Explore & manage voice guidance",
+    voiceLoadFailed: "Could not load voice availability.",
+    voiceLoading: "Checking voice availability…",
+    voiceRetry: "Try again",
+    voiceNotOffered: "A monthly voice add-on is not currently offered for this membership.",
+    voiceRequirements: "Voice needs paid training and a ready coaching voice. It cannot overlap an active voice pass.",
     selectedOfferReview: "Your selected offer is first. Review its current price and terms before paying.",
     selectedOfferUnavailable: "That offer is no longer available. Choose from your coach’s current offers.",
     audioPreparing: "Your coach is preparing audio guidance. Text workouts remain available.",
@@ -202,6 +208,12 @@ export default defineMessages(
     refund_denied: "Declined",
   },
   {
+    exploreVoice: "استكشف التوجيه الصوتي وأدره",
+    voiceLoadFailed: "تعذر تحميل توفر الصوت.",
+    voiceLoading: "جارٍ التحقق من توفر الصوت…",
+    voiceRetry: "إعادة المحاولة",
+    voiceNotOffered: "الإضافة الصوتية الشهرية غير متاحة لهذا الاشتراك حاليًا.",
+    voiceRequirements: "يتطلب الصوت تدريبًا مدفوعًا وصوت مدرب جاهزًا. لا يمكن جمعه مع باقة صوت نشطة.",
     selectedOfferReview: "هذه الباقة التي اخترتها. راجع السعر الحالي والشروط قبل الدفع.",
     selectedOfferUnavailable: "الباقة المختارة لم تعد متاحة. يمكنك اختيار إحدى الباقات الحالية.",
     audioPreparing: "مدربك يجهز التوجيه الصوتي. تبقى التمارين النصية متاحة.",

@@ -22,6 +22,7 @@ import {
   notifyCompilationReview,
 } from "./source-review-notifications.ts";
 import { registerFinanceCompletion } from "./finance-completion.ts";
+import { registerMembershipUpgrades } from "./membership-upgrades.ts";
 import { registerSubscriptionCheckout } from "./finance-checkout.ts";
 import {
   assertComparableOffer,
@@ -1971,20 +1972,7 @@ export async function buildApp(
   });
   registerOfferVoiceAddOn(app, db, owner, commerceProvider);
   registerSubscriptionCheckout(app, db, requireNutritionReady);
-  // Owner decision, 30 September 2026: "There's no existing members. Once
-  // they pay they can't switch." A member's plan is fixed once paid, so this
-  // route no longer opens the Stripe-hosted change confirmation; it answers
-  // every member with a plain refusal. It never served trainers or operators.
-  app.post("/api/v1/membership/change-plan", async (req) => {
-    const a = identity(req);
-    if (a.role !== "subscriber")
-      throw fail(403, "SUBSCRIBER_REQUIRED", "Subscriber access required");
-    throw fail(
-      409,
-      "PLAN_CHANGE_NOT_ALLOWED",
-      "Your plan can't be changed after you've paid.",
-    );
-  });
+  registerMembershipUpgrades(app, db, { commerce: commerceProvider, stripe: stripeProvider });
   app.post("/api/v1/payout-beneficiaries", async (req) => {
     const a = owner(req);
     requireRecentMfa(a);
