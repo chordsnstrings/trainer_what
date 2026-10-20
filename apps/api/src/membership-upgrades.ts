@@ -96,8 +96,9 @@ export function upgradeReason(
     return "This package is not available for a monthly upgrade.";
   if (
     offer.id === s.data?.productId ||
-    !Number.isSafeInteger(s.price_minor) ||
-    offer.data.priceMinor <= s.price_minor
+    !Number.isSafeInteger(Number(s.price_minor)) ||
+    Number(s.price_minor) <= 0 ||
+    offer.data.priceMinor <= Number(s.price_minor)
   )
     return "Choose a higher package to upgrade.";
   try {

@@ -271,6 +271,15 @@ async function fixture() {
 test("upgrade quotes isolate members, preserve paid access, and require a fresh unchanged amount", async () => {
   const f = await fixture();
   try {
+    // PostgreSQL bigint values arrive as strings; PGlite returns numbers.
+    assert.equal(
+      upgradeReason({ ...f.s, price_minor: String(f.s.price_minor) }, f.target),
+      null,
+    );
+    assert.match(
+      upgradeReason({ ...f.s, price_minor: "9007199254740993" }, f.target)!,
+      /higher package/,
+    );
     const q = await quoteUpgrade(db, f.a, f.target.id, f.stripe);
     assert.equal(q.amountMinor, 6000);
     assert.equal(f.updates(), 0);
