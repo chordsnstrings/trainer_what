@@ -2,6 +2,16 @@
 
 ## Work in progress
 
+### Meal-photo estimates: why subscribers can't use them yet — checked 20 October 2026 (Claude, read-only)
+
+Owner asked why meal-photo upload doesn't work, noting that ModelArk has Skylark models with vision. No code or settings were changed. The feature is built (`apps/api/src/meal-capture.ts`, `estimateMealPhoto` in `packages/providers/src/food.ts`) but switched off live.
+
+- **Switches off.** Super admin Settings show Application → `MEAL_PHOTOS_ENABLED=false` and AI model → `MODEL_VISION_ENABLED=false`. Both must be true.
+- **Which model is used.** Meal photos use the one active AI model: profile `current-settings`, `seed-2-0-pro-260328` on ModelArk, whose image-input setting (`vision`) is false. There is no separate vision-model setting. The setting's help text says to enable it only for a model with confirmed image support, and image support with Seed 2.0 Pro has not been tested.
+- **Per subscriber.** Each subscriber also needs Workout + nutrition membership, a completed food profile, and three consents: nutrition, AI, and separate photo analysis. Photo estimates count toward the 40-per-day subscriber AI limit, and their cost is billed to the trainer's AI fee (task `meal_photo_estimate`, which is not on the free setup list).
+- **Next step (owner decides).** Option A: test one meal photo against Seed 2.0 Pro; if it answers correctly, turn both switches on (no code). Option B: if a separate ModelArk vision model is preferred, meal photos would need their own model setting, which is a code change.
+
+
 ### Subscriber CI and functional polish — implementation and release tracking, 20 October 2026
 
 Owner approved the light subscriber concept: “better. let's get it done.” Base `526c0fbb61832a9b4a3445bb4de8b20cd38aa30f`; branch `work/subscriber-polish-2026-10-20`. The actual app now implements CI White/Ink/Paper/Pace, local Inter Display, measured contrast and restrained motion. WHOOP has dedicated recovery/rules views and separate connection/workout permission. Voice guidance has its own paid add-on journey; eligible monthly memberships have exact-amount upgrade review and payment confirmation. Ordinary workout edits and paused/running rest timers restore safely. Existing prescriptions, offline logs, nutrition, bookings and music remain connected. The latest request supersedes the historical prohibition on package changes. Prepaid terms retain their price/duration and use existing module passes; overlapping purchases and different programme lengths remain guarded.
