@@ -447,10 +447,29 @@
     "purpose": "Accurate sanitized handoff and a fresh normal main validation run after the earlier job failed to finalize. All gates remain required."
   },
   "html_audit_update": {
-    "status": "blocked",
-    "reason": "The execution workspace stopped responding again before the downloadable HTML could be regenerated. The final repository audit preserves all 25 findings and 51 page/workflow reviews.",
-    "original_filename": "trainsyou-ux-ui-audit-2026-10-19.html",
-    "original_version_retained": 1
+    "status": "completed",
+    "completed_date": "2026-10-20",
+    "filename": "trainsyou-ux-ui-audit-2026-10-19.html",
+    "saved_version": 2,
+    "original_version_retained": 1,
+    "sha256": "dabfc729744fad67d04ab3d510d0590f96b37bd3e639a10f080d47eba46069a2",
+    "size_bytes": 317819,
+    "coverage": {
+      "findings": 25,
+      "page_and_workflow_reviews": 51,
+      "completion_notes": 76,
+      "interactive_concepts": 2
+    },
+    "validation": {
+      "unique_anchors": 131,
+      "internal_links_valid": true,
+      "interactive_scripts_unchanged": true,
+      "script_syntax": "passed",
+      "state_and_control_checks": 24,
+      "state_and_control_result": "passed",
+      "new_browser_rendering_pass": false
+    },
+    "scope": "Updated the existing downloadable report after the execution workspace reconnected. Original audit observations and fictional interactive concepts are preserved and explicitly separated from delivered behavior. This documentation-only follow-up changes no application, workflow or test source; application release evidence remains the recorded 19 October verification."
   },
   "independent_https_checks": [],
   "generated_at": "2026-10-19T16:47:45.025Z"
