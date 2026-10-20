@@ -34,8 +34,10 @@ try {
         allowedUses: ["render", "deterministic_feature"],
         restrictions: ["no_model_prompt"],
         observations: [
+          ...[{ type: "sleep_seconds", value: 25920, unit: "seconds" }, { type: "hrv_rmssd_ms", value: 54, unit: "ms" }, { type: "resting_heart_rate", value: 57, unit: "bpm" }].map(o => ({ ...o, id: `synthetic-${o.type}`, sleepId: "synthetic-main-sleep", measuredAt: new Date(Date.now() - 1000).toISOString(), trainingReady: true, calibrating: false })),
           {
             id: "synthetic-recovery",
+            sleepId: "synthetic-main-sleep",
             type: "recovery_score",
             value: 25,
             unit: "percent",

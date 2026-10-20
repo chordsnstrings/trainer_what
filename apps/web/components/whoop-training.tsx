@@ -1,14 +1,19 @@
 "use client";
 import { useEffect, useId, useState } from "react";
+import { ArrowUpRight, RefreshCw, ChevronRight } from "lucide-react";
 import { useLocale } from "../lib/i18n/react";
 import { memberApiUrl } from "../lib/trainer-preview-routing";
 import Link from "./preview-navigation";
 import { Field } from "./field";
 import { WHOOP_TRAINING_VERSION } from "../../../packages/domain/src/whoop-training";
 
-async function request(path: string, body?: unknown) {
+async function request(
+  path: string,
+  body?: unknown,
+  method = body === undefined ? "GET" : "PUT",
+) {
   const response = await fetch(memberApiUrl("/api/v1" + path), {
-    method: body === undefined ? "GET" : "PUT",
+    method,
     credentials: "same-origin",
     cache: "no-store",
     signal: body === undefined ? AbortSignal.timeout(20000) : undefined,
@@ -228,22 +233,29 @@ export function WhoopTrainerRules() {
   );
 }
 
+/** Recovery is a destination; permission is never inferred from a connection. */
 export function WhoopTrainingCard({
   settings = false,
   refreshKey = "",
   compact = false,
+  rules = false,
+  activeWorkout,
 }: {
   settings?: boolean;
   refreshKey?: string;
   compact?: boolean;
+  rules?: boolean;
+  activeWorkout?: { data?: { recoveryAdjustment?: any } } | null;
 }) {
   const t = useWords(),
     locale = useLocale(),
-    consentId = useId(),
-    [data, setData] = useState<any>(),
-    [error, setError] = useState(""),
-    [busy, setBusy] = useState(false),
-    [retry, setRetry] = useState(0);
+    consentId = useId();
+  const ar = locale === "ar";
+  const [data, setData] = useState<any>();
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState<"" | "consent" | "sync">("");
+  const [retry, setRetry] = useState(0);
   useEffect(() => {
     let active = true;
     void request("/integrations/whoop/training")
@@ -260,116 +272,379 @@ export function WhoopTrainingCard({
       active = false;
     };
   }, [refreshKey, retry]);
-  if (!data?.hasConnection)
-    return error ? <div className="notice" role="alert">{error}<button className="text-button" onClick={() => setRetry(v => v + 1)}>{locale === "ar" ? "إعادة المحاولة" : "Retry WHOOP"}</button></div> : null;
-  const recovery = data.recovery;
+  const reload = () => setRetry((v) => v + 1);
+  const alert = error && (
+    <p className="notice error" role="alert">
+      {error}{" "}
+      <button className="text-button" onClick={reload}>
+        {ar ? "إعادة المحاولة" : "Retry WHOOP"}
+      </button>
+    </p>
+  );
+  if (!data)
+    return (
+      <>
+        {alert}
+        {!error && !compact && (
+          <p role="status">
+            {ar ? "جارٍ تحميل التعافي…" : "Loading your recovery…"}
+          </p>
+        )}
+      </>
+    );
+  const recovery = data.recovery ?? {};
   const message =
     data.reason === "ready"
       ? data.rule
         ? t.ready
         : t.unchanged
       : (t[data.reason as keyof typeof t] ?? t.unavailable);
-  if (compact) return <section className="card whoop-training is-compact" data-recovery-state={data.reason} aria-label={t.title}>
-    <h2>{t.title}</h2><div className="whoop-summary">{recovery.score != null && <strong><bdi>{recovery.score}%</bdi></strong>}{recovery.sleepHours != null && <span>{t.sleep}: <bdi>{recovery.sleepHours} {t.hours}</bdi></span>}</div>
-    <p>{message}</p>
-    <details><summary>{locale === "ar" ? "لماذا؟ عرض القراءة وتأثيرها" : "Why? Reading and training effect"}</summary>
-      {recovery.measuredAt && <p className="muted">{t.measured} <bdi>{new Intl.DateTimeFormat(locale === "ar" ? "ar-AE" : "en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: data.timezone }).format(new Date(recovery.measuredAt))}</bdi></p>}
-      {data.reason === "ready" && data.rule && <p>{reductionText(t.lower, data.rule)}</p>}
-      <p>{t.limits}</p><Link className="text-button" href="/app/wearables">{t.connections}</Link>
-    </details>
-  </section>;
-  return (
-    <section className="card whoop-training" aria-label={t.title}>
-      <h2>{t.title}</h2>
-      {settings && <p className="badge">{data.connected ? (locale === "ar" ? "متصل بـ WHOOP" : "Connected to WHOOP") : (locale === "ar" ? "يلزم إعادة الربط" : "Reconnect WHOOP")}</p>}
-      {recovery.score != null && (
-        <p>
-          <strong>
-            <bdi>{recovery.score}%</bdi>
-          </strong>{" "}
-          · {t[recovery.band as "low" | "moderate" | "high"]}
-        </p>
-      )}
-      {recovery.measuredAt && (
-        <p className="muted">
-          {t.measured}{" "}
-          <bdi>
-            {new Intl.DateTimeFormat(locale === "ar" ? "ar-AE" : "en-GB", {
-              dateStyle: "medium",
-              timeStyle: "short",
-              timeZone: data.timezone,
-            }).format(new Date(recovery.measuredAt))}
-          </bdi>
-        </p>
-      )}
-      <p>{message}</p>
-      {data.reason === "ready" && data.rule && <p>{reductionText(t.lower, data.rule)}</p>}
-      {(recovery.sleepHours != null ||
-        recovery.hrvMs != null ||
-        recovery.restingHeartRate != null) && (
-        <dl className="form-grid">
-          {recovery.sleepHours != null && (
-            <div>
-              <dt>{t.sleep}</dt>
-              <dd>
-                {recovery.sleepHours} {t.hours}
-              </dd>
-            </div>
-          )}
-          {recovery.hrvMs != null && (
-            <div>
-              <dt>{t.hrv}</dt>
-              <dd>
-                <bdi>{Math.round(recovery.hrvMs)} ms</bdi>
-              </dd>
-            </div>
-          )}
-          {recovery.restingHeartRate != null && (
-            <div>
-              <dt>{t.heart}</dt>
-              <dd>
-                <bdi>{Math.round(recovery.restingHeartRate)} bpm</bdi>
-              </dd>
-            </div>
-          )}
-        </dl>
-      )}
-      {settings ? (
-        <div>
-          <label>
-            <input
-              type="checkbox"
-              aria-describedby={consentId}
-              checked={data.optedIn}
-              disabled={
-                busy || (!data.optedIn && (!data.connected || !data.available))
-              }
-              onChange={(e) => {
-                setBusy(true);
-                setError("");
-                void request("/integrations/whoop/training", {
-                  enabled: e.target.checked,
-                  version: data.preferenceVersion,
-                  consentVersion: WHOOP_TRAINING_VERSION,
-                })
-                  .then(setData)
-                  .catch((e) => setError(e.message))
-                  .finally(() => setBusy(false));
-              }}
-            />{" "}
-            <strong>{t.allow}</strong>
-          </label>
-          <p className="muted" id={consentId}>
-            {t.consent}
-          </p>
-        </div>
-      ) : (
-        <Link className="text-link" href="/app/wearables">
-          {t.connections}
+  const date = (value: string) =>
+    new Intl.DateTimeFormat(ar ? "ar-AE" : "en-GB", {
+      dateStyle: "medium",
+      timeStyle: "short",
+      timeZone: data.timezone,
+    }).format(new Date(value));
+  const band = recovery.band
+    ? t[recovery.band as "low" | "moderate" | "high"].split(" · ")[0]
+    : ar
+      ? "بانتظار القراءة"
+      : "Awaiting a reading";
+  if (compact)
+    return (
+      <section
+        className="whoop-training recovery-summary"
+        data-recovery-state={data.reason}
+        aria-label={t.title}
+      >
+        <Link href="/app/recovery" className="recovery-summary-link">
+          <span className="recovery-summary-value">
+            <bdi>{recovery.score != null ? `${recovery.score}%` : "—"}</bdi>
+          </span>
+          <span>
+            <strong>{data.connected ? band : t.title}</strong>
+            <small>
+              {recovery.measuredAt
+                ? `WHOOP · ${date(recovery.measuredAt)}`
+                : message}
+            </small>
+            {data.reason !== "ready" && recovery.measuredAt && (
+              <small>{message}</small>
+            )}
+          </span>
+          <ArrowUpRight
+            className="recovery-arrow"
+            size={22}
+            aria-hidden="true"
+          />
         </Link>
+        {alert}
+      </section>
+    );
+  if (rules)
+    return (
+      <div className="member-recovery" data-stagger>
+        <header className="page-heading">
+          <p className="eyebrow">WHOOP</p>
+          <h1>{ar ? "قواعد مدربك" : "Your coach’s rules."}</h1>
+          <p className="muted">{t.limits}</p>
+        </header>
+        <dl className="recovery-rules">
+          {(["low", "moderate", "high"] as const).map((key) => (
+            <div key={key} data-current={recovery.band === key || undefined}>
+              <dt>
+                <strong>{t[key]}</strong>
+                {recovery.band === key && (
+                  <span className="badge">
+                    {ar ? "قراءتك الحالية" : "Your current reading"}
+                  </span>
+                )}
+              </dt>
+              <dd>
+                {key === "high"
+                  ? t.unchanged
+                  : reductionText(t.lower, data.policy?.values?.[key])}
+              </dd>
+            </div>
+          ))}
+        </dl>
+        {!data.policy?.values?.enabled && <p className="notice">{t.trainer}</p>}
+        <Link className="button secondary" href="/app/recovery">
+          {ar ? "العودة إلى التعافي" : "Back to recovery"}
+        </Link>
+        {alert}
+      </div>
+    );
+  // Connections shows a small route to recovery, not a second permission switch.
+  if (settings)
+    return (
+      <section className="recovery-summary" aria-label={t.title}>
+        <Link className="recovery-summary-link" href="/app/recovery">
+          <span>
+            <strong>
+              {ar ? "تعافيك وتدريبك" : "Your recovery & training"}
+            </strong>
+            <small>
+              {ar
+                ? "القراءات وقواعد المدرب وتعديلات التمرين"
+                : "Readings, coach rules and workout adjustments"}
+            </small>
+          </span>
+          <ChevronRight size={20} aria-hidden="true" />
+        </Link>
+      </section>
+    );
+  return (
+    <div
+      className="member-recovery"
+      data-stagger
+      data-recovery-state={data.reason}
+    >
+      <header className="page-heading">
+        <p className="eyebrow">WHOOP</p>
+        <h1>{ar ? "تعافيك." : "Your recovery."}</h1>
+        <span className="recovery-status">
+          {data.connected
+            ? ar
+              ? "متصل"
+              : "Connected"
+            : ar
+              ? "غير متصل"
+              : "Not connected"}
+        </span>
+      </header>
+      {alert}
+      {notice && (
+        <p className="notice" role="status">
+          {notice}
+        </p>
       )}
-      {error && <p role="alert">{error}</p>}
-    </section>
+      <section className="recovery-reading" aria-label={t.title}>
+        <div className="recovery-hero">
+          <p className="recovery-score">
+            <bdi>{recovery.score != null ? recovery.score : "—"}</bdi>
+            {recovery.score != null && <span>%</span>}
+          </p>
+          <div>
+            <h2>{band}</h2>
+            <p className="muted">
+              {recovery.measuredAt ? date(recovery.measuredAt) : message}
+            </p>
+          </div>
+        </div>
+        {recovery.score != null && (
+          <div
+            className="recovery-meter"
+            role="meter"
+            aria-label={t.title}
+            aria-valuenow={recovery.score}
+            aria-valuemin={0}
+            aria-valuemax={100}
+          >
+            <span
+              style={{
+                transform: `scaleX(${Math.min(100, Math.max(0, recovery.score)) / 100})`,
+              }}
+            />
+          </div>
+        )}
+        <dl className="recovery-metrics">
+          <div>
+            <dt>{t.sleep}</dt>
+            <dd>
+              <bdi>{recovery.sleepHours ?? "—"}</bdi>
+              {recovery.sleepHours != null && <small>{t.hours}</small>}
+            </dd>
+          </div>
+          <div>
+            <dt>{t.hrv}</dt>
+            <dd>
+              <bdi>
+                {recovery.hrvMs == null ? "—" : Math.round(recovery.hrvMs)}
+              </bdi>
+              {recovery.hrvMs != null && <small>ms</small>}
+            </dd>
+          </div>
+          <div>
+            <dt>{t.heart}</dt>
+            <dd>
+              <bdi>
+                {recovery.restingHeartRate == null
+                  ? "—"
+                  : Math.round(recovery.restingHeartRate)}
+              </bdi>
+              {recovery.restingHeartRate != null && <small>bpm</small>}
+            </dd>
+          </div>
+        </dl>
+      </section>
+      <section
+        className="recovery-effect"
+        aria-labelledby="recovery-effect-title"
+      >
+        <p className="eyebrow">
+          {ar ? "تأثير التعافي على التدريب" : "Training effect"}
+        </p>
+        <h2 id="recovery-effect-title">
+          {activeWorkout
+            ? ar
+              ? "تمرينك الحالي محفوظ."
+              : "Your current workout is set."
+            : data.reason === "ready" && data.rule
+              ? ar
+                ? "حصة أخف وفق قواعد مدربك."
+                : "A lighter session, within your coach’s rules."
+              : ar
+                ? "خطتك المقررة محفوظة."
+                : "Your assigned plan stays in place."}
+        </h2>
+        <p>{activeWorkout ? t.limits : message}</p>
+        {!activeWorkout && data.reason === "ready" && data.rule && (
+          <p>{reductionText(t.lower, data.rule)}</p>
+        )}
+        {activeWorkout?.data?.recoveryAdjustment && (
+          <WhoopWorkoutAdjustment
+            adjustment={activeWorkout.data.recoveryAdjustment}
+          />
+        )}
+        <Link className="button" href="/app/program">
+          {ar ? "عرض تدريب اليوم" : "View today’s training"}
+          <ArrowUpRight size={18} aria-hidden="true" />
+        </Link>
+      </section>
+      <section
+        className="recovery-permission"
+        aria-labelledby="recovery-permission-title"
+      >
+        <label className="recovery-switch-row">
+          <span>
+            <strong id="recovery-permission-title">
+              {ar ? "تعديلات التعافي" : "Recovery adjustments"}
+            </strong>
+            <small role="status">
+              {busy === "consent"
+                ? ar
+                  ? "جارٍ الحفظ…"
+                  : "Saving…"
+                : data.optedIn
+                  ? ar
+                    ? "مفعلة للتمرين الجديد"
+                    : "On for new workouts"
+                  : ar
+                    ? "متوقفة — اتباع خطتك المقررة"
+                    : "Off — follow your assigned plan"}
+            </small>
+          </span>
+          <input
+            className="recovery-switch"
+            type="checkbox"
+            role="switch"
+            aria-labelledby="recovery-permission-title"
+            aria-describedby={consentId}
+            checked={data.optedIn}
+            disabled={
+              !!busy || (!data.optedIn && (!data.connected || !data.available))
+            }
+            onChange={async (e) => {
+              const enabled = e.target.checked;
+              setBusy("consent");
+              setError("");
+              setNotice("");
+              try {
+                setData(
+                  await request("/integrations/whoop/training", {
+                    enabled,
+                    version: data.preferenceVersion,
+                    consentVersion: WHOOP_TRAINING_VERSION,
+                  }),
+                );
+              } catch (e) {
+                setError(e instanceof Error ? e.message : "Please try again.");
+              } finally {
+                setBusy("");
+              }
+            }}
+          />
+        </label>
+        <p id={consentId} className="muted">
+          {t.consent}
+        </p>
+        {!data.connected && (
+          <Link className="button secondary" href="/app/wearables">
+            {data.hasConnection
+              ? ar
+                ? "إعادة ربط WHOOP"
+                : "Reconnect WHOOP"
+              : ar
+                ? "ربط WHOOP"
+                : "Connect WHOOP"}
+          </Link>
+        )}
+        {data.reason !== "ready" && <p className="muted">{message}</p>}
+      </section>
+      <footer className="recovery-footer">
+        <div>
+          <button
+            className="text-button recovery-sync"
+            disabled={!!busy || !data.connected}
+            onClick={async () => {
+              setBusy("sync");
+              setError("");
+              setNotice("");
+              try {
+                await request("/integrations/whoop/sync", {}, "POST");
+                setNotice(
+                  ar
+                    ? "تم طلب المزامنة. تُعرض أحدث قراءة متاحة."
+                    : "Sync requested. Showing the latest available reading.",
+                );
+                try {
+                  setData(await request("/integrations/whoop/training"));
+                } catch {
+                  setError(
+                    ar
+                      ? "تم طلب المزامنة. أعد تحميل القراءة."
+                      : "Sync was requested. Retry loading the reading.",
+                  );
+                }
+              } catch (e) {
+                setError(e instanceof Error ? e.message : "Please try again.");
+              } finally {
+                setBusy("");
+              }
+            }}
+          >
+            <RefreshCw
+              key={busy === "sync" ? "syncing" : "idle"}
+              className={busy === "sync" ? "is-syncing" : ""}
+              size={16}
+              aria-hidden="true"
+            />
+            {busy === "sync"
+              ? ar
+                ? "جارٍ المزامنة…"
+                : "Syncing…"
+              : ar
+                ? "مزامنة WHOOP"
+                : "Sync WHOOP"}
+          </button>
+          {data.lastSyncedAt && (
+            <small className="muted">
+              {ar ? "آخر مزامنة: " : "Last synced "}
+              {date(data.lastSyncedAt)}
+            </small>
+          )}
+        </div>
+        <Link className="text-button" href="/app/recovery/rules">
+          {ar ? "قواعد مدربك" : "Your coach’s rules"}
+          <ChevronRight size={16} aria-hidden="true" />
+        </Link>
+      </footer>
+      <Link className="recovery-connection-link" href="/app/wearables">
+        {ar ? "الاتصال والأذونات" : "Connection & permissions"}
+        <ChevronRight size={18} aria-hidden="true" />
+      </Link>
+    </div>
   );
 }
 

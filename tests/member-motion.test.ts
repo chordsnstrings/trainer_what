@@ -94,27 +94,27 @@ function withBrowser(
   }
 }
 
-test("tokens: five durations, four curves, three distances, a 30 ms stagger for six", () => {
+test("tokens: CI timing, restrained curves and a 12 ms stagger for four", () => {
   assert.deepEqual(
     [MOTION.instant, MOTION.fast, MOTION.base, MOTION.slow, MOTION.emphasis],
-    [80, 140, 200, 280, 420],
+    [120, 180, 200, 220, 240],
   );
-  // Feedback within 100 ms; celebration only up to 420 ms; progress 700 ms.
-  assert.ok(MOTION.instant < 100);
+  // CI: 120 ms press response; interface changes stay within 240 ms.
+  assert.equal(MOTION.instant, 120);
   assert.equal(MOTION_LIMITS.any, MOTION.emphasis);
   assert.ok(MOTION.progress <= MOTION_LIMITS.progress);
   assert.deepEqual(EASE, {
     out: "cubic-bezier(0.2, 0, 0, 1)",
     in: "cubic-bezier(0.4, 0, 1, 1)",
     inOut: "cubic-bezier(0.4, 0, 0.2, 1)",
-    spring: "cubic-bezier(0.34, 1.4, 0.64, 1)",
+    spring: "cubic-bezier(0.2, 0, 0, 1)",
   });
   assert.deepEqual(DISTANCE, { xs: 4, sm: 8, md: 16 });
-  assert.equal(MOTION.stagger, 30);
+  assert.equal(MOTION.stagger, 12);
   assert.equal(stagger(0), 0);
-  assert.equal(stagger(2), 60);
-  // The sixth and every later one share the last delay: 150 ms at most.
-  assert.equal(stagger(5), 150);
+  assert.equal(stagger(2), 24);
+  // The fourth and later siblings share the last delay: 36 ms at most.
+  assert.equal(stagger(3), 36);
   assert.equal(stagger(50), stagger(5));
   assert.equal(stagger(-3), 0);
   // Arrivals with their stagger stay inside the budget.

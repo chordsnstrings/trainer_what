@@ -177,19 +177,17 @@ add-on. Without a Stripe client (tests) an older event is still dropped as befor
   subscription item's price); an invoice amount (trial AED 0, discount, proration) is only
   the fallback for a membership whose price is not known yet.
 
-- **No plan changes after payment (owner decision, 30 September 2026).** "There's no
-  existing members. Once they pay they can't switch." `POST /api/v1/membership/change-plan`
-  now refuses every member with `409 PLAN_CHANGE_NOT_ALLOWED` ("Your plan can't be changed
-  after you've paid.") before any Stripe call, whatever `BUNDLE_CHANGES_APPROVED` says;
-  anyone who is not a member still gets `403 SUBSCRIBER_REQUIRED`. The Stripe billing-portal
-  confirmation flow it used to open (paired workout / workout + nutrition offers, prorated
-  upgrades, period-end downgrades, event `subscription.change_confirmation_opened`) is removed,
-  and the member app (`member-membership.tsx`, the older member view in `workspace.tsx`) has
-  no switch buttons or their English and Arabic strings. `BUNDLE_CHANGES_APPROVED` stays in
-  Settings but no longer opens anything. No trainer or operator tool called this route. This
-  supersedes STATE-9 (plan changes while commerce is paused), which no longer arises.
-  Test: `tests/fix-ledger.test.ts` (G4: every member request refused for both setting values,
-  no portal call, no event).
+- **Subscriber upgrades (owner, 20 October 2026).** The new request supersedes the
+  historical no-switch policy. Published monthly upgrades preserve existing capabilities
+  and programme length. `POST /membership/change-plan` creates a five-minute quote;
+  `POST /membership/upgrades/confirm` rechecks price, subscription, readiness and overlap,
+  then uses one idempotent pending update with immediate proration invoicing. Payment or
+  authentication failure retains the existing package. `/membership/upgrades/reconcile`
+  reads evidence without sending another instruction; the normal finance reconciler also
+  handles these intents. Prepaid terms and discounts are preserved; module passes extend
+  capabilities without converting the training term. No downgrades or live charging tests.
+  `COMMERCE_APPROVED` remains required; the legacy bundle flag remains unused.
+  See [implementation and evidence](../SUBSCRIBER_CI_2026-10-20.md).
 
 ## Minimum charge (F2)
 

@@ -58,14 +58,15 @@ import "./workspace-system.css";
 import "./daily-workflows.css";
 import "./affiliates.css";
 import "./onboarding-chat.css";
+import "./subscriber-polish.css";
 
 // The trainsyou typeface: Inter (SIL OFL 1.1, app/fonts/Inter-OFL.txt), the
 // variable-weight files of @fontsource-variable/inter 5.3.0 kept in the
 // repository, so neither the build nor the browser contacts Google. Latin is
 // preloaded; Latin Extended is listed first but, by its unicode-range, only
-// loads for a page that uses those letters. "Inter Display" is not bundled;
-// display sizes use Inter, with metric-matched Arial as the fallback
-// (globals.css --ty-font-body / --ty-font-display). Trainer-branded surfaces
+// loads for a page that uses those letters. The subscriber app uses bundled
+// Inter Display Medium for headings, with metric-matched Arial as fallback.
+// Trainer-branded surfaces
 // keep their Design Studio font stacks.
 const interLatin = localFont({
   src: "./fonts/inter-latin-wght-normal.woff2",
@@ -98,8 +99,12 @@ const interLatinExt = localFont({
     },
   ],
 });
-/** Sets --font-inter and --font-inter-ext on <html>. */
-const fontVariables = `${interLatin.variable} ${interLatinExt.variable}`;
+const interDisplay = localFont({
+  src: "./fonts/inter-display-medium-latin.woff2", weight: "500", style: "normal",
+  display: "swap", variable: "--font-inter-display", preload: false, adjustFontFallback: "Arial",
+});
+/** Locally hosted Inter body and Display headings. */
+const fontVariables = `${interLatin.variable} ${interLatinExt.variable} ${interDisplay.variable}`;
 
 export async function generateMetadata(): Promise<Metadata> {
   // The platform name comes from the Super admin settings (APP_NAME), and is

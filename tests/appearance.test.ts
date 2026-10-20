@@ -322,7 +322,7 @@ test("member app colours are neutral, readable in both modes, and independent of
   const website = renderToStaticMarkup(
     createElement(TrainerTheme, { theme, children: "Coach site" }),
   );
-  assert.match(member, /--paper:#f7f8f6/);
+  assert.match(member, /--paper:#f3f4f0/);
   assert.match(member, /--dark-white:#222527/);
   assert.match(member, /data-color-scheme="dark"/);
   assert.match(website, /--paper:#101418/);

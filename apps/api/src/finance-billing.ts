@@ -331,6 +331,10 @@ export async function reconcileRenewal(
     ),
   );
   if (!r) return { status: "resolved" };
+  if (r.data.purpose === "upgrade") {
+    const { reconcileUpgrade } = await import("./membership-upgrades.ts");
+    return reconcileUpgrade(db, a, stripe);
+  }
   const remote = await stripe.subscriptions.retrieve(r.data.providerId);
   await confirmRenewal(
     db,

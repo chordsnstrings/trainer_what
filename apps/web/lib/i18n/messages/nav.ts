@@ -3,6 +3,11 @@ import { defineMessages } from "../core";
 /** Member app navigation: tabs, More, side navigation and top bar titles. */
 export default defineMessages(
   {
+    recovery: "Recovery",
+    recoveryDetail: "WHOOP readings and workout adjustments",
+    recoveryRules: "Your coach’s rules",
+    voice: "Voice guidance",
+    voiceDetail: "Guided sessions and your voice add-on",
     today: "Today",
     program: "Programme",
     programTab: "Plan",
@@ -50,6 +55,11 @@ export default defineMessages(
     titleNotFound: "Page not found",
   },
   {
+    recovery: "التعافي",
+    recoveryDetail: "قراءات ووب وتعديلات التمرين",
+    recoveryRules: "قواعد مدربك",
+    voice: "التوجيه الصوتي",
+    voiceDetail: "الحصص الموجهة وإضافة الصوت",
     today: "اليوم",
     program: "البرنامج",
     programTab: "الخطة",

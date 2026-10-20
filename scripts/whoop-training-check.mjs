@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { checkSubscriberContrast } from "./subscriber-contrast.mjs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { chromium, expect } from "@playwright/test";
 const base = process.env.TEST_APP_URL;
@@ -39,6 +40,10 @@ async function login(email) {
   return { context, page };
 }
 async function screenshot(page, name) {
+  await page.evaluate(async () => {
+    window.scrollTo({ top: 0, behavior: "instant" });
+    await new Promise(requestAnimationFrame);
+  });
   assert.ok(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth + 1,
@@ -82,18 +87,15 @@ try {
   report.checks.push("Trainer saves recovery rules through the real API");
   const member = await login("sam.taylor@example.test");
   await member.page.setViewportSize({ width: 390, height: 844 });
-  await member.page.goto(base + "/app/wearables");
+  await member.page.goto(base + "/app/recovery");
   for (const name of [/without analytics/i, /^No thanks$/i]) {
     const b = member.page.getByRole("button", { name });
     if (await b.count()) await b.first().click();
   }
-  const recovery = member.page.getByRole("region", {
-    name: "WHOOP recovery",
-    exact: true,
-  });
+  const recovery = member.page.locator(".member-recovery");
   await expect(recovery).toContainText("25%");
   await declineAnalytics(member.page);
-  const permission = recovery.getByRole("checkbox");
+  const permission = recovery.getByRole("switch");
   await expect(permission).not.toBeChecked();
   await permission.click();
   await expect(permission).toBeChecked();
@@ -104,10 +106,175 @@ try {
   await member.page.reload();
   await expect(permission).toBeChecked();
   report.checks.push("Explicit member opt-in persists after reload");
+  await expect(recovery.locator(".recovery-metrics")).toContainText("7.2");
+  const checkedNode = await permission.elementHandle();
+  await permission.click();
+  await expect(permission).not.toBeChecked();
+  assert.equal(
+    await checkedNode.evaluate((el) => el.isConnected),
+    true,
+    "Switch remains mounted for smooth movement",
+  );
+  await permission.click();
+  await expect(permission).toBeChecked();
+  assert.ok(
+    await permission.evaluate((el) => el.getBoundingClientRect().width >= 50),
+    "Switch is not overridden by checkbox styles",
+  );
+  for (const width of [320, 390, 1280]) {
+    await member.page.setViewportSize({ width, height: 844 });
+    report.checks.push({
+      screen: "recovery",
+      width,
+      contrast: await checkSubscriberContrast(member.page),
+    });
+    await screenshot(member.page, `recovery-${width}`);
+  }
+  await member.page.setViewportSize({ width: 320, height: 844 });
+  await member.page.locator(".member-recovery").evaluate((root) => {
+    const elements = [
+      ...root.querySelectorAll("h1,h2,p,dt,dd,strong,small,button,a"),
+    ];
+    const sizes = elements.map((el) =>
+      parseFloat(getComputedStyle(el).fontSize),
+    );
+    elements.forEach((el, i) => (el.style.fontSize = `${sizes[i] * 2}px`));
+  });
+  await screenshot(member.page, "recovery-large-text");
+  await member.page.reload();
+  await expect(permission).toBeChecked();
+  await member.page.emulateMedia({ reducedMotion: "reduce" });
+  assert.equal(
+    await permission.evaluate(
+      (el) => getComputedStyle(el, "::before").transitionDuration,
+    ),
+    "0s",
+  );
+  await member.page.emulateMedia({ reducedMotion: "no-preference" });
+  assert.equal(
+    await permission.evaluate(
+      (el) => getComputedStyle(el, "::before").transitionDuration,
+    ),
+    "0.18s",
+  );
+  await member.page.evaluate(
+    () => (document.documentElement.dataset.reduceMotion = "on"),
+  );
+  assert.equal(
+    await permission.evaluate(
+      (el) => getComputedStyle(el, "::before").transitionDuration,
+    ),
+    "0s",
+  );
+  await member.page.evaluate(
+    () => delete document.documentElement.dataset.reduceMotion,
+  );
+  await member.page
+    .getByRole("link", { name: "Your coach’s rules", exact: true })
+    .click();
+  await expect(
+    member.page.locator(".recovery-rules [data-current]"),
+  ).toContainText("Low recovery");
+  await screenshot(member.page, "recovery-rules-phone");
+  await member.page.goto(base + "/app/voice");
+  await expect(
+    member.page.getByRole("heading", { name: "Voice guidance.", exact: true }),
+  ).toBeVisible();
+  await expect(member.page.locator(".voice-benefits")).toContainText(
+    "Timers stay included with training",
+  );
+  await expect(
+    member.page.getByText("Checking voice availability…", { exact: true }),
+  ).toHaveCount(0);
+  report.checks.push({
+    screen: "voice",
+    contrast: await checkSubscriberContrast(member.page),
+  });
+  await screenshot(member.page, "voice-phone");
+  let pendingUpgrade = false,
+    confirmations = 0;
+  const upgradeFixture = {
+    id: "00000000-0000-4000-8000-000000000020",
+    name: "Synthetic training + voice",
+    priceMinor: 29900,
+    modules: ["training", "voice"],
+    reason: null,
+  };
+  const optionsRoute = (route) =>
+    route.fulfill({
+      json: {
+        offers: [upgradeFixture],
+        blocked: pendingUpgrade,
+        prepaid: false,
+        pending: pendingUpgrade
+          ? {
+              id: "fixture-upgrade",
+              status: "unknown",
+              name: upgradeFixture.name,
+              url: null,
+            }
+          : null,
+      },
+    });
+  const quoteRoute = (route) =>
+    route.fulfill({
+      json: {
+        id: "00000000-0000-4000-8000-000000000021",
+        name: upgradeFixture.name,
+        amountMinor: 6000,
+        monthlyPriceMinor: 29900,
+        renewalAt: new Date(Date.now() + 20 * 86400000).toISOString(),
+        expiresAt: new Date(Date.now() + 300000).toISOString(),
+      },
+    });
+  const confirmRoute = (route) => {
+    confirmations++;
+    pendingUpgrade = true;
+    return route.fulfill({ json: { status: "pending", url: null } });
+  };
+  await member.page.route("**/api/v1/membership/upgrades", optionsRoute);
+  await member.page.route("**/api/v1/membership/change-plan", quoteRoute);
+  await member.page.route(
+    "**/api/v1/membership/upgrades/confirm",
+    confirmRoute,
+  );
+  await member.page.goto(base + "/app/membership");
+  await member.page
+    .getByRole("button", { name: "Review upgrade", exact: true })
+    .click();
+  const review = member.page.getByRole("dialog", {
+    name: "Review your upgrade",
+    exact: true,
+  });
+  await expect(review).toContainText("Due today");
+  await expect(review).toContainText("New monthly price");
+  await expect(review).toContainText("60");
+  await expect(review).toContainText("299");
+  await screenshot(member.page, "upgrade-review-phone");
+  await review.getByRole("button", { name: /Confirm & pay/ }).click();
+  await expect(
+    member.page.getByText("Upgrade awaiting confirmation", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    member.page.getByRole("button", { name: "Review upgrade", exact: true }),
+  ).toBeDisabled();
+  assert.equal(confirmations, 1);
+  report.checks.push(
+    "Upgrade review states exact due-today and monthly amounts; pending outcome blocks another purchase (isolated UI fixtures)",
+  );
+  await member.page.unroute("**/api/v1/membership/upgrades", optionsRoute);
+  await member.page.unroute("**/api/v1/membership/change-plan", quoteRoute);
+  await member.page.unroute(
+    "**/api/v1/membership/upgrades/confirm",
+    confirmRoute,
+  );
+
+  await member.page.setViewportSize({ width: 390, height: 844 });
+
   await member.page.goto(base + "/app");
   await expect(
     member.page.getByRole("region", { name: "WHOOP recovery", exact: true }),
-  ).toContainText("trainer’s rule");
+  ).toContainText("25%");
   const pending = member.page.waitForResponse(
     (r) =>
       new URL(r.url()).pathname === "/api/v1/workouts/start" &&
@@ -130,6 +297,34 @@ try {
   report.checks.push(
     "Today starts an adjusted workout and displays the real change receipt",
   );
+  const load = member.page.locator('.set-row input[name="load"]').first();
+  const reps = member.page.locator('.set-row input[name="reps"]').first();
+  await load.fill("27.5");
+  await reps.fill("9");
+  await member.page.getByRole("button", { name: "90 s", exact: true }).click();
+  await member.page
+    .getByRole("button", { name: "Pause timer", exact: true })
+    .click();
+  const paused = await member.page.getByRole("timer").last().textContent();
+  await member.page.reload();
+  await expect(load).toHaveValue("27.5");
+  await expect(reps).toHaveValue("9");
+  await expect(member.page.getByRole("timer").last()).toHaveText(paused);
+  await member.page
+    .getByRole("button", { name: "Resume timer", exact: true })
+    .click();
+  await member.page
+    .getByRole("button", { name: "Pause timer", exact: true })
+    .click();
+  await member.page.locator('.member-tabbar a[href="/app/program"]').click();
+  await member.page.goto(base + `/app/workouts/${workout.id}`);
+  await expect(load).toHaveValue("27.5");
+  await expect(reps).toHaveValue("9");
+  report.checks.push(
+    "Unsubmitted set edits and paused rest timer survive reload and navigation",
+  );
+  await screenshot(member.page, "workout-restored-phone");
+
   await member.page.goto(base + `/app/voice-session/${workout.id}`);
   await expect(
     member.page.getByRole("region", {
@@ -153,18 +348,15 @@ try {
     .click();
   assert.equal((await languageSaved).status(), 200);
   await expect(member.page.locator("html")).toHaveAttribute("lang", "ar");
-  await member.page.goto(base + "/app/wearables");
+  await member.page.goto(base + "/app/recovery");
   await expect(member.page.locator("html")).toHaveAttribute("dir", "rtl");
-  const arabic = member.page.getByRole("region", {
-    name: "التعافي من WHOOP",
-    exact: true,
-  });
+  const arabic = member.page.locator(".member-recovery");
   await expect(arabic).toBeVisible();
   await screenshot(member.page, "member-arabic-phone");
-  await arabic.getByRole("checkbox").click();
-  await expect(arabic.getByRole("checkbox")).not.toBeChecked();
+  await arabic.getByRole("switch").click();
+  await expect(arabic.getByRole("switch")).not.toBeChecked();
   await member.page.reload();
-  await expect(arabic.getByRole("checkbox")).not.toBeChecked();
+  await expect(arabic.getByRole("switch")).not.toBeChecked();
   report.checks.push("Arabic phone layout and revocable permission work");
   assert.deepEqual(report.errors, []);
   console.log(JSON.stringify(report));

@@ -774,7 +774,7 @@ test("quality-delivery:G2 tenant refund routes enforce roles and reconcile an un
   }
 });
 
-test("quality-delivery:G4 product activation uses the injected Stripe provider behind its gate; members cannot change plan after paying", async () => {
+test("quality-delivery:G4 product activation uses the injected Stripe provider behind its gate; upgrade inputs require valid paid memberships", async () => {
   const { buildApp } = await import("../apps/api/src/app.ts");
   const { tokenHash } = await import("../apps/api/src/auth.ts");
   const owner = await workspace(),
@@ -949,36 +949,20 @@ test("quality-delivery:G4 product activation uses the injected Stripe provider b
         );
       return [b, c, u];
     });
-    // Owner decision, 30 September 2026: "Once they pay they can't switch."
-    // Every member request is refused before any Stripe call, whatever the
-    // Bundle changes setting says; anyone who is not a member still gets 403.
-    const change = (token: string, productId: string, allowed = "true") =>
-      withEnv({ BUNDLE_CHANGES_APPROVED: allowed }, () =>
-        post("/membership/change-plan", token, { productId }),
-      );
+    // Legacy incomplete fixtures cannot start a paid upgrade; full quote,
+    // confirmation, isolation and reconciliation are covered in subscriber-polish.
+    const change = (token: string, productId: string) =>
+      withEnv({ COMMERCE_APPROVED: "true" }, () => post("/membership/change-plan", token, { productId }));
     const byOwner = await change(ownerToken, base.id);
     assert.equal(byOwner.statusCode, 403);
     assert.equal(byOwner.json().code, "SUBSCRIBER_REQUIRED");
-    const portalCalls = () =>
-      calls.filter((c) => c.call.startsWith("portal-")).length;
+    const portalCalls = () => calls.filter((c) => c.call.startsWith("portal-")).length;
     const portalBefore = portalCalls();
-    items = [{ id: "si_one" }];
-    for (const [token, productId] of [
-      [clientToken, base.id],
-      [clientToken, unpaired.id],
-      [clientToken, combined.id],
-      [baseToken, base.id],
-      [baseToken, combined.id],
-    ] as const)
-      for (const allowed of ["true", "false"]) {
-        const refused = await change(token, productId, allowed);
-        assert.equal(refused.statusCode, 409, refused.body);
-        assert.equal(refused.json().code, "PLAN_CHANGE_NOT_ALLOWED");
-        assert.equal(
-          refused.json().message,
-          "Your plan can't be changed after you've paid.",
-        );
-      }
+    for (const [token, productId] of [[clientToken, base.id], [clientToken, unpaired.id], [baseToken, combined.id]] as const) {
+      const refused = await change(token, productId);
+      assert.equal(refused.statusCode, 409, refused.body);
+      assert.equal(refused.json().code, "UPGRADE_NOT_AVAILABLE");
+    }
     assert.equal(portalCalls(), portalBefore);
     const [opened] = await db.tenant(owner, (tx) =>
       tx.query(

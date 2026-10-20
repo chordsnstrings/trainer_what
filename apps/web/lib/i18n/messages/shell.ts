@@ -3,6 +3,8 @@ import { defineMessages } from "../core";
 /** The member app frame: top bar, tab bar, side navigation, More, footer. */
 export default defineMessages(
   {
+    poweredBy: "Powered by",
+    platformName: "trainsyou",
     skipToContent: "Skip to content",
     mainNavigation: "Main navigation",
     unread: {
@@ -42,6 +44,8 @@ export default defineMessages(
     unSignOut: "Sign out",
   },
   {
+    poweredBy: "عبر",
+    platformName: "ترينزيو",
     skipToContent: "الانتقال إلى المحتوى",
     mainNavigation: "التنقل الرئيسي",
     unread: {

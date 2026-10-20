@@ -7,6 +7,7 @@ import { defineMessages } from "../core";
  */
 export default defineMessages(
   {
+    exploreVoice: "Explore voice guidance",
     actualMetres: "Actual metres; Done confirms the target if left blank",
     playWorkout: "Play workout",
     resumeWorkout: "Resume workout",
@@ -243,6 +244,7 @@ export default defineMessages(
       "Tap, then say done, a number of reps, too heavy, pause, skip or pain.",
   },
   {
+    exploreVoice: "استكشف التوجيه الصوتي",
     actualMetres:
       "المسافة الفعلية بالمتر؛ «انتهيت» يؤكد المسافة المستهدفة عند ترك الحقل فارغاً",
     playWorkout: "تشغيل التمرين",

@@ -712,6 +712,8 @@ export async function addVoiceAddOn(
       "SELECT * FROM subscriptions WHERE user_id=$1 FOR UPDATE",
       [a.userId],
     );
+    const [upgrade] = await tx.query("SELECT id FROM records WHERE kind='subscription_transition' AND owner_user_id=$1 AND data->>'purpose'='upgrade' AND status IN ('submitting','unknown') LIMIT 1", [a.userId]);
+    if (upgrade) throw fail("UPGRADE_PENDING", "Check your pending package upgrade before buying an add-on.");
     if (!hasPaidTraining(s))
       throw fail(
         "MEMBERSHIP_REQUIRED",

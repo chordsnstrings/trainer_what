@@ -68,7 +68,7 @@ export function BillingHistory({ active = false }: { active?: boolean }) {
       )}
       {data && (
         <>
-          {data.transitions.length > 0 && (
+          {data.transitions.some((r: any) => r.data?.purpose !== "upgrade") && (
             <div className="notice">
               <p>{t("renewalAwaiting")}</p>
               <button

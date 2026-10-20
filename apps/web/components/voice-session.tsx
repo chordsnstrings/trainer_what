@@ -465,6 +465,7 @@ export function VoiceSessionRunner({
   return (
     <div className="stack voice-session">
       <audio ref={player} preload="none" hidden />
+      {gate?.reasons.some(r => r.code === "VOICE_MEMBERSHIP") && <Link className="button secondary" href="/app/voice">{t("exploreVoice")}</Link>}
       <WhoopWorkoutAdjustment adjustment={session?.recoveryAdjustment ?? recoveryAdjustment} />
       <div className="page-heading">
         <p className="eyebrow">
@@ -1871,6 +1872,7 @@ function Runner({
   };
   return (
     <>
+      {!gate.premium && <Link className="button secondary" href="/app/voice">{t("exploreVoice")}</Link>}
       <details className="card voice-status-card">
         <summary>{t("sessionOptions")}</summary>
         <label className="voice-check guided-auto">

@@ -25,23 +25,23 @@ import { flushSync } from "react-dom";
 /** Durations in milliseconds (app/motion.css uses the same values). */
 export const MOTION = {
   /** A press answering a tap; a tint. */
-  instant: 80,
+  instant: 120,
   /** Release, a tab crossfade, a number rolling, small state changes. */
-  fast: 140,
+  fast: 180,
   /** Arrivals (cards, toasts, messages) and exits; disclosure height. */
   base: 200,
   /** Sheets and bars sliding in from the bottom edge. */
-  slow: 280,
+  slow: 220,
   /** Celebration and progress only (a finished workout, a success check). */
-  emphasis: 420,
+  emphasis: 240,
   /** Bars and rings growing to their value the first time they are seen. */
-  progress: 640,
+  progress: 240,
   /** Delay between siblings that arrive together. */
-  stagger: 30,
+  stagger: 12,
   /** A refresh shorter than this never shows the top bar's refresh bar. */
   refreshDelay: 400,
   /** How many siblings are staggered; the rest arrive with the last. */
-  staggerMax: 6,
+  staggerMax: 4,
   /** The only loops: live states. */
   loopTyping: 1200,
   loopShimmer: 1400,
@@ -56,8 +56,8 @@ export const EASE = {
   in: "cubic-bezier(0.4, 0, 1, 1)",
   /** Moving from one place to another (the tab indicator). */
   inOut: "cubic-bezier(0.4, 0, 0.2, 1)",
-  /** A small overshoot for success moments only. */
-  spring: "cubic-bezier(0.34, 1.4, 0.64, 1)",
+  /** The same restrained landing for success moments. */
+  spring: "cubic-bezier(0.2, 0, 0, 1)",
 } as const;
 
 /** Distances in CSS pixels (app/motion.css --motion-distance-*). */
@@ -65,10 +65,10 @@ export const DISTANCE = { xs: 4, sm: 8, md: 16 } as const;
 
 /**
  * What the motion check (scripts/motion-check.mjs) holds every running
- * animation to: at most 420 ms, rings and progress at most 700 ms; only the
+ * animation to: at most 240 ms, including rings and progress; only the
  * live loops repeat.
  */
-export const MOTION_LIMITS = { any: 420, progress: 700 } as const;
+export const MOTION_LIMITS = { any: 240, progress: 240 } as const;
 
 /** Set to "on" on <html> by the member's "Reduce motion" choice. */
 export const REDUCE_MOTION_ATTRIBUTE = "data-reduce-motion";

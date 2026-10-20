@@ -25,6 +25,7 @@ export const SUBSCRIBER_CSS = [
   "pwa.css",
   "analytics-consent.css",
   "appearance.css",
+  "subscriber-polish.css",
   "account-settings.css",
   "programme.css",
   "voice-session.css",

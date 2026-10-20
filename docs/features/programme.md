@@ -50,8 +50,10 @@ compensate.
   price of an offer. A published offer gets a new provider price; earlier prices stay in
   `voicePriceIds`, so members keep the price they bought and their events still verify. Refused
   (`VOICE_INCLUDED`) on an older offer that already includes voice.
-- `POST /api/v1/membership/change-plan` refuses every member (`PLAN_CHANGE_NOT_ALLOWED`):
-  no plan changes after payment (owner decision, 30 September 2026).
+- `POST /api/v1/membership/change-plan` quotes an eligible monthly upgrade; explicit
+  confirmation and payment evidence are required before access changes (owner, 20 October
+  2026, superseding the old no-switch decision). Prepaid members retain their purchased
+  terms and can add module passes. See `SUBSCRIBER_CI_2026-10-20.md`.
 - Monthly offers renew exactly as before; their `programmeDays` is the block length. When a
   provider projection maps the membership to a different block length (an edited offer), a new
   block starts (Day 1) at that event instead of renumbering the current block.

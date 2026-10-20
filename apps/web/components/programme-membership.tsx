@@ -137,7 +137,7 @@ export function UpfrontMembership({
 }
 
 /** Add premium guided voice to the membership, or remove it at period end. */
-export function VoiceAddOnCard() {
+export function VoiceAddOnCard({ showUnavailable = false }: { showUnavailable?: boolean } = {}) {
   const [data, setData] = useState<any>(null),
     [busy, setBusy] = useState(false),
     [message, setMessage] = useState(""),
@@ -146,18 +146,14 @@ export function VoiceAddOnCard() {
     locale = useLocale(),
     toError = useErrorText();
   const load = useCallback(
-    () => api("/membership/voice-addon").then(setData, () => setData(null)),
-    [],
+    () => api("/membership/voice-addon").then(d => { setData(d); setError(""); }, () => setError(t("voiceLoadFailed"))),
+    [t],
   );
   useEffect(() => {
     void load();
   }, [load]);
-  if (
-    !data ||
-    (!data.included && !data.available && !data.active && !data.status && !data.priceMinor)
-  )
-    return null;
-  if (!data.active && !data.pending && !data.included) return null;
+  if (!data) return showUnavailable ? <section className="card"><h2>{t("voiceTitle")}</h2><p role={error ? "alert" : "status"}>{error ? error : t("voiceLoading")}</p>{error && <button className="button secondary" onClick={() => void load()}>{t("voiceRetry")}</button>}</section> : null;
+  if (!data.included && !data.available && !data.active && !data.pending && !data.priceMinor && !showUnavailable) return null;
   const act = async (fn: () => Promise<any>, done: string) => {
     setBusy(true);
     setError("");
@@ -231,11 +227,8 @@ export function VoiceAddOnCard() {
         </>
       ) : (
         <>
-          <p>
-            {t("voiceOffer", {
-              price: formatMoney(data.priceMinor ?? 0, locale),
-            })}
-          </p>
+          <p>{data.priceMinor ? t("voiceOffer", { price: formatMoney(data.priceMinor, locale) }) : (t("voiceNotOffered"))}</p>
+          {!data.available && !data.pending && <p className="muted">{t("voiceRequirements")}</p>}
           {data.pending?.status === "confirming" && (
             <p className="muted" role="status">
               {t("voiceConfirming")}
@@ -244,7 +237,7 @@ export function VoiceAddOnCard() {
           <div className="button-row">
             <button
               className="button"
-              disabled={busy || !data.available}
+              disabled={busy || !data.available || (!!data.pending && !data.pending.url)}
               onClick={() =>
                 void act(
                   () => api("/membership/voice-addon", "POST", {}),

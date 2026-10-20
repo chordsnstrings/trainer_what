@@ -23,6 +23,8 @@ import {
 } from "react";
 import {
   Bell,
+  Activity,
+  Headphones,
   CalendarCheck,
   CalendarRange,
   Camera,
@@ -95,6 +97,8 @@ export const MEMBER_ICONS: Record<MemberIcon, IconType> = {
   context: UserRound,
   intake: ClipboardList,
   connections: Watch,
+  recovery: Activity,
+  voice: Headphones,
   galleries: Images,
   notifications: Bell,
   support: LifeBuoy,
@@ -547,7 +551,7 @@ export function MemberShell({
           {footerNote}
         </main>
         <footer className="member-footer">
-          <bdi>{tenant.name}</bdi>
+          <span className="member-brand-endorsement">{t("poweredBy")}<img src="/brand/trainsyou-wordmark-ink.svg" alt={t("platformName")} width={78} height={20} /></span>
           {supportEmail && (
             <a href={`mailto:${supportEmail}`}>{common("contactSupport")}</a>
           )}
