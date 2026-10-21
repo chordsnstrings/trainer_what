@@ -2,7 +2,7 @@
 
 ## Work in progress
 
-### Meal-photo estimates: off for subscribers; Seed 2.0 Pro photo test passed — 20–21 October 2026 (Claude)
+### Meal-photo estimates: switched on live after a passing Seed 2.0 Pro test — 20–21 October 2026 (Claude)
 
 Owner asked why meal-photo upload doesn't work, noting that ModelArk has Skylark models with vision. No code or settings were changed. The feature is built (`apps/api/src/meal-capture.ts`, `estimateMealPhoto` in `packages/providers/src/food.ts`) but switched off live.
 
@@ -15,7 +15,13 @@ Owner asked why meal-photo upload doesn't work, noting that ModelArk has Skylark
   - Macro totals show as unknown until the subscriber fills in one null (the model left olive protein null instead of guessing).
   - Risk: output used 1,726 of the 2,500-token photo budget, so a busy plate could run out.
   - Skylark embedding vision returns vectors, not food names or nutrients, so it cannot do this task.
-- **Next step (owner decides).** Turn on Application → "Enable meal-photo estimates" and AI model → "Selected model supports image input" (no code). Option B, a separate photo model, is no longer needed.
+- **Switched on, 21 October (owner: "Turn it on for me").**
+  - 01:55:34 UTC: AI model → `MODEL_VISION_ENABLED=true` saved (revision 2).
+  - 01:55:35 UTC: Application → `MEAL_PHOTOS_ENABLED=true` saved (revision 8).
+  - The active profile `current-settings` inherits these values (`INHERITED_KEYS`).
+  - **Side effect, fixed:** a saved provider setting stays inactive until its last test matches the new revision (`isActive` in `platform-settings.ts`). All AI was therefore paused from 01:55:34 until Claude re-ran the AI model test, which verified revision 2 at 01:57:33 UTC (about 2 minutes, roughly 6 AM UAE).
+  - Verified: as the test subscriber, `GET /api/v1/nutrition/captures` now returns `photosEnabled: true`.
+  - That test client still has no nutrition entitlement or photo consents, so it cannot upload yet. A subscriber with workout + nutrition membership sees the option after granting photo permission.
 
 
 ### Subscriber CI and functional polish — implementation and release tracking, 20 October 2026

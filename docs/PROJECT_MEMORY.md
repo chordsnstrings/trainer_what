@@ -27,3 +27,5 @@ The downloadable `trainsyou-ux-ui-audit-2026-10-19.html` was refreshed and saved
 - Keep credentials, private account records and recovery archives out of Git, prompts and logs. Use existing authenticated APIs and host access. Do not use a cloud browser for this repository work.
 
 Earlier product and release decisions remain in [the pre-checkpoint project-memory snapshot](https://github.com/chordsnstrings/trainer_what/blob/b65051ae69798d7446a549eb7a22ef4eebc4683b/docs/PROJECT_MEMORY.md) and the feature-specific documents under `docs/`. This concise checkpoint preserves the standing decisions above and avoids republishing account/contact details or unrelated operational history.
+
+- Operational rule (21 October 2026): saving a provider setting in Super admin Settings (AI model, payments, email and the like) deactivates it until its connection test passes for the new revision (`isActive` requires `last_test.revision === revision`). After any scripted or manual save, run that setting's test (`POST /api/v1/admin/settings/:id/test` with `{revision}`) straight away. Application controls are exempt. A 2-minute AI pause on 21 October came from skipping this step.
