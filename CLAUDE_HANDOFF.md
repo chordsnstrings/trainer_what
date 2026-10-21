@@ -2,14 +2,20 @@
 
 ## Work in progress
 
-### Meal-photo estimates: why subscribers can't use them yet — checked 20 October 2026 (Claude, read-only)
+### Meal-photo estimates: off for subscribers; Seed 2.0 Pro photo test passed — 20–21 October 2026 (Claude)
 
 Owner asked why meal-photo upload doesn't work, noting that ModelArk has Skylark models with vision. No code or settings were changed. The feature is built (`apps/api/src/meal-capture.ts`, `estimateMealPhoto` in `packages/providers/src/food.ts`) but switched off live.
 
 - **Switches off.** Super admin Settings show Application → `MEAL_PHOTOS_ENABLED=false` and AI model → `MODEL_VISION_ENABLED=false`. Both must be true.
 - **Which model is used.** Meal photos use the one active AI model: profile `current-settings`, `seed-2-0-pro-260328` on ModelArk, whose image-input setting (`vision`) is false. There is no separate vision-model setting. The setting's help text says to enable it only for a model with confirmed image support, and image support with Seed 2.0 Pro has not been tested.
 - **Per subscriber.** Each subscriber also needs Workout + nutrition membership, a completed food profile, and three consents: nutrition, AI, and separate photo analysis. Photo estimates count toward the 40-per-day subscriber AI limit, and their cost is billed to the trainer's AI fee (task `meal_photo_estimate`, which is not on the free setup list).
-- **Next step (owner decides).** Option A: test one meal photo against Seed 2.0 Pro; if it answers correctly, turn both switches on (no code). Option B: if a separate ModelArk vision model is preferred, meal photos would need their own model setting, which is a code change.
+- **Option A tested, 21 October (owner supplied the photo and the ModelArk skill key).** The owner's photo (penne in a creamy sauce with sun-dried tomatoes, black olives and herbs) was run through the app's own `sanitizeMealPhoto` and `estimateMealPhoto` against `seed-2-0-pro-260328`, with the two switches set to on only inside that test process. Live settings were not changed.
+  - The reply **passed the app's schema**: 4 items (penne in a creamy herb sauce ~380 g/620 kcal, sun-dried tomatoes, black olives, herb garnish), all marked uncertain, plus 4 follow-up questions and a note to review before saving.
+  - It took 26.9 s, using 438 input and 1,726 output tokens (1,135 of them reasoning), about USD 0.0054.
+  - Macro totals show as unknown until the subscriber fills in one null (the model left olive protein null instead of guessing).
+  - Risk: output used 1,726 of the 2,500-token photo budget, so a busy plate could run out.
+  - Skylark embedding vision returns vectors, not food names or nutrients, so it cannot do this task.
+- **Next step (owner decides).** Turn on Application → "Enable meal-photo estimates" and AI model → "Selected model supports image input" (no code). Option B, a separate photo model, is no longer needed.
 
 
 ### Subscriber CI and functional polish — implementation and release tracking, 20 October 2026
