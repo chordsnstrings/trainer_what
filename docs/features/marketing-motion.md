@@ -87,13 +87,13 @@ Code: `apps/web/app/marketing.css` (the motion block) and one island,
 | Header | Its shadow fades in over the first 48 px of scrolling (scroll-driven, no script). Menus open with opacity and a 4 px rise; the phone menu drops in and its items rise 30 ms apart; "Menu" presses. No browser tap flash on the menu or any disclosure (`summary`). |
 | Home hero relay | Wires draw (420 ms), the dot travels, the ticks pop (spring), one Pace ring behind the mark. Ends at 2.53 s. |
 | Section reveal | Units wholly below the first screen at load rise 12 px and fade in once as they enter (280 ms); grid items follow 40 ms apart (at most 240 ms). The FAQs are a grid too: the heading, then each question in turn. Never the hero, breadcrumbs, page heading, relay, anything on the first screen, or the journey player. |
-| Own triggers (concept pass) | The commission pills, the home FAQs and the closing button are observed themselves (`data-mk-cue`), not through their band, which on a phone reveals while they are still below the fold. |
+| Own triggers (concept pass) | The commission pills, the home FAQs, the closing button and the `/features` "Back squat" set table are observed themselves (`data-mk-cue`), not through their band or section, which on a phone reveals (or, too tall to wait, never waits) while they are still below the fold. |
 | Commission pills (home, "Free to start. Your price.") | Each pill slides 16 px in from the inline start and fades in, 80 ms after the one before, on the enter curve: 25% first, 10% last, the last in place about 520 ms after the pills come into view. |
 | Link cards and tiles | Lift 2 px with a soft shadow on hover; press `scale: .99`. |
 | "You stay in charge" (home) | Once, when revealed: the message, your AI's card, the confidence meter filling, the lanes, "Applied automatically" (spring), the safety lane. About 1.1 s. |
 | Disclosures (FAQs, calculator assumptions) | The chevron turns (200 ms); a FAQ answer unfolds through its grid row (280 ms) and fades in. |
 | Calculators | No count-up. 150 ms after the last change the result settles (opacity .55 to 1 and 4 px, 200 ms); changed cells settle too. |
-| /demo, /features, /get-started | The chosen decision rises and its label pops or stamps; the screens reveal 80 ms apart with their ticks; the "Back squat" screen's completed sets pop one after another (520 ms, then 600 ms), like reps being logged, no count-up; the checklist staggers. |
+| /demo, /features, /get-started | The chosen decision rises and its label pops or stamps; the screens reveal 80 ms apart with their ticks; the "Back squat" screen's completed sets pop one after another (520 ms, then 600 ms after the set table itself comes into view, at every width), like reps being logged, no count-up; the checklist staggers. |
 
 Reduced motion: with the switch at `"always"` everything in this table plays
 for every visitor. With `"device"`, the reveal script does nothing,
@@ -280,8 +280,12 @@ footer) and `assistant-button.tsx` on Kamran's assistant host
 - **Accessibility note.** Ignoring the setting misses WCAG 2.3.3 (AAA, not
   AA) for the short motion and reverses this page's earlier house rule; it is
   recorded as the owner's decision. Nothing loops, nothing hides first-screen
-  content or the sign-up action, every motion ends within about 2.5 s (the
-  relay) or holds on request (the journey), and colour changes stay instant.
+  content or the sign-up action, the load motion ends by about 3 s (the
+  relay at 2.53 s, then the hero arrow's hand-off by 2.97 s), every effect
+  started by scrolling ends within about 1.1 s of its trigger (the longest
+  is "You stay in charge"; the concept pass's own effects end by 880 ms,
+  the set ticks), the journey holds on request, and colour changes stay
+  instant.
 - **Switching back.** Set `MARKETING_MOTION` to `"device"` in
   `motion-mode.ts`, then build. No other change is needed; the browser checks
   read the attribute and apply that mode's expectations.
@@ -302,11 +306,12 @@ runs).
   `--mk-stagger-*` steps (table above). The literals they replace (the 3 px
   nudge, the 8 and 12 px rises, the 40 and 80 ms item steps) now use them.
 - **Own triggers.** `motion.tsx` gains `CUES` (`.mk-band-pills, .mk-faqs,
-  .mk-closing-cta`), observed with the same observer and rules as a unit
+  .mk-closing-cta, .mk-sets`), observed with the same observer and rules as a unit
   (wholly below the first screen at load, not tall, not the `#target`, never
   in the hero, the relay, the journey or a running scene). A cue never fades
   itself: it sets `data-mk-cue` and holds its own grid's items (a unit leaves
-  those items to the cue) or its arrow's nudge until it enters the view. An
+  those items to the cue), its arrow's nudge or the set table's ticks until
+  it enters the view. An
   element that is already a unit (the FAQs on an inner page) keeps its
   unit's trigger, which is its own. Printing releases every cue.
 - **The pills.** In `GRIDS` already; now on the 80 ms load step (as the
@@ -321,10 +326,15 @@ runs).
   toward the reading direction at 50%, back at the end, one iteration).
 - **The set ticks.** The tick transition's delay is `calc(520ms +
   var(--mk-set-step, 0ms))`; the second and later set rows set
-  `--mk-set-step` to one and two `--mk-stagger-load` steps. They play where
-  the screens' section waits for its reveal (at 1366x900); on a 390 phone
-  that section is taller than one and a half screens, so, as before this
-  pass, it never waits and its ticks show at once.
+  `--mk-set-step` to one and two `--mk-stagger-load` steps. The set table
+  is a cue of its own (added after the review of 22 October 2026): the
+  screens' section is taller than one and a half screens on a 390 phone, so
+  it never waits there, and the ticks used to show at once on phones. Now
+  the table's ticks wait (opacity 0, `scale: .4`) until the table itself
+  enters the view, at every width. 520 ms is after the screens' own rise
+  (280 ms plus at most 240 ms of stagger), so a tick never pops before its
+  screen has landed. The other screen ticks (the note and the Inbox badge)
+  keep their section's reveal, as before this pass.
 
 **The layout shift on load (Phase 1's regression).** Phase 1's timed runs
 recorded CLS 0.0022 on `/` at 1366x900 for the reduced-motion and
@@ -413,8 +423,12 @@ no gross regression (base + max(100 ms, 25%)), and the reveal's own work under
     the frames' real widths, phones, reduced motion (by the switch: with
     `"always"`, under the device setting and separately the member's
     cookie, auto-play from half the stage in view and every hold), no
-    JavaScript, no layout shift (also on the home band), contrast, right to
-    left (paused first with `"always"`);
+    JavaScript, no layout shift (also on the home band), stage text contrast
+    (AA) and size (11 px or more) in every chapter in either mode (with
+    `"always"`, under the device setting at each width: each chapter chosen
+    from the keyboard, sped up 20x, read once its beats have finished and
+    again as its complete picture, both sides on phones), right to left
+    (paused first with `"always"`);
   - the sitewide check (`scripts/marketing-motion-sitewide-check.mjs`): both
     builds read the same platform stub with the launch gate open (so `/` and
     `/how-it-works` are measured with the player; `MOTION_PLATFORM=closed`
@@ -428,13 +442,15 @@ no gross regression (base + max(100 ms, 25%)), and the reveal's own work under
     same cohort on `MOTION_MAIN_DIR` (main before the switch) and the base.
     `/?scenes=on` controls: scenes before the first paint without reduced
     motion, none under either source. The concept pass (untimed, both
-    widths, without reduced motion, under it with `"always"`, and in Arabic
-    at 390): the pills wait for their own trigger at the inline start and
-    load 80 ms apart on the enter curve, the FAQ rows 40 ms apart, the
-    closing nudge 280 ms after its button enters, the hero hand-off from
-    2.53 s and at rest by 5 s, both arrows toward the reading direction, the
-    set ticks at 520 and 600 ms where their section waits, no sideways
-    overflow.
+    widths, without reduced motion, with `"always"` under the device setting
+    and separately the member's cookie, and in Arabic at 390): the pills
+    wait for their own trigger at the inline start and load 80 ms apart on
+    the enter curve, the FAQ rows 40 ms apart, the closing nudge 280 ms
+    after its button enters, the hero hand-off from 2.53 s and at rest by
+    5 s on its own timeline (its direction is read only afterwards, on a
+    replay), both arrows toward the reading direction, the set ticks hidden
+    until the set table's own trigger at every width and then at 520 and
+    600 ms (a missing measurement fails), no sideways overflow.
 - `npm run test:brand` and `npm run test:browser` cover the pages with the
   gate closed (their platform has every provider off). The brand check's
   "motion /" (and "reduced motion /" with `"always"`) also requires the

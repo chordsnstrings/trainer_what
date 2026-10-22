@@ -106,7 +106,8 @@ The walkthrough is expected to end on chapter 8 rather than chapter 1, because t
 - each wake-up listed above;
 - `scenes-on` removed, which clears the inline styles without a scroll;
 - `data-scenes-still`, which redraws at the still pose;
-- passive listeners, and a cleanup that leaves nothing behind.
+- passive listeners, and a cleanup that leaves nothing behind;
+- the shipped recipes themselves (a static read of each `registerScene(...)` call in `scenes.ts` and `journey-scene.ts`, comments removed): a recipe whose frame callback reads `c.t`, `c.mx` or `c.my` must pass `{ ambient: true }`, and a recipe that passes it must read one of them (today only `device`), so a recipe added later that floats or tilts without the flag fails the test instead of freezing between scrolls.
 
 `npm run test:marketing-motion` runs in an automated browser, so scenes are off there and it checks today's behaviour. Its sitewide half also loads `/?scenes=on` as controls: without reduced motion `<html class="scenes-on">` must be there before the body is parsed (before the first paint) with no layout shift; under emulated reduced motion, and separately with the member's `trainer_member_motion=reduce` cookie, there must be no scenes, and the walkthrough auto-plays (switch `"always"`) or waits (switch `"device"`).
 

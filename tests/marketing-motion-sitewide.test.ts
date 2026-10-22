@@ -162,7 +162,7 @@ const SPRING_ALLOWED = [
   ".mk-relay-rows svg",
   ".mk-lane-auto",
   ".badge[data-mk-success]",
-  ".mk-sets svg",
+  '.mk-sets[data-mk-cue="in"] svg',
   ".mk-screen-note svg",
   ".mk-queue-item.done .badge svg",
 ];
@@ -740,9 +740,10 @@ test("the concept pass (22 October 2026): pills, FAQ rows, the arrow hand-offs a
       .split(",")
       .map((s) => s.trim());
   // The FAQs are a grid (the heading, then each question), and the pills,
-  // the FAQs and the closing button have a trigger of their own.
+  // the FAQs, the closing button and the /features set table have a
+  // trigger of their own.
   assert.ok(list("GRIDS").includes(".mk-faqs") && list("GRIDS").includes(".mk-band-pills"));
-  assert.deepEqual(list("CUES"), [".mk-band-pills", ".mk-faqs", ".mk-closing-cta"]);
+  assert.deepEqual(list("CUES"), [".mk-band-pills", ".mk-faqs", ".mk-closing-cta", ".mk-sets"]);
   assert.match(motion, /if \(cueSet\.has\(unit\)\) unit\.dataset\.mkCue = state;\s+else unit\.dataset\.mkReveal = state;/);
   assert.match(motion, /\.filter\(\(grid\) => !cueSet\.has\(grid\)\)/, "a unit leaves a cue's items to the cue");
   assert.match(
@@ -797,13 +798,22 @@ test("the concept pass (22 October 2026): pills, FAQ rows, the arrow hand-offs a
   const lastTick = seconds(value(".mk-relay-rows li:nth-child(3) svg", "animation-delay")!) + MOTION.slow / 1000;
   assert.ok(heroDelay >= lastTick, `the hand-off (${heroDelay}s) follows the relay's last tick (${lastTick}s)`);
   assert.ok(heroDelay + MOTION.emphasis / 1000 <= 3, `the hand-off ends by 3 s (${heroDelay + MOTION.emphasis / 1000}s)`);
-  // The /features set ticks pop one after another, 80ms apart from 520ms.
-  assert.equal(
-    value('.mk-motion [data-mk-reveal="in"] :is(.mk-sets svg, .mk-screen-note svg, .mk-queue-item.done .badge svg)', "transition"),
-    "opacity var(--mk-dur-fast) var(--mk-ease-out) calc(520ms + var(--mk-set-step, 0ms)), scale var(--mk-dur-slow) var(--mk-ease-spring) calc(520ms + var(--mk-set-step, 0ms))",
+  // The /features set ticks pop one after another, 80ms apart from 520ms,
+  // on the set table's own trigger (its section is too tall to wait on a
+  // phone); the other screen ticks keep their section's reveal.
+  const TICKS = "opacity var(--mk-dur-fast) var(--mk-ease-out) calc(520ms + var(--mk-set-step, 0ms)), scale var(--mk-dur-slow) var(--mk-ease-spring) calc(520ms + var(--mk-set-step, 0ms))";
+  assert.equal(value('.mk-motion .mk-sets[data-mk-cue="in"] svg', "transition"), TICKS);
+  assert.equal(value('.mk-motion [data-mk-reveal="in"] :is(.mk-screen-note svg, .mk-queue-item.done .badge svg)', "transition"), TICKS);
+  assert.equal(value('.mk-motion .mk-sets[data-mk-cue="pending"] svg', "opacity"), "0");
+  assert.equal(value('.mk-motion .mk-sets[data-mk-cue="pending"] svg', "scale"), "0.4");
+  assert.ok(
+    !rules.some((r) => r.selectors.some((s) => s.includes("[data-mk-reveal") && s.includes(".mk-sets"))),
+    "the set ticks never wait for their section's reveal as well",
   );
   assert.equal(value(".mk-sets tr:nth-child(2)", "--mk-set-step"), "var(--mk-stagger-load)");
   assert.equal(value(".mk-sets tr:nth-child(n + 3)", "--mk-set-step"), "calc(2 * var(--mk-stagger-load))");
+  // 520ms is after the screens' own rise and their longest load stagger.
+  assert.ok(520 >= MOTION.slow + MAX_STAGGER, "a tick never pops before its screen has landed");
   // In "device" mode reduced motion still stops all of it: the arrows are
   // held in place and no item waits (the reduced-motion block), and the
   // script never runs.
@@ -811,6 +821,11 @@ test("the concept pass (22 October 2026): pills, FAQ rows, the arrow hand-offs a
   const reduced = rules.filter((r) => r.context.some((c) => c.includes("prefers-reduced-motion: reduce")));
   assert.ok(reduced.some((r) => r.selector.includes(".lucide-arrow-right") && r.selector.includes(G) && r.declarations.some((d) => d.property === "translate" && d.important)));
   assert.ok(reduced.some((r) => r.selectors.includes(`.mk-motion${G} [data-mk-item="pending"]`)));
+  const release = reduced.find((r) => r.selectors.includes(`.mk-motion${G} .mk-sets[data-mk-cue="pending"] svg`));
+  assert.ok(
+    release && ["opacity", "scale"].every((p) => release.declarations.some((d) => d.property === p && d.important)),
+    "the set ticks never wait under reduced motion in device mode",
+  );
 });
 
 test("the home page's first paint waits for the whole hero copy (CLS 0 when the parser yields mid-hero)", async () => {

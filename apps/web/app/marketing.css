@@ -2503,12 +2503,19 @@ a.mk-nav-top {
 }
 /* The ticks inside the /features screens pop once the screens are in;
    the "Back squat" screen's completed sets pop one after another, 80ms
-   apart from 520ms, like reps being logged (no count-up). */
-.mk-motion [data-mk-reveal="pending"] :is(.mk-sets svg, .mk-screen-note svg, .mk-queue-item.done .badge svg) {
+   apart from 520ms, like reps being logged (no count-up). The set table
+   has a trigger of its own (data-mk-cue, components/marketing/motion.tsx):
+   on a phone its section is too tall to wait, so the table itself waits
+   until it comes into view. 520ms is after the screens' own rise (280ms
+   plus at most 240ms of stagger), so a tick never pops before its screen
+   has landed. */
+.mk-motion [data-mk-reveal="pending"] :is(.mk-screen-note svg, .mk-queue-item.done .badge svg),
+.mk-motion .mk-sets[data-mk-cue="pending"] svg {
   opacity: 0;
   scale: 0.4;
 }
-.mk-motion [data-mk-reveal="in"] :is(.mk-sets svg, .mk-screen-note svg, .mk-queue-item.done .badge svg) {
+.mk-motion [data-mk-reveal="in"] :is(.mk-screen-note svg, .mk-queue-item.done .badge svg),
+.mk-motion .mk-sets[data-mk-cue="in"] svg {
   transition:
     opacity var(--mk-dur-fast) var(--mk-ease-out) calc(520ms + var(--mk-set-step, 0ms)),
     scale var(--mk-dur-slow) var(--mk-ease-spring) calc(520ms + var(--mk-set-step, 0ms));
@@ -2740,7 +2747,8 @@ a.mk-nav-top {
   }
   .mk-motion:not(:where([data-mk-motion="always"], [data-mk-motion="always"] *)) [data-mk-reveal="pending"],
   .mk-motion:not(:where([data-mk-motion="always"], [data-mk-motion="always"] *)) [data-mk-item="pending"],
-  .mk-motion:not(:where([data-mk-motion="always"], [data-mk-motion="always"] *)) [data-mk-reveal="pending"] :is(.mk-flow-msg, .mk-flow-brain, .mk-lane, .mk-meter > span, .mk-sets svg, .mk-screen-note svg, .mk-queue-item.done .badge svg) {
+  .mk-motion:not(:where([data-mk-motion="always"], [data-mk-motion="always"] *)) [data-mk-reveal="pending"] :is(.mk-flow-msg, .mk-flow-brain, .mk-lane, .mk-meter > span, .mk-screen-note svg, .mk-queue-item.done .badge svg),
+  .mk-motion:not(:where([data-mk-motion="always"], [data-mk-motion="always"] *)) .mk-sets[data-mk-cue="pending"] svg {
     opacity: 1 !important;
     translate: 0 0 !important;
     scale: none !important;

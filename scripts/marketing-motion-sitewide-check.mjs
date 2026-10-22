@@ -40,15 +40,16 @@
 //   or "scenes-on" removed without a scroll wakes it (no inline style is
 //   left under a scene);
 // - the concept pass (22 October 2026), untimed, on the build under test at
-//   both widths, without reduced motion and (with "always") under it, and
-//   in Arabic at 390: the commission pills wait for their own trigger and
-//   load from the inline start 80ms apart on the enter curve, the home FAQ
-//   rows cascade 40ms apart (at most 240ms), the closing button's arrow
-//   nudges once 280ms after the button itself comes into view, the hero's
-//   arrow takes over after the relay (from 2.53 s) and is at rest by 5 s,
-//   both arrows nudge toward the reading direction, the /features set ticks
-//   pop 80ms apart from 520ms where their section waits, and nothing
-//   overflows sideways.
+//   both widths, without reduced motion and (with "always") under each
+//   source (the device setting and the member's cookie), and in Arabic at
+//   390: the commission pills wait for their own trigger and load from the
+//   inline start 80ms apart on the enter curve, the home FAQ rows cascade
+//   40ms apart (at most 240ms), the closing button's arrow nudges once
+//   280ms after the button itself comes into view, the hero's arrow takes
+//   over after the relay (from 2.53 s) and is at rest by 5 s on its own
+//   timeline, both arrows nudge toward the reading direction, the /features
+//   set ticks wait for the set table's own trigger at every width and pop
+//   80ms apart from 520ms, and nothing overflows sideways.
 //
 // It starts `next start` for this checkout's existing production build (run
 // `npm run build` first) and, with MOTION_BASE_DIR, for a built checkout of
@@ -646,13 +647,16 @@ async function scenes(browser, device, base) {
  * own trigger and load from the inline start 80ms apart on the enter
  * curve, the home FAQ rows cascade 40ms apart (at most 240ms), the closing
  * button's arrow nudges once when the button itself comes into view, the
- * hero's arrow takes over after the relay and is at rest by 5 s, the
- * /features set ticks pop 80ms apart from 520ms (where their section
- * waits), and nothing overflows sideways. Untimed: CPU throttling is off.
+ * hero's arrow takes over after the relay and is at rest by 5 s (read on
+ * its own, untouched timeline before its direction is checked), the
+ * /features set ticks wait for the set table's own trigger and pop 80ms
+ * apart from 520ms, and nothing overflows sideways. Untimed: CPU
+ * throttling is off.
  */
 async function conceptMotion(browser, device, base, reducedMotion, query = "") {
   const out = { errors: [] };
-  /** The nudge's peak (a direction check): held there, read, then let go. */
+  /** The nudge's peak (a direction check): held there, read, then let go.
+   * It moves the animation's timeline, so nothing timed is read after it. */
   const peak = (page, selector) =>
     page.evaluate((sel) => {
       const el = document.querySelector(sel);
@@ -682,7 +686,6 @@ async function conceptMotion(browser, device, base, reducedMotion, query = "") {
     await until(page, () => document.querySelector(".mk.mk-motion"));
     await page.waitForTimeout(200);
     out.hero = (await timings(page, ".mk-hero .mk-cta > .lucide-arrow-right", "mk-nudge"))[0] ?? null;
-    out.heroPeak = await peak(page, ".mk-hero .mk-cta > .lucide-arrow-right");
     out.pillsAtLoad = await page.evaluate(() => ({
       cue: document.querySelector(".mk-band-pills")?.dataset.mkCue ?? null,
       translate: getComputedStyle(document.querySelector(".mk-band-pills > li")).translate,
@@ -698,12 +701,28 @@ async function conceptMotion(browser, device, base, reducedMotion, query = "") {
     out.closingIn = await until(page, () => document.querySelector(".mk-closing-cta").dataset.mkCue === "in");
     out.closing = (await timings(page, ".mk-closing-cta > .lucide-arrow-right", "mk-nudge"))[0] ?? null;
     out.closingPeak = await peak(page, ".mk-closing-cta > .lucide-arrow-right");
-    // The hero's hand-off is over by 5 s from the load.
+    // The hero's hand-off, on its own timeline (nothing has touched it), is
+    // over by 5 s from the load.
     await page.waitForTimeout(Math.max(0, 5000 - (await page.evaluate(() => performance.now()))));
     out.heroAt5s = await page.evaluate(() => {
       const a = document.querySelector(".mk-hero .mk-cta > .lucide-arrow-right");
-      return { translate: getComputedStyle(a).translate, running: a.getAnimations().filter((x) => x.playState === "running").length };
+      return {
+        at: Math.round(performance.now()),
+        translate: getComputedStyle(a).translate,
+        running: a.getAnimations().filter((x) => x.playState === "running").length,
+      };
     });
+    // Only then its direction: the nudge is restarted (its CSS animation
+    // replayed) and held at its peak. The arrow is an SVG element, which
+    // has no offsetWidth: reading its computed style is what applies the
+    // "none" before the rule's animation comes back.
+    await page.evaluate(() => {
+      const a = document.querySelector(".mk-hero .mk-cta > .lucide-arrow-right");
+      a.style.animation = "none";
+      void getComputedStyle(a).animationName;
+      a.style.animation = "";
+    });
+    out.heroPeak = await peak(page, ".mk-hero .mk-cta > .lucide-arrow-right");
     out.overflowAfter = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     out.errors.push(...errors);
     await context.close();
@@ -714,15 +733,19 @@ async function conceptMotion(browser, device, base, reducedMotion, query = "") {
     const { context, page } = await openPage(browser, device, base + "/features" + query, { reducedMotion, throttle: false });
     await until(page, () => document.querySelector(".mk.mk-motion"));
     await page.waitForTimeout(200);
-    const unit = () => document.querySelector(".mk-sets")?.closest("[data-mk-reveal]");
-    out.setsWait = await page.evaluate(`(${unit})()?.dataset.mkReveal ?? null`);
-    if (out.setsWait === "pending") {
-      await page.evaluate(() => {
-        const u = document.querySelector(".mk-sets").closest("[data-mk-reveal]");
-        scrollTo(0, scrollY + u.getBoundingClientRect().top - innerHeight * 0.5);
-      });
-      await until(page, () => document.querySelector(".mk-sets").closest("[data-mk-reveal]").dataset.mkReveal === "in");
+    // The set table has its own trigger (data-mk-cue), at every width.
+    out.setsWait = await page.evaluate(() => ({
+      cue: document.querySelector(".mk-sets")?.dataset.mkCue ?? null,
+      opacity: [...document.querySelectorAll(".mk-sets svg")].map((s) => getComputedStyle(s).opacity),
+    }));
+    if (out.setsWait.cue === "pending") {
+      await page.evaluate(() => document.querySelector(".mk-sets").scrollIntoView({ block: "center", behavior: "instant" }));
+      out.setsIn = await until(page, () => document.querySelector(".mk-sets").dataset.mkCue === "in");
       out.ticks = (await timings(page, ".mk-sets svg", "scale")).map((t) => t?.delay ?? null);
+      await page.waitForTimeout(1200);
+      out.ticksAfter = await page.evaluate(() =>
+        [...document.querySelectorAll(".mk-sets svg")].map((s) => `${getComputedStyle(s).opacity} ${getComputedStyle(s).scale}`),
+      );
     }
     await context.close();
   } catch (e) {
@@ -801,6 +824,7 @@ async function measure(browser, builds, reducedBuilds) {
         results[label].concept[device.name] = {
           motion: await conceptMotion(browser, device, base, "no-preference"),
           reduced: await conceptMotion(browser, device, base, "reduce"),
+          cookie: await conceptMotion(browser, device, base, "cookie"),
           // Right to left at 390: the pills enter from the right and the
           // arrows nudge left (the hero copy stays English).
           ...(device.name.startsWith("390") ? { rtl: await conceptMotion(browser, device, base, "no-preference", "?lang=ar") } : {}),
@@ -957,9 +981,9 @@ try {
   // device's reduced motion sees the same.
   for (const [device, bySource] of Object.entries(results.builds.new.concept ?? {}))
     for (const [source, c] of Object.entries(bySource)) {
-      // With "device" the device's reduced motion stops all of it (checked
+      // With "device" either reduced-motion source stops all of it (checked
       // by the reduced-motion rules above).
-      if (source === "reduced" && !always) continue;
+      if ((source === "reduced" || source === "cookie") && !always) continue;
       const label = `concept motion ${source} ${device}`;
       if (c.errors.length) fail(label, `errors: ${c.errors.slice(0, 2).join("; ")}`);
       if (!c.hero || c.hero.delay < 2530 || c.hero.delay + c.hero.duration > 4500 || c.hero.iterations !== 1)
@@ -977,7 +1001,12 @@ try {
       if (!c.closingIn || !c.closing || c.closing.delay !== 280 || c.closing.iterations !== 1 || c.closing.delay + c.closing.duration > 700)
         fail(label, `the closing nudge: ${JSON.stringify(c.closing)}`);
       if (c.overflow > 0 || c.overflowAfter > 0) fail(label, `horizontal overflow ${c.overflow}/${c.overflowAfter}`);
-      if (c.setsWait === "pending" && JSON.stringify(c.ticks) !== JSON.stringify([520, 600])) fail(label, `the set ticks: ${JSON.stringify(c.ticks)}`);
+      // The set ticks wait (hidden) for the table's own trigger at every
+      // width, pop 80ms apart from 520ms, and end shown.
+      if (c.setsWait?.cue !== "pending" || !c.setsWait.opacity.length || c.setsWait.opacity.some((o) => o !== "0"))
+        fail(label, `the set ticks do not wait for their table: ${JSON.stringify(c.setsWait)}`);
+      else if (!c.setsIn || JSON.stringify(c.ticks) !== JSON.stringify([520, 600]) || !(c.ticksAfter ?? []).every((t) => t === "1 none" || t === "1 1"))
+        fail(label, `the set ticks: in ${c.setsIn}, delays ${JSON.stringify(c.ticks)}, after ${JSON.stringify(c.ticksAfter)}`);
     }
   // The pinned scenes follow both settings in either mode (Variant B).
   for (const [device, byPref] of Object.entries(results.builds.new.scenes))

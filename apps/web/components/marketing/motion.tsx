@@ -66,12 +66,15 @@ const GRIDS =
  * its barbell its own observer: their unit reveals when its top enters the
  * view, and on a phone these sit far below that line, so their motion
  * would be over before it could be seen. The commission pills and the FAQ
- * rows (grids: their items wait for the grid itself, not for the unit) and
+ * rows (grids: their items wait for the grid itself, not for the unit),
  * the closing panel's button (its arrow nudges once when it comes into
- * view). An element that is itself a unit (the FAQs on an inner page)
- * keeps its unit's trigger, which is already its own.
+ * view) and the /features "Back squat" set table (its ticks pop in turn
+ * when it comes into view; its section is taller than one and a half
+ * screens on a phone, so it never waits there). An element that is itself
+ * a unit (the FAQs on an inner page) keeps its unit's trigger, which is
+ * already its own.
  */
-const CUES = ".mk-band-pills, .mk-faqs, .mk-closing-cta";
+const CUES = ".mk-band-pills, .mk-faqs, .mk-closing-cta, .mk-sets";
 
 /**
  * The section reveal. Units whose top is below the first screen when the

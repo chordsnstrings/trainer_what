@@ -26,8 +26,10 @@
 // auto-plays and moves nothing even after Play;
 // without JavaScript every step shows and no dead controls do; no layout
 // shift while chapters change (and through one full, sped-up pass that ends
-// on Replay; on the home band too); stage text passes WCAG AA contrast in
-// every chapter; right to left mirrors. With the
+// on Replay; on the home band too); stage text passes WCAG AA contrast and
+// is at least 11px in every chapter, in either mode (with "always": each
+// chapter as played, once its beats have finished, and its complete
+// picture, both sides on phones); right to left mirrors. With the
 // sitewide microanimations (components/marketing/motion.tsx): the section
 // reveal runs on the page but never marks the player, and the hero relay's
 // ring never pulses on the journey's copy of the mark (no double motion).
@@ -1215,6 +1217,95 @@ if (SWITCH === "always") {
           running === 0,
         `state ${await state(page)}, clock ${JSON.stringify(p1)}/${JSON.stringify(p2)}, ${running} running`,
       );
+      // Stage text: WCAG AA contrast and at least 11px in every chapter,
+      // once per width (under the device setting). Each chapter is chosen
+      // from the keyboard (the player stays paused; the chapter's beats
+      // play, sped up 20x) and read twice: as played, once its beats have
+      // finished (on a phone, the side the chapter ends on), and as its
+      // complete picture (the player without data-run, as chapter 1 shows
+      // at load and without JavaScript; both sides on a phone), the scan
+      // "device" mode runs on its static chapters.
+      if (source === "reduce") {
+        const cdp = await ctx.newCDPSession(page);
+        await cdp.send("Animation.enable");
+        await cdp.send("Animation.setPlaybackRate", { playbackRate: 20 });
+        await page.locator(".mk-walk [aria-current]").focus();
+        const low = [],
+          small = [],
+          unsettled = [],
+          empty = [];
+        let scanned = 0;
+        for (let c = 1; c <= 8; c++) {
+          await page.keyboard.press(c === 1 ? "Home" : "ArrowRight");
+          const shown = await waitFor(
+            page,
+            (c) =>
+              document.querySelector(".mk-walk")?.dataset.chapter === String(c),
+            c,
+            3000,
+          );
+          await page.waitForTimeout(100);
+          const finished = await waitFor(
+            page,
+            () =>
+              !document
+                .querySelector(".mk-walk")
+                .getAnimations({ subtree: true })
+                .some((a) => a.playState === "running"),
+            undefined,
+            4000,
+          );
+          if (!shown || !finished) unsettled.push(c);
+          const played = await scanText(page, `c${c} played`);
+          if (!played.scanned) empty.push(c);
+          low.push(...played.low);
+          small.push(...played.small);
+          scanned += played.scanned;
+          const end = await page.evaluate(() => {
+            const w = document.querySelector(".mk-walk");
+            w.removeAttribute("data-run");
+            return w.dataset.end;
+          });
+          await page.waitForTimeout(100);
+          for (const side of vp.phone ? ["coach", "phone"] : [""]) {
+            if (side)
+              await page.evaluate(
+                (s) => (document.querySelector(".mk-walk").dataset.end = s),
+                side,
+              );
+            const r = await scanText(page, `c${c} ${side || "complete"}`);
+            low.push(...r.low);
+            small.push(...r.small);
+            scanned += r.scanned;
+          }
+          await page.evaluate((end) => {
+            const w = document.querySelector(".mk-walk");
+            w.dataset.end = end;
+            w.setAttribute("data-run", "");
+          }, end);
+        }
+        await cdp.send("Animation.setPlaybackRate", { playbackRate: 1 });
+        check(
+          `${tag}: each chapter shown and its beats finished before the scan`,
+          unsettled.length === 0,
+          `chapters ${unsettled.join(", ")}`,
+        );
+        check(
+          `${tag}: stage text visible in every chapter as played`,
+          empty.length === 0,
+          `nothing scanned in chapters ${empty.join(", ")}`,
+        );
+        check(
+          `${tag}: stage text AA contrast (${scanned} scanned)`,
+          low.length === 0 && scanned > 100,
+          low.slice(0, 6).join(" | "),
+        );
+        check(
+          `${tag}: stage text at least 11px`,
+          small.length === 0,
+          small.slice(0, 6).join(" | "),
+        );
+      }
       check(`${tag}: no page errors`, errors.length === 0, errors.join(" | "));
       await page.close();
       await ctx.close();

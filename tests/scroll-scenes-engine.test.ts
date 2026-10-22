@@ -303,3 +303,52 @@ test("without scenes-on the engine does nothing", () => {
   assert.equal(page.frames.size, 0);
   cleanup();
 });
+
+test("every real recipe that reads time or the pointer is registered as ambient, and only those", async () => {
+  // The loop redraws a part-way scene only on input (scroll, resize, a
+  // seek), so a recipe that floats with c.t or tilts with c.mx/c.my must
+  // say so with { ambient: true }, or it freezes between scrolls; a recipe
+  // that claims it without reading them would keep the loop awake for
+  // nothing. Each registerScene(...) call in the shipped recipe files is
+  // read on its own, comments removed.
+  const { readFile } = await import("node:fs/promises");
+  const files = ["scenes.ts", "journey-scene.ts"].map((f) => `apps/web/components/marketing/${f}`);
+  const calls: { file: string; name: string; reads: boolean; ambient: boolean }[] = [];
+  for (const file of files) {
+    const src = (await readFile(new URL(`../${file}`, import.meta.url), "utf8"))
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/(^|[^:'"])\/\/.*$/gm, "$1");
+    for (let at = src.indexOf("registerScene("); at !== -1; at = src.indexOf("registerScene(", at + 1)) {
+      if (/import\s*\{[^}]*$/.test(src.slice(Math.max(0, at - 200), at))) continue;
+      // The call, to its closing parenthesis (strings skipped).
+      let depth = 0;
+      let end = at + "registerScene".length;
+      for (let quote = ""; end < src.length; end++) {
+        const ch = src[end];
+        if (quote) {
+          if (ch === "\\") end++;
+          else if (ch === quote) quote = "";
+        } else if (ch === "'" || ch === '"' || ch === "`") quote = ch;
+        else if (ch === "(") depth++;
+        else if (ch === ")" && --depth === 0) break;
+      }
+      const call = src.slice(at, end + 1);
+      const name = call.match(/^registerScene\(\s*['"]([\w-]+)['"]/)?.[1];
+      assert.ok(name, `a recipe name in ${file}: ${call.slice(0, 60)}`);
+      // The frame callback reads its context as `c` (c.p, c.move, ...): a
+      // destructured or renamed context would hide what it reads.
+      assert.match(call, /\bc\s*=>|\(c\)\s*=>/, `${name}: the frame callback takes its context as c`);
+      assert.doesNotMatch(call, /\{\s*[^}]*\b(t|mx|my)\b[^}]*\}\s*=/, `${name}: no destructured t, mx or my`);
+      calls.push({
+        file,
+        name,
+        reads: /\bc\.(t|mx|my)\b/.test(call),
+        ambient: /\{\s*ambient:\s*true\s*\}\s*\)$/.test(call),
+      });
+    }
+  }
+  assert.ok(calls.length >= 8, `found ${calls.length} recipes`);
+  for (const c of calls)
+    assert.equal(c.ambient, c.reads, `${c.file} ${c.name}: reads time or the pointer ${c.reads}, ambient ${c.ambient}`);
+  assert.deepEqual(calls.filter((c) => c.ambient).map((c) => c.name), ["device"]);
+});
