@@ -2,23 +2,32 @@
 
 ## Work in progress
 
-### Marketing motion plan — 22 October 2026 (Claude, plan only, no code changed)
+### Marketing motion — implementation in progress, 22 October 2026 (Claude, 08:12 UTC)
 
-Owner request: "for the current marketing site, switch on motion always. And go through this design and understand the concept. keeping our priorities the same and widgets the same let's find out what we can incorporate from here … Don't change code, present a plan. remember our focus is to onboard trainers fast and quickly." The owner uploaded a one-file trainsyou concept (the design file is not in the repo).
+Plan: `docs/MARKETING_MOTION_PLAN_2026-10-22.md` (merged as #88), with its review corrections binding. Owner decisions: "B / sure / accept the speed cost for now. we can always switch it back to motion matching the device."
+- **Approved:** Variant B (all short marketing motion always on; the pinned scroll scenes still follow OS reduce motion and the member's setting), the hero additions, and the speed cost.
+- **Not approved:** un-pinning the journey walkthrough on phones. It is not being built.
 
-A read-only workflow ran with 5 agents: a design catalogue, a site inventory, a motion-gate audit, an architect and a critic. Its output is the plan in `docs/MARKETING_MOTION_PLAN_2026-10-22.md`.
-- **Phase 1:** motion always on for `.mk` and the assistant host only; the member and trainer app are untouched.
-- **Phase 2:** concept micro-animations on existing widgets: commission pills load in order, the FAQ cascade, and a CTA arrow hand-off.
-- **Phase 3:** idle-stop for the scroll engine, plus the optional "trains" sweep in the hero.
-- **Rejected:** new widgets and pinned, 3D or text-scrubbing effects.
-- **Review corrections** are appended to the plan and are binding.
+**Where it stands:**
+- **Phase 1 is done and pushed** as `62d92a4` on `claude/repository-overview-osejlw`, in draft PR #89.
+  - The switch is `MARKETING_MOTION` in `apps/web/components/marketing/motion-mode.ts`. It is "always" now; set it to "device" to restore motion that matches the device.
+  - Checks run locally: 47 node tests passed; both typechecks clean; journey browser check 231/0; member motion check 0 failures; sitewide device-mode run passed.
+  - Brand (38) and RTL failures are identical to `main`. Phone has 9 failures against 11 on `main`, all on member `/app/intake`.
+  - The sitewide always-mode run has 25 failures. 23 are LCP/TBT/long-task budget misses that `main` also has.
+  - **One open regression for Phase 2 to fix:** CLS 0.0022 on load at 1366x900 on `/` for reduce and cookie visitors, and on `/?scenes=on` under reduce.
+  - PR #89 CI on `62d92a4` is running. At 08:11 UTC, 5 of 8 checks were green and none had failed.
+- **Phases 2 and 3 are running** in background workflow `wf_7a936a16-457`. Its agents run in order: Phase 2, Phase 3, three reviewers, then one fixer that runs the full check suite once. They commit locally and do not push.
+  - Phase 2 started 08:09 UTC: fix the CLS first, then the micro-animations, with fast checks only.
+  - Phase 3: event-driven scroll engine with an idle stop, and the hero "trains" sweep only if LCP is proven unaffected.
 
-**Waiting on the owner:**
-- Q1: Variant B (recommended: everything short always on; pinned scroll scenes still respect OS reduce motion) or Variant A (everything). Also, whether to un-pin the journey walkthrough on phones.
-- Q2: the hero additions.
-- Q3: the performance budget. `/` and `/how-it-works` are already over budget because of the journey player.
+**Waiting on the owner:** nothing for this work.
 
-**Next action:** after the owner answers, implement Phase 1 on a new branch from main.
+**Next action:**
+1. When the workflow finishes, push the branch, update PR #89 with the real check results and get CI green.
+2. Merge with the full SHA and verify the live release with `scripts/watch-release.sh`.
+3. Record the stage in `docs/COMPLETION_STAGES.md` and `docs/PROJECT_MEMORY.md` (the switch and how to flip it back).
+
+A self check-in is scheduled for 08:55 UTC so that no agent runs long unnoticed.
 
 ### Meal-photo estimates: switched on live after a passing Seed 2.0 Pro test — 20–21 October 2026 (Claude)
 
