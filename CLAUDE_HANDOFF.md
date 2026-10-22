@@ -2,7 +2,7 @@
 
 ## Work in progress
 
-### Marketing motion — merged, waiting on live, 22 October 2026 (Claude, updated 11:00 UTC)
+### Marketing motion — merged, deploy pending (CI timeout), 22 October 2026 (Claude, updated 12:35 UTC)
 
 Plan: `docs/MARKETING_MOTION_PLAN_2026-10-22.md` (merged as #88), with its review corrections binding. Owner decisions: "B / sure / accept the speed cost for now. we can always switch it back to motion matching the device."
 - **Approved:** Variant B (all short marketing motion always on; the pinned scroll scenes still follow OS reduce motion and the member's setting), the hero additions, and the speed cost.
@@ -78,15 +78,20 @@ Plan: `docs/MARKETING_MOTION_PLAN_2026-10-22.md` (merged as #88), with its revie
   - CI on head `fb85541`: 7 of 8 green; `application` still running at 10:33 UTC.
   - Pushing anything to the branch restarts the roughly 45-minute CI run. Handoff edits are therefore committed locally and go out after the merge, in a docs-only PR.
 - **Merged at 10:57 UTC.** CI was 8/8 green on `fb85541`, and PR #89 was squash-merged as `827fb2de8982c16d15dc83d2ec0d5ecbaf9c1124`.
-  - `main` CI and deploy are running.
-  - `scripts/watch-release.sh 827fb2d` is waiting for the live `X-GymMembership-Release` header.
+- **Main CI on `827fb2d` did not deploy.** Its `application` job was cancelled at its 45-minute `timeout-minutes` (11:41 UTC, run 39766840217), during `run-browser-check.mjs`. Live therefore stayed on `100c812`.
+  - The cause was the runner, not the code: `apt-get install` took 16 min (20 s on the Phase 1 PR run) and `npm run check` took 23 min (15 min on the PR).
+  - The test steps took the same time on every run. The browser check, for example, took 6.7 min each time.
+  - The job's normal 30–44 min is close to its 45-minute limit.
+  - Claude cannot re-run jobs (the API returns 403). So the records PR #90 was merged to start a fresh `main` run, which deploys `827fb2d`'s code plus these docs.
+  - **Suggested follow-up for the owner:** raise `application`'s `timeout-minutes` in `.github/workflows/check.yml` (for example to 60), or cache the apt and Playwright installs. This is not done yet.
 - **Records:** the stage entry is in `docs/COMPLETION_STAGES.md`. `docs/PROJECT_MEMORY.md` gains two rules: the switch and how to flip it back, and running browser suites in parallel on the production build.
 
 **Waiting on the owner (optional):** whether to retry the hero "trains" sweep with a larger LCP sample (for example 15+ cold loads per width). It stays out until then.
 
 **Next action:**
-1. When `827fb2d` is live, record the live time here and in the stage entry.
-2. Then merge the docs-only records PR. Do not merge it before then: a push to `main` starts another deploy.
+1. Watch the `main` run started by the #90 merge until the release header shows #90's merge commit. That release includes `827fb2d`.
+2. Record the live time here and in the stage entry.
+3. If `application` times out again, raise its timeout in a small PR. The owner can also re-run the job from the Actions page.
 
 ### Meal-photo estimates: switched on live after a passing Seed 2.0 Pro test — 20–21 October 2026 (Claude)
 
