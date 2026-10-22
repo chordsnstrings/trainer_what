@@ -2,7 +2,7 @@
 
 ## Work in progress
 
-### Marketing motion — implementation in progress, 22 October 2026 (Claude, updated 09:43 UTC)
+### Marketing motion — implementation in progress, 22 October 2026 (Claude, updated 10:03 UTC)
 
 Plan: `docs/MARKETING_MOTION_PLAN_2026-10-22.md` (merged as #88), with its review corrections binding. Owner decisions: "B / sure / accept the speed cost for now. we can always switch it back to motion matching the device."
 - **Approved:** Variant B (all short marketing motion always on; the pinned scroll scenes still follow OS reduce motion and the member's setting), the hero additions, and the speed cost.
@@ -50,6 +50,9 @@ Plan: `docs/MARKETING_MOTION_PLAN_2026-10-22.md` (merged as #88), with its revie
     - the doc's "ends within 2.5 s" line is stale.
   - No build with `MARKETING_MOTION="device"` has been made. Reversibility rests on static tests and reading the code.
 - **Now running (since 09:30 UTC):** the `verify-and-fix` agent. It fixes the review findings and runs the full suite once (marketing-motion, brand, RTL, phone, motion), comparing against the `main` logs.
+  - At 09:53 UTC: the journey check passed 243/0. The sitewide timed passes ("always") covered all 5 pages at 390 and 1366 for no-preference, reduce and cookie visitors, with CLS 0 on load and while scrolling everywhere.
+  - Still to run: the main/base comparison, then brand, RTL, phone and motion.
+  - A check-in is set for 10:38 UTC. If the run is still going then, Claude stops it and runs the rest directly.
 
 **Waiting on the owner (optional):** whether to retry the hero "trains" sweep with a larger LCP sample (for example 15+ cold loads per width). It stays out until then.
 
