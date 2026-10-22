@@ -2,7 +2,7 @@
 
 ## Work in progress
 
-### Marketing motion — implementation in progress, 22 October 2026 (Claude, updated 10:34 UTC)
+### Marketing motion — merged, waiting on live, 22 October 2026 (Claude, updated 11:00 UTC)
 
 Plan: `docs/MARKETING_MOTION_PLAN_2026-10-22.md` (merged as #88), with its review corrections binding. Owner decisions: "B / sure / accept the speed cost for now. we can always switch it back to motion matching the device."
 - **Approved:** Variant B (all short marketing motion always on; the pinned scroll scenes still follow OS reduce motion and the member's setting), the hero additions, and the speed cost.
@@ -77,12 +77,16 @@ Plan: `docs/MARKETING_MOTION_PLAN_2026-10-22.md` (merged as #88), with its revie
 - **PR #89 marked ready (10:33 UTC)** with these results in its body.
   - CI on head `fb85541`: 7 of 8 green; `application` still running at 10:33 UTC.
   - Pushing anything to the branch restarts the roughly 45-minute CI run. Handoff edits are therefore committed locally and go out after the merge, in a docs-only PR.
+- **Merged at 10:57 UTC.** CI was 8/8 green on `fb85541`, and PR #89 was squash-merged as `827fb2de8982c16d15dc83d2ec0d5ecbaf9c1124`.
+  - `main` CI and deploy are running.
+  - `scripts/watch-release.sh 827fb2d` is waiting for the live `X-GymMembership-Release` header.
+- **Records:** the stage entry is in `docs/COMPLETION_STAGES.md`. `docs/PROJECT_MEMORY.md` gains two rules: the switch and how to flip it back, and running browser suites in parallel on the production build.
 
 **Waiting on the owner (optional):** whether to retry the hero "trains" sweep with a larger LCP sample (for example 15+ cold loads per width). It stays out until then.
 
 **Next action:**
-1. When `application` is green on `fb85541`, merge PR #89 with the full SHA and verify the live release with `scripts/watch-release.sh`.
-2. Restart the branch from main and open a docs-only PR carrying this handoff, the `docs/COMPLETION_STAGES.md` stage entry and the `docs/PROJECT_MEMORY.md` switch rule (how to flip `MARKETING_MOTION` back to "device").
+1. When `827fb2d` is live, record the live time here and in the stage entry.
+2. Then merge the docs-only records PR. Do not merge it before then: a push to `main` starts another deploy.
 
 ### Meal-photo estimates: switched on live after a passing Seed 2.0 Pro test — 20–21 October 2026 (Claude)
 
