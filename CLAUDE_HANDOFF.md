@@ -2,7 +2,7 @@
 
 ## Work in progress
 
-### Marketing motion — implementation in progress, 22 October 2026 (Claude, updated 10:15 UTC)
+### Marketing motion — implementation in progress, 22 October 2026 (Claude, updated 10:34 UTC)
 
 Plan: `docs/MARKETING_MOTION_PLAN_2026-10-22.md` (merged as #88), with its review corrections binding. Owner decisions: "B / sure / accept the speed cost for now. we can always switch it back to motion matching the device."
 - **Approved:** Variant B (all short marketing motion always on; the pinned scroll scenes still follow OS reduce motion and the member's setting), the hero additions, and the speed cost.
@@ -65,16 +65,24 @@ Plan: `docs/MARKETING_MOTION_PLAN_2026-10-22.md` (merged as #88), with its revie
   - Claude stopped workflow `w3v1bkz5n` at 10:09 UTC. All its processes are gone.
   - Brand, RTL, phone and motion now run in parallel on the production build (`RTL_WEB_MODE=start`, each on its own ports and database), started 10:09:49 UTC.
   - Logs: `/tmp/claude-0/-home-user-trainer-what/14381359-c138-56f9-a25b-830f6a2f39f9/scratchpad/final-test-{brand,rtl,phone,motion}.log`.
-  - Compare against `test-{brand,rtl,phone}-base-main.log` there: on main, brand has 38 failures, phone 11 (all member `/app/intake`), and RTL a known set.
+- **Final suites, done 10:30 UTC:**
+  - Brand: the 38 failures are identical to `main` (diffed).
+  - Phone: the 11 failures are identical to `main`.
+  - RTL: crashes at admin sign-in (`waitForURL` stuck on `/admin/settings`), exactly as on `main`.
+  - Member motion:
+    - It failed twice (1, then 2 member view-transition layout shifts) while the brand check ran alongside.
+    - It passed with 0 failures run alone on a quiet machine.
+    - `main` passed with 0 failures run alone (`test-motion-base-main.log`).
+    - This reads as a CPU-load timing artefact.
+- **PR #89 marked ready (10:33 UTC)** with these results in its body.
+  - CI on head `fb85541`: 7 of 8 green; `application` still running at 10:33 UTC.
+  - Pushing anything to the branch restarts the roughly 45-minute CI run. Handoff edits are therefore committed locally and go out after the merge, in a docs-only PR.
 
 **Waiting on the owner (optional):** whether to retry the hero "trains" sweep with a larger LCP sample (for example 15+ cold loads per width). It stays out until then.
 
 **Next action:**
-1. When the four parallel suites finish, compare them with main. Then update PR #89 with the real check results, mark it ready and get CI green.
-2. Merge with the full SHA and verify the live release with `scripts/watch-release.sh`.
-3. Record the stage in `docs/COMPLETION_STAGES.md` and `docs/PROJECT_MEMORY.md` (the switch and how to flip it back).
-
-A self check-in is scheduled for 08:55 UTC so that no agent runs long unnoticed.
+1. When `application` is green on `fb85541`, merge PR #89 with the full SHA and verify the live release with `scripts/watch-release.sh`.
+2. Restart the branch from main and open a docs-only PR carrying this handoff, the `docs/COMPLETION_STAGES.md` stage entry and the `docs/PROJECT_MEMORY.md` switch rule (how to flip `MARKETING_MOTION` back to "device").
 
 ### Meal-photo estimates: switched on live after a passing Seed 2.0 Pro test — 20–21 October 2026 (Claude)
 
