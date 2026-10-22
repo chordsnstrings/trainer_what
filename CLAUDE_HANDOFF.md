@@ -2,7 +2,7 @@
 
 ## Work in progress
 
-### Marketing motion — merged, deploy pending (CI timeout), 22 October 2026 (Claude, updated 13:22 UTC)
+### Marketing motion — merged, deploy pending (CI timeout), 22 October 2026 (Claude, updated 17:20 UTC)
 
 Plan: `docs/MARKETING_MOTION_PLAN_2026-10-22.md` (merged as #88), with its review corrections binding. Owner decisions: "B / sure / accept the speed cost for now. we can always switch it back to motion matching the device."
 - **Approved:** Variant B (all short marketing motion always on; the pinned scroll scenes still follow OS reduce motion and the member's setting), the hero additions, and the speed cost.
@@ -88,14 +88,31 @@ Plan: `docs/MARKETING_MOTION_PLAN_2026-10-22.md` (merged as #88), with its revie
   - The two runs needed about 58 and 51 minutes.
 - **PR #91 (opened 13:20 UTC):** `application`'s `timeout-minutes` goes from 45 to 75, with a dated comment. No gate changes.
   - It needs its own CI, then a merge. The `main` run on its merge commit deploys #89, #90 and #91 together.
+- **#91 merged as `482b41b` (15:33 UTC). Its main run 39806027298 still did not deploy.**
+  - `application` passed in 40 min.
+  - `homepage-call` was cancelled at its 15-min limit: `apt-get` took 10 min, and the Playwright install was still running at the cut-off.
+  - Live stays on `100c812`.
+- **How deploys work:** the host deploys main only when that commit's latest `check.yml` push run succeeded (`approved_head` in `infra/digitalocean/common.py`).
+  - So the owner clicking **"Re-run failed jobs"** on run 39806027298 is the fastest way to go live. Claude gets a 403 on re-run.
+- **Next PR (opened about 17:20 UTC):** gives every setup-heavy job room for slow runners. Tests and gates are unchanged.
+
+  | Job | Before | After |
+  |---|---|---|
+  | daily-workflows | 15 | 30 |
+  | homepage-call | 15 | 40 |
+  | subscriber-ui | 12 | 30 |
+  | ux-spacing | 20 | 40 |
+  | postgres-and-container | 20 | 40 |
+  | compose-topology | 20 | 30 |
+  | wildcard-edge | 15 | 30 |
 - **Records:** the stage entry is in `docs/COMPLETION_STAGES.md`. `docs/PROJECT_MEMORY.md` gains two rules: the switch and how to flip it back, and running browser suites in parallel on the production build.
 
 **Waiting on the owner (optional):** whether to retry the hero "trains" sweep with a larger LCP sample (for example 15+ cold loads per width). It stays out until then.
 
 **Next action:**
-1. When PR #91's CI is green, merge it with the full SHA.
-2. Watch the `main` run on its merge commit with `scripts/watch-release.sh` until it is live. Record the live time in the next records update.
-3. The owner can also re-run a cancelled job from the Actions page; Claude gets a 403.
+1. When the job-timeouts PR is green, merge it with the full SHA.
+2. Watch its `main` run with `scripts/watch-release.sh` until it is live. Record the live time in the next records update.
+3. If the owner re-runs run 39806027298 first, `482b41b` deploys sooner, and the timeouts PR redeploys later.
 
 ### Meal-photo estimates: switched on live after a passing Seed 2.0 Pro test — 20–21 October 2026 (Claude)
 
