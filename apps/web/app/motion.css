@@ -8,7 +8,11 @@
      @media (prefers-reduced-motion: no-preference) and uses the tokens
      below; with reduced motion the app is the same, only still.
    - The member's own "Reduce motion" choice (data-reduce-motion="on" on
-     <html>) stops the same things (the first block below).
+     <html>) stops the same things (the first block below). The marketing
+     site's own elements are left out of that block while its motion switch
+     is "always" (data-mk-motion on .mk and the assistant host;
+     components/marketing/motion-mode.ts); with "device" it matches every
+     element, as before.
    - Only transform (translate, scale, rotate) and opacity move, plus
      stroke-dashoffset for drawn SVG checks and rings and grid-template-rows
      for a disclosure's height. Never width, height, top, left or margin; a
@@ -45,11 +49,13 @@
 /* ------------------------------------------------------------------ */
 /* "Reduce motion" in Profile and settings > Display preferences sets
    data-reduce-motion="on" on <html> (a device cookie, so the first paint
-   has it). Everything stops, pseudo-elements and View Transitions too. */
-:root[data-reduce-motion="on"] *,
-:root[data-reduce-motion="on"] *::before,
-:root[data-reduce-motion="on"] *::after,
-:root[data-reduce-motion="on"] *::backdrop {
+   has it). Everything stops, pseudo-elements and View Transitions too,
+   except the marketing site's own elements while its motion switch is
+   "always" (the :not() below; :where() keeps the specificity of `*`). */
+:root[data-reduce-motion="on"] *:not(:where([data-mk-motion="always"], [data-mk-motion="always"] *)),
+:root[data-reduce-motion="on"] *:not(:where([data-mk-motion="always"], [data-mk-motion="always"] *))::before,
+:root[data-reduce-motion="on"] *:not(:where([data-mk-motion="always"], [data-mk-motion="always"] *))::after,
+:root[data-reduce-motion="on"] *:not(:where([data-mk-motion="always"], [data-mk-motion="always"] *))::backdrop {
   animation: none !important;
   transition: none !important;
   scroll-behavior: auto !important;
@@ -118,8 +124,12 @@
   /* Buttons, card links, tabs and list rows dip to 97 % with a tint the
      moment they are pressed (--motion-instant) and come back on release
      (--motion-fast). The tint is an inset shade of the text colour and
-     changes at once; only the scale moves. */
-  :is(.member-shell, .public:not(.mk), .coach-website, .bottom-sheet)
+     changes at once; only the scale moves. Kamran's assistant host (a
+     .public box outside the marketing root) presses the marketing way
+     (app/marketing.css) while the marketing motion switch is "always", so
+     its Talk button presses for every visitor; with "device" it keeps this
+     press. */
+  :is(.member-shell, .public:not(.mk, [data-mk-motion="always"]), .coach-website, .bottom-sheet)
     :is(
       .button,
       .icon-button,
@@ -140,7 +150,7 @@
     transition: transform var(--motion-fast) var(--ease-out);
     -webkit-tap-highlight-color: transparent;
   }
-  :is(.member-shell, .public:not(.mk), .coach-website, .bottom-sheet)
+  :is(.member-shell, .public:not(.mk, [data-mk-motion="always"]), .coach-website, .bottom-sheet)
     :is(
       .button,
       .icon-button,

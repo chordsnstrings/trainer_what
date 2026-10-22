@@ -1993,8 +1993,14 @@ blockquote {
     padding: 15px 18px;
   }
 }
+/* The device's reduced motion stops every element's motion, except the
+   marketing site's while its motion switch is "always" (data-mk-motion on
+   .mk and the assistant host; components/marketing/motion-mode.ts). With
+   "device" nothing carries "always" and this matches every element, as `*`
+   did; :where() keeps the specificity at zero. <html> is outside the
+   marketing root, so its scroll-behavior stays auto. */
 @media (prefers-reduced-motion: reduce) {
-  * {
+  *:not(:where([data-mk-motion="always"], [data-mk-motion="always"] *)) {
     scroll-behavior: auto !important;
     transition: none !important;
     animation: none !important;

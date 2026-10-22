@@ -13,8 +13,14 @@ The house rules come from the home hero relay
 
 - Every word is real HTML and visible from the first paint. Motion is
   decorative, short and plays once; nothing is infinite.
-- Reduced motion (`prefers-reduced-motion: reduce`) removes movement (instant
-  or opacity only) and stops auto-play.
+- Motion for every visitor (the owner, 22 October 2026; see "Motion for every
+  visitor" below): while the switch `MARKETING_MOTION` is `"always"`, every
+  short marketing motion plays whatever the device's `prefers-reduced-motion`
+  or the member's own "Reduce motion" choice says. The pinned,
+  scroll-scrubbed scenes on `/` still follow both settings. With the switch at
+  `"device"` (the earlier rule), reduced motion removes movement (instant or
+  opacity only) and stops auto-play. Either way the auto-playing journey keeps
+  its Pause and every hold.
 - No metrics, counts, revenue, count-ups or testimonials; only features that
   are available now; no AI cost, AI usage fee or model cost anywhere. The
   marketing text (`packages/contracts/src/marketing-content.ts`,
@@ -34,11 +40,15 @@ The house rules come from the home hero relay
 
 ## Tokens
 
-Defined once, on the marketing roots `.mk, .mk-header, .mk-footer` in
-`apps/web/app/marketing.css` (the same values as the subscriber app's motion
-pass); every other stylesheet only uses them, and
-`components/marketing/motion.tsx` keeps a copy in milliseconds for the Web
-Animations API (a test keeps the two equal).
+Defined once, on the marketing roots `.mk, .mk-header, .mk-footer,
+.mk-assistant-host` in `apps/web/app/marketing.css`; every other stylesheet
+only uses them, and `components/marketing/motion.tsx` keeps a copy in
+milliseconds for the Web Animations API (a test keeps the two equal). They
+are the marketing site's own values. The subscriber app's tokens
+(`app/motion.css`) were shortened by the 20 October 2026 CI pass (120 / 180 /
+200 / 220 / 240 ms, a 12 ms stagger, no overshoot); only `--motion-base`
+(200 ms) and the out, in and in-out curves still match their `--mk-`
+counterparts (`docs/features/motion.md`).
 
 | Token | Value | Use |
 | --- | --- | --- |
@@ -51,6 +61,18 @@ Animations API (a test keeps the two equal).
 | `--mk-ease-in` | `cubic-bezier(0.4, 0, 1, 1)` | things leaving, the press |
 | `--mk-ease-in-out` | `cubic-bezier(0.4, 0, 0.2, 1)` | travel (the dot), taps |
 | `--mk-ease-spring` | `cubic-bezier(0.34, 1.4, 0.64, 1)` | success states only (ticks, Reserved, Confirmed, Passed, Live, Applied and Rescheduled automatically, Approved, Paid) |
+| `--mk-ease-enter` | `cubic-bezier(0.2, 0.8, 0.2, 1)` | load-in entrances only (the commission pills; a test holds the list) |
+| `--mk-dist-nudge` | 3 px | the arrow's hover nudge and the hand-off nudges |
+| `--mk-dist-item` | 8 px | a grid item's rise, the "You stay in charge" lanes |
+| `--mk-dist-rise` | 12 px | a section's rise, the message and AI cards |
+| `--mk-dist-load` | 16 px | a load-in slide from the inline start (the pills) |
+| `--mk-stagger-step` | 40 ms | the step between grid items (at most six steps, 240 ms) |
+| `--mk-stagger-load` | 80 ms | the step between load-ins: the /features screens and set ticks, the pills (at most three steps) |
+
+The distances and staggers arrived with the concept pass (22 October 2026,
+below); there are still no new durations. Each item's `--mk-stagger` is a
+stagger token or a whole multiple of one, and `MAX_STAGGER` (240 ms) in
+`motion.tsx` is the longest (the test resolves the tokens).
 
 ## What animates where (sitewide)
 
@@ -60,20 +82,24 @@ Code: `apps/web/app/marketing.css` (the motion block) and one island,
 | Where | Motion |
 | --- | --- |
 | Buttons (header and page) | Press `scale: .97` (80 ms in, 140 ms out) on every device; a 1 px lift and a 3 px arrow nudge only where the pointer hovers. |
+| Hand-offs (concept pass) | The hero's primary action (keyed on `.mk-cta`, so "Join early access" too): once the relay's last tick has popped, its arrow nudges forward once (from 2.55 s, 420 ms, over by 2.97 s). The closing panel's button: its arrow nudges once, 280 ms after the button itself comes into view (done by about 700 ms). Both mirror in right to left. |
 | Single-line links (header, breadcrumbs, footer, `.mk-link`) | A 1 px ink bar slides in from the inline start on hover (200 ms), at once on keyboard focus. |
 | Header | Its shadow fades in over the first 48 px of scrolling (scroll-driven, no script). Menus open with opacity and a 4 px rise; the phone menu drops in and its items rise 30 ms apart; "Menu" presses. No browser tap flash on the menu or any disclosure (`summary`). |
 | Home hero relay | Wires draw (420 ms), the dot travels, the ticks pop (spring), one Pace ring behind the mark. Ends at 2.53 s. |
-| Section reveal | Units wholly below the first screen at load rise 12 px and fade in once as they enter (280 ms); grid items follow 40 ms apart (at most 240 ms). Never the hero, breadcrumbs, page heading, relay, anything on the first screen, or the journey player. |
+| Section reveal | Units wholly below the first screen at load rise 12 px and fade in once as they enter (280 ms); grid items follow 40 ms apart (at most 240 ms). The FAQs are a grid too: the heading, then each question in turn. Never the hero, breadcrumbs, page heading, relay, anything on the first screen, or the journey player. |
+| Own triggers (concept pass) | The commission pills, the home FAQs, the closing button and the `/features` "Back squat" set table are observed themselves (`data-mk-cue`), not through their band or section, which on a phone reveals (or, too tall to wait, never waits) while they are still below the fold. |
+| Commission pills (home, "Free to start. Your price.") | Each pill slides 16 px in from the inline start and fades in, 80 ms after the one before, on the enter curve: 25% first, 10% last, the last in place about 520 ms after the pills come into view. |
 | Link cards and tiles | Lift 2 px with a soft shadow on hover; press `scale: .99`. |
 | "You stay in charge" (home) | Once, when revealed: the message, your AI's card, the confidence meter filling, the lanes, "Applied automatically" (spring), the safety lane. About 1.1 s. |
 | Disclosures (FAQs, calculator assumptions) | The chevron turns (200 ms); a FAQ answer unfolds through its grid row (280 ms) and fades in. |
 | Calculators | No count-up. 150 ms after the last change the result settles (opacity .55 to 1 and 4 px, 200 ms); changed cells settle too. |
-| /demo, /features, /get-started | The chosen decision rises and its label pops or stamps; the screens reveal 80 ms apart with their ticks; the checklist staggers. |
+| /demo, /features, /get-started | The chosen decision rises and its label pops or stamps; the screens reveal 80 ms apart with their ticks; the "Back squat" screen's completed sets pop one after another (520 ms, then 600 ms after the set table itself comes into view, at every width), like reps being logged, no count-up; the checklist staggers. |
 
-Reduced motion: the reveal script does nothing; `globals.css` stops element
-animations and transitions; `marketing.css` stops pseudo-elements and the
-details content box and removes lifts, presses and nudges. Without
-JavaScript nothing is hidden.
+Reduced motion: with the switch at `"always"` everything in this table plays
+for every visitor. With `"device"`, the reveal script does nothing,
+`globals.css` and `app/motion.css` stop element animations and transitions,
+and `marketing.css` stops pseudo-elements and the details content box and
+removes lifts, presses and nudges. Without JavaScript nothing is hidden.
 
 ## The journey player
 
@@ -161,8 +187,13 @@ and stops on chapter 8 with Replay.
   tabindex (arrows follow the reading direction, Home, End) and are named by
   their step; the live region speaks only when focus does not land on the
   chapter's own button (Previous, Next, a swipe, a card).
-- Reduced motion: no auto-play; chapters change instantly; Play runs a
-  slideshow whose clock has no target, so nothing on screen moves.
+- Reduced motion: with the switch at `"always"` the player behaves as without
+  it: auto-play from half the stage in view, the beats and the chapter clock
+  animate, and Pause, keyboard focus, the mouse, off screen and a hidden tab
+  hold it. With `"device"`: no auto-play; chapters change instantly; Play
+  runs a slideshow whose clock has no target, so nothing on screen moves.
+  The clock falls back to that target-less animation whenever the active
+  segment's bar is missing, in either mode, so the chapter still advances.
 
 ### Weight and hydration
 
@@ -185,6 +216,173 @@ stylesheet: stripping the journey rules from the marketing chunk did not
 change first paint on pages without the player (see marketing-site.md,
 "Second review").
 
+## Motion for every visitor (22 October 2026)
+
+The owner: "for the current marketing site, switch on motion always", then,
+on the plan's questions, Variant B, the two hero additions (later phases) and
+"accept the performance cost for now … we can always switch it back to motion
+matching the device." This is Phase 1 of
+`docs/MARKETING_MOTION_PLAN_2026-10-22.md`: no new motion, only who sees it.
+
+**The switch.** `apps/web/components/marketing/motion-mode.ts` exports
+`MARKETING_MOTION` (`"always"` now, or `"device"`). `site.tsx` renders it as
+`data-mk-motion` on the marketing root (`.mk`, which holds the header and
+footer) and `assistant-button.tsx` on Kamran's assistant host
+(`.mk-assistant-host`, outside `.mk`). Nothing else carries the attribute.
+
+- **CSS.** No reduced-motion rule was deleted. Each one that reaches the
+  marketing root or the host gets `:not(:where([data-mk-motion="always"],
+  [data-mk-motion="always"] *))` (`MOTION_ALWAYS_EXCLUDED`):
+  `globals.css` (`*` under `prefers-reduced-motion: reduce`), `motion.css`
+  (the member's `:root[data-reduce-motion="on"]` rule), the reduced-motion
+  block at the end of the Motion section in `marketing.css`, the Kamran
+  button's and panel's rules (`marketing.css`, `marketing-assistant.css`) and
+  the journey's (`marketing-journey.css`). The `prefers-reduced-motion:
+  no-preference` wrappers around the relay, the header shadow, /demo, the
+  early-access confirmation and the phone menu were removed (their contents
+  unchanged): in `"device"` mode the rules above stop them as before.
+- **JavaScript.** `motion.tsx` (the reveal and the calculators' settle) and
+  `journey-player.tsx` read both settings only when `MARKETING_MOTION ===
+  "device"`; the player's listener for a setting changed on an open page
+  runs only then.
+- **Why "device" restores the old behaviour exactly.** The exclusion names
+  only the value `"always"`. With `"device"` no element carries it, so every
+  rule matches what it matched before, with the same specificity (`:where()`
+  adds none), and the scripts read both settings as before. The removed
+  no-preference wrappers changed nothing in `"device"` mode: every element
+  they animated is stopped by the `globals.css` and `motion.css` rules, and
+  their two pseudo-elements (the relay ring and the header shadow) by the
+  reduced-motion block in `marketing.css` and the `motion.css` rule.
+  `tests/marketing-motion-sitewide.test.ts` keeps both modes wired.
+- **Not switched.** The pinned, scroll-scrubbed scenes on `/` (the journey
+  pin and the `#control` beats; `scenes-head.ts`, `scene-mount.tsx`) follow
+  both settings in either mode (Variant B); a test keeps the two scripts'
+  reduced-motion tests equal. A visitor with reduced motion gets the page
+  without scenes, where the journey auto-plays and `#control` plays its
+  one-off choreography. The journey is not un-pinned on phones. The headers
+  and footers outside `.mk` (sign-in, sign-up, the coach directory), the
+  member app, the trainer workspace, coach websites, onboarding and the site
+  builder are unchanged.
+- **Kamran's Talk button.** The host has the class `public`, so it used the
+  subscriber press (`motion.css`, inside `no-preference`), which stayed still
+  under reduced motion. With `"always"` the host is left out of that press
+  (`.public:not(.mk, [data-mk-motion="always"])`) and presses the marketing
+  way (`.mk-assistant-host:where([data-mk-motion="always"]) .button` in
+  `marketing.css`), for every visitor. With `"device"` it keeps the
+  subscriber press.
+- **Intentionally unchanged shared subscriber pieces.** The footer's
+  "Privacy preferences" opens the shared `ConsentSheet`, which renders
+  outside `.mk`; its rise (`motion.css`) still follows both settings. The
+  checkbox pop on the assistant panel's "Show relevant pages as we talk"
+  is the subscriber form-control rule (`motion.css`, inside
+  `no-preference`): it stays still under the device setting (and plays under
+  the member's cookie alone, since the host is left out of that rule).
+- **Accessibility note.** Ignoring the setting misses WCAG 2.3.3 (AAA, not
+  AA) for the short motion and reverses this page's earlier house rule; it is
+  recorded as the owner's decision. Nothing loops, nothing hides first-screen
+  content or the sign-up action, the load motion ends by about 3 s (the
+  relay at 2.53 s, then the hero arrow's hand-off by 2.97 s), every effect
+  started by scrolling ends within about 1.1 s of its trigger (the longest
+  is "You stay in charge"; the concept pass's own effects end by 880 ms,
+  the set ticks), the journey holds on request, and colour changes stay
+  instant.
+- **Switching back.** Set `MARKETING_MOTION` to `"device"` in
+  `motion-mode.ts`, then build. No other change is needed; the browser checks
+  read the attribute and apply that mode's expectations.
+
+## Concept pass (22 October 2026)
+
+Phase 2 of `docs/MARKETING_MOTION_PLAN_2026-10-22.md`, with its binding
+review corrections: a few micro-animations from the "the page does reps
+when you do" concept, on widgets that already exist. No new widget or
+section, no copy change, the same order and calls to action. Every effect
+is CSS on the existing marks plus the reveal script; each follows the
+switch (with `"device"` and reduced motion it stays still: `globals.css`
+stops the animations, the reduced-motion block in `marketing.css` holds the
+arrows in place and releases every waiting item, and the script never
+runs).
+
+- **Tokens.** `--mk-ease-enter`, the four `--mk-dist-*` distances and the two
+  `--mk-stagger-*` steps (table above). The literals they replace (the 3 px
+  nudge, the 8 and 12 px rises, the 40 and 80 ms item steps) now use them.
+- **Own triggers.** `motion.tsx` gains `CUES` (`.mk-band-pills, .mk-faqs,
+  .mk-closing-cta, .mk-sets`), observed with the same observer and rules as a unit
+  (wholly below the first screen at load, not tall, not the `#target`, never
+  in the hero, the relay, the journey or a running scene). A cue never fades
+  itself: it sets `data-mk-cue` and holds its own grid's items (a unit leaves
+  those items to the cue), its arrow's nudge or the set table's ticks until
+  it enters the view. An
+  element that is already a unit (the FAQs on an inner page) keeps its
+  unit's trigger, which is its own. Printing releases every cue.
+- **The pills.** In `GRIDS` already; now on the 80 ms load step (as the
+  `/features` screens) and the enter curve, from `translate:
+  calc(-1 * var(--mk-dist-load) * var(--inline-sign, 1)) 0`. The concept
+  loads its plates from the inline end; entering from the inline start is
+  deliberate: it reads with the falling rates, and it can never add a
+  horizontal scrollbar in either direction.
+- **The FAQ rows.** `.mk-faqs` joins `GRIDS` and the stagger lists: the home
+  heading and six questions land 40 ms apart, the last at 240 ms.
+- **The arrows.** `@keyframes mk-nudge` (one step of `--mk-dist-nudge`
+  toward the reading direction at 50%, back at the end, one iteration).
+- **The set ticks.** The tick transition's delay is `calc(520ms +
+  var(--mk-set-step, 0ms))`; the second and later set rows set
+  `--mk-set-step` to one and two `--mk-stagger-load` steps. The set table
+  is a cue of its own (added after the review of 22 October 2026): the
+  screens' section is taller than one and a half screens on a 390 phone, so
+  it never waits there, and the ticks used to show at once on phones. Now
+  the table's ticks wait (opacity 0, `scale: .4`) until the table itself
+  enters the view, at every width. 520 ms is after the screens' own rise
+  (280 ms plus at most 240 ms of stagger), so a tick never pops before its
+  screen has landed. The other screen ticks (the note and the Inbox badge)
+  keep their section's reveal, as before this pass.
+
+**The layout shift on load (Phase 1's regression).** Phase 1's timed runs
+recorded CLS 0.0022 on `/` at 1366x900 for the reduced-motion and
+member-cookie cohorts and on `/?scenes=on` under reduced motion. A
+layout-shift observer with sources found the moving box: `.mk-hero-body`,
+from y 189 / height 163 to y 154 / height 198, about 0.56 s after the
+start. 163 px is the lede plus the buttons without the line under them: the
+browser had painted the hero while its HTML was still being parsed, and
+the hero copy's two columns sit on their bottom edge (`align-items: end`),
+so when "Free to join · No upfront cost · Built for UAE trainers" arrived
+the whole column moved up 35 px. It is a race of the HTML parser, not of
+the motion or the cohort: a local proxy that holds the page's HTML for
+800 ms right before that line reproduces exactly 0.00218 for every cohort,
+with or without reduced motion. The fix is
+`<link rel="expect" href="#mk-relay-cap" blocking="render">` in the home
+hero (React places it in `<head>`): the first paint waits until the relay's
+caption, the first element after the copy, is parsed. Nothing is hidden or
+moved; browsers without `rel=expect` ignore it. The LCP element is
+unchanged (the lede at 390x844, the H1 at 1366x900).
+
+**The Pace sweep behind "trains": built, measured, not shipped (Phase 3).**
+The owner approved the sweep only if LCP was proven unchanged. The plan
+allowed one comparison: `/` at 390x844 and 1366x900, 5 cold loads each,
+this branch before the sweep against the same branch with it.
+- **What was built.** The fill moved onto `.mk-mark::before`, with
+  `position: relative` and `isolation: isolate` on the span and
+  `box-decoration-break: clone` kept. The sweep was `mk-sweep` (`scale: 0 1`
+  to rest) at `--mk-dur-emphasis`, on `--mk-ease-enter`, 120 ms in, from a
+  fixed left origin (the H1 stays English under `?lang=ar`).
+- **How it was measured.** In local Chromium with the CPU throttled 4x,
+  after one untimed warm-up load each.
+- **Results** (each set is the 5 cold loads in order):
+
+  | Width | LCP element (both builds) | Before the sweep (ms) | Median | With the sweep (ms) | Median | Change | Allowance |
+  |---|---|---|---|---|---|---|---|
+  | 1366x900 | the H1 | 688/756/940/768/724 | 756 | 888/744/592/776/672 | 744 | -12 ms | 50 ms (passes) |
+  | 390x844 | the lede, `p.mk-hero-lede` | 788/720/604/624/656 | 656 | 716/880/900/664/848 | 848 | +192 ms | 50 ms, the larger of 50 ms and 5% (fails) |
+
+- **What the results mean.** The sweep does not touch the lede, and the
+  spread inside each set of five is wider than the change. The difference
+  is most likely noise, but the one permitted comparison did not prove LCP
+  unchanged.
+- **Decision.** The sweep is left out, and the hero is as it was. AA
+  contrast was not the problem: the word stays ink (`#171917`) on white,
+  then on Pace (`#d5f24a`), both far above 4.5:1.
+- **Trying again.** It needs a fresh comparison with more loads, and the
+  owner's agreement to run one.
+
 ## Budget and checks
 
 Budget, measured in local Chromium with the CPU throttled 4x against a build
@@ -203,7 +401,18 @@ no gross regression (base + max(100 ms, 25%)), and the reveal's own work under
   only React and no dependency was added.
 - `tests/marketing-motion-sitewide.test.ts`: the sitewide motion rules
   (animated properties, token durations and easings, hover media, reduced
-  motion, nothing hidden without `.mk-motion`, tokens defined once).
+  motion, nothing hidden without `.mk-motion`, tokens defined once), and the
+  switch: one constant rendered only on the marketing root and the assistant
+  host, every marketing reduced-motion rule kept and scoped, no
+  no-preference wrapper left, the Talk button's press in both modes, the
+  scripts' reduced-motion reads gated on `"device"`, the journey clock's
+  fallback, and equal reduced-motion tests in the two scenes scripts that
+  never read the switch. Since the concept pass also: the new tokens and
+  their values (each `--mk-stagger` resolved through its token, the longest
+  equal to `MAX_STAGGER`), the enter curve's allow-list, motion distances as
+  tokens, the cues and grids in `motion.tsx`, the pills, FAQ, nudge and tick
+  rules, the hero hand-off after the relay's last tick and over by 3 s, and
+  the home hero's render-blocking `rel=expect` on the relay's caption.
 - `npm run test:marketing-motion` (`scripts/run-marketing-motion-checks.mjs`)
   runs both browser checks (local Chromium only):
   - the journey (`scripts/run-marketing-motion-check.mjs` and
@@ -211,15 +420,41 @@ no gross regression (base + max(100 ms, 25%)), and the reveal's own work under
     390x844 and 1366x900): the gate, auto-play and holding, keyboard and
     mouse behaviour, the icon staying visible, focus at either end, the
     active card in view, the sample-data label, the mocks' text size against
-    the frames' real widths, phones, reduced motion, no JavaScript, no
-    layout shift (also on the home band), contrast, right to left;
+    the frames' real widths, phones, reduced motion (by the switch: with
+    `"always"`, under the device setting and separately the member's
+    cookie, auto-play from half the stage in view and every hold), no
+    JavaScript, no layout shift (also on the home band), stage text contrast
+    (AA) and size (11 px or more) in every chapter in either mode (with
+    `"always"`, under the device setting at each width: each chapter chosen
+    from the keyboard, sped up 20x, read once its beats have finished and
+    again as its complete picture, both sides on phones), right to left
+    (paused first with `"always"`);
   - the sitewide check (`scripts/marketing-motion-sitewide-check.mjs`): both
     builds read the same platform stub with the launch gate open (so `/` and
     `/how-it-works` are measured with the player; `MOTION_PLATFORM=closed`
     for the fallback platform), with `MOTION_BASE_DIR` pointing at a built
-    checkout of the base.
+    checkout of the base. Reduced motion follows the switch, under the
+    device setting and separately the member's cookie: with `"always"`,
+    `.mk-motion`, the reveals, the settle, a FAQ unfolding, the menu, the
+    relay at rest by 5 s and the journey's auto-play, plus timed cold loads
+    of that cohort (`MOTION_REDUCED_RUNS`, default 3) that must keep CLS 0
+    and the reveal's own rules, compared (reported, not judged) with the
+    same cohort on `MOTION_MAIN_DIR` (main before the switch) and the base.
+    `/?scenes=on` controls: scenes before the first paint without reduced
+    motion, none under either source. The concept pass (untimed, both
+    widths, without reduced motion, with `"always"` under the device setting
+    and separately the member's cookie, and in Arabic at 390): the pills
+    wait for their own trigger at the inline start and load 80 ms apart on
+    the enter curve, the FAQ rows 40 ms apart, the closing nudge 280 ms
+    after its button enters, the hero hand-off from 2.53 s and at rest by
+    5 s on its own timeline (its direction is read only afterwards, on a
+    replay), both arrows toward the reading direction, the set ticks hidden
+    until the set table's own trigger at every width and then at 520 and
+    600 ms (a missing measurement fails), no sideways overflow.
 - `npm run test:brand` and `npm run test:browser` cover the pages with the
-  gate closed (their platform has every provider off).
+  gate closed (their platform has every provider off). The brand check's
+  "motion /" (and "reduced motion /" with `"always"`) also requires the
+  hero's hand-off and its arrow at rest after 5 s.
 
 ### Results after the second review (29 September 2026, this machine)
 
@@ -259,3 +494,78 @@ allowance on their own.
   throttling (roughly a quarter of that unthrottled): the budget is not met
   on those two pages, and the owner has to accept that or ask for a lighter
   stage.
+
+### Results, concept pass (22 October 2026, this machine)
+
+Run on this tree after `npm run build`, against a local production server
+(`next start` with a platform stub, launch gate open), local Chromium only.
+No timed comparison was run for this pass.
+
+- `node --import tsx --test` on `tests/marketing-motion-sitewide.test.ts`,
+  `tests/marketing-journey.test.ts`, `tests/motion-css.test.ts`,
+  `tests/member-motion.test.ts`, `tests/rtl-layout.test.ts`,
+  `tests/marketing-site.test.ts`, `tests/logical-css.test.ts`,
+  `tests/analytics-consent.test.ts`, `tests/brand.test.ts`,
+  `tests/marketing-frontier.test.ts` and `tests/marketing-assistant.test.ts`:
+  113 passed, 0 failed. Two new tests in the sitewide file (the concept
+  pass, and the hero's render-blocking link); the token list in
+  `marketing-journey.test.ts` grew by the new tokens (the new contract).
+- `npx tsc --noEmit -p .` and `-p apps/web/tsconfig.json`: clean.
+  `npm run build`: passed.
+- The layout shift: the proxy that holds the HTML before the hero's last
+  line gave 0.00218 on `/` at 1366x900 under reduced motion and without it
+  before the fix (source `div.mk-hero-body`, 189+163 to 154+198) and 0 after
+  it for reduced motion, the member cookie and no preference at 1366x900
+  and 390x844; with the hold before the lede instead, 0 as well. Without
+  the proxy, one of roughly 75 ordinary loads of the Phase 1 build
+  reproduced it (reduced motion, 1366x900, CPU throttled 4x).
+- A targeted Playwright verification (390x844, 1366x900, `?lang=ar` at 390,
+  and emulated reduced motion at both widths with the switch at
+  `"always"`): 116 passed, 0 failed. Nothing on the first screen waited,
+  the hero's CTA and H1 were opaque and unmoved, CLS on load 0 on `/` and
+  `/features`; the hero hand-off had a 2550 ms delay and 420 ms, peaked at
+  3 px (-3 px in Arabic) and was at rest after the relay; the pills waited
+  at -16 px (16 px in Arabic) while their band had already revealed (390),
+  then loaded at 0, 80, 160 and 240 ms on `cubic-bezier(0.2, 0.8, 0.2, 1)`;
+  the home FAQ rows at 0 to 240 ms, 40 apart, and the `/pricing` FAQ unit
+  heading-first; the closing panel revealed while its button, below the
+  fold line, waited with no nudge, then the nudge ran at 280 ms for 420 ms
+  toward the reading direction and was at rest by 700 ms; the `/features`
+  set ticks at 520 and 600 ms at 1366 (at 390 the section is too tall to
+  wait, as before); no sideways overflow, nothing waiting after a
+  scroll-through, no infinite animation, no page errors.
+- The sitewide check's new concept measurement, run alone with the check's
+  own page setup against the same server (390 and 1366, no preference,
+  reduced motion, Arabic at 390): 0 failures.
+- Not run in this pass (left for the single full run): `npm run
+  test:marketing-motion`, `npm run test:brand`, `npm run test:rtl`, `npm run
+  test:phone` and `npm run test:motion`.
+
+### Results, Phase 3 (22 October 2026, this machine)
+
+Phase 3 made the home page's scroll-scenes engine event-driven, with an idle
+stop (`docs/features/scroll-scenes.md`, "The frame loop", which also has that
+part's own results). The Pace sweep was measured and left out (see "The Pace
+sweep behind "trains"" above). The tree was run after `npm run build`
+against a local production server, in local Chromium only.
+
+- **Node tests:** 121 passed, 0 failed. The files were
+  `tests/scroll-scenes-engine.test.ts` (new, 8 tests),
+  `tests/marketing-motion-sitewide.test.ts`, `tests/marketing-journey.test.ts`,
+  `tests/motion-css.test.ts`, `tests/member-motion.test.ts`,
+  `tests/rtl-layout.test.ts`, `tests/marketing-site.test.ts`,
+  `tests/logical-css.test.ts`, `tests/analytics-consent.test.ts`,
+  `tests/brand.test.ts`, `tests/marketing-frontier.test.ts` and
+  `tests/marketing-assistant.test.ts`.
+- **Typechecks and build:** `npx tsc --noEmit -p .` and
+  `-p apps/web/tsconfig.json` were clean, and `npm run build` passed.
+- **Scrubbing:** all 126 sampled positions were identical between the old
+  and new engines.
+- **Targeted verification:** 58 passed, 0 failed. It covered 390x844,
+  1366x900, `?lang=ar` at 390, and emulated reduced motion at both widths
+  with the switch at `"always"`.
+- **The sitewide check's new frame-loop rules,** run alone: 0 failures.
+- **The LCP comparison for the sweep:** the table above. It was the only
+  timed run.
+- **Not run** (left for the single full run): `npm run test:marketing-motion`,
+  `test:brand`, `test:rtl`, `test:phone` and `test:motion`.

@@ -68,7 +68,12 @@ identifier). After it:
   48 px Close. Escape, Close and a tap on the backdrop close it; closing it
   before any answer counts as Close. Its opening motion respects
   `prefers-reduced-motion` and the member's "Reduce motion" choice
-  (`app/motion.css`, docs/features/motion.md).
+  (`app/motion.css`, docs/features/motion.md). That stays so on the
+  marketing site too, where the footer's "Privacy preferences" opens it: the
+  sheet renders outside the marketing root, so the marketing motion switch
+  (motion for every visitor since 22 October 2026,
+  docs/features/marketing-motion.md) deliberately leaves this shared
+  subscriber component unchanged.
 - Motion of the bar (subscriber pages only; the marketing site's bar is
   unchanged): it slides up when it first shows; after any answer it slides
   away (200 ms, taking no taps and hidden from assistive technology while it

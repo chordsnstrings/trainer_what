@@ -6,6 +6,10 @@
 // app/layout.tsx (SCENES_HEAD_SCRIPT) adds before the first paint; without
 // it (reduced motion, the member's own "Reduce motion", no JavaScript,
 // crawlers and automated browsers) the page is exactly today's page.
+// The marketing motion switch (motion-mode.ts) never reaches the scenes:
+// even with "always" (every short marketing motion for every visitor) both
+// reduced-motion settings keep the pinned scenes off, here and in the head
+// script, which run the same test (tests/marketing-motion-sitewide.test.ts).
 import { useEffect } from "react";
 import { mountScenes } from "./scroll-scenes";
 import "./scenes";

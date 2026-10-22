@@ -2,23 +2,79 @@
 
 ## Work in progress
 
-### Marketing motion plan — 22 October 2026 (Claude, plan only, no code changed)
+### Marketing motion — implementation in progress, 22 October 2026 (Claude, updated 10:15 UTC)
 
-Owner request: "for the current marketing site, switch on motion always. And go through this design and understand the concept. keeping our priorities the same and widgets the same let's find out what we can incorporate from here … Don't change code, present a plan. remember our focus is to onboard trainers fast and quickly." The owner uploaded a one-file trainsyou concept (the design file is not in the repo).
+Plan: `docs/MARKETING_MOTION_PLAN_2026-10-22.md` (merged as #88), with its review corrections binding. Owner decisions: "B / sure / accept the speed cost for now. we can always switch it back to motion matching the device."
+- **Approved:** Variant B (all short marketing motion always on; the pinned scroll scenes still follow OS reduce motion and the member's setting), the hero additions, and the speed cost.
+- **Not approved:** un-pinning the journey walkthrough on phones. It is not being built.
 
-A read-only workflow ran with 5 agents: a design catalogue, a site inventory, a motion-gate audit, an architect and a critic. Its output is the plan in `docs/MARKETING_MOTION_PLAN_2026-10-22.md`.
-- **Phase 1:** motion always on for `.mk` and the assistant host only; the member and trainer app are untouched.
-- **Phase 2:** concept micro-animations on existing widgets: commission pills load in order, the FAQ cascade, and a CTA arrow hand-off.
-- **Phase 3:** idle-stop for the scroll engine, plus the optional "trains" sweep in the hero.
-- **Rejected:** new widgets and pinned, 3D or text-scrubbing effects.
-- **Review corrections** are appended to the plan and are binding.
+**Where it stands:**
+- **Phase 1 is done and pushed** as `62d92a4` on `claude/repository-overview-osejlw`, in draft PR #89.
+  - The switch is `MARKETING_MOTION` in `apps/web/components/marketing/motion-mode.ts`. It is "always" now; set it to "device" to restore motion that matches the device.
+  - Checks run locally: 47 node tests passed; both typechecks clean; journey browser check 231/0; member motion check 0 failures; sitewide device-mode run passed.
+  - Brand (38) and RTL failures are identical to `main`. Phone has 9 failures against 11 on `main`, all on member `/app/intake`.
+  - The sitewide always-mode run has 25 failures. 23 are LCP/TBT/long-task budget misses that `main` also has.
+  - **One open regression for Phase 2 to fix:** CLS 0.0022 on load at 1366x900 on `/` for reduce and cookie visitors, and on `/?scenes=on` under reduce.
+  - PR #89 CI passed 8/8 on `0c899e1` (Phase 1 plus the handoff).
+- **Phase 2 is done**, committed as `ae73c13` (08:46 UTC) and pushed at 08:58 UTC.
+  - CLS fix: the browser sometimes painted the hero before its last line ("Free to join …") arrived. The bottom-aligned column then jumped 35px. This could hit any visitor.
+    - The home hero now has `<link rel="expect" href="#mk-relay-cap" blocking="render">`, so the browser waits for the rest of the hero before painting.
+    - A proxy that holds the HTML at that point reproduced 0.00218 before the fix. After it, every group reads 0 at 1366 and 390.
+  - Micro-animations:
+    - commission pills enter in order from the inline start, 80ms apart;
+    - FAQ rows cascade 40ms apart;
+    - the closing CTA arrow nudges once;
+    - the hero `.mk-cta` arrow nudges at 2.55s and is done by 2.97s;
+    - the /features ticks pop.
+    - Each starts when it is itself seen (its own trigger), per the review correction.
+  - Checks run: node tests 113/113; both typechecks clean; `npm run build` passed; targeted Playwright check 116/116 (390, 1366, Arabic, reduce).
+  - **Not yet run:** the full `test:marketing-motion`, brand, RTL and phone suites. These are left for the single final run.
+  - PR #89 CI passed 8/8 on `8bcb0cf` (Phase 2 plus the handoff).
+- **Phase 3 is done**, committed as `f9c9fae` and pushed at 09:42 UTC.
+  - **Scroll-scenes engine:** it no longer requests a frame forever. It wakes on scroll, resize, `fonts.ready`, `scenes-on`/`data-scenes-still` changes, `mk-scene:seek`, IntersectionObserver or ResizeObserver changes, and pointer input (only while an ambient recipe is mounted). It stops 150ms after the last wake-up.
+    - Scrubbing is identical: 126 of 126 sampled positions matched the old engine at 390 and 1366.
+    - New `tests/scroll-scenes-engine.test.ts` with 8 tests.
+  - **Hero "trains" sweep: built, then reverted (not shipped).** The one allowed LCP comparison (5 cold loads at CPU 4x) did not prove LCP unchanged:
+    - 1366: 756 → 744ms;
+    - 390: 656 → 848ms (+192ms against a 50ms allowance).
+    - That is probably noise, since the sweep doesn't touch the lede at 390. A retry needs a larger sample, which is the owner's call.
+  - Checks run: node 121/121; both typechecks; build; targeted Playwright 58/58.
+- **Reviews (three, read-only):** no blocker.
+  - One major finding: in "always" mode the journey check no longer scans stage-text contrast and size per chapter. The scan only runs in "device" mode.
+  - Minor findings:
+    - the concept checks never run with the member cookie;
+    - the hero-arrow-at-rest check cannot fail;
+    - the /features tick check can skip silently;
+    - nothing ties the ambient flag to the recipes that need it;
+    - the /features ticks never play at phone width;
+    - the doc's "ends within 2.5 s" line is stale.
+  - No build with `MARKETING_MOTION="device"` has been made. Reversibility rests on static tests and reading the code.
+- **Review fixes are done**, committed as `47dc175` and pushed at 10:13 UTC.
+  - The journey check scans stage text (AA, 11px) per chapter in either mode.
+  - The /features set table has its own trigger, so its ticks play on phones too.
+  - The concept pass runs with the cookie, and the rest/tick checks can fail.
+  - A static test ties `ambient` to the recipes that read time or the pointer.
+  - The stale doc sentence is fixed.
+  - Full `test:marketing-motion` (09:30–09:53 UTC):
+    - journey: 243 passed, 0 failed;
+    - sitewide: CLS 0 on load and while scrolling, for every page, width and cohort.
+    - Its 7 failures were the check's own bug: the hero nudge restart used `offsetWidth`, which an SVG doesn't have. After the fix, a targeted re-run reported 0 failures.
+  - The main/base timed comparison was not made, because no base build was available. Timings are reported, not judged.
+  - Node 122/122 and both typechecks clean on the final tree.
+- **Owner said "stalled again" at about 10:07 UTC.** The `verify-and-fix` agent had chained brand → RTL → phone → motion one at a time on `next dev`; the brand check alone took 10+ minutes with no output.
+  - Claude stopped workflow `w3v1bkz5n` at 10:09 UTC. All its processes are gone.
+  - Brand, RTL, phone and motion now run in parallel on the production build (`RTL_WEB_MODE=start`, each on its own ports and database), started 10:09:49 UTC.
+  - Logs: `/tmp/claude-0/-home-user-trainer-what/14381359-c138-56f9-a25b-830f6a2f39f9/scratchpad/final-test-{brand,rtl,phone,motion}.log`.
+  - Compare against `test-{brand,rtl,phone}-base-main.log` there: on main, brand has 38 failures, phone 11 (all member `/app/intake`), and RTL a known set.
 
-**Waiting on the owner:**
-- Q1: Variant B (recommended: everything short always on; pinned scroll scenes still respect OS reduce motion) or Variant A (everything). Also, whether to un-pin the journey walkthrough on phones.
-- Q2: the hero additions.
-- Q3: the performance budget. `/` and `/how-it-works` are already over budget because of the journey player.
+**Waiting on the owner (optional):** whether to retry the hero "trains" sweep with a larger LCP sample (for example 15+ cold loads per width). It stays out until then.
 
-**Next action:** after the owner answers, implement Phase 1 on a new branch from main.
+**Next action:**
+1. When the four parallel suites finish, compare them with main. Then update PR #89 with the real check results, mark it ready and get CI green.
+2. Merge with the full SHA and verify the live release with `scripts/watch-release.sh`.
+3. Record the stage in `docs/COMPLETION_STAGES.md` and `docs/PROJECT_MEMORY.md` (the switch and how to flip it back).
+
+A self check-in is scheduled for 08:55 UTC so that no agent runs long unnoticed.
 
 ### Meal-photo estimates: switched on live after a passing Seed 2.0 Pro test — 20–21 October 2026 (Claude)
 

@@ -25,8 +25,12 @@
     transform: translateY(8px);
   }
 }
+/* Reduced motion stops the panel's rise only in the marketing motion
+   switch's "device" mode (the host carries data-mk-motion,
+   components/marketing/motion-mode.ts); with "always" it rises for every
+   visitor. */
 @media (prefers-reduced-motion: reduce) {
-  .mk-assistant {
+  .mk-assistant:not(:where([data-mk-motion="always"], [data-mk-motion="always"] *)) {
     animation: none;
   }
 }

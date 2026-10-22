@@ -12,8 +12,14 @@
 // Motion: the stage's beats are CSS keyframes (app/marketing-journey.css)
 // that run while the root carries data-run, and pause (animation-play-state)
 // while it carries data-hold. The chapter clock is a Web Animations API
-// animation on the active progress segment (a target-less one under reduced
-// motion, so nothing on screen moves); its finish advances the chapter.
+// animation on the active progress segment (a target-less one when the
+// segment is missing, or under reduced motion while the marketing motion
+// switch is "device", so nothing on screen moves); its finish advances the
+// chapter. With the switch at "always" (motion-mode.ts, the owner's
+// decision of 22 October 2026) the player auto-plays and animates for every
+// visitor; every hold below (Pause, hover, focus, a swipe, off screen, a
+// hidden tab) still applies. The pinned scroll scene (below) still follows
+// both reduced-motion settings.
 // Every beat keeps `animation-fill-mode: both`, so the stage's animations
 // stay reachable through getAnimations() and a chapter restarts by
 // rewinding their current time, with no forced reflow. The CSS animations
@@ -40,6 +46,7 @@ import {
   type PointerEvent,
   type ReactNode,
 } from "react";
+import { MARKETING_MOTION } from "./motion-mode";
 
 /** One chapter's clock, in milliseconds from its start. */
 export type JourneyTiming = {
@@ -58,8 +65,11 @@ type Mode = "idle" | "playing" | "paused" | "ended";
 
 const REDUCE = "(prefers-reduced-motion: reduce)";
 /** The device setting, or the member's own "Reduce motion" choice
- * (<html data-reduce-motion="on">, app/layout.tsx). */
+ * (<html data-reduce-motion="on">, app/layout.tsx), read only while the
+ * marketing motion switch is "device" (motion-mode.ts); with "always" it is
+ * never reduced. */
 const reducedNow = () =>
+  MARKETING_MOTION === "device" &&
   typeof window !== "undefined" &&
   ((typeof window.matchMedia === "function" &&
     window.matchMedia(REDUCE).matches) ||
@@ -166,8 +176,8 @@ export function JourneyPlayer({
   const [chapter, setChapter] = useState(0);
   const [mode, setMode] = useState<Mode>("idle");
   // Whether this chapter's beats play. The first automatic pass shows
-  // chapter 1 complete (no blank flash at load); reduced motion never plays
-  // them.
+  // chapter 1 complete (no blank flash at load); reduced motion in "device"
+  // mode (motion-mode.ts) never plays them.
   const [run, setRun] = useState(false);
   const [runKey, setRunKey] = useState(0);
   // The visitor paused (Pause, keyboard focus, a touch on the step cards):
@@ -363,8 +373,11 @@ export function JourneyPlayer({
   }, [clockOn, chapter, runKey]);
 
   // Reduced motion, read now and whenever the setting changes: no auto-play,
-  // static complete chapters, instant changes.
+  // static complete chapters, instant changes. Only while the marketing
+  // motion switch is "device" (motion-mode.ts); with "always" neither
+  // setting is read.
   useEffect(() => {
+    if (MARKETING_MOTION !== "device") return;
     const query =
       typeof window.matchMedia === "function"
         ? window.matchMedia(REDUCE)

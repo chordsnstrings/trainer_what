@@ -58,6 +58,7 @@ import { availabilityChip, Chip } from "./chip";
 import { HeroFlow } from "./hero-flow";
 import { Journey, JourneyBand, journeyAvailable } from "./journey";
 import { MarketingMotion } from "./motion";
+import { MARKETING_MOTION } from "./motion-mode";
 import { ScrollScenes } from "./scene-mount";
 import type { PublicPlatform } from "./platform";
 import {
@@ -1448,6 +1449,13 @@ function Home({ page, platform }: Ctx) {
   return (
     <>
       <section className="mk-hero" aria-labelledby="mk-hero-h">
+        {/* The first paint waits until the hero copy is parsed (React puts
+            this in <head>; browsers without rel=expect ignore it). Its two
+            columns sit on their bottom edge, so a paint between the buttons
+            and the line under them moved the whole column up when that line
+            arrived: a layout shift of 0.0022 at 1366x900. #mk-relay-cap is
+            the relay's caption, the first element after the copy. */}
+        <link rel="expect" href="#mk-relay-cap" blocking="render" />
         <div className="mk-container mk-hero-inner">
           <div className="mk-hero-copy">
             <div className="mk-hero-head">
@@ -1547,7 +1555,10 @@ export function MarketingSite({ page: registered, platform, origin }: Ctx) {
     availability: platform.availability,
   });
   return (
-    <div className="public mk platform-ui">
+    // data-mk-motion: the marketing motion switch (motion-mode.ts). While it
+    // is "always", the reduced-motion rules skip this root and everything
+    // inside it (header and footer included).
+    <div className="public mk platform-ui" data-mk-motion={MARKETING_MOTION}>
       <MarketingHeader
         key={page.path}
         appName={platform.name}

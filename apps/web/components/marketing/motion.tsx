@@ -4,9 +4,13 @@
 // app/marketing.css (the "Motion" block). No animation library: an
 // IntersectionObserver marks units and the Web Animations API plays the
 // settle. Every word stays in the server-rendered HTML; the reveal only hides
-// a unit that is wholly below the first screen once this script runs, and
-// never under reduced motion, so the page reads the same without JavaScript.
+// a unit that is wholly below the first screen once this script runs, so the
+// page reads the same without JavaScript. Reduced motion (the device setting
+// or the member's own choice) stops both only while the marketing motion
+// switch is "device" (motion-mode.ts); with "always" they run for every
+// visitor.
 import { useEffect, useRef, type RefObject } from "react";
+import { MARKETING_MOTION } from "./motion-mode";
 
 /**
  * The motion tokens in milliseconds and easings, the same values as the
@@ -24,10 +28,13 @@ export const MOTION = {
 
 const REDUCED = "(prefers-reduced-motion: reduce)";
 /** The device setting, or the member's own "Reduce motion" choice
- * (<html data-reduce-motion="on">, app/layout.tsx). */
+ * (<html data-reduce-motion="on">, app/layout.tsx), read only while the
+ * marketing motion switch is "device" (motion-mode.ts); with "always" it is
+ * never reduced. */
 const reduced = () =>
-  (typeof matchMedia === "function" && matchMedia(REDUCED).matches) ||
-  document.documentElement.dataset.reduceMotion === "on";
+  MARKETING_MOTION === "device" &&
+  ((typeof matchMedia === "function" && matchMedia(REDUCED).matches) ||
+    document.documentElement.dataset.reduceMotion === "on");
 
 /**
  * The reveal units: each home band's content, each block of an inner page
@@ -48,23 +55,40 @@ const UNITS = [
 const NEVER = ".mk-hero, .mk-page-head, .mk-relay, .mk-walk-section, .mk-walk-band";
 /** While scroll scenes are on (scene-mount.tsx), scroll moves their sections instead. */
 const SCENES = "[data-scene]";
-/** The longest item stagger in app/marketing.css (--mk-stagger), in ms. */
+/** The longest item stagger in app/marketing.css (--mk-stagger: six
+ * --mk-stagger-step or three --mk-stagger-load), in ms. */
 export const MAX_STAGGER = 240;
 /** Grids whose items follow their unit in a short stagger (app/marketing.css). */
 const GRIDS =
-  ".mk-cards, .mk-tiles, .mk-icon-tiles, .mk-steps, .mk-checklist, .mk-anchors, .mk-band-pills, .mk-screens";
+  ".mk-cards, .mk-tiles, .mk-icon-tiles, .mk-steps, .mk-checklist, .mk-anchors, .mk-band-pills, .mk-screens, .mk-faqs";
+/**
+ * Widgets with a trigger of their own (data-mk-cue), as the concept gives
+ * its barbell its own observer: their unit reveals when its top enters the
+ * view, and on a phone these sit far below that line, so their motion
+ * would be over before it could be seen. The commission pills and the FAQ
+ * rows (grids: their items wait for the grid itself, not for the unit),
+ * the closing panel's button (its arrow nudges once when it comes into
+ * view) and the /features "Back squat" set table (its ticks pop in turn
+ * when it comes into view; its section is taller than one and a half
+ * screens on a phone, so it never waits there). An element that is itself
+ * a unit (the FAQs on an inner page) keeps its unit's trigger, which is
+ * already its own.
+ */
+const CUES = ".mk-band-pills, .mk-faqs, .mk-closing-cta, .mk-sets";
 
 /**
  * The section reveal. Units whose top is below the first screen when the
  * page loads wait (data-mk-reveal="pending", unseen and 12px lower,
  * only while the page root has .mk-motion) and rise once when they enter
  * the view; the items of their grids carry data-mk-item and follow in a
- * stagger. Nothing waits under reduced motion, without
- * IntersectionObserver, when it holds the address's #target or when it is
- * taller than one and a half screens (it is revealed by scrolling anyway,
- * and fading it would restyle and repaint a large area); printing shows
- * everything. The marks sit on the elements that move, so marking and
- * revealing restyle only those elements.
+ * stagger. A cue (CUES, data-mk-cue) is observed the same way but never
+ * fades itself: it only holds its own grid's items, or its arrow's nudge,
+ * until it enters the view. Nothing waits without IntersectionObserver, under reduced
+ * motion in "device" mode (motion-mode.ts), when it holds the address's
+ * #target or when it is taller than one and a half screens (it is revealed
+ * by scrolling anyway, and fading it would restyle and repaint a large
+ * area); printing shows everything. The marks sit on the elements that
+ * move, so marking and revealing restyle only those elements.
  */
 export function MarketingMotion({ path }: { path: string }) {
   useEffect(() => {
@@ -76,6 +100,11 @@ export function MarketingMotion({ path }: { path: string }) {
     const units = [...root.querySelectorAll<HTMLElement>(UNITS)].filter(
       (unit) => !unit.closest(NEVER) && !(scenes && unit.closest(SCENES)),
     );
+    const unitSet = new Set<Element>(units);
+    const cues = [...root.querySelectorAll<HTMLElement>(CUES)].filter(
+      (cue) => !unitSet.has(cue) && !cue.closest(NEVER) && !(scenes && cue.closest(SCENES)),
+    );
+    const cueSet = new Set<Element>(cues);
     let target: Element | null = null;
     try {
       if (location.hash) target = document.getElementById(decodeURIComponent(location.hash.slice(1)));
@@ -91,8 +120,10 @@ export function MarketingMotion({ path }: { path: string }) {
       for (const item of items.get(unit) ?? [])
         if (item.dataset.mkItem === "in") item.dataset.mkItem = "done";
     };
+    // A unit fades and rises; a cue only releases its items or its nudge.
     const mark = (unit: HTMLElement, state: "pending" | "in") => {
-      unit.dataset.mkReveal = state;
+      if (cueSet.has(unit)) unit.dataset.mkCue = state;
+      else unit.dataset.mkReveal = state;
       for (const item of items.get(unit) ?? []) item.dataset.mkItem = state;
       if (state === "in" && items.get(unit)?.length)
         timers.push(
@@ -115,9 +146,10 @@ export function MarketingMotion({ path }: { path: string }) {
             const tall = box.height > window.innerHeight * 1.5;
             const holdsTarget = !!target && (unit.contains(target) || target.contains(unit));
             if (below && !tall && !holdsTarget) {
+              // A grid that is a cue of its own keeps its items.
               const grids = [
                 ...(unit.matches(GRIDS) ? [unit] : []),
-                ...unit.querySelectorAll<HTMLElement>(GRIDS),
+                ...[...unit.querySelectorAll<HTMLElement>(GRIDS)].filter((grid) => !cueSet.has(grid)),
               ];
               items.set(
                 unit,
@@ -135,18 +167,19 @@ export function MarketingMotion({ path }: { path: string }) {
       },
       { rootMargin: "0px 0px -10% 0px" },
     );
-    for (const unit of units) observer.observe(unit);
+    for (const unit of [...units, ...cues]) observer.observe(unit);
     const showAll = () => {
       observer.disconnect();
       for (const unit of units)
         if (unit.dataset.mkReveal === "pending") mark(unit, "in");
+      for (const cue of cues) if (cue.dataset.mkCue === "pending") mark(cue, "in");
     };
     window.addEventListener("beforeprint", showAll);
     return () => {
       window.removeEventListener("beforeprint", showAll);
       showAll();
       for (const timer of timers) window.clearTimeout(timer);
-      for (const unit of units) settleItems(unit);
+      for (const unit of [...units, ...cues]) settleItems(unit);
     };
   }, [path]);
   return null;
@@ -184,8 +217,9 @@ export const SETTLE_ADDRESS: SettleTarget[] = [
  * Settles the values that changed inside `ref` once input pauses for
  * `delay` ms: a short fade and a 4px rise, never a count-up (the result is
  * an aria-live region, its width must not jitter, and an estimate should
- * not look like a rolling total). Only on the marketing site, never under
- * reduced motion; the text itself changes at once.
+ * not look like a rolling total). Only on the marketing site, and under
+ * reduced motion only in "device" mode (motion-mode.ts); the text itself
+ * changes at once.
  */
 export function useSettle(
   ref: RefObject<HTMLElement | null>,

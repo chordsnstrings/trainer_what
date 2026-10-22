@@ -483,7 +483,7 @@ test("motion tokens: the brief's values, defined once in marketing.css", async (
   const css = await readFile(cssUrl, "utf8");
   assert.doesNotMatch(
     css.replace(/\/\*[\s\S]*?\*\//g, ""),
-    /--mk-(?:dur|ease)-[a-z-]+\s*:/,
+    /--mk-(?:dur|ease|dist|stagger)-[a-z-]+\s*:/,
     "marketing-journey.css defines a motion token",
   );
   const sitewide = await readFile(
@@ -494,9 +494,9 @@ test("motion tokens: the brief's values, defined once in marketing.css", async (
     (r) => r.selector.replace(/\s+/g, " ") === ".mk, .mk-header, .mk-footer, .mk-assistant-host",
   )!;
   const defined = Object.fromEntries(
-    decls(root.body).filter(([p]) => /^--mk-(?:dur|ease)-/.test(p)),
+    decls(root.body).filter(([p]) => /^--mk-(?:dur|ease|dist|stagger)-/.test(p)),
   );
-  for (const [, name] of css.matchAll(/var\((--mk-(?:dur|ease)-[a-z-]+)\)/g))
+  for (const [, name] of css.matchAll(/var\((--mk-(?:dur|ease|dist|stagger)-[a-z-]+)\)/g))
     assert.ok(name in defined, `${name} is not a marketing.css token`);
   assert.deepEqual(defined, {
     "--mk-dur-press": "80ms",
@@ -508,6 +508,15 @@ test("motion tokens: the brief's values, defined once in marketing.css", async (
     "--mk-ease-in": "cubic-bezier(0.4, 0, 1, 1)",
     "--mk-ease-in-out": "cubic-bezier(0.4, 0, 0.2, 1)",
     "--mk-ease-spring": "cubic-bezier(0.34, 1.4, 0.64, 1)",
+    // The 22 October 2026 concept pass: the load-in curve, the motion
+    // distances and the item staggers.
+    "--mk-ease-enter": "cubic-bezier(0.2, 0.8, 0.2, 1)",
+    "--mk-dist-nudge": "3px",
+    "--mk-dist-item": "8px",
+    "--mk-dist-rise": "12px",
+    "--mk-dist-load": "16px",
+    "--mk-stagger-step": "40ms",
+    "--mk-stagger-load": "80ms",
   });
 });
 
@@ -583,7 +592,14 @@ test("motion hygiene: transform and opacity only, tokens, hover media, reduced m
         "spring outside the success pop",
       );
   }
+  // The reduced-motion rules stay for the marketing motion switch's
+  // "device" mode, and skip the marketing root while it is "always"
+  // (tests/marketing-motion-sitewide.test.ts checks every selector).
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
+  assert.match(
+    css,
+    /\.mk-walk:not\(:where\(\[data-mk-motion="always"\], \[data-mk-motion="always"\] \*\)\) \*::before/,
+  );
   assert.doesNotMatch(css, /infinite/);
   // The pop (spring) is used only on success states in the mocks: the
   // success badges, the ticks and Live.
@@ -621,7 +637,14 @@ test("the motion island stays React-only and web dependencies are explicitly rev
   const imports = [...island.matchAll(/^import[\s\S]*?from "([^"]+)";/gm)].map(
     (m) => m[1],
   );
-  assert.deepEqual(imports, ["react"]);
+  // React, and the marketing motion switch (a constant with no imports of
+  // its own: components/marketing/motion-mode.ts).
+  assert.deepEqual(imports, ["react", "./motion-mode"]);
+  const mode = await readFile(
+    new URL("../apps/web/components/marketing/motion-mode.ts", import.meta.url),
+    "utf8",
+  );
+  assert.doesNotMatch(mode, /^\s*import\s/m);
   const root = JSON.parse(
     await readFile(new URL("../package.json", import.meta.url), "utf8"),
   );

@@ -23,7 +23,14 @@ export type Ctx = {
 export type Scene = (el: HTMLElement, stage: HTMLElement) => (c: Ctx) => void;
 
 const registry = new Map<string, Scene>();
-export const registerScene = (name: string, scene: Scene) => { registry.set(name, scene); };
+/** Recipes that also move with time or the pointer (they read c.t, c.mx or c.my): while one is part-way
+ *  through its scene it is drawn on every frame. Every other recipe is a pure function of progress and
+ *  is drawn only when its progress changes. */
+const ambient = new Set<string>();
+export const registerScene = (name: string, scene: Scene, options: { ambient?: boolean } = {}) => {
+  registry.set(name, scene);
+  if (options.ambient) ambient.add(name); else ambient.delete(name);
+};
 
 export const clamp = (v: number, a = 0, b = 1) => Math.min(b, Math.max(a, v));
 export const easeOut = (t: number) => 1 - Math.pow(1 - t, 3);
@@ -108,24 +115,37 @@ function move(el: HTMLElement, m: Move) {
 
 /* ---------- the engine ---------- */
 
+/** The frame loop stops this long after the last wake-up (scroll, resize, pointer, a layout change). */
+export const IDLE_MS = 150;
+
 type Live = {
-  el: HTMLElement; stage: HTMLElement; run: (c: Ctx) => void;
+  el: HTMLElement; stage: HTMLElement; run: (c: Ctx) => void; ambient: boolean;
   on: boolean; mode: 'pin' | 'enter' | 'leave';
   top: number; padT: number; padB: number; stageH: number; span: number; p: number;
 };
 
 /** Finds every [data-scene] under root and drives it. Returns a cleanup function
- *  (call it on route change / unmount). Does nothing unless <html> has "scenes-on". */
+ *  (call it on route change / unmount). Does nothing unless <html> has "scenes-on".
+ *
+ *  The loop is event-driven: nothing runs while nothing can change. A frame is requested on scroll,
+ *  resize, pointer input (only when an ambient recipe is mounted), once the web fonts are ready, when
+ *  <html> gains or loses "scenes-on" or "data-scenes-still", when a scene's "mk-scene:seek" fires, when
+ *  a scene enters or leaves the viewport, and when the page or a scene changes size (content above a
+ *  scene can move it without a scroll). Frames continue for IDLE_MS after the last of these, and for as
+ *  long as an ambient recipe is part-way through its scene; then the loop stops. Every listener is
+ *  passive. What a frame draws is unchanged: progress is read from the same rects, and a scene is drawn
+ *  whenever its progress changes. */
 export function mountScenes(root: ParentNode = document): () => void {
   const html = document.documentElement;
   if (!html.classList.contains('scenes-on')) return () => {};
 
   const live: Live[] = [];
   root.querySelectorAll<HTMLElement>('[data-scene]').forEach(el => {
-    const scene = registry.get(el.dataset.scene!);
-    if (!scene) { console.warn(`[scroll-scenes] unknown scene "${el.dataset.scene}"`, el); return; }
+    const name = el.dataset.scene!;
+    const scene = registry.get(name);
+    if (!scene) { console.warn(`[scroll-scenes] unknown scene "${name}"`, el); return; }
     const stage = el.querySelector<HTMLElement>(':scope > [data-stage]') ?? el;
-    live.push({ el, stage, run: scene(el, stage), on: false, mode: 'enter',
+    live.push({ el, stage, run: scene(el, stage), ambient: ambient.has(name), on: false, mode: 'enter',
       top: 0, padT: 0, padB: 0, stageH: 0, span: 0.7, p: -1 });
   });
 
@@ -147,18 +167,46 @@ export function mountScenes(root: ParentNode = document): () => void {
   };
   measure();
 
-  const io = new IntersectionObserver(entries => entries.forEach(e => {
-    const s = live.find(x => x.el === e.target);
-    if (s) s.on = e.isIntersecting;
-  }), { rootMargin: '25% 0px' });
-  live.forEach(s => io.observe(s.el));
-
-  let mx = 0, my = 0, raf = 0, off = false;
+  let mx = 0, my = 0, raf = 0, off = false, dead = false, woke = 0;
   const t0 = performance.now();
-  const onPointer = (e: PointerEvent) => { mx = e.clientX / innerWidth - 0.5; my = e.clientY / innerHeight - 0.5; };
-  addEventListener('pointermove', onPointer, { passive: true });
-  addEventListener('resize', measure);
-  document.fonts?.ready.then(measure);                    // web fonts can change paddings and heights
+
+  /** Something may have changed: make sure a frame is coming, and keep frames coming for IDLE_MS. */
+  const wake = () => {
+    if (dead) return;
+    woke = performance.now();
+    if (!raf) raf = requestAnimationFrame(frame);
+  };
+  const remeasure = () => { if (!dead) { measure(); wake(); } };
+  const pointerMoves = live.some(s => s.ambient);       // only ambient recipes read the pointer
+  const onPointer = (e: PointerEvent) => {
+    mx = e.clientX / innerWidth - 0.5; my = e.clientY / innerHeight - 0.5;
+    if (pointerMoves) wake();
+  };
+  const passive = { passive: true } as const;
+
+  const io = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      const s = live.find(x => x.el === e.target);
+      if (s) s.on = e.isIntersecting;
+    });
+    wake();
+  }, { rootMargin: '25% 0px' });
+  live.forEach(s => io.observe(s.el));
+  addEventListener('scroll', wake, passive);
+  addEventListener('pointermove', onPointer, passive);
+  addEventListener('resize', remeasure, passive);
+  document.fonts?.ready.then(remeasure);                  // web fonts can change paddings and heights
+  // "scenes-on" removed (motion switched off at runtime: today's page at once, without waiting for a
+  // scroll) or added back, and data-scenes-still (set by tests) toggled: redraw at the new setting.
+  const attrs = new MutationObserver(records => {
+    if (records.some(r => r.attributeName === 'data-scenes-still')) live.forEach(s => { s.p = -1; });
+    wake();
+  });
+  attrs.observe(html, { attributes: true, attributeFilter: ['class', 'data-scenes-still'] });
+  // Content that grows or shrinks (a font swap, an opened answer above a scene) moves scenes without a scroll.
+  const sizes = typeof ResizeObserver === 'function' ? new ResizeObserver(wake) : null;
+  if (sizes) { sizes.observe(document.body); live.forEach(s => sizes.observe(s.el)); }
+  live.forEach(s => s.el.addEventListener('mk-scene:seek', wake, passive));
 
   const seekFor = (s: Live) => (p: number) => {
     if (s.mode !== 'pin') return s.el.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -168,34 +216,43 @@ export function mountScenes(root: ParentNode = document): () => void {
   };
 
   const frame = (now: number) => {
-    raf = requestAnimationFrame(frame);
+    raf = 0;
     if (!html.classList.contains('scenes-on')) {         // motion switched off at runtime
       if (!off) { restAll(); off = true; }
-      return;
+      return;                                            // asleep until the class comes back
     }
     if (off) { off = false; measure(); }
     const still = html.hasAttribute('data-scenes-still'); // set by tests for repeatable screenshots
     const vh = innerHeight, phone = innerWidth <= 620, t = still ? 0 : (now - t0) / 1000;
     const act = live.filter(s => s.on);
     const rects = act.map(s => s.el.getBoundingClientRect());   // read everything, then write
+    let moving = false;
     act.forEach((s, i) => {
       const r = rects[i];
       const p = s.mode === 'pin' ? clamp((s.top - r.top - s.padT) / (r.height - s.padT - s.padB - s.stageH))
         : s.mode === 'leave' ? clamp(-r.top / r.height)
         : clamp((vh - r.top) / (vh * s.span));
-      const idle = !still && p > 0 && p < 1;             // pointer tilt / float keep moving
+      const idle = s.ambient && !still && p > 0 && p < 1;  // pointer tilt / float keep moving
+      moving ||= idle;
       if (p === s.p && !idle) return;
       s.p = p;
       s.run({ el: s.el, stage: s.stage, p, t, mx: still ? 0 : mx, my: still ? 0 : my, phone, move, seek: seekFor(s) });
     });
+    if (moving || performance.now() - woke < IDLE_MS) raf = requestAnimationFrame(frame);
   };
-  raf = requestAnimationFrame(frame);
+  wake();
 
   return () => {
+    dead = true;
     cancelAnimationFrame(raf);
+    raf = 0;
     io.disconnect();
+    attrs.disconnect();
+    sizes?.disconnect();
+    removeEventListener('scroll', wake);
     removeEventListener('pointermove', onPointer);
-    removeEventListener('resize', measure);
+    removeEventListener('resize', remeasure);
+    live.forEach(s => s.el.removeEventListener('mk-scene:seek', wake));
     restAll();
   };
 }

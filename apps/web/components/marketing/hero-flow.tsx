@@ -2,9 +2,11 @@
 // train, and anything it is unsure about comes back to you. All text is real
 // HTML (read by search engines, language models and screen readers); the
 // wires, the travelling dot and the return loop are decorative. Every step is
-// visible from the first paint; the one-off motion (under three seconds, and
-// only when the visitor has not asked for reduced motion; app/marketing.css)
-// draws the wires, moves the dot, pulses the core tile and ticks the rows.
+// visible from the first paint; the one-off motion (under three seconds, for
+// every visitor while the marketing motion switch is "always", and only
+// without reduced motion when it is "device"; motion-mode.ts,
+// app/marketing.css) draws the wires, moves the dot, pulses the core tile
+// and ticks the rows.
 // On phones the relay is a compact row of the three steps (icons and titles),
 // so all three show on the first screen. It shows no metrics, counts or
 // revenue, and only features that are available now.

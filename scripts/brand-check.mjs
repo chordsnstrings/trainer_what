@@ -15,7 +15,10 @@
 // analytics bar is slim with 48 px controls and covers nothing at the end of
 // the page; after an answer, No thanks or Close, no analytics control floats,
 // after a reload too), and a reduced-motion,
-// animation, right-to-left and word-count pass. It
+// animation, right-to-left and word-count pass (the reduced-motion pass
+// follows the marketing motion switch, data-mk-motion on the marketing root,
+// components/marketing/motion-mode.ts: with "always" the relay plays under
+// reduced motion exactly as without it; with "device" nothing animates). It
 // also checks that a subscriber's member app and a coach website show their
 // trainer's branding, never the platform's, follow the device into dark mode
 // with every text at AA, and set the trainer's browser colour for each
@@ -474,6 +477,68 @@ async function consentAnswerChecks(page, label, answer) {
 async function homeChecks(scheme) {
   const seconds = (v) =>
     v.split(",").map((s) => (s.trim().endsWith("ms") ? parseFloat(s) / 1000 : parseFloat(s)));
+  /** The marketing motion switch the page was built with ("device" when absent). */
+  const motionSwitch = (page) =>
+    page.evaluate(() => document.querySelector(".mk")?.getAttribute("data-mk-motion") ?? "device");
+  /**
+   * The relay plays once: every card and its words show from the first
+   * paint, the relay animates, nothing loops, the last animation ends
+   * within 4.5 s and after 5 s it rests on the final picture (the
+   * decorative dot rests hidden). Call it right after the relay appears.
+   */
+  const relayPlaysOnce = async (page, label) => {
+    // Every card and its words show from the first paint; only the wires,
+    // the dot, the core tile's pulse and the row ticks move.
+    const hiddenAtStart = await page.evaluate(() =>
+      [...document.querySelectorAll(".mk-relay-node, .mk-relay-title, .mk-relay-detail, .mk-relay-loop")]
+        .filter((el) => Number(getComputedStyle(el).opacity) !== 1)
+        .map((el) => el.getAttribute("class")),
+    );
+    if (hiddenAtStart.length) fail(label, `hidden at first paint: ${hiddenAtStart.slice(0, 4).join("; ")}`);
+    const timing = await page.evaluate(() =>
+      [...document.querySelectorAll(".mk *")].map((el) => {
+        const s = getComputedStyle(el);
+        return {
+          name: s.animationName,
+          delay: s.animationDelay,
+          duration: s.animationDuration,
+          count: s.animationIterationCount,
+          relay: !!el.closest(".mk-relay"),
+        };
+      }),
+    );
+    const animated = timing.filter((t) => t.name !== "none");
+    const infinite = timing.filter((t) => t.count.includes("infinite"));
+    const end = Math.max(
+      0,
+      ...animated.map((t) => {
+        const d = seconds(t.delay),
+          l = seconds(t.duration);
+        return Math.max(...l.map((x, i) => x + (d[i] ?? d[0])));
+      }),
+    );
+    await page.waitForTimeout(5000);
+    const resting = await page.evaluate(() =>
+      [...document.querySelectorAll(".mk-relay *")]
+        .map((el) => [el, Number(getComputedStyle(el).opacity)])
+        .filter(([el, o]) => (el.classList.contains("mk-relay-dot") ? o !== 0 : o !== 1))
+        .map(([el, o]) => `${el.getAttribute("class")} ${o}`),
+    );
+    // The hand-off (22 October 2026): after the relay the hero's primary
+    // action's arrow nudges once (counted in the 4.5 s above) and is back
+    // in place by 5 s.
+    const arrow = await page.evaluate(() => {
+      const a = document.querySelector(".mk-hero .mk-cta > .lucide-arrow-right");
+      return a ? { translate: getComputedStyle(a).translate, running: a.getAnimations().filter((x) => x.playState === "running").length } : null;
+    });
+    if (!animated.some((t) => t.name === "mk-nudge")) fail(label, "the hero arrow has no hand-off");
+    if (!arrow || arrow.translate !== "none" || arrow.running) fail(label, `the hero arrow is not at rest after 5 s: ${JSON.stringify(arrow)}`);
+    if (!animated.some((t) => t.relay)) fail(label, "the relay has no animation");
+    if (infinite.length) fail(label, `${infinite.length} infinite animation(s)`);
+    if (end > 4.5) fail(label, `animation ends at ${end}s`);
+    if (resting.length) fail(label, `not at rest after 5 s: ${resting.slice(0, 4).join("; ")}`);
+    return { animated: animated.length, end };
+  };
   // 1440x900: the whole hero, header included, fits the first screen; the
   // three relay titles line up; every region starts at the same edge; the
   // notice covers nothing and, after a scroll, is a slim bar.
@@ -554,21 +619,32 @@ async function homeChecks(scheme) {
     );
     await ctx.close();
   });
-  // Reduced motion: nothing animates and the final picture shows at once.
+  // Reduced motion follows the marketing motion switch (data-mk-motion on
+  // the marketing root): with "always" (the owner, 22 October 2026) the
+  // relay plays exactly as without the setting (the same rules as "motion
+  // /" below); with "device" nothing animates and the final picture shows
+  // at once.
   await screen(`${scheme} reduced motion /`, async () => {
+    const label = `${scheme} reduced motion /`;
     const ctx = await context(VIEWPORTS[1], scheme, "reduce");
     const page = await ctx.newPage();
     await page.goto(base + "/", { waitUntil: "domcontentloaded" });
     await page.locator(".mk-relay").waitFor();
-    const bad = await page.evaluate(() =>
-      [...document.querySelectorAll(".mk-relay *")]
-        .filter((el) => !el.classList.contains("mk-relay-dot"))
-        .map((el) => [el, getComputedStyle(el)])
-        .filter(([, s]) => s.animationName !== "none" || Number(s.opacity) !== 1)
-        .map(([el, s]) => `${el.tagName.toLowerCase()}.${el.getAttribute("class")} ${s.animationName} ${s.opacity}`),
-    );
-    checked.push({ label: `${scheme} reduced motion /`, scanned: 0, low: 0, logo: "-" });
-    if (bad.length) fail(`${scheme} reduced motion /`, `${bad.length} animated or hidden: ${bad.slice(0, 4).join("; ")}`);
+    const switchMode = await motionSwitch(page);
+    checked.push({ label, scanned: 0, low: 0, logo: "-" });
+    if (switchMode === "always") {
+      const r = await relayPlaysOnce(page, label);
+      console.log(`home reduced motion ${scheme} (switch "always"): ${r.animated} animated elements, last ends at ${r.end}s`);
+    } else {
+      const bad = await page.evaluate(() =>
+        [...document.querySelectorAll(".mk-relay *")]
+          .filter((el) => !el.classList.contains("mk-relay-dot"))
+          .map((el) => [el, getComputedStyle(el)])
+          .filter(([, s]) => s.animationName !== "none" || Number(s.opacity) !== 1)
+          .map(([el, s]) => `${el.tagName.toLowerCase()}.${el.getAttribute("class")} ${s.animationName} ${s.opacity}`),
+      );
+      if (bad.length) fail(label, `${bad.length} animated or hidden: ${bad.slice(0, 4).join("; ")}`);
+    }
     await ctx.close();
   });
   // Motion allowed: it plays once, ends within 4.5 s, and rests on the final
@@ -578,50 +654,9 @@ async function homeChecks(scheme) {
     const page = await ctx.newPage();
     await page.goto(base + "/", { waitUntil: "domcontentloaded" });
     await page.locator(".mk-relay").waitFor();
-    // Every card and its words show from the first paint; only the wires,
-    // the dot, the core tile's pulse and the row ticks move.
-    const hiddenAtStart = await page.evaluate(() =>
-      [...document.querySelectorAll(".mk-relay-node, .mk-relay-title, .mk-relay-detail, .mk-relay-loop")]
-        .filter((el) => Number(getComputedStyle(el).opacity) !== 1)
-        .map((el) => el.getAttribute("class")),
-    );
-    if (hiddenAtStart.length)
-      fail(`${scheme} motion /`, `hidden at first paint: ${hiddenAtStart.slice(0, 4).join("; ")}`);
-    const timing = await page.evaluate(() =>
-      [...document.querySelectorAll(".mk *")].map((el) => {
-        const s = getComputedStyle(el);
-        return {
-          name: s.animationName,
-          delay: s.animationDelay,
-          duration: s.animationDuration,
-          count: s.animationIterationCount,
-          relay: !!el.closest(".mk-relay"),
-        };
-      }),
-    );
-    const animated = timing.filter((t) => t.name !== "none");
-    const infinite = timing.filter((t) => t.count.includes("infinite"));
-    const end = Math.max(
-      0,
-      ...animated.map((t) => {
-        const d = seconds(t.delay),
-          l = seconds(t.duration);
-        return Math.max(...l.map((x, i) => x + (d[i] ?? d[0])));
-      }),
-    );
-    await page.waitForTimeout(5000);
-    const resting = await page.evaluate(() =>
-      [...document.querySelectorAll(".mk-relay *")]
-        .map((el) => [el, Number(getComputedStyle(el).opacity)])
-        .filter(([el, o]) => (el.classList.contains("mk-relay-dot") ? o !== 0 : o !== 1))
-        .map(([el, o]) => `${el.getAttribute("class")} ${o}`),
-    );
     checked.push({ label: `${scheme} motion /`, scanned: 0, low: 0, logo: "-" });
-    if (!animated.some((t) => t.relay)) fail(`${scheme} motion /`, "the relay has no animation");
-    if (infinite.length) fail(`${scheme} motion /`, `${infinite.length} infinite animation(s)`);
-    if (end > 4.5) fail(`${scheme} motion /`, `animation ends at ${end}s`);
-    if (resting.length) fail(`${scheme} motion /`, `not at rest after 5 s: ${resting.slice(0, 4).join("; ")}`);
-    console.log(`home motion ${scheme}: ${animated.length} animated elements, last ends at ${end}s`);
+    const r = await relayPlaysOnce(page, `${scheme} motion /`);
+    console.log(`home motion ${scheme}: ${r.animated} animated elements, last ends at ${r.end}s`);
     await ctx.close();
   });
   // Right to left (1440): the steps mirror, the wires point to the next
@@ -630,6 +665,9 @@ async function homeChecks(scheme) {
     const ctx = await context(VIEWPORTS[1], scheme, "reduce");
     const page = await ctx.newPage();
     await visit(page, "/?lang=ar");
+    // With the switch at "always" the relay plays under reduced motion too:
+    // measure its final picture, after it has come to rest (it ends by 4.5 s).
+    if ((await motionSwitch(page)) === "always") await page.waitForTimeout(5500);
     const m = await page.evaluate(() => {
       const center = (r) => r.left + r.width / 2;
       const nodes = [...document.querySelectorAll(".mk-relay-steps > li")];

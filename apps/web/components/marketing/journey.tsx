@@ -7,8 +7,9 @@
 // (aria-hidden), sample data only, with no metrics, counts, revenue or
 // amounts. Base styles are each chapter's complete picture; the one-off
 // beats (app/marketing-journey.css) play only while the root carries
-// data-run, never under reduced motion. The only client code is the control
-// bar and clock (journey-player.tsx).
+// data-run: for every visitor while the marketing motion switch is
+// "always", never under reduced motion when it is "device" (motion-mode.ts).
+// The only client code is the control bar and clock (journey-player.tsx).
 //
 // The launch gate: the second half of the workflow (publish, join, pay,
 // daily coaching, payouts) exists only once a coach can launch, so the

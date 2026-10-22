@@ -7,12 +7,26 @@
 //   top, left, margin and the like), or a transition names no property;
 // - a duration or easing is not a --mk-* motion token (delays are
 //   choreography times and are exempt, and so is the scroll-driven header
-//   shadow, which has no duration);
-// - an animation repeats forever, or the spring easing is used outside the
-//   success states;
+//   shadow, which has no duration), or a reveal, item, load-in or nudge
+//   distance, or an item stagger, is not a --mk-dist-* / --mk-stagger-*
+//   token (22 October 2026 concept pass);
+// - an animation repeats forever, the spring easing is used outside the
+//   success states, or the enter easing outside the load-in entrances;
+// - the concept pass's motion is not wired as agreed: the commission pills
+//   load from the inline start 80ms apart, the FAQ rows cascade, the
+//   closing button's arrow nudges once when the button itself comes into
+//   view (a trigger of its own, data-mk-cue), the hero's arrow takes over
+//   after the relay, and the /features set ticks pop in turn;
 // - a :hover rule sits outside @media (hover: hover) / (hover: none);
-// - motion escapes the reduced-motion rules: elements are stopped by
-//   globals.css, pseudo-elements and the details content box by this file;
+// - the marketing motion switch (components/marketing/motion-mode.ts) is not
+//   wired both ways: with "always" (the owner, 22 October 2026) every short
+//   marketing motion plays for every visitor, so every reduced-motion rule
+//   that reaches the marketing root or the assistant host must skip
+//   [data-mk-motion="always"]; with "device" those same rules (kept, not
+//   deleted) stop everything as before: elements in globals.css and
+//   app/motion.css, pseudo-elements and the details content box in this
+//   file, and the scripts read both settings. The pinned scroll scenes
+//   follow both settings in either mode;
 // - something is hidden before a reveal without the .mk-motion class that
 //   only the script adds (so the page reads the same without JavaScript);
 // - the tokens are defined more than once, differ from the agreed values or
@@ -22,6 +36,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import { MAX_STAGGER, MOTION } from "../apps/web/components/marketing/motion.tsx";
+import {
+  MARKETING_MOTION,
+  MARKETING_MOTION_ATTRIBUTE,
+  MOTION_ALWAYS_EXCLUDED,
+} from "../apps/web/components/marketing/motion-mode.ts";
 
 const web = (path: string) => new URL("../apps/web/" + path, import.meta.url);
 
@@ -119,24 +138,36 @@ const TOKENS: Record<string, string> = {
   "--mk-ease-in": "cubic-bezier(0.4, 0, 1, 1)",
   "--mk-ease-in-out": "cubic-bezier(0.4, 0, 0.2, 1)",
   "--mk-ease-spring": "cubic-bezier(0.34, 1.4, 0.64, 1)",
+  "--mk-ease-enter": "cubic-bezier(0.2, 0.8, 0.2, 1)",
+  "--mk-dist-nudge": "3px",
+  "--mk-dist-item": "8px",
+  "--mk-dist-rise": "12px",
+  "--mk-dist-load": "16px",
+  "--mk-stagger-step": "40ms",
+  "--mk-stagger-load": "80ms",
 };
 /** What may move: compositor properties, the relay's wire and a disclosure's height. */
 const MOVING = new Set(["opacity", "transform", "translate", "scale", "rotate", "stroke-dashoffset"]);
 const TRANSITIONS = new Set([...MOVING, "grid-template-rows", "content-visibility"]);
 const LAYOUT = /^(width|height|(min|max)-(width|height)|inline-size|block-size|(min|max)-(inline|block)-size|top|left|right|bottom|inset(-.+)?|margin(-.+)?|padding(-.+)?|all)$/;
 const DURATION = /^var\(--mk-dur-(press|fast|base|slow|emphasis)\)$/;
-const EASING = /^var\(--mk-ease-(out|in|in-out|spring)\)$/;
-const TIME = /^(-?[\d.]+m?s|var\(--mk-stagger(, ?[\d.]+m?s)?\))$/;
+const EASING = /^var\(--mk-ease-(out|in|in-out|spring|enter)\)$/;
+/** A delay: a choreography time, a stagger (the item's own, or a stagger
+ * token), or a calc() of times, numbers and those (the /features set ticks). */
+const STAGGER_VAR = String.raw`var\(--mk-(?:stagger(?:-step|-load)?|set-step)(?:, ?[\d.]+m?s)?\)`;
+const TIME = new RegExp(String.raw`^(-?[\d.]+m?s|${STAGGER_VAR}|calc\((?:[\d.]+m?s|[\d.]+|${STAGGER_VAR}|[\s+*-])+\))$`);
 const KEYWORD_EASING = /^(ease|ease-in|ease-out|ease-in-out|linear|step-start|step-end|(cubic-bezier|steps|linear)\(.*\))$/;
 /** The success states that may use the spring (relay ticks, "Applied automatically", pops). */
 const SPRING_ALLOWED = [
   ".mk-relay-rows svg",
   ".mk-lane-auto",
   ".badge[data-mk-success]",
-  ".mk-sets svg",
+  '.mk-sets[data-mk-cue="in"] svg',
   ".mk-screen-note svg",
   ".mk-queue-item.done .badge svg",
 ];
+/** The load-in entrances that may use the enter easing (the concept's plate curve). */
+const ENTER_ALLOWED = ['.mk-band-pills > [data-mk-item="in"]'];
 /** :hover rules that are functions, not effects: they stay on every device. */
 const HOVER_ALLOWED = [
   {
@@ -249,6 +280,8 @@ test("the CSS reader keeps at-rule context, selectors and !important", () => {
     ".x { animation-name: k; animation-duration: var(--mk-dur-base); }",
     ".x { animation: missing var(--mk-dur-base) var(--mk-ease-out); }",
     ".x { transition: margin-top var(--mk-dur-fast) var(--mk-ease-out); }",
+    ".x { transition: opacity var(--mk-dur-fast) var(--mk-ease-out) calc(var(--other) + 1ms); }",
+    ".x { transition: opacity var(--mk-dur-fast) var(--mk-ease-bounce); }",
   ])
     assert.ok(check(bad).length, bad);
   for (const good of [
@@ -258,6 +291,9 @@ test("the CSS reader keeps at-rule context, selectors and !important", () => {
     ".x { animation: k var(--mk-dur-base) var(--mk-ease-spring) 80ms both; }",
     ".x { animation: k linear both; animation-timeline: scroll(root block); }",
     ".x { animation-name: k; animation-timing-function: var(--mk-ease-out); animation-duration: var(--mk-dur-emphasis); }",
+    ".x { transition: translate var(--mk-dur-slow) var(--mk-ease-enter) var(--mk-stagger-load); }",
+    ".x { transition: opacity var(--mk-dur-fast) var(--mk-ease-out) calc(520ms + var(--mk-set-step, 0ms)); }",
+    ".x { animation: k var(--mk-dur-emphasis) var(--mk-ease-in-out) 2.55s 1; }",
   ])
     assert.deepEqual(check(good), [], good);
 });
@@ -310,9 +346,27 @@ test("marketing motion uses the tokens, moves only transform, opacity and disclo
         SPRING_ALLOWED.some((allowed) => selector.includes(allowed)),
         `the spring on ${selector} (success states only: ${SPRING_ALLOWED.join(", ")})`,
       );
+  // The enter curve is for the load-in entrances only.
+  const enters = rules.filter((r) =>
+    r.declarations.some((d) => !d.property.startsWith("--") && d.value.includes("--mk-ease-enter")),
+  );
+  assert.ok(enters.length >= 1, "the commission pills use the enter curve");
+  for (const rule of enters)
+    for (const selector of rule.selectors)
+      assert.ok(
+        ENTER_ALLOWED.some((allowed) => selector.includes(allowed)),
+        `the enter curve on ${selector} (load-in entrances only: ${ENTER_ALLOWED.join(", ")})`,
+      );
+  // Motion distances are tokens: the reveal, an item, a load-in and the
+  // arrow nudge (the hover lift of a card is its own 2px).
+  for (const rule of rules)
+    for (const d of rule.declarations) {
+      if (d.property !== "translate" || !/(\.mk-motion|lucide-arrow-right|@keyframes mk-nudge)/.test(rule.selector + rule.context.join(" "))) continue;
+      assert.doesNotMatch(d.value, /(^|[\s(])[1-9][\d.]*px/, `line ${rule.line} ${rule.selector}: translate ${d.value} uses a --mk-dist token`);
+    }
 });
 
-test("hover effects only where the pointer hovers; reduced motion stops everything", async () => {
+test("hover effects only where the pointer hovers; in \"device\" mode reduced motion stops everything", async () => {
   const css = await readFile(web("app/marketing.css"), "utf8");
   const globals = await readFile(web("app/globals.css"), "utf8");
   const rules = cssRules(css);
@@ -329,9 +383,11 @@ test("hover effects only where the pointer hovers; reduced motion stops everythi
     assert.ok(rules.some((r) => r.selectors.includes(a.selector)), `stale hover allowance ${a.selector}`);
     assert.ok(a.reason.length > 40);
   }
-  // globals.css stops every element's transitions and animations.
+  // globals.css stops every element's transitions and animations, except
+  // under [data-mk-motion="always"] (the marketing switch).
+  const G = MOTION_ALWAYS_EXCLUDED;
   const reducedGlobals = cssRules(globals).filter(
-    (r) => r.context.includes("@media (prefers-reduced-motion: reduce)") && r.selector === "*",
+    (r) => r.context.includes("@media (prefers-reduced-motion: reduce)") && r.selector === `*${G}`,
   );
   assert.ok(
     reducedGlobals.some(
@@ -339,10 +395,11 @@ test("hover effects only where the pointer hovers; reduced motion stops everythi
         r.declarations.some((d) => d.property === "transition" && d.value === "none" && d.important) &&
         r.declarations.some((d) => d.property === "animation" && d.value === "none" && d.important),
     ),
-    "globals.css: * { transition: none !important; animation: none !important } under reduced motion",
+    `globals.css: *${G} { transition: none !important; animation: none !important } under reduced motion`,
   );
   // `*` does not reach pseudo-elements or the details content box: this
-  // file stops them for every marketing root.
+  // file stops them for every marketing root (in "device" mode, and for the
+  // header and footer outside .mk).
   const reduced = rules.filter((r) => r.context.some((c) => c.includes("prefers-reduced-motion: reduce")));
   const stops = (selector: string) =>
     reduced.some(
@@ -353,10 +410,10 @@ test("hover effects only where the pointer hovers; reduced motion stops everythi
           r.declarations.some((d) => d.property === "animation" && d.value === "none" && d.important)),
     );
   for (const selector of [
-    ":is(.mk, .mk-header, .mk-footer)::after",
-    ":is(.mk, .mk-header, .mk-footer) ::before",
-    ":is(.mk, .mk-header, .mk-footer) ::after",
-    ":is(.mk, .mk-header, .mk-footer) ::details-content",
+    `:is(.mk, .mk-header, .mk-footer)${G}::after`,
+    `:is(.mk, .mk-header, .mk-footer)${G} ::before`,
+    `:is(.mk, .mk-header, .mk-footer)${G} ::after`,
+    `:is(.mk, .mk-header, .mk-footer)${G} ::details-content`,
   ])
     assert.ok(stops(selector), `reduced motion stops ${selector}`);
   // Every moving pseudo-element sits under a marketing root, so those rules
@@ -375,18 +432,152 @@ test("hover effects only where the pointer hovers; reduced motion stops everythi
   assert.ok(
     reduced.some(
       (r) =>
-        r.selectors.includes('.mk-motion [data-mk-reveal="pending"]') &&
+        r.selectors.includes(`.mk-motion${G} [data-mk-reveal="pending"]`) &&
         r.declarations.some((d) => d.property === "opacity" && d.value === "1" && d.important),
     ),
   );
-  // Auto-playing keyframes (the relay, the header shadow, the demo, the
-  // phone menu) sit inside prefers-reduced-motion: no-preference.
-  for (const rule of rules)
-    if (rule.declarations.some((d) => (d.property === "animation" || d.property === "animation-name") && d.value !== "none"))
-      assert.ok(
-        rule.context.some((c) => c.includes("prefers-reduced-motion: no-preference")),
-        `${rule.selector} (line ${rule.line}) animates outside prefers-reduced-motion: no-preference`,
-      );
+  // The motion plays outside any no-preference query (the switch decides
+  // who sees it): the relay, the header shadow, the demo and the phone menu.
+  assert.doesNotMatch(css, /prefers-reduced-motion: no-preference/);
+  for (const name of ["mk-draw", "mk-ring", "mk-tick", "mk-header-shadow", "mk-drop", "mk-rise", "mk-pop", "mk-stamp"])
+    assert.ok(
+      rules.some((r) => r.declarations.some((d) => /^animation(-name)?$/.test(d.property) && d.value.split(/[\s,]+/).includes(name))),
+      `${name} is still used`,
+    );
+});
+
+test("the marketing motion switch: one constant, on the marketing root and the assistant host, with both modes wired", async () => {
+  // One constant, one of the two modes; the attribute carries it to CSS.
+  assert.ok(["always", "device"].includes(MARKETING_MOTION), MARKETING_MOTION);
+  assert.equal(MARKETING_MOTION_ATTRIBUTE, "data-mk-motion");
+  // The exclusion matches only "always" (with "device" nothing carries
+  // it, so every rule matches what it matched before) and sits in :where()
+  // (no added specificity, so the cascade is unchanged).
+  assert.equal(MOTION_ALWAYS_EXCLUDED, ':not(:where([data-mk-motion="always"], [data-mk-motion="always"] *))');
+  const modeSource = await readFile(web("components/marketing/motion-mode.ts"), "utf8");
+  assert.doesNotMatch(modeSource, /^\s*["']use client["']/m, "server code reads the switch");
+  assert.doesNotMatch(modeSource, /^\s*import\s/m, "motion-mode.ts imports nothing");
+  assert.match(modeSource, /^export const MARKETING_MOTION = "(always|device)" as MarketingMotionMode;$/m);
+  // The attribute is rendered from the constant on the marketing root and
+  // the assistant host, and nowhere else (the member app, the trainer
+  // workspace, coach websites and the sign-in pages never carry it).
+  const site = await readFile(web("components/marketing/site.tsx"), "utf8");
+  assert.match(site, /<div className="public mk platform-ui" data-mk-motion=\{MARKETING_MOTION\}>/);
+  const host = await readFile(web("components/marketing/assistant-button.tsx"), "utf8");
+  assert.match(host, /className="mk-assistant-host public platform-ui"\s+data-mk-motion=\{MARKETING_MOTION\}/);
+  const carriers: string[] = [];
+  const walk = async (dir: URL, rel: string) => {
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) await walk(new URL(entry.name + "/", dir), rel + entry.name + "/");
+      else if (/\.tsx?$/.test(entry.name) && /data-mk-motion=\{/.test(await readFile(new URL(entry.name, dir), "utf8")))
+        carriers.push(rel + entry.name);
+    }
+  };
+  await walk(web("app/"), "app/");
+  await walk(web("components/"), "components/");
+  assert.deepEqual(carriers.sort(), ["components/marketing/assistant-button.tsx", "components/marketing/site.tsx"]);
+
+  // CSS: every reduced-motion rule that reaches the marketing root or the
+  // assistant host is kept and skips "always". Element rules: the device's
+  // (globals.css) and the member's own choice (motion.css).
+  const G = MOTION_ALWAYS_EXCLUDED;
+  const globals = cssRules(await readFile(web("app/globals.css"), "utf8"));
+  assert.ok(globals.some((r) => r.context.includes("@media (prefers-reduced-motion: reduce)") && r.selector === `*${G}`));
+  assert.ok(!globals.some((r) => r.context.includes("@media (prefers-reduced-motion: reduce)") && r.selector === "*"), "no unscoped `*` rule");
+  const member = cssRules(await readFile(web("app/motion.css"), "utf8"));
+  const cookie = member.find((r) => r.selectors[0] === `:root[data-reduce-motion="on"] *${G}`);
+  assert.ok(cookie, "the member's Reduce motion rule skips the marketing root in always mode");
+  assert.deepEqual(cookie.selectors, ["", "::before", "::after", "::backdrop"].map((p) => `:root[data-reduce-motion="on"] *${G}${p}`));
+  // Marketing stylesheets: every rule under reduced motion, and every rule
+  // keyed on the member's choice, carries the exclusion on every selector.
+  const sheets = ["marketing.css", "marketing-assistant.css", "marketing-journey.css"];
+  let scoped = 0;
+  for (const sheet of sheets) {
+    const sheetRules = cssRules(await readFile(web("app/" + sheet), "utf8"));
+    const reduceRules = sheetRules.filter(
+      (r) =>
+        !r.context.some((c) => c.startsWith("@keyframes")) &&
+        (r.context.some((c) => c.includes("prefers-reduced-motion: reduce")) || r.selector.includes("data-reduce-motion")),
+    );
+    assert.ok(reduceRules.length, `${sheet} keeps its reduced-motion rules for "device" mode`);
+    for (const rule of reduceRules)
+      for (const selector of rule.selectors) {
+        scoped++;
+        assert.ok(selector.includes(G), `${sheet}:${rule.line} ${selector} must skip [data-mk-motion="always"]`);
+      }
+    // And the no-preference wrappers are gone: in "always" mode the motion
+    // plays for everyone; in "device" mode the rules above stop it.
+    assert.ok(
+      !sheetRules.some((r) => r.context.some((c) => c.includes("prefers-reduced-motion: no-preference"))),
+      `${sheet} has no no-preference wrapper`,
+    );
+  }
+  assert.ok(scoped >= 12, `${scoped} scoped reduced-motion selectors`);
+
+  // Kamran's Talk button: the marketing press in "always" mode, the
+  // subscriber press (motion.css) in "device" mode.
+  const marketing = cssRules(await readFile(web("app/marketing.css"), "utf8"));
+  assert.ok(
+    marketing.some(
+      (r) =>
+        r.selectors.includes('.mk-assistant-host:where([data-mk-motion="always"]) .button:active:not(:disabled)') &&
+        r.declarations.some((d) => d.property === "scale" && d.value === "0.97"),
+    ),
+  );
+  assert.ok(marketing.some((r) => r.selectors.includes('.mk-assistant-host:where([data-mk-motion="always"]) .button')));
+  const press = member.filter((r) => r.context.some((c) => c.includes("no-preference")) && /\.public:not\(/.test(r.selector) && /\.button/.test(r.selector));
+  assert.ok(press.length >= 2, "the subscriber press and its :active state");
+  for (const r of press) assert.match(r.selector, /\.public:not\(\.mk, \[data-mk-motion="always"\]\)/);
+
+  // JavaScript: the reveal, the settle and the journey player read both
+  // settings, and only in "device" mode.
+  const motion = await readFile(web("components/marketing/motion.tsx"), "utf8");
+  assert.match(
+    motion,
+    /const reduced = \(\) =>\s+MARKETING_MOTION === "device" &&\s+\(\(typeof matchMedia === "function" && matchMedia\(REDUCED\)\.matches\) \|\|\s+document\.documentElement\.dataset\.reduceMotion === "on"\);/,
+  );
+  assert.match(motion, /const REDUCED = "\(prefers-reduced-motion: reduce\)";/);
+  assert.match(motion, /typeof IntersectionObserver !== "function" \|\| reduced\(\)/);
+  assert.match(motion, /!root\.closest\("\.mk"\) &&\s+!reduced\(\) &&/);
+  const player = await readFile(web("components/marketing/journey-player.tsx"), "utf8");
+  assert.match(
+    player,
+    /const reducedNow = \(\) =>\s+MARKETING_MOTION === "device" &&\s+typeof window !== "undefined" &&\s+\(\(typeof window\.matchMedia === "function" &&\s+window\.matchMedia\(REDUCE\)\.matches\) \|\|\s+document\.documentElement\.dataset\.reduceMotion === "on"\);/,
+  );
+  // The listener for a setting changed on an open page is kept for "device".
+  assert.match(player, /useEffect\(\(\) => \{\s+if \(MARKETING_MOTION !== "device"\) return;\s+const query =/);
+  assert.match(player, /attributeFilter: \["data-reduce-motion"\]/);
+  assert.match(player, /setRun\(!reducedNow\(\)\)/);
+  assert.match(player, /behavior: reducedNow\(\) \? "instant" : "smooth"/);
+  // The chapter clock keeps its fallback: without the segment's <i> (or
+  // under reduced motion in "device" mode) a target-less animation still
+  // advances the chapter instead of crashing.
+  assert.match(
+    player,
+    /reduced \|\| !fill\s+\? new Animation\(\s+new KeyframeEffect\(null, null, \{ duration \}\),\s+document\.timeline,\s+\)\s+: fill\.animate\(/,
+  );
+
+  // The pinned scroll scenes are not switched (Variant B): the head script
+  // and the mount run the same reduced-motion tests, and neither reads the
+  // marketing switch, so the pin is decided before the first paint and
+  // never shifts the page.
+  const head = await readFile(web("components/marketing/scenes-head.ts"), "utf8");
+  const mount = await readFile(web("components/marketing/scene-mount.tsx"), "utf8");
+  const code = (source: string) => source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  assert.match(head, /if\(d\.getAttribute\("data-reduce-motion"\)==="on"\)return;/);
+  assert.match(head, /if\(window\.matchMedia&&matchMedia\("\(prefers-reduced-motion: reduce\)"\)\.matches\)return;/);
+  assert.match(mount, /const REDUCE = "\(prefers-reduced-motion: reduce\)";/);
+  assert.match(
+    mount,
+    /const reduced = \(\) =>\s+\(typeof matchMedia === "function" && matchMedia\(REDUCE\)\.matches\) \|\|\s+document\.documentElement\.dataset\.reduceMotion === "on";/,
+  );
+  assert.match(mount, /location\.pathname === "\/" &&\s+!reduced\(\) &&/);
+  for (const [name, source] of [["scenes-head.ts", head], ["scene-mount.tsx", mount]] as const) {
+    assert.doesNotMatch(code(source), /MARKETING_MOTION|motion-mode|data-mk-motion/, `${name} must not read the marketing switch`);
+    // Both test the same two settings.
+    assert.match(source, /prefers-reduced-motion: reduce/, name);
+    assert.match(source, /reduce-?[mM]otion/, name);
+  }
 });
 
 test("nothing is hidden before a reveal without the script's .mk-motion class", async () => {
@@ -406,7 +597,7 @@ test("nothing is hidden before a reveal without the script's .mk-motion class", 
   // Every reveal state waits on the script's class.
   for (const rule of rules)
     for (const selector of rule.selectors)
-      if (/data-mk-(reveal|item)/.test(selector))
+      if (/data-mk-(reveal|item|cue)/.test(selector))
         assert.ok(selector.startsWith(".mk-motion"), `${selector} must start with .mk-motion`);
   // Adding .mk-motion to the page root, and marking or revealing a unit,
   // must restyle only the elements that move: every rule under .mk-motion
@@ -454,8 +645,15 @@ test("the script's motion values are the CSS tokens, and no animation library is
   assert.equal(`${MOTION.slow}ms`, token("--mk-dur-slow"));
   assert.equal(`${MOTION.emphasis}ms`, token("--mk-dur-emphasis"));
   assert.equal(MOTION.easeOut, token("--mk-ease-out"));
-  // The script marks grid items "done" after the longest stagger.
-  const staggers = [...css.matchAll(/--mk-stagger:\s*(\d+)ms/g)].map((m) => Number(m[1]));
+  // The script marks grid items "done" after the longest stagger. Each
+  // item's --mk-stagger is a stagger token or a whole multiple of one.
+  const ms = (name: string) => Number(token(name).replace(/ms$/, ""));
+  const staggers = [...css.matchAll(/--mk-stagger:\s*([^;]+);/g)].map(([, value]) => {
+    const m = value.trim().match(/^(?:calc\((\d+) \* var\((--mk-stagger-(?:step|load))\)\)|var\((--mk-stagger-(?:step|load))\))$/);
+    assert.ok(m, `--mk-stagger: ${value} is a stagger token or a whole multiple of one`);
+    return m[1] ? Number(m[1]) * ms(m[2]) : ms(m[3]);
+  });
+  assert.ok(staggers.length >= 9, `${staggers.length} item staggers`);
   assert.equal(Math.max(...staggers), MAX_STAGGER);
   // Marketing components import React, Next's link/router, the icon set, the
   // workspace packages and each other: no animation library.
@@ -471,11 +669,12 @@ test("the script's motion values are the CSS tokens, and no animation library is
   const motion = await readFile(new URL("motion.tsx", dir), "utf8");
   assert.deepEqual(
     [...motion.matchAll(/from\s+"([^"]+)"/g)].map((m) => m[1]),
-    ["react"],
-    "motion.tsx imports only react",
+    ["react", "./motion-mode"],
+    "motion.tsx imports only react and the marketing motion switch",
   );
-  // The reveal observes with IntersectionObserver, checks reduced motion and
-  // never touches the hero, the page heading or the relay.
+  // The reveal observes with IntersectionObserver, checks reduced motion
+  // (in "device" mode, motion-mode.ts) and never touches the hero, the page
+  // heading or the relay.
   assert.match(motion, /new IntersectionObserver\(/);
   assert.match(motion, /prefers-reduced-motion: reduce/);
   assert.match(motion, /\.mk-hero, \.mk-page-head, \.mk-relay/);
@@ -488,7 +687,7 @@ test("one set of motion tokens; the journey player shares the sitewide press and
   const dir = web("app/");
   for (const file of (await readdir(dir)).filter((f) => f.endsWith(".css"))) {
     const css = (await readFile(new URL(file, dir), "utf8")).replace(/\/\*[\s\S]*?\*\//g, "");
-    const count = [...css.matchAll(/--mk-(?:dur|ease)-[a-z-]+\s*:/g)].length;
+    const count = [...css.matchAll(/--mk-(?:dur|ease|dist|stagger)-[a-z-]+\s*:/g)].length;
     assert.equal(count, file === "marketing.css" ? Object.keys(TOKENS).length : 0, `${file} defines ${count} motion token(s)`);
   }
   const rules = cssRules(await readFile(web("app/marketing.css"), "utf8"));
@@ -527,4 +726,120 @@ test("one set of motion tokens; the journey player shares the sitewide press and
   const journey = await readFile(web("components/marketing/journey.tsx"), "utf8");
   assert.match(journey, /className="mk-section mk-walk-section"/);
   assert.match(journey, /className="mk-home-band mk-home-paper mk-walk-band"/);
+});
+
+test("the concept pass (22 October 2026): pills, FAQ rows, the arrow hand-offs and the set ticks, each on its own trigger", async () => {
+  const css = await readFile(web("app/marketing.css"), "utf8");
+  const rules = cssRules(css);
+  const find = (selector: string) => rules.find((r) => r.selectors.includes(selector));
+  const value = (selector: string, property: string) => find(selector)?.declarations.find((d) => d.property === property)?.value;
+  const motion = await readFile(web("components/marketing/motion.tsx"), "utf8");
+  const list = (name: string) =>
+    motion
+      .match(new RegExp(`const ${name} =\\s+"([^"]+)";`))![1]
+      .split(",")
+      .map((s) => s.trim());
+  // The FAQs are a grid (the heading, then each question), and the pills,
+  // the FAQs, the closing button and the /features set table have a
+  // trigger of their own.
+  assert.ok(list("GRIDS").includes(".mk-faqs") && list("GRIDS").includes(".mk-band-pills"));
+  assert.deepEqual(list("CUES"), [".mk-band-pills", ".mk-faqs", ".mk-closing-cta", ".mk-sets"]);
+  assert.match(motion, /if \(cueSet\.has\(unit\)\) unit\.dataset\.mkCue = state;\s+else unit\.dataset\.mkReveal = state;/);
+  assert.match(motion, /\.filter\(\(grid\) => !cueSet\.has\(grid\)\)/, "a unit leaves a cue's items to the cue");
+  assert.match(
+    motion,
+    /\(cue\) => !unitSet\.has\(cue\) && !cue\.closest\(NEVER\) && !\(scenes && cue\.closest\(SCENES\)\)/,
+    "a cue never sits in the hero, the relay, the journey or a running scene",
+  );
+  assert.match(motion, /for \(const unit of \[\.\.\.units, \.\.\.cues\]\) observer\.observe\(unit\);/);
+  assert.match(motion, /for \(const cue of cues\) if \(cue\.dataset\.mkCue === "pending"\) mark\(cue, "in"\);/, "printing releases the cues");
+  // Every grid in GRIDS has its 40ms steps; the pills and the screens load
+  // 80ms apart (the first pill at once, the fourth 240ms later).
+  const GRID_LIST = list("GRIDS").join(", ");
+  for (const [n, steps] of [[2, "var(--mk-stagger-step)"], [3, "calc(2 * var(--mk-stagger-step))"], ["n + 7", "calc(6 * var(--mk-stagger-step))"]] as const)
+    assert.equal(value(`:is(${GRID_LIST}) > :nth-child(${n})`, "--mk-stagger"), steps, `grid item ${n}`);
+  assert.equal(value(":is(.mk-screens, .mk-band-pills) > :nth-child(2)", "--mk-stagger"), "var(--mk-stagger-load)");
+  assert.equal(value(":is(.mk-screens, .mk-band-pills) > :nth-child(n + 4)", "--mk-stagger"), "calc(3 * var(--mk-stagger-load))");
+  // The pills slide in from the inline start (mirrored right to left) on the
+  // enter curve; every other item keeps its 8px rise.
+  assert.equal(
+    value('.mk-motion .mk-band-pills > [data-mk-item="pending"]', "translate"),
+    "calc(-1 * var(--mk-dist-load) * var(--inline-sign, 1)) 0",
+  );
+  assert.equal(
+    value('.mk-motion .mk-band-pills > [data-mk-item="in"]', "transition"),
+    "opacity var(--mk-dur-slow) var(--mk-ease-out) var(--mk-stagger, 0ms), translate var(--mk-dur-slow) var(--mk-ease-enter) var(--mk-stagger, 0ms)",
+  );
+  assert.equal(value('.mk-motion [data-mk-item="pending"]', "translate"), "0 var(--mk-dist-item)");
+  assert.equal(value('.mk-motion [data-mk-reveal="pending"]', "translate"), "0 var(--mk-dist-rise)");
+  // The nudge: one forward step and back, mirrored, never repeated.
+  const nudge = rules.filter((r) => r.context.includes("@keyframes mk-nudge"));
+  assert.deepEqual(
+    nudge.map((r) => [r.selector, r.declarations.map((d) => `${d.property}: ${d.value}`).join("; ")]),
+    [["50%", "translate: calc(var(--mk-dist-nudge) * var(--inline-sign, 1)) 0"]],
+  );
+  const nudges = rules.filter((r) => r.declarations.some((d) => d.property === "animation" && d.value.startsWith("mk-nudge ")));
+  assert.deepEqual(nudges.flatMap((r) => r.selectors).sort(), [
+    ".mk .mk-hero .mk-cta > .lucide-arrow-right",
+    '.mk-motion .mk-closing-cta[data-mk-cue="in"] > .lucide-arrow-right',
+  ]);
+  // The closing arrow: 280ms after its button comes into view, done by about 700ms.
+  assert.equal(
+    value('.mk-motion .mk-closing-cta[data-mk-cue="in"] > .lucide-arrow-right', "animation"),
+    "mk-nudge var(--mk-dur-emphasis) var(--mk-ease-in-out) 280ms 1",
+  );
+  // The hero's arrow takes over after the relay's last tick has popped,
+  // keyed on .mk-cta (whatever its label), and ends well inside the 4.5 s
+  // the brand check allows the home page's first-screen motion.
+  const seconds = (t: string) => (t.endsWith("ms") ? Number(t.slice(0, -2)) / 1000 : Number(t.slice(0, -1)));
+  const hero = value(".mk .mk-hero .mk-cta > .lucide-arrow-right", "animation")!;
+  assert.match(hero, /^mk-nudge var\(--mk-dur-emphasis\) var\(--mk-ease-in-out\) ([\d.]+m?s) 1$/);
+  const heroDelay = seconds(hero.split(" ")[3]);
+  const lastTick = seconds(value(".mk-relay-rows li:nth-child(3) svg", "animation-delay")!) + MOTION.slow / 1000;
+  assert.ok(heroDelay >= lastTick, `the hand-off (${heroDelay}s) follows the relay's last tick (${lastTick}s)`);
+  assert.ok(heroDelay + MOTION.emphasis / 1000 <= 3, `the hand-off ends by 3 s (${heroDelay + MOTION.emphasis / 1000}s)`);
+  // The /features set ticks pop one after another, 80ms apart from 520ms,
+  // on the set table's own trigger (its section is too tall to wait on a
+  // phone); the other screen ticks keep their section's reveal.
+  const TICKS = "opacity var(--mk-dur-fast) var(--mk-ease-out) calc(520ms + var(--mk-set-step, 0ms)), scale var(--mk-dur-slow) var(--mk-ease-spring) calc(520ms + var(--mk-set-step, 0ms))";
+  assert.equal(value('.mk-motion .mk-sets[data-mk-cue="in"] svg', "transition"), TICKS);
+  assert.equal(value('.mk-motion [data-mk-reveal="in"] :is(.mk-screen-note svg, .mk-queue-item.done .badge svg)', "transition"), TICKS);
+  assert.equal(value('.mk-motion .mk-sets[data-mk-cue="pending"] svg', "opacity"), "0");
+  assert.equal(value('.mk-motion .mk-sets[data-mk-cue="pending"] svg', "scale"), "0.4");
+  assert.ok(
+    !rules.some((r) => r.selectors.some((s) => s.includes("[data-mk-reveal") && s.includes(".mk-sets"))),
+    "the set ticks never wait for their section's reveal as well",
+  );
+  assert.equal(value(".mk-sets tr:nth-child(2)", "--mk-set-step"), "var(--mk-stagger-load)");
+  assert.equal(value(".mk-sets tr:nth-child(n + 3)", "--mk-set-step"), "calc(2 * var(--mk-stagger-load))");
+  // 520ms is after the screens' own rise and their longest load stagger.
+  assert.ok(520 >= MOTION.slow + MAX_STAGGER, "a tick never pops before its screen has landed");
+  // In "device" mode reduced motion still stops all of it: the arrows are
+  // held in place and no item waits (the reduced-motion block), and the
+  // script never runs.
+  const G = MOTION_ALWAYS_EXCLUDED;
+  const reduced = rules.filter((r) => r.context.some((c) => c.includes("prefers-reduced-motion: reduce")));
+  assert.ok(reduced.some((r) => r.selector.includes(".lucide-arrow-right") && r.selector.includes(G) && r.declarations.some((d) => d.property === "translate" && d.important)));
+  assert.ok(reduced.some((r) => r.selectors.includes(`.mk-motion${G} [data-mk-item="pending"]`)));
+  const release = reduced.find((r) => r.selectors.includes(`.mk-motion${G} .mk-sets[data-mk-cue="pending"] svg`));
+  assert.ok(
+    release && ["opacity", "scale"].every((p) => release.declarations.some((d) => d.property === p && d.important)),
+    "the set ticks never wait under reduced motion in device mode",
+  );
+});
+
+test("the home page's first paint waits for the whole hero copy (CLS 0 when the parser yields mid-hero)", async () => {
+  // The hero copy's two columns sit on their bottom edge, so a first paint
+  // between its buttons and the line under them moved the column up when
+  // the line arrived (0.0022 at 1366x900, 22 October 2026). A render-blocking
+  // rel=expect on the element right after the copy (the relay's caption)
+  // keeps the first paint whole.
+  const site = await readFile(web("components/marketing/site.tsx"), "utf8");
+  const hero = site.match(/<section className="mk-hero" aria-labelledby="mk-hero-h">[\s\S]*?<HeroFlow /)![0];
+  assert.match(hero, /<link rel="expect" href="#mk-relay-cap" blocking="render" \/>/);
+  assert.ok(hero.indexOf('<link rel="expect"') < hero.indexOf('className="mk-hero-copy"'), "the link comes before the copy");
+  const relay = await readFile(web("components/marketing/hero-flow.tsx"), "utf8");
+  // The caption is the relay's first element, always rendered.
+  assert.match(relay, /<figure className="mk-relay" aria-labelledby="mk-relay-cap">\s+<figcaption id="mk-relay-cap" className="sr-only">/);
+  assert.equal([...site.matchAll(/rel="expect"/g)].length, 1, "only the home hero blocks the first paint");
 });

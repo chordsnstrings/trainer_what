@@ -547,7 +547,7 @@ the page.
    with `h1Highlight` "trains" in Pace (a `span.mk-mark`, not `<mark>`); the
    15-word `lede` "Share your methods and rules. Your AI coaches every
    subscriber day by day, your way."; the primary action (`button large
-   mk-cta`: "Teach your AI", or "Join early access" while registration is
+   mk-cta`: "Start coaching", or "Join early access" while registration is
    closed, 15 px semibold at every width); "See how it works"; and "Built for
    UAE trainers · You set the price in AED · No technical skills needed".
    One name for the product in the hero: "your AI". The Trainer Brain is
@@ -568,8 +568,9 @@ the page.
    At 760 px and below the relay is a compact row (icons and titles only,
    short wires, the loop), so all three steps show on a 390×844 first
    screen. Wires mirror right to left (`scale: var(--inline-sign) 1`); the
-   lockup and the mark never mirror. Motion is CSS only, plays once, ends at
-   2.5 s and runs only under `prefers-reduced-motion: no-preference`; every
+   lockup and the mark never mirror. Motion is CSS only, plays once and ends
+   at 2.5 s; since 22 October 2026 it plays for every visitor while the marketing motion switch (`MARKETING_MOTION`, `components/marketing/motion-mode.ts`; [marketing-motion.md](marketing-motion.md), "Motion for every visitor") is `"always"` (with `"device"`, only under
+   `prefers-reduced-motion: no-preference`); every
    card and word shows from the first paint (only the wires, the travelling
    dot, the core tile's pulse and the row ticks move), and the decorative
    dot rests hidden.
@@ -695,8 +696,10 @@ entity sentence).
   29 September 2026), visible words, H2 count, one H1) and
   390×844 (H1, primary action and all three relay titles on the first
   screen, one compact row, nothing covered, one left edge); inner
-  marketing pages start at the header logo's edge; reduced motion (no
-  animation, everything visible), motion allowed (every card visible at
+  marketing pages start at the header logo's edge; reduced motion (by the
+  marketing motion switch since 22 October 2026: with `"always"` the same
+  rules as motion allowed; with `"device"` no animation, everything
+  visible), motion allowed (every card visible at
   first paint, plays once, ends by 4.5 s, at rest after 5 s), right to
   left at 1440 (steps mirrored, wires towards the next step, lockup and
   mark not mirrored) and every public route at 390 with `?lang=ar` (no
@@ -759,10 +762,13 @@ site stays light with Pace accents.
 
 The home relay's house rules now hold on every page: every word is real
 HTML and visible from the first paint; motion is decorative, short and
-plays once; reduced motion removes it; no metrics, counts, revenue or
-count-ups. The tokens are defined once on the marketing roots (`.mk,
-.mk-header, .mk-footer` in `app/marketing.css`), with the subscriber app
-pass's values: `--mk-dur-press` 80 ms, `--mk-dur-fast` 140 ms,
+plays once; reduced motion removes it (since 22 October 2026 only while the marketing motion switch (`MARKETING_MOTION`, `components/marketing/motion-mode.ts`; [marketing-motion.md](marketing-motion.md), "Motion for every visitor") is `"device"`; it is `"always"`, motion for every
+visitor); no metrics, counts, revenue or count-ups. The tokens are defined
+once on the marketing roots (`.mk, .mk-header, .mk-footer`, and
+`.mk-assistant-host` since Kamran's button, in `app/marketing.css`), with
+the values of the subscriber app's first motion pass (the subscriber tokens
+have changed since, on 20 October 2026; `docs/features/motion.md`):
+`--mk-dur-press` 80 ms, `--mk-dur-fast` 140 ms,
 `--mk-dur-base` 200 ms, `--mk-dur-slow` 280 ms, `--mk-dur-emphasis` 420 ms,
 `--mk-ease-out` `cubic-bezier(0.2, 0, 0, 1)`, `--mk-ease-in`
 `cubic-bezier(0.4, 0, 1, 1)`, `--mk-ease-in-out` `cubic-bezier(0.4, 0, 0.2,
@@ -802,14 +808,17 @@ origins use `calc(50% - 50% * var(--inline-sign, 1))`.
 
 `MarketingMotion` (one island in `MarketingSite`, rendering nothing) adds
 `.mk-motion` to the page root only when JavaScript runs, IntersectionObserver
-exists and the visitor has not asked for reduced motion. Its observer's
+exists and (while the marketing motion switch is `"device"`; with
+`"always"`, since 22 October 2026, for every visitor) the visitor has not
+asked for reduced motion. Its observer's
 first report says where each unit starts; only a unit whose top is below
 the viewport is marked `data-mk-reveal="pending"`, and it turns `"in"` once
 it enters the view (root margin 10% from the bottom). Every hiding rule
 needs `.mk-motion`, so without JavaScript nothing is hidden; a unit that
 holds the address's `#target` never waits; printing reveals everything;
-leaving the page reveals what is left. Under reduced motion the script does
-nothing, `globals.css` stops every element's transitions and animations,
+leaving the page reveals what is left. Under reduced motion in the switch's
+`"device"` mode the script does nothing, `globals.css` stops every element's
+transitions and animations,
 and `marketing.css` stops the pseudo-elements and the details content box
 (which `*` does not reach), removes lifts, presses and nudges, and shows any
 unit that was waiting when the preference changed. The settle checks the
@@ -859,8 +868,12 @@ its own 200 ms timing instead of the reveal's stagger.
   is the scroll-driven header shadow); on an infinite animation; on the
   spring outside the success states; on a `:hover` rule outside `@media
   (hover: …)` (one listed exception); when motion escapes the reduced-motion
-  rules or an auto-playing keyframe sits outside `prefers-reduced-motion:
-  no-preference`; when anything is hidden without `.mk-motion`; when the
+  rules or (until 22 October 2026) an auto-playing keyframe sits outside
+  `prefers-reduced-motion: no-preference` (since then: when a
+  reduced-motion rule that reaches the marketing root does not skip
+  `[data-mk-motion="always"]`, a no-preference wrapper is left, or the
+  switch is not wired to the root, the assistant host and the scripts);
+  when anything is hidden without `.mk-motion`; when the
   tokens are defined twice, differ from the agreed values or from the
   script's copy; or when a marketing component imports an animation
   library.
@@ -880,7 +893,10 @@ its own 200 ms timing instead of the reveal's stagger.
   base (median run); no gross regression in blocking time on load; every
   word visible with JavaScript off and after a scroll-through; nothing on
   the first screen waits; reduced motion leaves nothing running, marks
-  nothing and does not settle; the FAQ opens fully; the phone menu opens.
+  nothing and does not settle (since 22 October 2026 this follows the
+  switch: with `"always"`, under the device setting and separately the
+  member's cookie, the same as without it, plus timed loads of that cohort
+  and `/?scenes=on` controls); the FAQ opens fully; the phone menu opens.
 
 ### Measured results (29 September 2026, local Chromium, this machine)
 
@@ -1067,10 +1083,12 @@ track.
   (the leaving one slides 12% towards the inline start and fades, the other
   enters). Mock text never goes below 11 px; the bar (Play, Previous, eight
   24 px-wide chapter targets, Next) fits one row at 360 px.
-- Reduced motion: no auto-play, static complete chapters, instant changes;
-  Play runs a slideshow whose clock has no target, so nothing on screen
-  moves. Without JavaScript: every step shows, the stage shows chapter 1
-  complete and no controls show.
+- Reduced motion (while the marketing motion switch is `"device"`): no
+  auto-play, static complete chapters, instant changes; Play runs a
+  slideshow whose clock has no target, so nothing on screen moves. With
+  `"always"` (since 22 October 2026) the player behaves as without reduced
+  motion and keeps every hold. Without JavaScript: every step shows, the
+  stage shows chapter 1 complete and no controls show.
 - Keyboard and screen readers: Pause/Play/Replay is the first control;
   chapter buttons use a roving tabindex (arrows, mirrored in right to left,
   Home and End), carry `aria-current="step"` and are named "01 Claim your
@@ -1106,7 +1124,8 @@ CSS ships on every route). The island minifies to 7.1 kB, 3.0 kB gzipped
   address from the platform; the token values; motion hygiene (keyframes
   and transitions limited to transform, opacity and stroke-dashoffset,
   token durations and easings, hover rules inside `(hover: hover)`, a
-  reduced-motion block, nothing infinite, the spring only on success
+  reduced-motion block (scoped to the switch's `"device"` mode since
+  22 October 2026), nothing infinite, the spring only on success
   states); the island imports only React and no dependency was added.
 - `npm run test:marketing-motion-journey` (since the combine step;
   `npm run test:marketing-motion` now runs this and the sitewide check;
@@ -1121,7 +1140,10 @@ CSS ships on every route). The island minifies to 7.1 kB, 3.0 kB gzipped
   in one row, a swipe; no layout shift (CLS and layout boxes) while
   chapters change and through one full pass sped up 20× (chapters 2-8 in
   order, then Replay); reduced motion (no auto-play, no animation even
-  after Play, the slideshow advances, instant chapters); stage text AA
+  after Play, the slideshow advances, instant chapters; since 22 October
+  2026 only in the switch's `"device"` mode, and with `"always"` auto-play
+  and every hold under the device setting and the member's cookie); stage
+  text AA
   contrast and at least 11 px in every chapter (both sides on phones); no
   JavaScript; right to left at 390 and 1366.
 
@@ -1156,7 +1178,8 @@ Resolved so the two tracks behave as one:
   (`CoreMark`). It is now `.mk .mk-relay .mk-relay-mark::after`.
 - Press: the player's control buttons (`.mk-walk-btn`: Pause/Play/Replay,
   Previous, Next) join the sitewide press (scale 0.97 on the press token,
-  ease-in) and the reduced-motion freeze list. Their hover tint was
+  ease-in) and the reduced-motion freeze list (which applies in the motion
+  switch's `"device"` mode since 22 October 2026). Their hover tint was
   already instant and inside `(hover: hover)`, like the sitewide buttons;
   the chapter segments and the step cards keep their instant tints and do
   not move (they are not link cards).
