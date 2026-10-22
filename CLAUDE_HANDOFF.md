@@ -2,7 +2,7 @@
 
 ## Work in progress
 
-### Marketing motion — implementation in progress, 22 October 2026 (Claude, updated 08:58 UTC)
+### Marketing motion — implementation in progress, 22 October 2026 (Claude, updated 09:43 UTC)
 
 Plan: `docs/MARKETING_MOTION_PLAN_2026-10-22.md` (merged as #88), with its review corrections binding. Owner decisions: "B / sure / accept the speed cost for now. we can always switch it back to motion matching the device."
 - **Approved:** Variant B (all short marketing motion always on; the pinned scroll scenes still follow OS reduce motion and the member's setting), the hero additions, and the speed cost.
@@ -29,11 +29,29 @@ Plan: `docs/MARKETING_MOTION_PLAN_2026-10-22.md` (merged as #88), with its revie
     - Each starts when it is itself seen (its own trigger), per the review correction.
   - Checks run: node tests 113/113; both typechecks clean; `npm run build` passed; targeted Playwright check 116/116 (390, 1366, Arabic, reduce).
   - **Not yet run:** the full `test:marketing-motion`, brand, RTL and phone suites. These are left for the single final run.
-- **Phase 3 is running** (started 08:46 UTC) in background workflow `wf_7a936a16-457`. It is building an event-driven scroll engine with an idle stop, and the hero "trains" sweep only if LCP is proven unaffected.
-  - Then three reviewers run, and one fixer runs the full check suite once.
-  - The agents commit locally; Claude pushes.
+  - PR #89 CI passed 8/8 on `8bcb0cf` (Phase 2 plus the handoff).
+- **Phase 3 is done**, committed as `f9c9fae` and pushed at 09:42 UTC.
+  - **Scroll-scenes engine:** it no longer requests a frame forever. It wakes on scroll, resize, `fonts.ready`, `scenes-on`/`data-scenes-still` changes, `mk-scene:seek`, IntersectionObserver or ResizeObserver changes, and pointer input (only while an ambient recipe is mounted). It stops 150ms after the last wake-up.
+    - Scrubbing is identical: 126 of 126 sampled positions matched the old engine at 390 and 1366.
+    - New `tests/scroll-scenes-engine.test.ts` with 8 tests.
+  - **Hero "trains" sweep: built, then reverted (not shipped).** The one allowed LCP comparison (5 cold loads at CPU 4x) did not prove LCP unchanged:
+    - 1366: 756 → 744ms;
+    - 390: 656 → 848ms (+192ms against a 50ms allowance).
+    - That is probably noise, since the sweep doesn't touch the lede at 390. A retry needs a larger sample, which is the owner's call.
+  - Checks run: node 121/121; both typechecks; build; targeted Playwright 58/58.
+- **Reviews (three, read-only):** no blocker.
+  - One major finding: in "always" mode the journey check no longer scans stage-text contrast and size per chapter. The scan only runs in "device" mode.
+  - Minor findings:
+    - the concept checks never run with the member cookie;
+    - the hero-arrow-at-rest check cannot fail;
+    - the /features tick check can skip silently;
+    - nothing ties the ambient flag to the recipes that need it;
+    - the /features ticks never play at phone width;
+    - the doc's "ends within 2.5 s" line is stale.
+  - No build with `MARKETING_MOTION="device"` has been made. Reversibility rests on static tests and reading the code.
+- **Now running (since 09:30 UTC):** the `verify-and-fix` agent. It fixes the review findings and runs the full suite once (marketing-motion, brand, RTL, phone, motion), comparing against the `main` logs.
 
-**Waiting on the owner:** nothing for this work.
+**Waiting on the owner (optional):** whether to retry the hero "trains" sweep with a larger LCP sample (for example 15+ cold loads per width). It stays out until then.
 
 **Next action:**
 1. When the workflow finishes, push the branch, update PR #89 with the real check results and get CI green.
