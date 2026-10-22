@@ -32,7 +32,17 @@
 // - the pinned scroll scenes follow both settings in either mode: /?scenes=on
 //   (automated browsers only get scenes with it) has <html class="scenes-on">
 //   before the first paint without reduced motion, and none under either
-//   source, where the journey auto-plays ("always") or waits ("device").
+//   source, where the journey auto-plays ("always") or waits ("device");
+// - the concept pass (22 October 2026), untimed, on the build under test at
+//   both widths, without reduced motion and (with "always") under it, and
+//   in Arabic at 390: the commission pills wait for their own trigger and
+//   load from the inline start 80ms apart on the enter curve, the home FAQ
+//   rows cascade 40ms apart (at most 240ms), the closing button's arrow
+//   nudges once 280ms after the button itself comes into view, the hero's
+//   arrow takes over after the relay (from 2.53 s) and is at rest by 5 s,
+//   both arrows nudge toward the reading direction, the /features set ticks
+//   pop 80ms apart from 520ms where their section waits, and nothing
+//   overflows sideways.
 //
 // It starts `next start` for this checkout's existing production build (run
 // `npm run build` first) and, with MOTION_BASE_DIR, for a built checkout of
@@ -576,6 +586,97 @@ async function scenes(browser, device, base) {
 }
 
 /**
+ * The concept pass's motion on the build under test (22 October 2026,
+ * docs/features/marketing-motion.md): the commission pills wait for their
+ * own trigger and load from the inline start 80ms apart on the enter
+ * curve, the home FAQ rows cascade 40ms apart (at most 240ms), the closing
+ * button's arrow nudges once when the button itself comes into view, the
+ * hero's arrow takes over after the relay and is at rest by 5 s, the
+ * /features set ticks pop 80ms apart from 520ms (where their section
+ * waits), and nothing overflows sideways. Untimed: CPU throttling is off.
+ */
+async function conceptMotion(browser, device, base, reducedMotion, query = "") {
+  const out = { errors: [] };
+  /** The nudge's peak (a direction check): held there, read, then let go. */
+  const peak = (page, selector) =>
+    page.evaluate((sel) => {
+      const el = document.querySelector(sel);
+      const a = el?.getAnimations().find((x) => x.animationName === "mk-nudge");
+      if (!a) return null;
+      const t = a.effect.getTiming();
+      a.pause();
+      a.currentTime = t.delay + t.duration / 2;
+      const value = getComputedStyle(el).translate;
+      a.play();
+      return value;
+    }, selector);
+  const timings = (page, selector, name) =>
+    page.evaluate(
+      ([sel, nm]) =>
+        [...document.querySelectorAll(sel)].map((el) => {
+          const a = el.getAnimations().find((x) => (x.animationName ?? x.transitionProperty) === nm);
+          if (!a) return null;
+          const t = a.effect.getTiming();
+          return { delay: Math.round(t.delay), duration: Math.round(t.duration), easing: t.easing, iterations: t.iterations };
+        }),
+      [selector, name],
+    );
+  const until = (page, fn) => page.waitForFunction(fn, null, { timeout: 4000, polling: 50 }).then(() => true, () => false);
+  try {
+    const { context, page, errors } = await openPage(browser, device, base + "/" + query, { reducedMotion, throttle: false });
+    await until(page, () => document.querySelector(".mk.mk-motion"));
+    await page.waitForTimeout(200);
+    out.hero = (await timings(page, ".mk-hero .mk-cta > .lucide-arrow-right", "mk-nudge"))[0] ?? null;
+    out.heroPeak = await peak(page, ".mk-hero .mk-cta > .lucide-arrow-right");
+    out.pillsAtLoad = await page.evaluate(() => ({
+      cue: document.querySelector(".mk-band-pills")?.dataset.mkCue ?? null,
+      translate: getComputedStyle(document.querySelector(".mk-band-pills > li")).translate,
+    }));
+    await page.evaluate(() => document.querySelector(".mk-band-pills").scrollIntoView({ block: "center", behavior: "instant" }));
+    out.pillsIn = await until(page, () => document.querySelector(".mk-band-pills").dataset.mkCue === "in");
+    out.pills = await timings(page, ".mk-band-pills > li", "translate");
+    out.overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    await page.evaluate(() => document.querySelector(".mk-faqs").scrollIntoView({ block: "start", behavior: "instant" }));
+    out.faqIn = await until(page, () => document.querySelector(".mk-faqs").dataset.mkCue === "in");
+    out.faq = (await timings(page, ".mk-faqs > *", "translate")).map((t) => t?.delay ?? null);
+    await page.evaluate(() => document.querySelector(".mk-closing-cta").scrollIntoView({ block: "center", behavior: "instant" }));
+    out.closingIn = await until(page, () => document.querySelector(".mk-closing-cta").dataset.mkCue === "in");
+    out.closing = (await timings(page, ".mk-closing-cta > .lucide-arrow-right", "mk-nudge"))[0] ?? null;
+    out.closingPeak = await peak(page, ".mk-closing-cta > .lucide-arrow-right");
+    // The hero's hand-off is over by 5 s from the load.
+    await page.waitForTimeout(Math.max(0, 5000 - (await page.evaluate(() => performance.now()))));
+    out.heroAt5s = await page.evaluate(() => {
+      const a = document.querySelector(".mk-hero .mk-cta > .lucide-arrow-right");
+      return { translate: getComputedStyle(a).translate, running: a.getAnimations().filter((x) => x.playState === "running").length };
+    });
+    out.overflowAfter = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    out.errors.push(...errors);
+    await context.close();
+  } catch (e) {
+    out.errors.push(String(e?.message ?? e));
+  }
+  try {
+    const { context, page } = await openPage(browser, device, base + "/features" + query, { reducedMotion, throttle: false });
+    await until(page, () => document.querySelector(".mk.mk-motion"));
+    await page.waitForTimeout(200);
+    const unit = () => document.querySelector(".mk-sets")?.closest("[data-mk-reveal]");
+    out.setsWait = await page.evaluate(`(${unit})()?.dataset.mkReveal ?? null`);
+    if (out.setsWait === "pending") {
+      await page.evaluate(() => {
+        const u = document.querySelector(".mk-sets").closest("[data-mk-reveal]");
+        scrollTo(0, scrollY + u.getBoundingClientRect().top - innerHeight * 0.5);
+      });
+      await until(page, () => document.querySelector(".mk-sets").closest("[data-mk-reveal]").dataset.mkReveal === "in");
+      out.ticks = (await timings(page, ".mk-sets svg", "scale")).map((t) => t?.delay ?? null);
+    }
+    await context.close();
+  } catch (e) {
+    out.errors.push(String(e?.message ?? e));
+  }
+  return out;
+}
+
+/**
  * Measures the builds. Cold loads alternate between the builds run by run,
  * so the machine's load affects both alike. `builds` are measured without
  * reduced motion and, with `reducedBuilds` (the new build, main before the
@@ -641,6 +742,14 @@ async function measure(browser, builds, reducedBuilds) {
         results[label].reducedCookie ??= {};
         results[label].reducedCookie[device.name] = await reducedState(browser, device, base, "cookie");
         results[label].scenes[device.name] = await scenes(browser, device, base);
+        results[label].concept ??= {};
+        results[label].concept[device.name] = {
+          motion: await conceptMotion(browser, device, base, "no-preference"),
+          reduced: await conceptMotion(browser, device, base, "reduce"),
+          // Right to left at 390: the pills enter from the right and the
+          // arrows nudge left (the hero copy stays English).
+          ...(device.name.startsWith("390") ? { rtl: await conceptMotion(browser, device, base, "no-preference", "?lang=ar") } : {}),
+        };
       } else {
         results[label].interactions[device.name] = {
           motion: await interactions(browser, device, base, "no-preference"),
@@ -788,6 +897,33 @@ try {
       }
     }
   }
+  // The concept pass (22 October 2026): each effect on its own trigger, in
+  // order, mirrored right to left, and over in time; with "always" the
+  // device's reduced motion sees the same.
+  for (const [device, bySource] of Object.entries(results.builds.new.concept ?? {}))
+    for (const [source, c] of Object.entries(bySource)) {
+      // With "device" the device's reduced motion stops all of it (checked
+      // by the reduced-motion rules above).
+      if (source === "reduced" && !always) continue;
+      const label = `concept motion ${source} ${device}`;
+      if (c.errors.length) fail(label, `errors: ${c.errors.slice(0, 2).join("; ")}`);
+      if (!c.hero || c.hero.delay < 2530 || c.hero.delay + c.hero.duration > 4500 || c.hero.iterations !== 1)
+        fail(label, `the hero hand-off: ${JSON.stringify(c.hero)}`);
+      if (!c.heroAt5s || c.heroAt5s.translate !== "none" || c.heroAt5s.running) fail(label, `the hero arrow is not at rest by 5 s: ${JSON.stringify(c.heroAt5s)}`);
+      const sign = source === "rtl" ? -1 : 1;
+      if (c.heroPeak !== `${3 * sign}px` || c.closingPeak !== `${3 * sign}px`)
+        fail(label, `the arrows nudge the wrong way: hero ${c.heroPeak}, closing ${c.closingPeak}`);
+      if (c.pillsAtLoad?.cue !== "pending" || c.pillsAtLoad?.translate !== `${-16 * sign}px`)
+        fail(label, `the pills do not wait at the inline start: ${JSON.stringify(c.pillsAtLoad)}`);
+      const pills = c.pills ?? [];
+      if (!c.pillsIn || pills.length !== 4 || !pills.every((t, i) => t && t.delay === i * 80 && t.easing === "cubic-bezier(0.2, 0.8, 0.2, 1)"))
+        fail(label, `the pills do not load 80ms apart on the enter curve: ${JSON.stringify(pills)}`);
+      if (!c.faqIn || (c.faq ?? []).some((d, i) => d !== Math.min(i * 40, 240))) fail(label, `the FAQ rows: ${JSON.stringify(c.faq)}`);
+      if (!c.closingIn || !c.closing || c.closing.delay !== 280 || c.closing.iterations !== 1 || c.closing.delay + c.closing.duration > 700)
+        fail(label, `the closing nudge: ${JSON.stringify(c.closing)}`);
+      if (c.overflow > 0 || c.overflowAfter > 0) fail(label, `horizontal overflow ${c.overflow}/${c.overflowAfter}`);
+      if (c.setsWait === "pending" && JSON.stringify(c.ticks) !== JSON.stringify([520, 600])) fail(label, `the set ticks: ${JSON.stringify(c.ticks)}`);
+    }
   // The pinned scenes follow both settings in either mode (Variant B).
   for (const [device, byPref] of Object.entries(results.builds.new.scenes))
     for (const [pref, r] of Object.entries(byPref)) {

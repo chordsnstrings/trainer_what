@@ -524,6 +524,15 @@ async function homeChecks(scheme) {
         .filter(([el, o]) => (el.classList.contains("mk-relay-dot") ? o !== 0 : o !== 1))
         .map(([el, o]) => `${el.getAttribute("class")} ${o}`),
     );
+    // The hand-off (22 October 2026): after the relay the hero's primary
+    // action's arrow nudges once (counted in the 4.5 s above) and is back
+    // in place by 5 s.
+    const arrow = await page.evaluate(() => {
+      const a = document.querySelector(".mk-hero .mk-cta > .lucide-arrow-right");
+      return a ? { translate: getComputedStyle(a).translate, running: a.getAnimations().filter((x) => x.playState === "running").length } : null;
+    });
+    if (!animated.some((t) => t.name === "mk-nudge")) fail(label, "the hero arrow has no hand-off");
+    if (!arrow || arrow.translate !== "none" || arrow.running) fail(label, `the hero arrow is not at rest after 5 s: ${JSON.stringify(arrow)}`);
     if (!animated.some((t) => t.relay)) fail(label, "the relay has no animation");
     if (infinite.length) fail(label, `${infinite.length} infinite animation(s)`);
     if (end > 4.5) fail(label, `animation ends at ${end}s`);

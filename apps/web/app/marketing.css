@@ -23,9 +23,15 @@
      motion pass (app/motion.css) now has other durations (120 to 240ms);
      only --motion-base (200ms) and the out, in and in-out curves still
      match (docs/features/motion.md). The spring is for success states
-     alone (tests/marketing-motion-sitewide.test.ts holds the list). Only
-     transform, opacity, SVG stroke-dashoffset and a disclosure's grid rows
-     move; the motion block near the end of this file holds the rest. */
+     alone (tests/marketing-motion-sitewide.test.ts holds the list), and the
+     enter curve for load-in entrances alone (the commission pills; 22
+     October 2026 concept pass, docs/MARKETING_MOTION_PLAN_2026-10-22.md).
+     Distances: the hover and hand-off nudge, an item's rise, a section's
+     rise and a load-in slide. Staggers: the step between grid items and
+     the slower step of the load-ins (the /features screens and ticks, the
+     pills). Only transform, opacity, SVG stroke-dashoffset and a
+     disclosure's grid rows move; the motion block near the end of this
+     file holds the rest. */
   --mk-dur-press: 80ms;
   --mk-dur-fast: 140ms;
   --mk-dur-base: 200ms;
@@ -35,6 +41,13 @@
   --mk-ease-in: cubic-bezier(0.4, 0, 1, 1);
   --mk-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
   --mk-ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+  --mk-ease-enter: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --mk-dist-nudge: 3px;
+  --mk-dist-item: 8px;
+  --mk-dist-rise: 12px;
+  --mk-dist-load: 16px;
+  --mk-stagger-step: 40ms;
+  --mk-stagger-load: 80ms;
 }
 @media (max-width: 1150px) {
   .mk,
@@ -2244,8 +2257,27 @@ a.mk-nav-top {
 }
 @media (hover: hover) {
   :is(.mk, .mk-header) :is(.button, .text-link.mk-link, .mk-related a):hover > .lucide-arrow-right {
-    translate: calc(3px * var(--inline-sign, 1)) 0;
+    translate: calc(var(--mk-dist-nudge) * var(--inline-sign, 1)) 0;
   }
+}
+/* The hand-off (22 October 2026 concept pass): the trailing arrow nudges
+   forward once, on its own, at the moment the page points at the next
+   step, and never repeats. In the hero, once the relay's last tick has
+   popped (about 2.53 s) the primary action's arrow takes over (keyed on
+   .mk-cta, so "Join early access" nudges too); it ends by about 2.97 s.
+   The closing panel's arrow nudges when that button itself comes into view
+   (components/marketing/motion.tsx marks it, data-mk-cue), 280ms later.
+   Nothing is hidden or delayed, and the button keeps its place. */
+@keyframes mk-nudge {
+  50% {
+    translate: calc(var(--mk-dist-nudge) * var(--inline-sign, 1)) 0;
+  }
+}
+.mk .mk-hero .mk-cta > .lucide-arrow-right {
+  animation: mk-nudge var(--mk-dur-emphasis) var(--mk-ease-in-out) 2.55s 1;
+}
+.mk-motion .mk-closing-cta[data-mk-cue="in"] > .lucide-arrow-right {
+  animation: mk-nudge var(--mk-dur-emphasis) var(--mk-ease-in-out) 280ms 1;
 }
 
 /* Single-line links: a 1px ink bar slides in from the inline start on
@@ -2380,40 +2412,46 @@ a.mk-nav-top {
 }
 
 /* Section reveal (components/marketing/motion.tsx). A unit wholly below the
-   first screen when the page loads waits ("pending") and rises 12px into
-   place once as it enters the view; the items of a grid follow 40ms apart
-   (at most 240ms), the /features screens 80ms apart. The hero, the page
-   heading, the relay, the journey player (its stage has its own chapter
-   motion), anything on the first screen and any unit taller than one and
-   a half screens never wait. Every rule keys on an attribute
-   or class of the element it moves, so marking and revealing restyle only
-   those elements. */
-:is(.mk-cards, .mk-tiles, .mk-icon-tiles, .mk-steps, .mk-checklist, .mk-anchors, .mk-band-pills, .mk-screens) > :nth-child(2) {
-  --mk-stagger: 40ms;
+   first screen when the page loads waits ("pending") and rises
+   --mk-dist-rise (12px) into place once as it enters the view; the items
+   of a grid follow --mk-stagger-step (40ms) apart, at most 240ms (six
+   steps; MAX_STAGGER in motion.tsx), and the load-ins (the /features
+   screens and the commission pills) --mk-stagger-load (80ms) apart, at
+   most three steps. The FAQs are a grid too: the heading, then each
+   question, so the six home questions land in turn. A few widgets have a
+   trigger of their own (data-mk-cue: the pills, the FAQs and the closing
+   panel's button), because their unit reveals while they are still below
+   the fold on a phone. The hero, the page heading, the relay, the journey
+   player (its stage has its own chapter motion), anything on the first
+   screen and any unit taller than one and a half screens never wait.
+   Every rule keys on an attribute or class of the element it moves, so
+   marking and revealing restyle only those elements. */
+:is(.mk-cards, .mk-tiles, .mk-icon-tiles, .mk-steps, .mk-checklist, .mk-anchors, .mk-band-pills, .mk-screens, .mk-faqs) > :nth-child(2) {
+  --mk-stagger: var(--mk-stagger-step);
 }
-:is(.mk-cards, .mk-tiles, .mk-icon-tiles, .mk-steps, .mk-checklist, .mk-anchors, .mk-band-pills, .mk-screens) > :nth-child(3) {
-  --mk-stagger: 80ms;
+:is(.mk-cards, .mk-tiles, .mk-icon-tiles, .mk-steps, .mk-checklist, .mk-anchors, .mk-band-pills, .mk-screens, .mk-faqs) > :nth-child(3) {
+  --mk-stagger: calc(2 * var(--mk-stagger-step));
 }
-:is(.mk-cards, .mk-tiles, .mk-icon-tiles, .mk-steps, .mk-checklist, .mk-anchors, .mk-band-pills, .mk-screens) > :nth-child(4) {
-  --mk-stagger: 120ms;
+:is(.mk-cards, .mk-tiles, .mk-icon-tiles, .mk-steps, .mk-checklist, .mk-anchors, .mk-band-pills, .mk-screens, .mk-faqs) > :nth-child(4) {
+  --mk-stagger: calc(3 * var(--mk-stagger-step));
 }
-:is(.mk-cards, .mk-tiles, .mk-icon-tiles, .mk-steps, .mk-checklist, .mk-anchors, .mk-band-pills, .mk-screens) > :nth-child(5) {
-  --mk-stagger: 160ms;
+:is(.mk-cards, .mk-tiles, .mk-icon-tiles, .mk-steps, .mk-checklist, .mk-anchors, .mk-band-pills, .mk-screens, .mk-faqs) > :nth-child(5) {
+  --mk-stagger: calc(4 * var(--mk-stagger-step));
 }
-:is(.mk-cards, .mk-tiles, .mk-icon-tiles, .mk-steps, .mk-checklist, .mk-anchors, .mk-band-pills, .mk-screens) > :nth-child(6) {
-  --mk-stagger: 200ms;
+:is(.mk-cards, .mk-tiles, .mk-icon-tiles, .mk-steps, .mk-checklist, .mk-anchors, .mk-band-pills, .mk-screens, .mk-faqs) > :nth-child(6) {
+  --mk-stagger: calc(5 * var(--mk-stagger-step));
 }
-:is(.mk-cards, .mk-tiles, .mk-icon-tiles, .mk-steps, .mk-checklist, .mk-anchors, .mk-band-pills, .mk-screens) > :nth-child(n + 7) {
-  --mk-stagger: 240ms;
+:is(.mk-cards, .mk-tiles, .mk-icon-tiles, .mk-steps, .mk-checklist, .mk-anchors, .mk-band-pills, .mk-screens, .mk-faqs) > :nth-child(n + 7) {
+  --mk-stagger: calc(6 * var(--mk-stagger-step));
 }
-.mk-screens > :nth-child(2) {
-  --mk-stagger: 80ms;
+:is(.mk-screens, .mk-band-pills) > :nth-child(2) {
+  --mk-stagger: var(--mk-stagger-load);
 }
-.mk-screens > :nth-child(3) {
-  --mk-stagger: 160ms;
+:is(.mk-screens, .mk-band-pills) > :nth-child(3) {
+  --mk-stagger: calc(2 * var(--mk-stagger-load));
 }
-.mk-screens > :nth-child(n + 4) {
-  --mk-stagger: 240ms;
+:is(.mk-screens, .mk-band-pills) > :nth-child(n + 4) {
+  --mk-stagger: calc(3 * var(--mk-stagger-load));
 }
 /* Two measures keep a reveal cheap to draw (measured with the CPU throttled
    4x, scripts/marketing-motion-sitewide-check.mjs). A waiting unit is at
@@ -2424,7 +2462,7 @@ a.mk-nav-top {
    the rise does not tear down its layer and repaint it a second time. */
 .mk-motion [data-mk-reveal="pending"] {
   opacity: 0.001;
-  translate: 0 12px;
+  translate: 0 var(--mk-dist-rise);
 }
 .mk-motion [data-mk-reveal="in"] {
   translate: 0 0;
@@ -2438,7 +2476,7 @@ a.mk-nav-top {
    lifts on hover with its own timing. */
 .mk-motion [data-mk-item="pending"] {
   opacity: 0.001;
-  translate: 0 8px;
+  translate: 0 var(--mk-dist-item);
 }
 .mk-motion :is([data-mk-item="in"], [data-mk-item="done"]) {
   translate: 0 0;
@@ -2448,15 +2486,38 @@ a.mk-nav-top {
     opacity var(--mk-dur-slow) var(--mk-ease-out) var(--mk-stagger, 0ms),
     translate var(--mk-dur-slow) var(--mk-ease-out) var(--mk-stagger, 0ms);
 }
-/* The ticks inside the /features screens pop once the screens are in. */
+/* The commission pills load like plates onto a bar (the concept's plates,
+   flat): each slides --mk-dist-load (16px) in from the inline start and
+   fades in, 80ms after the one before, so 25% lands first and 10% last;
+   the last is in place about 520ms after the pills come into view. The
+   concept loads from the inline end; entering from the inline start is
+   deliberate: it reads with the falling rates, and a slide from the start
+   can never add a horizontal scrollbar, in either direction. */
+.mk-motion .mk-band-pills > [data-mk-item="pending"] {
+  translate: calc(-1 * var(--mk-dist-load) * var(--inline-sign, 1)) 0;
+}
+.mk-motion .mk-band-pills > [data-mk-item="in"] {
+  transition:
+    opacity var(--mk-dur-slow) var(--mk-ease-out) var(--mk-stagger, 0ms),
+    translate var(--mk-dur-slow) var(--mk-ease-enter) var(--mk-stagger, 0ms);
+}
+/* The ticks inside the /features screens pop once the screens are in;
+   the "Back squat" screen's completed sets pop one after another, 80ms
+   apart from 520ms, like reps being logged (no count-up). */
 .mk-motion [data-mk-reveal="pending"] :is(.mk-sets svg, .mk-screen-note svg, .mk-queue-item.done .badge svg) {
   opacity: 0;
   scale: 0.4;
 }
 .mk-motion [data-mk-reveal="in"] :is(.mk-sets svg, .mk-screen-note svg, .mk-queue-item.done .badge svg) {
   transition:
-    opacity var(--mk-dur-fast) var(--mk-ease-out) 520ms,
-    scale var(--mk-dur-slow) var(--mk-ease-spring) 520ms;
+    opacity var(--mk-dur-fast) var(--mk-ease-out) calc(520ms + var(--mk-set-step, 0ms)),
+    scale var(--mk-dur-slow) var(--mk-ease-spring) calc(520ms + var(--mk-set-step, 0ms));
+}
+.mk-sets tr:nth-child(2) {
+  --mk-set-step: var(--mk-stagger-load);
+}
+.mk-sets tr:nth-child(n + 3) {
+  --mk-set-step: calc(2 * var(--mk-stagger-load));
 }
 
 /* You stay in charge (home), once, as the band is revealed: the message
@@ -2468,14 +2529,14 @@ a.mk-nav-top {
 }
 .mk-motion [data-mk-reveal="pending"] :is(.mk-flow-msg, .mk-flow-brain) {
   opacity: 0;
-  translate: 0 12px;
+  translate: 0 var(--mk-dist-rise);
 }
 .mk-motion [data-mk-reveal="pending"] .mk-meter > span {
   scale: 0 1;
 }
 .mk-motion [data-mk-reveal="pending"] .mk-lane {
   opacity: 0;
-  translate: 0 8px;
+  translate: 0 var(--mk-dist-item);
 }
 .mk-motion [data-mk-reveal="pending"] .mk-lane-auto {
   translate: 0 0;

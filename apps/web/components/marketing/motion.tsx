@@ -55,18 +55,32 @@ const UNITS = [
 const NEVER = ".mk-hero, .mk-page-head, .mk-relay, .mk-walk-section, .mk-walk-band";
 /** While scroll scenes are on (scene-mount.tsx), scroll moves their sections instead. */
 const SCENES = "[data-scene]";
-/** The longest item stagger in app/marketing.css (--mk-stagger), in ms. */
+/** The longest item stagger in app/marketing.css (--mk-stagger: six
+ * --mk-stagger-step or three --mk-stagger-load), in ms. */
 export const MAX_STAGGER = 240;
 /** Grids whose items follow their unit in a short stagger (app/marketing.css). */
 const GRIDS =
-  ".mk-cards, .mk-tiles, .mk-icon-tiles, .mk-steps, .mk-checklist, .mk-anchors, .mk-band-pills, .mk-screens";
+  ".mk-cards, .mk-tiles, .mk-icon-tiles, .mk-steps, .mk-checklist, .mk-anchors, .mk-band-pills, .mk-screens, .mk-faqs";
+/**
+ * Widgets with a trigger of their own (data-mk-cue), as the concept gives
+ * its barbell its own observer: their unit reveals when its top enters the
+ * view, and on a phone these sit far below that line, so their motion
+ * would be over before it could be seen. The commission pills and the FAQ
+ * rows (grids: their items wait for the grid itself, not for the unit) and
+ * the closing panel's button (its arrow nudges once when it comes into
+ * view). An element that is itself a unit (the FAQs on an inner page)
+ * keeps its unit's trigger, which is already its own.
+ */
+const CUES = ".mk-band-pills, .mk-faqs, .mk-closing-cta";
 
 /**
  * The section reveal. Units whose top is below the first screen when the
  * page loads wait (data-mk-reveal="pending", unseen and 12px lower,
  * only while the page root has .mk-motion) and rise once when they enter
  * the view; the items of their grids carry data-mk-item and follow in a
- * stagger. Nothing waits without IntersectionObserver, under reduced
+ * stagger. A cue (CUES, data-mk-cue) is observed the same way but never
+ * fades itself: it only holds its own grid's items, or its arrow's nudge,
+ * until it enters the view. Nothing waits without IntersectionObserver, under reduced
  * motion in "device" mode (motion-mode.ts), when it holds the address's
  * #target or when it is taller than one and a half screens (it is revealed
  * by scrolling anyway, and fading it would restyle and repaint a large
@@ -83,6 +97,11 @@ export function MarketingMotion({ path }: { path: string }) {
     const units = [...root.querySelectorAll<HTMLElement>(UNITS)].filter(
       (unit) => !unit.closest(NEVER) && !(scenes && unit.closest(SCENES)),
     );
+    const unitSet = new Set<Element>(units);
+    const cues = [...root.querySelectorAll<HTMLElement>(CUES)].filter(
+      (cue) => !unitSet.has(cue) && !cue.closest(NEVER) && !(scenes && cue.closest(SCENES)),
+    );
+    const cueSet = new Set<Element>(cues);
     let target: Element | null = null;
     try {
       if (location.hash) target = document.getElementById(decodeURIComponent(location.hash.slice(1)));
@@ -98,8 +117,10 @@ export function MarketingMotion({ path }: { path: string }) {
       for (const item of items.get(unit) ?? [])
         if (item.dataset.mkItem === "in") item.dataset.mkItem = "done";
     };
+    // A unit fades and rises; a cue only releases its items or its nudge.
     const mark = (unit: HTMLElement, state: "pending" | "in") => {
-      unit.dataset.mkReveal = state;
+      if (cueSet.has(unit)) unit.dataset.mkCue = state;
+      else unit.dataset.mkReveal = state;
       for (const item of items.get(unit) ?? []) item.dataset.mkItem = state;
       if (state === "in" && items.get(unit)?.length)
         timers.push(
@@ -122,9 +143,10 @@ export function MarketingMotion({ path }: { path: string }) {
             const tall = box.height > window.innerHeight * 1.5;
             const holdsTarget = !!target && (unit.contains(target) || target.contains(unit));
             if (below && !tall && !holdsTarget) {
+              // A grid that is a cue of its own keeps its items.
               const grids = [
                 ...(unit.matches(GRIDS) ? [unit] : []),
-                ...unit.querySelectorAll<HTMLElement>(GRIDS),
+                ...[...unit.querySelectorAll<HTMLElement>(GRIDS)].filter((grid) => !cueSet.has(grid)),
               ];
               items.set(
                 unit,
@@ -142,18 +164,19 @@ export function MarketingMotion({ path }: { path: string }) {
       },
       { rootMargin: "0px 0px -10% 0px" },
     );
-    for (const unit of units) observer.observe(unit);
+    for (const unit of [...units, ...cues]) observer.observe(unit);
     const showAll = () => {
       observer.disconnect();
       for (const unit of units)
         if (unit.dataset.mkReveal === "pending") mark(unit, "in");
+      for (const cue of cues) if (cue.dataset.mkCue === "pending") mark(cue, "in");
     };
     window.addEventListener("beforeprint", showAll);
     return () => {
       window.removeEventListener("beforeprint", showAll);
       showAll();
       for (const timer of timers) window.clearTimeout(timer);
-      for (const unit of units) settleItems(unit);
+      for (const unit of [...units, ...cues]) settleItems(unit);
     };
   }, [path]);
   return null;

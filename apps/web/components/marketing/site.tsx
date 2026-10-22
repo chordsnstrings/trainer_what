@@ -1449,6 +1449,13 @@ function Home({ page, platform }: Ctx) {
   return (
     <>
       <section className="mk-hero" aria-labelledby="mk-hero-h">
+        {/* The first paint waits until the hero copy is parsed (React puts
+            this in <head>; browsers without rel=expect ignore it). Its two
+            columns sit on their bottom edge, so a paint between the buttons
+            and the line under them moved the whole column up when that line
+            arrived: a layout shift of 0.0022 at 1366x900. #mk-relay-cap is
+            the relay's caption, the first element after the copy. */}
+        <link rel="expect" href="#mk-relay-cap" blocking="render" />
         <div className="mk-container mk-hero-inner">
           <div className="mk-hero-copy">
             <div className="mk-hero-head">
