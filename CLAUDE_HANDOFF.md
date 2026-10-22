@@ -2,6 +2,24 @@
 
 ## Work in progress
 
+### Marketing motion plan — 22 October 2026 (Claude, plan only, no code changed)
+
+Owner request: "for the current marketing site, switch on motion always. And go through this design and understand the concept. keeping our priorities the same and widgets the same let's find out what we can incorporate from here … Don't change code, present a plan. remember our focus is to onboard trainers fast and quickly." The owner uploaded a one-file trainsyou concept (the design file is not in the repo).
+
+A read-only workflow ran with 5 agents: a design catalogue, a site inventory, a motion-gate audit, an architect and a critic. Its output is the plan in `docs/MARKETING_MOTION_PLAN_2026-10-22.md`.
+- **Phase 1:** motion always on for `.mk` and the assistant host only; the member and trainer app are untouched.
+- **Phase 2:** concept micro-animations on existing widgets: commission pills load in order, the FAQ cascade, and a CTA arrow hand-off.
+- **Phase 3:** idle-stop for the scroll engine, plus the optional "trains" sweep in the hero.
+- **Rejected:** new widgets and pinned, 3D or text-scrubbing effects.
+- **Review corrections** are appended to the plan and are binding.
+
+**Waiting on the owner:**
+- Q1: Variant B (recommended: everything short always on; pinned scroll scenes still respect OS reduce motion) or Variant A (everything). Also, whether to un-pin the journey walkthrough on phones.
+- Q2: the hero additions.
+- Q3: the performance budget. `/` and `/how-it-works` are already over budget because of the journey player.
+
+**Next action:** after the owner answers, implement Phase 1 on a new branch from main.
+
 ### Meal-photo estimates: switched on live after a passing Seed 2.0 Pro test — 20–21 October 2026 (Claude)
 
 Owner asked why meal-photo upload doesn't work, noting that ModelArk has Skylark models with vision. No code or settings were changed. The feature is built (`apps/api/src/meal-capture.ts`, `estimateMealPhoto` in `packages/providers/src/food.ts`) but switched off live.
