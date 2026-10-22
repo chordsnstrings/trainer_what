@@ -2,7 +2,7 @@
 
 ## Work in progress
 
-### Marketing motion — implementation in progress, 22 October 2026 (Claude, 08:12 UTC)
+### Marketing motion — implementation in progress, 22 October 2026 (Claude, updated 08:58 UTC)
 
 Plan: `docs/MARKETING_MOTION_PLAN_2026-10-22.md` (merged as #88), with its review corrections binding. Owner decisions: "B / sure / accept the speed cost for now. we can always switch it back to motion matching the device."
 - **Approved:** Variant B (all short marketing motion always on; the pinned scroll scenes still follow OS reduce motion and the member's setting), the hero additions, and the speed cost.
@@ -15,10 +15,23 @@ Plan: `docs/MARKETING_MOTION_PLAN_2026-10-22.md` (merged as #88), with its revie
   - Brand (38) and RTL failures are identical to `main`. Phone has 9 failures against 11 on `main`, all on member `/app/intake`.
   - The sitewide always-mode run has 25 failures. 23 are LCP/TBT/long-task budget misses that `main` also has.
   - **One open regression for Phase 2 to fix:** CLS 0.0022 on load at 1366x900 on `/` for reduce and cookie visitors, and on `/?scenes=on` under reduce.
-  - PR #89 CI on `62d92a4` is running. At 08:11 UTC, 5 of 8 checks were green and none had failed.
-- **Phases 2 and 3 are running** in background workflow `wf_7a936a16-457`. Its agents run in order: Phase 2, Phase 3, three reviewers, then one fixer that runs the full check suite once. They commit locally and do not push.
-  - Phase 2 started 08:09 UTC: fix the CLS first, then the micro-animations, with fast checks only.
-  - Phase 3: event-driven scroll engine with an idle stop, and the hero "trains" sweep only if LCP is proven unaffected.
+  - PR #89 CI passed 8/8 on `0c899e1` (Phase 1 plus the handoff).
+- **Phase 2 is done**, committed as `ae73c13` (08:46 UTC) and pushed at 08:58 UTC.
+  - CLS fix: the browser sometimes painted the hero before its last line ("Free to join …") arrived. The bottom-aligned column then jumped 35px. This could hit any visitor.
+    - The home hero now has `<link rel="expect" href="#mk-relay-cap" blocking="render">`, so the browser waits for the rest of the hero before painting.
+    - A proxy that holds the HTML at that point reproduced 0.00218 before the fix. After it, every group reads 0 at 1366 and 390.
+  - Micro-animations:
+    - commission pills enter in order from the inline start, 80ms apart;
+    - FAQ rows cascade 40ms apart;
+    - the closing CTA arrow nudges once;
+    - the hero `.mk-cta` arrow nudges at 2.55s and is done by 2.97s;
+    - the /features ticks pop.
+    - Each starts when it is itself seen (its own trigger), per the review correction.
+  - Checks run: node tests 113/113; both typechecks clean; `npm run build` passed; targeted Playwright check 116/116 (390, 1366, Arabic, reduce).
+  - **Not yet run:** the full `test:marketing-motion`, brand, RTL and phone suites. These are left for the single final run.
+- **Phase 3 is running** (started 08:46 UTC) in background workflow `wf_7a936a16-457`. It is building an event-driven scroll engine with an idle stop, and the hero "trains" sweep only if LCP is proven unaffected.
+  - Then three reviewers run, and one fixer runs the full check suite once.
+  - The agents commit locally; Claude pushes.
 
 **Waiting on the owner:** nothing for this work.
 
