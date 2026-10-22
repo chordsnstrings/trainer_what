@@ -2,6 +2,44 @@
 
 Application implementation and the job audit are complete for the current phase. [PR #1](https://github.com/chordsnstrings/trainer_what/pull/1) contains the work; [combined verification](VERIFICATION_2026-09-27.md) records the passing final code revision. The owner authorized merge to main. Real services and deployment remain the next phase; screenshots were waived. Historical entries below record the evidence available at each stage and may contain superseded pending-check statements.
 
+## Stage 2026-10-22 — marketing motion always on, concept micro-animations (PR #89 merged as `827fb2d`)
+
+The owner asked to "switch on motion always" on the marketing site and take the smooth transitions and micro-animations from an uploaded concept, keeping the widgets and the trainer-onboarding focus. The plan is `docs/MARKETING_MOTION_PLAN_2026-10-22.md` (#88). Owner decisions: "B / sure / accept the speed cost for now. we can always switch it back to motion matching the device." Un-pinning the journey walkthrough on phones was not approved and was not built.
+
+What changed:
+- **Switch:** `MARKETING_MOTION` in `apps/web/components/marketing/motion-mode.ts`.
+  - `"always"` is the current value. `"device"` restores motion that matches the device.
+  - It is rendered as `data-mk-motion` on the `.mk` root and the assistant host only.
+  - Every reduced-motion rule is kept and scoped through `:where()`.
+  - The pinned scroll scenes still follow OS reduce motion and the member's setting (Variant B).
+  - The member app, trainer workspace, coach sites and the sign-in, sign-up and directory pages are unchanged.
+- **Micro-animations**, each on its own trigger:
+  - the commission pills enter in order;
+  - the FAQ rows cascade;
+  - the closing CTA arrow and the hero `.mk-cta` arrow nudge once (the hero's after the relay, done by 2.97s);
+  - the /features ticks pop, now on phones too.
+- **Hero CLS fix:** Phase 1 left a CLS of 0.0022 on `/`, from the hero painting before its last line arrived. It is fixed with `<link rel="expect" href="#mk-relay-cap" blocking="render">`.
+- **Scroll-scenes loop:** event-driven, with an idle stop. Scrubbing is unchanged: 126/126 samples matched.
+- **Hero "trains" sweep:** built, then reverted. The one LCP comparison showed +192ms at 390, probably noise. A retry with a larger sample is the owner's call.
+
+Checks run on the final tree:
+- Node: 122/122. Root and web `tsc`: clean. `npm run build`: passed.
+- `test:marketing-motion`:
+  - journey 243/0;
+  - sitewide CLS 0 on load and while scrolling, for every page, width and cohort.
+  - Its 7 failures were the check's own SVG `offsetWidth` bug. After the fix, a targeted re-run had 0 failures.
+  - No base-build timing comparison was made.
+- Brand: 38 failures, the same as `main` (diffed).
+- Phone: 11 failures, the same as `main`.
+- RTL: the same admin sign-in crash as `main`.
+- Member motion:
+  - 0 failures alone on a quiet machine. `main` also had 0.
+  - It had 1–2 view-transition shifts when run alongside the brand check.
+- `MARKETING_MOTION = "device"` was never built. Its reversibility rests on static tests and review.
+- PR CI: 8/8 on `fb85541`.
+
+Process note: twice the owner reported the agents as stalled. They were running long timed comparisons, and later the browser suites one at a time on `next dev`. Claude stopped the workflow and ran the suites in parallel on the production build (`RTL_WEB_MODE=start`), which took 15 minutes.
+
 ## Stage 2026-10-19 — music agent never stalls on a failed AI plan (PR #77, live `15de319`)
 
 On 19 October one rejected Rock plan stopped all eight playlists at 196 of 240 tracks. The owner asked to restart the music now and to fix four things ("yeah go for it for both"). Claude restarted it with standard arrangements at 05:47 UTC; by 05:54 UTC it was generating, with 205 tracks.

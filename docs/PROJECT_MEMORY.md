@@ -25,6 +25,11 @@ The downloadable `trainsyou-ux-ui-audit-2026-10-19.html` was refreshed and saved
 - Free onboarding is a lead hook (7 October 2026): trainers pay nothing to join, set up or teach their AI; the platform bears that AI usage. Commission and card fees come out of subscription revenue; a trainer's own domain is the only optional purchase. Public positioning: an AI trainer platform, free to join.
 - Stripe collects; Lean pays through the company bank. Financial history is immutable. Preserve tenant isolation, consent and safety boundaries outside the model.
 - Keep credentials, private account records and recovery archives out of Git, prompts and logs. Use existing authenticated APIs and host access. Do not use a cloud browser for this repository work.
+- Marketing motion is always on (owner, 22 October 2026, PR #89: "accept the speed cost for now. we can always switch it back to motion matching the device").
+  - To switch back, set `MARKETING_MOTION` in `apps/web/components/marketing/motion-mode.ts` to `"device"`; it is one constant.
+  - Short marketing motion plays even for visitors with reduce motion. The pinned scroll scenes and every member, trainer and coach-site surface still follow reduce motion.
+  - Keep the marketing widgets and the trainer sign-up path as they are. New motion must be short, play once, and run off its own visibility trigger.
+- Run long browser suites in parallel on the production build (`RTL_WEB_MODE=start`, each runner on its own ports and database). Never run them one after another on `next dev`, and never repeat timed comparisons; the owner flags slow agents as stalled.
 
 Earlier product and release decisions remain in [the pre-checkpoint project-memory snapshot](https://github.com/chordsnstrings/trainer_what/blob/b65051ae69798d7446a549eb7a22ef4eebc4683b/docs/PROJECT_MEMORY.md) and the feature-specific documents under `docs/`. This concise checkpoint preserves the standing decisions above and avoids republishing account/contact details or unrelated operational history.
 
