@@ -345,6 +345,34 @@ caption, the first element after the copy, is parsed. Nothing is hidden or
 moved; browsers without `rel=expect` ignore it. The LCP element is
 unchanged (the lede at 390x844, the H1 at 1366x900).
 
+**The Pace sweep behind "trains": built, measured, not shipped (Phase 3).**
+The owner approved the sweep only if LCP was proven unchanged. The plan
+allowed one comparison: `/` at 390x844 and 1366x900, 5 cold loads each,
+this branch before the sweep against the same branch with it.
+- **What was built.** The fill moved onto `.mk-mark::before`, with
+  `position: relative` and `isolation: isolate` on the span and
+  `box-decoration-break: clone` kept. The sweep was `mk-sweep` (`scale: 0 1`
+  to rest) at `--mk-dur-emphasis`, on `--mk-ease-enter`, 120 ms in, from a
+  fixed left origin (the H1 stays English under `?lang=ar`).
+- **How it was measured.** In local Chromium with the CPU throttled 4x,
+  after one untimed warm-up load each.
+- **Results** (each set is the 5 cold loads in order):
+
+  | Width | LCP element (both builds) | Before the sweep (ms) | Median | With the sweep (ms) | Median | Change | Allowance |
+  |---|---|---|---|---|---|---|---|
+  | 1366x900 | the H1 | 688/756/940/768/724 | 756 | 888/744/592/776/672 | 744 | -12 ms | 50 ms (passes) |
+  | 390x844 | the lede, `p.mk-hero-lede` | 788/720/604/624/656 | 656 | 716/880/900/664/848 | 848 | +192 ms | 50 ms, the larger of 50 ms and 5% (fails) |
+
+- **What the results mean.** The sweep does not touch the lede, and the
+  spread inside each set of five is wider than the change. The difference
+  is most likely noise, but the one permitted comparison did not prove LCP
+  unchanged.
+- **Decision.** The sweep is left out, and the hero is as it was. AA
+  contrast was not the problem: the word stays ink (`#171917`) on white,
+  then on Pace (`#d5f24a`), both far above 4.5:1.
+- **Trying again.** It needs a fresh comparison with more loads, and the
+  owner's agreement to run one.
+
 ## Budget and checks
 
 Budget, measured in local Chromium with the CPU throttled 4x against a build
@@ -496,3 +524,32 @@ No timed comparison was run for this pass.
 - Not run in this pass (left for the single full run): `npm run
   test:marketing-motion`, `npm run test:brand`, `npm run test:rtl`, `npm run
   test:phone` and `npm run test:motion`.
+
+### Results, Phase 3 (22 October 2026, this machine)
+
+Phase 3 made the home page's scroll-scenes engine event-driven, with an idle
+stop (`docs/features/scroll-scenes.md`, "The frame loop", which also has that
+part's own results). The Pace sweep was measured and left out (see "The Pace
+sweep behind "trains"" above). The tree was run after `npm run build`
+against a local production server, in local Chromium only.
+
+- **Node tests:** 121 passed, 0 failed. The files were
+  `tests/scroll-scenes-engine.test.ts` (new, 8 tests),
+  `tests/marketing-motion-sitewide.test.ts`, `tests/marketing-journey.test.ts`,
+  `tests/motion-css.test.ts`, `tests/member-motion.test.ts`,
+  `tests/rtl-layout.test.ts`, `tests/marketing-site.test.ts`,
+  `tests/logical-css.test.ts`, `tests/analytics-consent.test.ts`,
+  `tests/brand.test.ts`, `tests/marketing-frontier.test.ts` and
+  `tests/marketing-assistant.test.ts`.
+- **Typechecks and build:** `npx tsc --noEmit -p .` and
+  `-p apps/web/tsconfig.json` were clean, and `npm run build` passed.
+- **Scrubbing:** all 126 sampled positions were identical between the old
+  and new engines.
+- **Targeted verification:** 58 passed, 0 failed. It covered 390x844,
+  1366x900, `?lang=ar` at 390, and emulated reduced motion at both widths
+  with the switch at `"always"`.
+- **The sitewide check's new frame-loop rules,** run alone: 0 failures.
+- **The LCP comparison for the sweep:** the table above. It was the only
+  timed run.
+- **Not run** (left for the single full run): `npm run test:marketing-motion`,
+  `test:brand`, `test:rtl`, `test:phone` and `test:motion`.

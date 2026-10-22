@@ -91,7 +91,7 @@ registerScene('device', (_el, stage) => {
     run(c);
     chap(c, q);
   };
-});
+}, { ambient: true });   // reads c.t and the pointer: drawn on every frame while part-way through
 
 /** assemble — cards start scattered in depth and fly into their place in today's grid. */
 registerScene('assemble', (_el, stage) => {

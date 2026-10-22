@@ -33,6 +33,12 @@
 //   (automated browsers only get scenes with it) has <html class="scenes-on">
 //   before the first paint without reduced motion, and none under either
 //   source, where the journey auto-plays ("always") or waits ("device");
+// - the scenes' frame loop is event-driven (scroll-scenes.ts): with scenes on,
+//   every animation-frame callback on the page is counted; frames run while
+//   the page scrolls through the journey's pin, none at all in the second
+//   that starts 500 ms after the last input, and a data-scenes-still toggle
+//   or "scenes-on" removed without a scroll wakes it (no inline style is
+//   left under a scene);
 // - the concept pass (22 October 2026), untimed, on the build under test at
 //   both widths, without reduced motion and (with "always") under it, and
 //   in Arabic at 390: the commission pills wait for their own trigger and
@@ -249,6 +255,18 @@ function instrument() {
   };
 }
 
+/** Counts every animation-frame callback on the page (the scenes' idle stop). */
+function countFrames() {
+  const request = window.requestAnimationFrame;
+  window.__frames = [];
+  window.requestAnimationFrame = function (callback) {
+    return request.call(window, (now) => {
+      window.__frames.push(performance.now());
+      return callback(now);
+    });
+  };
+}
+
 /** Text hidden by opacity or visibility (not by layout: display none, closed details). */
 function hiddenText() {
   const hidden = [];
@@ -316,6 +334,7 @@ async function openPage(browser, device, url, options = {}) {
   if (pref === "cookie")
     await context.addCookies([{ name: "trainer_member_motion", value: "reduce", url: new URL(url).origin }]);
   await context.addInitScript(instrument);
+  if (options.frames) await context.addInitScript(countFrames);
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
@@ -562,13 +581,49 @@ const reduced = (browser, device, base) => reducedState(browser, device, base, "
 async function scenes(browser, device, base) {
   const out = {};
   for (const pref of ["no-preference", ...SOURCES]) {
-    const { context, page, errors } = await openPage(browser, device, base + "/?scenes=on", { reducedMotion: pref });
+    const { context, page, errors } = await openPage(browser, device, base + "/?scenes=on", { reducedMotion: pref, frames: true });
     await page.waitForTimeout(2000);
     const r = await page.evaluate(() => ({
       atParse: window.__mk.scenesAtParse ?? null,
       after: document.documentElement.classList.contains("scenes-on"),
       clsLoad: window.__mk.shifts.reduce((n, s) => n + s.value, 0),
     }));
+    // The frame loop (scroll-scenes.ts): frames while scrolling, none once
+    // idle, and woken without a scroll by the attributes it watches.
+    const engine = !r.after
+      ? null
+      : await page.evaluate(async () => {
+          const pause = (ms) => new Promise((done) => setTimeout(done, ms));
+          const since = (t) => window.__frames.filter((f) => f > t).length;
+          const html = document.documentElement;
+          const out = {};
+          const band = document.querySelector("[data-scene='journey']");
+          const top = band ? band.getBoundingClientRect().top + scrollY : innerHeight;
+          let t = performance.now();
+          for (let i = 1; i <= 6; i++) {
+            scrollTo(0, top + i * innerHeight * 0.3);
+            await pause(60);
+          }
+          out.scrollFrames = since(t);
+          await pause(500);
+          t = performance.now();
+          await pause(1000);
+          out.idleFrames = since(t);
+          t = performance.now();
+          html.setAttribute("data-scenes-still", "");
+          await pause(200);
+          out.stillFrames = since(t);
+          html.removeAttribute("data-scenes-still");
+          await pause(700);
+          t = performance.now();
+          html.classList.remove("scenes-on");
+          await pause(300);
+          out.offFrames = since(t);
+          out.styledAfterOff = [...document.querySelectorAll("[data-scene], [data-scene] *")].filter(
+            (el) => el.style.transform || el.style.opacity || el.style.clipPath,
+          ).length;
+          return out;
+        });
     let journey = null;
     if (!r.after && (await page.locator(".mk-walk-stage").count())) {
       await page.evaluate(() => document.querySelector(".mk-walk-stage").scrollIntoView({ block: "center", behavior: "instant" }));
@@ -579,7 +634,7 @@ async function scenes(browser, device, base) {
           () => page.evaluate(() => document.querySelector(".mk-walk")?.dataset.state ?? null),
         );
     }
-    out[pref] = { ...r, journey, errors };
+    out[pref] = { ...r, engine, journey, errors };
     await context.close();
   }
   return out;
@@ -932,6 +987,16 @@ try {
       if (r.clsLoad > 0.001) fail(label, `CLS on load ${r.clsLoad.toFixed(4)}`);
       if (pref === "no-preference") {
         if (!r.atParse || !r.after) fail(label, `scenes not on before the first paint (${r.atParse}/${r.after})`);
+        // The frame loop is event-driven and stops when idle.
+        const e = r.engine;
+        if (!e) fail(label, "the frame loop was not measured");
+        else {
+          if (!(e.scrollFrames > 0)) fail(label, `no animation frame while scrolling through the journey (${e.scrollFrames})`);
+          if (e.idleFrames !== 0) fail(label, `${e.idleFrames} animation frame(s) in the second after 500 ms without input`);
+          if (!(e.stillFrames > 0)) fail(label, "data-scenes-still did not wake the frame loop");
+          if (!(e.offFrames > 0) || e.styledAfterOff)
+            fail(label, `scenes-on removed without a scroll: ${e.offFrames} frame(s), ${e.styledAfterOff} element(s) still styled inline`);
+        }
       } else {
         if (r.atParse || r.after) fail(label, `scenes on under reduced motion (${r.atParse}/${r.after})`);
         if (always ? r.journey !== "playing" : r.journey === "playing")
