@@ -9,6 +9,7 @@
 import { useEffect, useState, type ComponentType } from "react";
 import { Mic, Phone, ChevronDown } from "lucide-react";
 import { usePathname } from "next/navigation";
+import { MARKETING_MOTION } from "./motion-mode";
 
 export type AssistantPanelProps = {
   appName: string;
@@ -80,7 +81,12 @@ export function AssistantButton({
     setHidden(true);
   }
   return (
-    <div className="mk-assistant-host public platform-ui">
+    // data-mk-motion: the marketing motion switch (motion-mode.ts), as on the
+    // marketing root; the host sits outside it.
+    <div
+      className="mk-assistant-host public platform-ui"
+      data-mk-motion={MARKETING_MOTION}
+    >
       {open && Panel && (
         <Panel
           appName={appName}

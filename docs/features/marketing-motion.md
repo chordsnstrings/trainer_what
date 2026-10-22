@@ -13,8 +13,14 @@ The house rules come from the home hero relay
 
 - Every word is real HTML and visible from the first paint. Motion is
   decorative, short and plays once; nothing is infinite.
-- Reduced motion (`prefers-reduced-motion: reduce`) removes movement (instant
-  or opacity only) and stops auto-play.
+- Motion for every visitor (the owner, 22 October 2026; see "Motion for every
+  visitor" below): while the switch `MARKETING_MOTION` is `"always"`, every
+  short marketing motion plays whatever the device's `prefers-reduced-motion`
+  or the member's own "Reduce motion" choice says. The pinned,
+  scroll-scrubbed scenes on `/` still follow both settings. With the switch at
+  `"device"` (the earlier rule), reduced motion removes movement (instant or
+  opacity only) and stops auto-play. Either way the auto-playing journey keeps
+  its Pause and every hold.
 - No metrics, counts, revenue, count-ups or testimonials; only features that
   are available now; no AI cost, AI usage fee or model cost anywhere. The
   marketing text (`packages/contracts/src/marketing-content.ts`,
@@ -34,11 +40,15 @@ The house rules come from the home hero relay
 
 ## Tokens
 
-Defined once, on the marketing roots `.mk, .mk-header, .mk-footer` in
-`apps/web/app/marketing.css` (the same values as the subscriber app's motion
-pass); every other stylesheet only uses them, and
-`components/marketing/motion.tsx` keeps a copy in milliseconds for the Web
-Animations API (a test keeps the two equal).
+Defined once, on the marketing roots `.mk, .mk-header, .mk-footer,
+.mk-assistant-host` in `apps/web/app/marketing.css`; every other stylesheet
+only uses them, and `components/marketing/motion.tsx` keeps a copy in
+milliseconds for the Web Animations API (a test keeps the two equal). They
+are the marketing site's own values. The subscriber app's tokens
+(`app/motion.css`) were shortened by the 20 October 2026 CI pass (120 / 180 /
+200 / 220 / 240 ms, a 12 ms stagger, no overshoot); only `--motion-base`
+(200 ms) and the out, in and in-out curves still match their `--mk-`
+counterparts (`docs/features/motion.md`).
 
 | Token | Value | Use |
 | --- | --- | --- |
@@ -70,10 +80,11 @@ Code: `apps/web/app/marketing.css` (the motion block) and one island,
 | Calculators | No count-up. 150 ms after the last change the result settles (opacity .55 to 1 and 4 px, 200 ms); changed cells settle too. |
 | /demo, /features, /get-started | The chosen decision rises and its label pops or stamps; the screens reveal 80 ms apart with their ticks; the checklist staggers. |
 
-Reduced motion: the reveal script does nothing; `globals.css` stops element
-animations and transitions; `marketing.css` stops pseudo-elements and the
-details content box and removes lifts, presses and nudges. Without
-JavaScript nothing is hidden.
+Reduced motion: with the switch at `"always"` everything in this table plays
+for every visitor. With `"device"`, the reveal script does nothing,
+`globals.css` and `app/motion.css` stop element animations and transitions,
+and `marketing.css` stops pseudo-elements and the details content box and
+removes lifts, presses and nudges. Without JavaScript nothing is hidden.
 
 ## The journey player
 
@@ -161,8 +172,13 @@ and stops on chapter 8 with Replay.
   tabindex (arrows follow the reading direction, Home, End) and are named by
   their step; the live region speaks only when focus does not land on the
   chapter's own button (Previous, Next, a swipe, a card).
-- Reduced motion: no auto-play; chapters change instantly; Play runs a
-  slideshow whose clock has no target, so nothing on screen moves.
+- Reduced motion: with the switch at `"always"` the player behaves as without
+  it: auto-play from half the stage in view, the beats and the chapter clock
+  animate, and Pause, keyboard focus, the mouse, off screen and a hidden tab
+  hold it. With `"device"`: no auto-play; chapters change instantly; Play
+  runs a slideshow whose clock has no target, so nothing on screen moves.
+  The clock falls back to that target-less animation whenever the active
+  segment's bar is missing, in either mode, so the chapter still advances.
 
 ### Weight and hydration
 
@@ -185,6 +201,76 @@ stylesheet: stripping the journey rules from the marketing chunk did not
 change first paint on pages without the player (see marketing-site.md,
 "Second review").
 
+## Motion for every visitor (22 October 2026)
+
+The owner: "for the current marketing site, switch on motion always", then,
+on the plan's questions, Variant B, the two hero additions (later phases) and
+"accept the performance cost for now … we can always switch it back to motion
+matching the device." This is Phase 1 of
+`docs/MARKETING_MOTION_PLAN_2026-10-22.md`: no new motion, only who sees it.
+
+**The switch.** `apps/web/components/marketing/motion-mode.ts` exports
+`MARKETING_MOTION` (`"always"` now, or `"device"`). `site.tsx` renders it as
+`data-mk-motion` on the marketing root (`.mk`, which holds the header and
+footer) and `assistant-button.tsx` on Kamran's assistant host
+(`.mk-assistant-host`, outside `.mk`). Nothing else carries the attribute.
+
+- **CSS.** No reduced-motion rule was deleted. Each one that reaches the
+  marketing root or the host gets `:not(:where([data-mk-motion="always"],
+  [data-mk-motion="always"] *))` (`MOTION_ALWAYS_EXCLUDED`):
+  `globals.css` (`*` under `prefers-reduced-motion: reduce`), `motion.css`
+  (the member's `:root[data-reduce-motion="on"]` rule), the reduced-motion
+  block at the end of the Motion section in `marketing.css`, the Kamran
+  button's and panel's rules (`marketing.css`, `marketing-assistant.css`) and
+  the journey's (`marketing-journey.css`). The `prefers-reduced-motion:
+  no-preference` wrappers around the relay, the header shadow, /demo, the
+  early-access confirmation and the phone menu were removed (their contents
+  unchanged): in `"device"` mode the rules above stop them as before.
+- **JavaScript.** `motion.tsx` (the reveal and the calculators' settle) and
+  `journey-player.tsx` read both settings only when `MARKETING_MOTION ===
+  "device"`; the player's listener for a setting changed on an open page
+  runs only then.
+- **Why "device" restores the old behaviour exactly.** The exclusion names
+  only the value `"always"`. With `"device"` no element carries it, so every
+  rule matches what it matched before, with the same specificity (`:where()`
+  adds none), and the scripts read both settings as before. The removed
+  no-preference wrappers changed nothing in `"device"` mode: every element
+  they animated is stopped by the `globals.css` and `motion.css` rules, and
+  their two pseudo-elements (the relay ring and the header shadow) by the
+  reduced-motion block in `marketing.css` and the `motion.css` rule.
+  `tests/marketing-motion-sitewide.test.ts` keeps both modes wired.
+- **Not switched.** The pinned, scroll-scrubbed scenes on `/` (the journey
+  pin and the `#control` beats; `scenes-head.ts`, `scene-mount.tsx`) follow
+  both settings in either mode (Variant B); a test keeps the two scripts'
+  reduced-motion tests equal. A visitor with reduced motion gets the page
+  without scenes, where the journey auto-plays and `#control` plays its
+  one-off choreography. The journey is not un-pinned on phones. The headers
+  and footers outside `.mk` (sign-in, sign-up, the coach directory), the
+  member app, the trainer workspace, coach websites, onboarding and the site
+  builder are unchanged.
+- **Kamran's Talk button.** The host has the class `public`, so it used the
+  subscriber press (`motion.css`, inside `no-preference`), which stayed still
+  under reduced motion. With `"always"` the host is left out of that press
+  (`.public:not(.mk, [data-mk-motion="always"])`) and presses the marketing
+  way (`.mk-assistant-host:where([data-mk-motion="always"]) .button` in
+  `marketing.css`), for every visitor. With `"device"` it keeps the
+  subscriber press.
+- **Intentionally unchanged shared subscriber pieces.** The footer's
+  "Privacy preferences" opens the shared `ConsentSheet`, which renders
+  outside `.mk`; its rise (`motion.css`) still follows both settings. The
+  checkbox pop on the assistant panel's "Show relevant pages as we talk"
+  is the subscriber form-control rule (`motion.css`, inside
+  `no-preference`): it stays still under the device setting (and plays under
+  the member's cookie alone, since the host is left out of that rule).
+- **Accessibility note.** Ignoring the setting misses WCAG 2.3.3 (AAA, not
+  AA) for the short motion and reverses this page's earlier house rule; it is
+  recorded as the owner's decision. Nothing loops, nothing hides first-screen
+  content or the sign-up action, every motion ends within about 2.5 s (the
+  relay) or holds on request (the journey), and colour changes stay instant.
+- **Switching back.** Set `MARKETING_MOTION` to `"device"` in
+  `motion-mode.ts`, then build. No other change is needed; the browser checks
+  read the attribute and apply that mode's expectations.
+
 ## Budget and checks
 
 Budget, measured in local Chromium with the CPU throttled 4x against a build
@@ -203,7 +289,13 @@ no gross regression (base + max(100 ms, 25%)), and the reveal's own work under
   only React and no dependency was added.
 - `tests/marketing-motion-sitewide.test.ts`: the sitewide motion rules
   (animated properties, token durations and easings, hover media, reduced
-  motion, nothing hidden without `.mk-motion`, tokens defined once).
+  motion, nothing hidden without `.mk-motion`, tokens defined once), and the
+  switch: one constant rendered only on the marketing root and the assistant
+  host, every marketing reduced-motion rule kept and scoped, no
+  no-preference wrapper left, the Talk button's press in both modes, the
+  scripts' reduced-motion reads gated on `"device"`, the journey clock's
+  fallback, and equal reduced-motion tests in the two scenes scripts that
+  never read the switch.
 - `npm run test:marketing-motion` (`scripts/run-marketing-motion-checks.mjs`)
   runs both browser checks (local Chromium only):
   - the journey (`scripts/run-marketing-motion-check.mjs` and
@@ -211,13 +303,24 @@ no gross regression (base + max(100 ms, 25%)), and the reveal's own work under
     390x844 and 1366x900): the gate, auto-play and holding, keyboard and
     mouse behaviour, the icon staying visible, focus at either end, the
     active card in view, the sample-data label, the mocks' text size against
-    the frames' real widths, phones, reduced motion, no JavaScript, no
-    layout shift (also on the home band), contrast, right to left;
+    the frames' real widths, phones, reduced motion (by the switch: with
+    `"always"`, under the device setting and separately the member's
+    cookie, auto-play from half the stage in view and every hold), no
+    JavaScript, no layout shift (also on the home band), contrast, right to
+    left (paused first with `"always"`);
   - the sitewide check (`scripts/marketing-motion-sitewide-check.mjs`): both
     builds read the same platform stub with the launch gate open (so `/` and
     `/how-it-works` are measured with the player; `MOTION_PLATFORM=closed`
     for the fallback platform), with `MOTION_BASE_DIR` pointing at a built
-    checkout of the base.
+    checkout of the base. Reduced motion follows the switch, under the
+    device setting and separately the member's cookie: with `"always"`,
+    `.mk-motion`, the reveals, the settle, a FAQ unfolding, the menu, the
+    relay at rest by 5 s and the journey's auto-play, plus timed cold loads
+    of that cohort (`MOTION_REDUCED_RUNS`, default 3) that must keep CLS 0
+    and the reveal's own rules, compared (reported, not judged) with the
+    same cohort on `MOTION_MAIN_DIR` (main before the switch) and the base.
+    `/?scenes=on` controls: scenes before the first paint without reduced
+    motion, none under either source.
 - `npm run test:brand` and `npm run test:browser` cover the pages with the
   gate closed (their platform has every provider off).
 

@@ -12,9 +12,13 @@
 //    launch gate open (MOTION_PLATFORM=closed for the fallback platform),
 //    so / and /how-it-works carry the player; with MOTION_BASE_DIR (a built
 //    checkout of the release before the motion work) or MOTION_BASELINE it
-//    also compares LCP, CLS and long tasks with that base; ports
-//    MOTION_WEB_PORT / MOTION_BASE_PORT / MOTION_API_PORT (default
-//    3931/3932/4931).
+//    also compares LCP, CLS and long tasks with that base; with
+//    MOTION_MAIN_DIR (a built checkout of main before the marketing motion
+//    switch) it also times the reduced-motion cohort there; ports
+//    MOTION_WEB_PORT / MOTION_BASE_PORT / MOTION_MAIN_PORT / MOTION_API_PORT
+//    (default 3931/3932/3933/4931).
+// Both follow the marketing motion switch the build carries (data-mk-motion,
+// components/marketing/motion-mode.ts) for their reduced-motion passes.
 // The second runs even when the first fails; the exit code is 1 when either
 // failed. The environment passes through to both.
 import { spawn } from "node:child_process";

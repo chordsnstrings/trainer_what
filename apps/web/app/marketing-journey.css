@@ -2,8 +2,11 @@
    laptop (the coach's workspace), a wire and a phone (the subscriber), with
    one scene per /how-it-works step. Always light, lime only behind ink.
    Base styles are each chapter's complete picture (no JavaScript, reduced
-   motion and the first automatic pass show it); the keyframes hold only
-   the starting states and run while the root carries data-run. Only
+   motion in the marketing motion switch's "device" mode and the first
+   automatic pass show it); the keyframes hold only the starting states and
+   run while the root carries data-run. With the switch at "always"
+   (components/marketing/motion-mode.ts) the player runs for every visitor;
+   the pinned scroll scene still follows both reduced-motion settings. Only
    transform, opacity and stroke-dashoffset animate; hover rules sit in
    (hover: hover); logical properties only (tests/logical-css.test.ts). */
 
@@ -1556,22 +1559,26 @@
   }
 }
 
-/* Reduced motion: static complete chapters, instant changes and no
+/* Reduced motion, only in the marketing motion switch's "device" mode
+   (components/marketing/motion-mode.ts; each selector skips
+   [data-mk-motion="always"] and what is inside it, and :where() adds no
+   specificity): static complete chapters, instant changes and no
    auto-play (journey-player.tsx); globals.css already stops element
-   animations and transitions, this covers the pseudo-elements too. */
+   animations and transitions, this covers the pseudo-elements too. With
+   "always" the player animates for every visitor. */
 @media (prefers-reduced-motion: reduce) {
-  .mk-walk *::before,
-  .mk-walk *::after {
+  .mk-walk:not(:where([data-mk-motion="always"], [data-mk-motion="always"] *)) *::before,
+  .mk-walk:not(:where([data-mk-motion="always"], [data-mk-motion="always"] *)) *::after {
     animation: none !important;
     transition: none !important;
   }
-  .mk-walk-seg[aria-current] i {
+  .mk-walk-seg[aria-current]:not(:where([data-mk-motion="always"], [data-mk-motion="always"] *)) i {
     scale: 1 1;
   }
 }
 /* The member's own "Reduce motion" (<html data-reduce-motion="on">,
-   app/motion.css) is reduced motion too: the player's clock has no target
-   then, so the current segment shows full. */
-:root[data-reduce-motion="on"] .mk-walk-seg[aria-current] i {
+   app/motion.css) is reduced motion too: in "device" mode the player's
+   clock has no target then, so the current segment shows full. */
+:root[data-reduce-motion="on"] .mk-walk-seg[aria-current]:not(:where([data-mk-motion="always"], [data-mk-motion="always"] *)) i {
   scale: 1 1;
 }

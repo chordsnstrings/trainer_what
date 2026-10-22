@@ -11,8 +11,15 @@
 // - an animation repeats forever, or the spring easing is used outside the
 //   success states;
 // - a :hover rule sits outside @media (hover: hover) / (hover: none);
-// - motion escapes the reduced-motion rules: elements are stopped by
-//   globals.css, pseudo-elements and the details content box by this file;
+// - the marketing motion switch (components/marketing/motion-mode.ts) is not
+//   wired both ways: with "always" (the owner, 22 October 2026) every short
+//   marketing motion plays for every visitor, so every reduced-motion rule
+//   that reaches the marketing root or the assistant host must skip
+//   [data-mk-motion="always"]; with "device" those same rules (kept, not
+//   deleted) stop everything as before: elements in globals.css and
+//   app/motion.css, pseudo-elements and the details content box in this
+//   file, and the scripts read both settings. The pinned scroll scenes
+//   follow both settings in either mode;
 // - something is hidden before a reveal without the .mk-motion class that
 //   only the script adds (so the page reads the same without JavaScript);
 // - the tokens are defined more than once, differ from the agreed values or
@@ -22,6 +29,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import { MAX_STAGGER, MOTION } from "../apps/web/components/marketing/motion.tsx";
+import {
+  MARKETING_MOTION,
+  MARKETING_MOTION_ATTRIBUTE,
+  MOTION_ALWAYS_EXCLUDED,
+} from "../apps/web/components/marketing/motion-mode.ts";
 
 const web = (path: string) => new URL("../apps/web/" + path, import.meta.url);
 
@@ -312,7 +324,7 @@ test("marketing motion uses the tokens, moves only transform, opacity and disclo
       );
 });
 
-test("hover effects only where the pointer hovers; reduced motion stops everything", async () => {
+test("hover effects only where the pointer hovers; in \"device\" mode reduced motion stops everything", async () => {
   const css = await readFile(web("app/marketing.css"), "utf8");
   const globals = await readFile(web("app/globals.css"), "utf8");
   const rules = cssRules(css);
@@ -329,9 +341,11 @@ test("hover effects only where the pointer hovers; reduced motion stops everythi
     assert.ok(rules.some((r) => r.selectors.includes(a.selector)), `stale hover allowance ${a.selector}`);
     assert.ok(a.reason.length > 40);
   }
-  // globals.css stops every element's transitions and animations.
+  // globals.css stops every element's transitions and animations, except
+  // under [data-mk-motion="always"] (the marketing switch).
+  const G = MOTION_ALWAYS_EXCLUDED;
   const reducedGlobals = cssRules(globals).filter(
-    (r) => r.context.includes("@media (prefers-reduced-motion: reduce)") && r.selector === "*",
+    (r) => r.context.includes("@media (prefers-reduced-motion: reduce)") && r.selector === `*${G}`,
   );
   assert.ok(
     reducedGlobals.some(
@@ -339,10 +353,11 @@ test("hover effects only where the pointer hovers; reduced motion stops everythi
         r.declarations.some((d) => d.property === "transition" && d.value === "none" && d.important) &&
         r.declarations.some((d) => d.property === "animation" && d.value === "none" && d.important),
     ),
-    "globals.css: * { transition: none !important; animation: none !important } under reduced motion",
+    `globals.css: *${G} { transition: none !important; animation: none !important } under reduced motion`,
   );
   // `*` does not reach pseudo-elements or the details content box: this
-  // file stops them for every marketing root.
+  // file stops them for every marketing root (in "device" mode, and for the
+  // header and footer outside .mk).
   const reduced = rules.filter((r) => r.context.some((c) => c.includes("prefers-reduced-motion: reduce")));
   const stops = (selector: string) =>
     reduced.some(
@@ -353,10 +368,10 @@ test("hover effects only where the pointer hovers; reduced motion stops everythi
           r.declarations.some((d) => d.property === "animation" && d.value === "none" && d.important)),
     );
   for (const selector of [
-    ":is(.mk, .mk-header, .mk-footer)::after",
-    ":is(.mk, .mk-header, .mk-footer) ::before",
-    ":is(.mk, .mk-header, .mk-footer) ::after",
-    ":is(.mk, .mk-header, .mk-footer) ::details-content",
+    `:is(.mk, .mk-header, .mk-footer)${G}::after`,
+    `:is(.mk, .mk-header, .mk-footer)${G} ::before`,
+    `:is(.mk, .mk-header, .mk-footer)${G} ::after`,
+    `:is(.mk, .mk-header, .mk-footer)${G} ::details-content`,
   ])
     assert.ok(stops(selector), `reduced motion stops ${selector}`);
   // Every moving pseudo-element sits under a marketing root, so those rules
@@ -375,18 +390,152 @@ test("hover effects only where the pointer hovers; reduced motion stops everythi
   assert.ok(
     reduced.some(
       (r) =>
-        r.selectors.includes('.mk-motion [data-mk-reveal="pending"]') &&
+        r.selectors.includes(`.mk-motion${G} [data-mk-reveal="pending"]`) &&
         r.declarations.some((d) => d.property === "opacity" && d.value === "1" && d.important),
     ),
   );
-  // Auto-playing keyframes (the relay, the header shadow, the demo, the
-  // phone menu) sit inside prefers-reduced-motion: no-preference.
-  for (const rule of rules)
-    if (rule.declarations.some((d) => (d.property === "animation" || d.property === "animation-name") && d.value !== "none"))
-      assert.ok(
-        rule.context.some((c) => c.includes("prefers-reduced-motion: no-preference")),
-        `${rule.selector} (line ${rule.line}) animates outside prefers-reduced-motion: no-preference`,
-      );
+  // The motion plays outside any no-preference query (the switch decides
+  // who sees it): the relay, the header shadow, the demo and the phone menu.
+  assert.doesNotMatch(css, /prefers-reduced-motion: no-preference/);
+  for (const name of ["mk-draw", "mk-ring", "mk-tick", "mk-header-shadow", "mk-drop", "mk-rise", "mk-pop", "mk-stamp"])
+    assert.ok(
+      rules.some((r) => r.declarations.some((d) => /^animation(-name)?$/.test(d.property) && d.value.split(/[\s,]+/).includes(name))),
+      `${name} is still used`,
+    );
+});
+
+test("the marketing motion switch: one constant, on the marketing root and the assistant host, with both modes wired", async () => {
+  // One constant, one of the two modes; the attribute carries it to CSS.
+  assert.ok(["always", "device"].includes(MARKETING_MOTION), MARKETING_MOTION);
+  assert.equal(MARKETING_MOTION_ATTRIBUTE, "data-mk-motion");
+  // The exclusion matches only "always" (with "device" nothing carries
+  // it, so every rule matches what it matched before) and sits in :where()
+  // (no added specificity, so the cascade is unchanged).
+  assert.equal(MOTION_ALWAYS_EXCLUDED, ':not(:where([data-mk-motion="always"], [data-mk-motion="always"] *))');
+  const modeSource = await readFile(web("components/marketing/motion-mode.ts"), "utf8");
+  assert.doesNotMatch(modeSource, /^\s*["']use client["']/m, "server code reads the switch");
+  assert.doesNotMatch(modeSource, /^\s*import\s/m, "motion-mode.ts imports nothing");
+  assert.match(modeSource, /^export const MARKETING_MOTION = "(always|device)" as MarketingMotionMode;$/m);
+  // The attribute is rendered from the constant on the marketing root and
+  // the assistant host, and nowhere else (the member app, the trainer
+  // workspace, coach websites and the sign-in pages never carry it).
+  const site = await readFile(web("components/marketing/site.tsx"), "utf8");
+  assert.match(site, /<div className="public mk platform-ui" data-mk-motion=\{MARKETING_MOTION\}>/);
+  const host = await readFile(web("components/marketing/assistant-button.tsx"), "utf8");
+  assert.match(host, /className="mk-assistant-host public platform-ui"\s+data-mk-motion=\{MARKETING_MOTION\}/);
+  const carriers: string[] = [];
+  const walk = async (dir: URL, rel: string) => {
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) await walk(new URL(entry.name + "/", dir), rel + entry.name + "/");
+      else if (/\.tsx?$/.test(entry.name) && /data-mk-motion=\{/.test(await readFile(new URL(entry.name, dir), "utf8")))
+        carriers.push(rel + entry.name);
+    }
+  };
+  await walk(web("app/"), "app/");
+  await walk(web("components/"), "components/");
+  assert.deepEqual(carriers.sort(), ["components/marketing/assistant-button.tsx", "components/marketing/site.tsx"]);
+
+  // CSS: every reduced-motion rule that reaches the marketing root or the
+  // assistant host is kept and skips "always". Element rules: the device's
+  // (globals.css) and the member's own choice (motion.css).
+  const G = MOTION_ALWAYS_EXCLUDED;
+  const globals = cssRules(await readFile(web("app/globals.css"), "utf8"));
+  assert.ok(globals.some((r) => r.context.includes("@media (prefers-reduced-motion: reduce)") && r.selector === `*${G}`));
+  assert.ok(!globals.some((r) => r.context.includes("@media (prefers-reduced-motion: reduce)") && r.selector === "*"), "no unscoped `*` rule");
+  const member = cssRules(await readFile(web("app/motion.css"), "utf8"));
+  const cookie = member.find((r) => r.selectors[0] === `:root[data-reduce-motion="on"] *${G}`);
+  assert.ok(cookie, "the member's Reduce motion rule skips the marketing root in always mode");
+  assert.deepEqual(cookie.selectors, ["", "::before", "::after", "::backdrop"].map((p) => `:root[data-reduce-motion="on"] *${G}${p}`));
+  // Marketing stylesheets: every rule under reduced motion, and every rule
+  // keyed on the member's choice, carries the exclusion on every selector.
+  const sheets = ["marketing.css", "marketing-assistant.css", "marketing-journey.css"];
+  let scoped = 0;
+  for (const sheet of sheets) {
+    const sheetRules = cssRules(await readFile(web("app/" + sheet), "utf8"));
+    const reduceRules = sheetRules.filter(
+      (r) =>
+        !r.context.some((c) => c.startsWith("@keyframes")) &&
+        (r.context.some((c) => c.includes("prefers-reduced-motion: reduce")) || r.selector.includes("data-reduce-motion")),
+    );
+    assert.ok(reduceRules.length, `${sheet} keeps its reduced-motion rules for "device" mode`);
+    for (const rule of reduceRules)
+      for (const selector of rule.selectors) {
+        scoped++;
+        assert.ok(selector.includes(G), `${sheet}:${rule.line} ${selector} must skip [data-mk-motion="always"]`);
+      }
+    // And the no-preference wrappers are gone: in "always" mode the motion
+    // plays for everyone; in "device" mode the rules above stop it.
+    assert.ok(
+      !sheetRules.some((r) => r.context.some((c) => c.includes("prefers-reduced-motion: no-preference"))),
+      `${sheet} has no no-preference wrapper`,
+    );
+  }
+  assert.ok(scoped >= 12, `${scoped} scoped reduced-motion selectors`);
+
+  // Kamran's Talk button: the marketing press in "always" mode, the
+  // subscriber press (motion.css) in "device" mode.
+  const marketing = cssRules(await readFile(web("app/marketing.css"), "utf8"));
+  assert.ok(
+    marketing.some(
+      (r) =>
+        r.selectors.includes('.mk-assistant-host:where([data-mk-motion="always"]) .button:active:not(:disabled)') &&
+        r.declarations.some((d) => d.property === "scale" && d.value === "0.97"),
+    ),
+  );
+  assert.ok(marketing.some((r) => r.selectors.includes('.mk-assistant-host:where([data-mk-motion="always"]) .button')));
+  const press = member.filter((r) => r.context.some((c) => c.includes("no-preference")) && /\.public:not\(/.test(r.selector) && /\.button/.test(r.selector));
+  assert.ok(press.length >= 2, "the subscriber press and its :active state");
+  for (const r of press) assert.match(r.selector, /\.public:not\(\.mk, \[data-mk-motion="always"\]\)/);
+
+  // JavaScript: the reveal, the settle and the journey player read both
+  // settings, and only in "device" mode.
+  const motion = await readFile(web("components/marketing/motion.tsx"), "utf8");
+  assert.match(
+    motion,
+    /const reduced = \(\) =>\s+MARKETING_MOTION === "device" &&\s+\(\(typeof matchMedia === "function" && matchMedia\(REDUCED\)\.matches\) \|\|\s+document\.documentElement\.dataset\.reduceMotion === "on"\);/,
+  );
+  assert.match(motion, /const REDUCED = "\(prefers-reduced-motion: reduce\)";/);
+  assert.match(motion, /typeof IntersectionObserver !== "function" \|\| reduced\(\)/);
+  assert.match(motion, /!root\.closest\("\.mk"\) &&\s+!reduced\(\) &&/);
+  const player = await readFile(web("components/marketing/journey-player.tsx"), "utf8");
+  assert.match(
+    player,
+    /const reducedNow = \(\) =>\s+MARKETING_MOTION === "device" &&\s+typeof window !== "undefined" &&\s+\(\(typeof window\.matchMedia === "function" &&\s+window\.matchMedia\(REDUCE\)\.matches\) \|\|\s+document\.documentElement\.dataset\.reduceMotion === "on"\);/,
+  );
+  // The listener for a setting changed on an open page is kept for "device".
+  assert.match(player, /useEffect\(\(\) => \{\s+if \(MARKETING_MOTION !== "device"\) return;\s+const query =/);
+  assert.match(player, /attributeFilter: \["data-reduce-motion"\]/);
+  assert.match(player, /setRun\(!reducedNow\(\)\)/);
+  assert.match(player, /behavior: reducedNow\(\) \? "instant" : "smooth"/);
+  // The chapter clock keeps its fallback: without the segment's <i> (or
+  // under reduced motion in "device" mode) a target-less animation still
+  // advances the chapter instead of crashing.
+  assert.match(
+    player,
+    /reduced \|\| !fill\s+\? new Animation\(\s+new KeyframeEffect\(null, null, \{ duration \}\),\s+document\.timeline,\s+\)\s+: fill\.animate\(/,
+  );
+
+  // The pinned scroll scenes are not switched (Variant B): the head script
+  // and the mount run the same reduced-motion tests, and neither reads the
+  // marketing switch, so the pin is decided before the first paint and
+  // never shifts the page.
+  const head = await readFile(web("components/marketing/scenes-head.ts"), "utf8");
+  const mount = await readFile(web("components/marketing/scene-mount.tsx"), "utf8");
+  const code = (source: string) => source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  assert.match(head, /if\(d\.getAttribute\("data-reduce-motion"\)==="on"\)return;/);
+  assert.match(head, /if\(window\.matchMedia&&matchMedia\("\(prefers-reduced-motion: reduce\)"\)\.matches\)return;/);
+  assert.match(mount, /const REDUCE = "\(prefers-reduced-motion: reduce\)";/);
+  assert.match(
+    mount,
+    /const reduced = \(\) =>\s+\(typeof matchMedia === "function" && matchMedia\(REDUCE\)\.matches\) \|\|\s+document\.documentElement\.dataset\.reduceMotion === "on";/,
+  );
+  assert.match(mount, /location\.pathname === "\/" &&\s+!reduced\(\) &&/);
+  for (const [name, source] of [["scenes-head.ts", head], ["scene-mount.tsx", mount]] as const) {
+    assert.doesNotMatch(code(source), /MARKETING_MOTION|motion-mode|data-mk-motion/, `${name} must not read the marketing switch`);
+    // Both test the same two settings.
+    assert.match(source, /prefers-reduced-motion: reduce/, name);
+    assert.match(source, /reduce-?[mM]otion/, name);
+  }
 });
 
 test("nothing is hidden before a reveal without the script's .mk-motion class", async () => {
@@ -471,11 +620,12 @@ test("the script's motion values are the CSS tokens, and no animation library is
   const motion = await readFile(new URL("motion.tsx", dir), "utf8");
   assert.deepEqual(
     [...motion.matchAll(/from\s+"([^"]+)"/g)].map((m) => m[1]),
-    ["react"],
-    "motion.tsx imports only react",
+    ["react", "./motion-mode"],
+    "motion.tsx imports only react and the marketing motion switch",
   );
-  // The reveal observes with IntersectionObserver, checks reduced motion and
-  // never touches the hero, the page heading or the relay.
+  // The reveal observes with IntersectionObserver, checks reduced motion
+  // (in "device" mode, motion-mode.ts) and never touches the hero, the page
+  // heading or the relay.
   assert.match(motion, /new IntersectionObserver\(/);
   assert.match(motion, /prefers-reduced-motion: reduce/);
   assert.match(motion, /\.mk-hero, \.mk-page-head, \.mk-relay/);

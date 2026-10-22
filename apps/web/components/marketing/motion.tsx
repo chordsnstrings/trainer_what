@@ -4,9 +4,13 @@
 // app/marketing.css (the "Motion" block). No animation library: an
 // IntersectionObserver marks units and the Web Animations API plays the
 // settle. Every word stays in the server-rendered HTML; the reveal only hides
-// a unit that is wholly below the first screen once this script runs, and
-// never under reduced motion, so the page reads the same without JavaScript.
+// a unit that is wholly below the first screen once this script runs, so the
+// page reads the same without JavaScript. Reduced motion (the device setting
+// or the member's own choice) stops both only while the marketing motion
+// switch is "device" (motion-mode.ts); with "always" they run for every
+// visitor.
 import { useEffect, useRef, type RefObject } from "react";
+import { MARKETING_MOTION } from "./motion-mode";
 
 /**
  * The motion tokens in milliseconds and easings, the same values as the
@@ -24,10 +28,13 @@ export const MOTION = {
 
 const REDUCED = "(prefers-reduced-motion: reduce)";
 /** The device setting, or the member's own "Reduce motion" choice
- * (<html data-reduce-motion="on">, app/layout.tsx). */
+ * (<html data-reduce-motion="on">, app/layout.tsx), read only while the
+ * marketing motion switch is "device" (motion-mode.ts); with "always" it is
+ * never reduced. */
 const reduced = () =>
-  (typeof matchMedia === "function" && matchMedia(REDUCED).matches) ||
-  document.documentElement.dataset.reduceMotion === "on";
+  MARKETING_MOTION === "device" &&
+  ((typeof matchMedia === "function" && matchMedia(REDUCED).matches) ||
+    document.documentElement.dataset.reduceMotion === "on");
 
 /**
  * The reveal units: each home band's content, each block of an inner page
@@ -59,12 +66,12 @@ const GRIDS =
  * page loads wait (data-mk-reveal="pending", unseen and 12px lower,
  * only while the page root has .mk-motion) and rise once when they enter
  * the view; the items of their grids carry data-mk-item and follow in a
- * stagger. Nothing waits under reduced motion, without
- * IntersectionObserver, when it holds the address's #target or when it is
- * taller than one and a half screens (it is revealed by scrolling anyway,
- * and fading it would restyle and repaint a large area); printing shows
- * everything. The marks sit on the elements that move, so marking and
- * revealing restyle only those elements.
+ * stagger. Nothing waits without IntersectionObserver, under reduced
+ * motion in "device" mode (motion-mode.ts), when it holds the address's
+ * #target or when it is taller than one and a half screens (it is revealed
+ * by scrolling anyway, and fading it would restyle and repaint a large
+ * area); printing shows everything. The marks sit on the elements that
+ * move, so marking and revealing restyle only those elements.
  */
 export function MarketingMotion({ path }: { path: string }) {
   useEffect(() => {
@@ -184,8 +191,9 @@ export const SETTLE_ADDRESS: SettleTarget[] = [
  * Settles the values that changed inside `ref` once input pauses for
  * `delay` ms: a short fade and a 4px rise, never a count-up (the result is
  * an aria-live region, its width must not jitter, and an estimate should
- * not look like a rolling total). Only on the marketing site, never under
- * reduced motion; the text itself changes at once.
+ * not look like a rolling total). Only on the marketing site, and under
+ * reduced motion only in "device" mode (motion-mode.ts); the text itself
+ * changes at once.
  */
 export function useSettle(
   ref: RefObject<HTMLElement | null>,

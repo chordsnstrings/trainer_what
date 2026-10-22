@@ -6,6 +6,15 @@
  * data-reduce-motion="on"), for crawlers and automated browsers (they get
  * today's page; the browser checks add ?scenes=on), and without
  * IntersectionObserver or sticky positioning. scene-mount.tsx repeats the
- * same test for a client-side navigation to the home page.
+ * same test for a client-side navigation to the home page (a test keeps the
+ * two reduced-motion tests equal: if they disagreed, the pin would be added
+ * after the first paint and the page would shift).
+ *
+ * The marketing motion switch (motion-mode.ts) does not reach the scenes:
+ * with "always" every short marketing motion plays for every visitor, but
+ * the pinned, scroll-scrubbed scenes still follow both reduced-motion
+ * settings (the owner's Variant B, 22 October 2026). Those visitors get the
+ * page without scenes: the journey auto-plays and #control plays its
+ * one-off choreography.
  */
 export const SCENES_HEAD_SCRIPT = `(function(){try{var d=document.documentElement,l=location,n=navigator;if(l.pathname!=="/")return;if(d.getAttribute("data-reduce-motion")==="on")return;if(window.matchMedia&&matchMedia("(prefers-reduced-motion: reduce)").matches)return;if(!/[?&]scenes=on(&|$)/.test(l.search)&&(n.webdriver||/bot|crawl|spider|slurp|preview|lighthouse/i.test(n.userAgent)))return;if(!("IntersectionObserver" in window)||!(window.CSS&&CSS.supports("position","sticky")))return;d.classList.add("scenes-on")}catch(e){}})();`;

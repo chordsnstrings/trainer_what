@@ -6,14 +6,10 @@ On the home page (`/`), scrolling plays some sections. Each frame depends only o
 
 | Section | Scene | What moves |
 |---|---|---|
-| Hero `section.mk-hero` | `depart` (`data-mode="leave"`) | `.mk-hero-inner` (`data-world`) sinks back as the hero scrolls away. The relay's load animation is unchanged. |
 | Journey band (`JourneyBand`, `journey.tsx`) | `journey`, pinned (`--len: 480`, `--len-phone: 500`) | Nothing gets new styles. Scroll replaces the player's clock: chapter = floor(q × 8). The first 70% of a chapter's slice plays its beats, and the rest holds the complete picture. |
-| `#subscribers` | `assemble` | Each tile's `li`. Never `.mk-icon-tile`, because its hover uses `translate`. |
 | `#control` (`ControlFlow`) | `beats`, in 4 beats | The message, then the AI card, then the meter fill, then the lanes. The `data-from` poses are the old reveal's "before" poses. |
-| `#economics` | `rise` | The commission band pills (`li`). Never the address input. |
-| `section.mk-closing` | `reveal` (`data-span=".45"`) | The closing panel. |
 
-Nothing else gets a scene: the followers calculator, FAQs, Kamran button, header and footer. No other page has scenes.
+Only these two are wired in `site.tsx` (the journey band and `scene="beats"` on `#control`). The hero, `#subscribers`, `#economics` and the closing panel have no scene: `Closing` is rendered without `scene`, so they keep the section reveal. The `depart`, `assemble`, `rise` and `reveal` recipes are still registered in `scenes.ts` and can be wired again (see "Add a scene to a section"). Nothing else gets a scene: the followers calculator, FAQs, Kamran button, header and footer. No other page has scenes.
 
 ## Files
 
@@ -31,7 +27,7 @@ Nothing else gets a scene: the followers calculator, FAQs, Kamran button, header
 - `apps/web/components/marketing/scene-mount.tsx`: `ScrollScenes`, rendered at the end of `Home` in `site.tsx`. It does three things:
   - it mounts the engine;
   - it makes every in-place scene finish: one already on screen at load stays complete, and one near the footer finishes by the end of the page;
-  - it turns scenes off if reduced motion is switched on while the page is open.
+  - it turns scenes off if reduced motion is switched on while the page is open (the same test as the head script; a static test keeps the two equal).
 - `apps/web/components/marketing/scenes-head.ts`: the head script (inline in `app/layout.tsx`). It adds `<html class="scenes-on">` before the first paint.
 
 ## Who gets today's page
@@ -46,7 +42,9 @@ Scenes are on only when the head script adds `scenes-on`. It is not added in the
 
 Browser checks add `?scenes=on` to switch scenes on despite webdriver. Reduced motion still wins over `?scenes=on`.
 
-Viewports under 700px tall get no pin. CSS decides this before the first paint, and the walkthrough auto-plays as before. The section reveal (`motion.tsx`) does not run on scene sections while scenes are on. The player and the reveal now also respect `data-reduce-motion="on"`.
+**The marketing motion switch does not reach the scenes.** Since 22 October 2026 every short marketing motion plays for every visitor (`MARKETING_MOTION = "always"` in `components/marketing/motion-mode.ts`, the owner's Variant B; `docs/features/marketing-motion.md`, "Motion for every visitor"). The pinned, scroll-scrubbed scenes are the exception: both reduced-motion settings still keep them off, in either mode, and neither `scenes-head.ts` nor `scene-mount.tsx` reads the switch. A visitor with reduced motion gets the page without scenes, where the walkthrough auto-plays (with its Pause and holds) and `#control` plays its one-off choreography (about 1.1 s) through the section reveal. With the switch at `"device"` they get the still page, as before. The journey is not un-pinned on phones.
+
+Viewports under 700px tall get no pin. CSS decides this before the first paint, and the walkthrough auto-plays as before. The section reveal (`motion.tsx`) does not run on scene sections while scenes are on. The player and the reveal respect `data-reduce-motion="on"` only while the marketing switch is `"device"`.
 
 ## Add a scene to a section
 
@@ -81,4 +79,4 @@ Run `verify_scenes.py` from the scroll-scenes library against `http://127.0.0.1:
 
 The walkthrough is expected to end on chapter 8 rather than chapter 1, because the progress UI rests on its last step.
 
-`npm run test:marketing-motion` runs in an automated browser, so scenes are off there and it checks today's behaviour.
+`npm run test:marketing-motion` runs in an automated browser, so scenes are off there and it checks today's behaviour. Its sitewide half also loads `/?scenes=on` as controls: without reduced motion `<html class="scenes-on">` must be there before the body is parsed (before the first paint) with no layout shift; under emulated reduced motion, and separately with the member's `trainer_member_motion=reduce` cookie, there must be no scenes, and the walkthrough auto-plays (switch `"always"`) or waits (switch `"device"`).

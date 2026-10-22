@@ -58,6 +58,7 @@ import { availabilityChip, Chip } from "./chip";
 import { HeroFlow } from "./hero-flow";
 import { Journey, JourneyBand, journeyAvailable } from "./journey";
 import { MarketingMotion } from "./motion";
+import { MARKETING_MOTION } from "./motion-mode";
 import { ScrollScenes } from "./scene-mount";
 import type { PublicPlatform } from "./platform";
 import {
@@ -1547,7 +1548,10 @@ export function MarketingSite({ page: registered, platform, origin }: Ctx) {
     availability: platform.availability,
   });
   return (
-    <div className="public mk platform-ui">
+    // data-mk-motion: the marketing motion switch (motion-mode.ts). While it
+    // is "always", the reduced-motion rules skip this root and everything
+    // inside it (header and footer included).
+    <div className="public mk platform-ui" data-mk-motion={MARKETING_MOTION}>
       <MarketingHeader
         key={page.path}
         appName={platform.name}

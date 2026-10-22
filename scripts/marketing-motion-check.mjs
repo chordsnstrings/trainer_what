@@ -16,8 +16,14 @@
 // finish) and an explicit Play wins over it; the active step card is on
 // screen (the cards are a carousel at every width once the island runs);
 // phones show one frame at a time, swap at the crossing, keep mock text at
-// 11px or more and fit the controls in one row; reduced motion shows static
-// complete chapters, never auto-plays and moves nothing even after Play;
+// 11px or more and fit the controls in one row; reduced motion (the device
+// setting, and separately the member's own choice, the trainer_member_motion
+// cookie) follows the marketing motion switch (data-mk-motion on the
+// marketing root, components/marketing/motion-mode.ts): with "always" the
+// player auto-plays from half the stage in view and animates exactly as
+// without it, and Pause, keyboard focus, the mouse, off screen and a hidden
+// tab still hold it; with "device" it shows static complete chapters, never
+// auto-plays and moves nothing even after Play;
 // without JavaScript every step shows and no dead controls do; no layout
 // shift while chapters change (and through one full, sped-up pass that ends
 // on Replay; on the home band too); stage text passes WCAG AA contrast in
@@ -66,7 +72,7 @@ const TITLES = [
   "Get paid monthly",
 ];
 
-async function context(vp, { reduced = false, js = true } = {}) {
+async function context(vp, { reduced = false, js = true, cookie = false } = {}) {
   const ctx = await browser.newContext({
     viewport: { width: vp.width, height: vp.height },
     ...(vp.phone
@@ -81,7 +87,26 @@ async function context(vp, { reduced = false, js = true } = {}) {
       localStorage.setItem("analytics-preference", "declined");
     } catch {}
   });
+  // The member's own "Reduce motion" choice on this device (it puts
+  // data-reduce-motion="on" on <html> from the first paint).
+  if (cookie)
+    await ctx.addCookies([
+      { name: "trainer_member_motion", value: "reduce", url: base },
+    ]);
   return ctx;
+}
+/** The marketing motion switch the build carries ("device" when absent). */
+async function motionSwitch() {
+  const ctx = await browser.newContext({ javaScriptEnabled: false });
+  const page = await ctx.newPage();
+  await page.goto(base + "/how-it-works", { waitUntil: "domcontentloaded" });
+  const mode = await page.evaluate(
+    () =>
+      document.querySelector(".mk")?.getAttribute("data-mk-motion") ??
+      "device",
+  );
+  await ctx.close();
+  return mode;
 }
 async function open(ctx, path) {
   const page = await ctx.newPage();
@@ -971,7 +996,11 @@ for (const vp of VIEWPORTS) {
   // Away and back, early in a fresh chapter: the clock stops, the beats go on.
   await page.locator('.mk-walk [data-seg="1"]').click();
   await page.locator(".mk-walk-play").click();
-  await page.mouse.move(4, 4);
+  // Leave along a path, as a hand does: Play swaps its icon under the
+  // pointer, and a single jump from a removed node to the corner sometimes
+  // fired no pointerleave on the player (seen on main before the motion
+  // switch too, 22 October 2026), so the pointer never counted as leaving.
+  await page.mouse.move(4, 4, { steps: 4 });
   await page.waitForTimeout(150);
   const stageBox = await page.locator(".mk-walk-stage").boundingBox();
   await page.mouse.move(
@@ -1019,112 +1048,284 @@ for (const vp of VIEWPORTS) {
 }
 
 // ---------------------------------------------------------------------------
-// 4. Reduced motion: static complete chapters, no auto-play, nothing moves.
-for (const vp of VIEWPORTS) {
-  const tag = `${vp.width}x${vp.height} reduced`;
-  const ctx = await context(vp, { reduced: true });
-  const { page } = await open(ctx, "/how-it-works");
-  await page.waitForSelector(".mk-walk[data-ready]");
-  await center(page);
-  await page.waitForTimeout(2500);
-  const idle = await page.evaluate(() => {
-    const w = document.querySelector(".mk-walk");
-    return {
-      state: w.dataset.state,
-      chapter: w.dataset.chapter,
-      run: w.hasAttribute("data-run"),
-    };
-  });
-  check(
-    `${tag}: no auto-play`,
-    idle.state === "idle" && idle.chapter === "1" && !idle.run,
-    JSON.stringify(idle),
-  );
-  check(
-    `${tag}: nothing animates`,
-    (await walkAnimations(page)).length === 0,
-    (await walkAnimations(page)).join(" | "),
-  );
-  const play = page.locator(".mk-walk-play").first();
-  await play.focus();
-  await page.keyboard.press("Enter");
-  await page.waitForTimeout(400);
-  const moving = await walkAnimations(page);
-  const fill = await page.evaluate(
-    () =>
-      getComputedStyle(document.querySelector(".mk-walk [aria-current] i"))
-        .scale,
-  );
-  check(
-    `${tag}: Play moves nothing`,
-    (await state(page)) === "playing" &&
-      moving.length === 0 &&
-      (fill === "1" || fill === "1 1"),
-    `state ${await state(page)}, ${moving.join(" | ")}, fill ${fill}`,
-  );
-  // The slideshow still advances (sped up), with instant cuts.
-  const cdp = await ctx.newCDPSession(page);
-  await cdp.send("Animation.enable");
-  await cdp.send("Animation.setPlaybackRate", { playbackRate: 20 });
-  const advanced = await waitFor(
-    page,
-    () => document.querySelector(".mk-walk").dataset.chapter !== "1",
-    undefined,
-    5000,
-  );
-  await cdp.send("Animation.setPlaybackRate", { playbackRate: 1 });
-  check(
-    `${tag}: Play advances the chapters`,
-    advanced,
-    `chapter ${await chapter(page)}`,
-  );
-  // Chapters switch instantly and show their complete picture; stage text
-  // passes AA in each (both sides on phones).
-  await page.locator(".mk-walk [aria-current]").focus();
-  await page.keyboard.press("Home");
-  const low = [],
-    small = [];
-  let scanned = 0;
-  for (let c = 1; c <= 8; c++) {
-    if (c > 1) await page.keyboard.press("ArrowRight");
-    const scene = await page.evaluate(
-      (c) =>
-        [...document.querySelectorAll(`.mk-walk [data-s="${c}"]`)].map(
-          (s) => getComputedStyle(s).opacity,
-        ),
-      c,
-    );
-    if (!scene.every((o) => o === "1"))
-      fail(`${tag}: chapter ${c} instant`, `scene opacities ${scene}`);
-    for (const side of vp.phone ? ["coach", "phone"] : [""]) {
-      if (side)
-        await page.evaluate(
-          (s) => (document.querySelector(".mk-walk").dataset.end = s),
-          side,
+// 4. Reduced motion, by the marketing motion switch (data-mk-motion):
+// - "always": the device setting and, separately, the member's own choice
+//   change nothing: auto-play from half the stage in view, the chapter
+//   clock and the beats animate, and every hold works (off screen, a
+//   hidden tab, keyboard focus, Pause, and at 1366 the mouse).
+// - "device": static complete chapters, no auto-play, nothing moves.
+const SWITCH = await motionSwitch();
+console.log(`marketing motion switch: ${SWITCH}`);
+check(
+  "the marketing root carries the motion switch",
+  SWITCH === "always" || SWITCH === "device",
+  `data-mk-motion ${SWITCH}`,
+);
+if (SWITCH === "always") {
+  for (const vp of VIEWPORTS)
+    for (const source of ["reduce", "cookie"]) {
+      const tag = `${vp.width}x${vp.height} reduced (${source === "reduce" ? "device setting" : "member's choice"})`;
+      const ctx = await context(vp, {
+        reduced: source === "reduce",
+        cookie: source === "cookie",
+      });
+      const { page, errors } = await open(ctx, "/how-it-works");
+      await page.waitForSelector(".mk-walk[data-ready]");
+      const env = await page.evaluate(() => ({
+        os: matchMedia("(prefers-reduced-motion: reduce)").matches,
+        member: document.documentElement.dataset.reduceMotion === "on",
+        mode: document.querySelector(".mk")?.dataset.mkMotion,
+      }));
+      check(
+        `${tag}: the setting is on`,
+        source === "reduce" ? env.os : env.member && !env.os,
+        JSON.stringify(env),
+      );
+      // Auto-play only once half of the stage is on screen.
+      const atLoad = await ratio(page);
+      await page.waitForTimeout(1200);
+      const loadState = await state(page);
+      check(
+        `${tag}: auto-play at load follows visibility`,
+        atLoad >= 0.5 ? loadState === "playing" : loadState === "idle",
+        `stage ${Math.round(atLoad * 100)}% visible, state ${loadState}`,
+      );
+      await center(page);
+      const playing = await waitFor(
+        page,
+        () => document.querySelector(".mk-walk")?.dataset.state === "playing",
+      );
+      const c1 = await clock(page);
+      await page.waitForTimeout(600);
+      const c2 = await clock(page);
+      check(
+        `${tag}: auto-plays, the clock fills the segment`,
+        playing && c2?.play === "running" && c2.time > c1.time,
+        `state ${await state(page)}, clock ${JSON.stringify(c1)} then ${JSON.stringify(c2)}`,
+      );
+      // Off screen it holds, and it resumes in view.
+      await away(page);
+      await page.waitForTimeout(400);
+      const o1 = await clock(page);
+      await page.waitForTimeout(600);
+      const o2 = await clock(page);
+      check(
+        `${tag}: holds out of view`,
+        !!o1 && o2.play !== "running" && o1.time === o2.time,
+        `clock ${JSON.stringify(o1)} then ${JSON.stringify(o2)}`,
+      );
+      await center(page);
+      await page.waitForTimeout(400);
+      const r1 = await clock(page);
+      await page.waitForTimeout(500);
+      const r2 = await clock(page);
+      check(
+        `${tag}: resumes in view`,
+        r2?.play === "running" && r2.time > r1.time,
+        `clock ${JSON.stringify(r1)} then ${JSON.stringify(r2)}`,
+      );
+      // A hidden tab holds it (emulated: visibilityState and its event).
+      const setHidden = (hidden) =>
+        page.evaluate((hidden) => {
+          Object.defineProperty(document, "visibilityState", {
+            configurable: true,
+            get: () => (hidden ? "hidden" : "visible"),
+          });
+          document.dispatchEvent(new Event("visibilitychange"));
+        }, hidden);
+      await setHidden(true);
+      await page.waitForTimeout(300);
+      const h1 = await clock(page);
+      await page.waitForTimeout(500);
+      const h2 = await clock(page);
+      const holdAttr = await page.evaluate(() =>
+        document.querySelector(".mk-walk").hasAttribute("data-hold"),
+      );
+      check(
+        `${tag}: a hidden tab holds it`,
+        !!h1 && h2.play !== "running" && h1.time === h2.time && holdAttr,
+        `clock ${JSON.stringify(h1)}/${JSON.stringify(h2)}, data-hold ${holdAttr}`,
+      );
+      await setHidden(false);
+      await page.waitForTimeout(400);
+      const v1 = await clock(page);
+      await page.waitForTimeout(500);
+      const v2 = await clock(page);
+      check(
+        `${tag}: resumes when the tab shows again`,
+        v2?.play === "running" && v2.time > v1.time,
+        `clock ${JSON.stringify(v1)} then ${JSON.stringify(v2)}`,
+      );
+      // The mouse resting on the player stops the chapter clock (1366).
+      if (!vp.phone) {
+        const box = await page.locator(".mk-walk-stage").boundingBox();
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, {
+          steps: 2,
+        });
+        await page.waitForTimeout(300);
+        const m1 = await clock(page);
+        await page.waitForTimeout(500);
+        const m2 = await clock(page);
+        check(
+          `${tag}: the mouse on the player stops the clock`,
+          (await state(page)) === "playing" &&
+            !!m1 &&
+            m2.play !== "running" &&
+            m1.time === m2.time,
+          `state ${await state(page)}, clock ${JSON.stringify(m1)}/${JSON.stringify(m2)}`,
         );
-      const r = await scanText(page, `c${c}${side}`);
-      low.push(...r.low);
-      small.push(...r.small);
-      scanned += r.scanned;
+        await page.mouse.move(4, 4);
+        await page.waitForTimeout(300);
+      }
+      // Keyboard focus stops auto-play; Enter plays the chapter's beats;
+      // Pause (Space) holds everything.
+      const play = page.locator(".mk-walk-play").first();
+      await play.focus();
+      check(
+        `${tag}: keyboard focus stops auto-play`,
+        (await state(page)) === "paused",
+        `state ${await state(page)}`,
+      );
+      await page.keyboard.press("Enter");
+      await page.waitForTimeout(300);
+      const moving = await walkAnimations(page);
+      check(
+        `${tag}: Play animates the chapter`,
+        (await state(page)) === "playing" &&
+          moving.some((a) => / running$/.test(a)),
+        `state ${await state(page)}, ${moving.slice(0, 6).join(" | ")}`,
+      );
+      await page.keyboard.press(" ");
+      await page.waitForTimeout(150);
+      const p1 = await clock(page);
+      await page.waitForTimeout(500);
+      const p2 = await clock(page);
+      const running = await page.evaluate(
+        () =>
+          document
+            .querySelector(".mk-walk-view")
+            .getAnimations({ subtree: true })
+            .filter((a) => a.playState === "running").length,
+      );
+      check(
+        `${tag}: Pause holds everything`,
+        (await state(page)) === "paused" &&
+          !!p1 &&
+          p1.time === p2.time &&
+          running === 0,
+        `state ${await state(page)}, clock ${JSON.stringify(p1)}/${JSON.stringify(p2)}, ${running} running`,
+      );
+      check(`${tag}: no page errors`, errors.length === 0, errors.join(" | "));
+      await page.close();
+      await ctx.close();
     }
+} else {
+  for (const vp of VIEWPORTS) {
+    const tag = `${vp.width}x${vp.height} reduced`;
+    const ctx = await context(vp, { reduced: true });
+    const { page } = await open(ctx, "/how-it-works");
+    await page.waitForSelector(".mk-walk[data-ready]");
+    await center(page);
+    await page.waitForTimeout(2500);
+    const idle = await page.evaluate(() => {
+      const w = document.querySelector(".mk-walk");
+      return {
+        state: w.dataset.state,
+        chapter: w.dataset.chapter,
+        run: w.hasAttribute("data-run"),
+      };
+    });
+    check(
+      `${tag}: no auto-play`,
+      idle.state === "idle" && idle.chapter === "1" && !idle.run,
+      JSON.stringify(idle),
+    );
+    check(
+      `${tag}: nothing animates`,
+      (await walkAnimations(page)).length === 0,
+      (await walkAnimations(page)).join(" | "),
+    );
+    const play = page.locator(".mk-walk-play").first();
+    await play.focus();
+    await page.keyboard.press("Enter");
+    await page.waitForTimeout(400);
+    const moving = await walkAnimations(page);
+    const fill = await page.evaluate(
+      () =>
+        getComputedStyle(document.querySelector(".mk-walk [aria-current] i"))
+          .scale,
+    );
+    check(
+      `${tag}: Play moves nothing`,
+      (await state(page)) === "playing" &&
+        moving.length === 0 &&
+        (fill === "1" || fill === "1 1"),
+      `state ${await state(page)}, ${moving.join(" | ")}, fill ${fill}`,
+    );
+    // The slideshow still advances (sped up), with instant cuts.
+    const cdp = await ctx.newCDPSession(page);
+    await cdp.send("Animation.enable");
+    await cdp.send("Animation.setPlaybackRate", { playbackRate: 20 });
+    const advanced = await waitFor(
+      page,
+      () => document.querySelector(".mk-walk").dataset.chapter !== "1",
+      undefined,
+      5000,
+    );
+    await cdp.send("Animation.setPlaybackRate", { playbackRate: 1 });
+    check(
+      `${tag}: Play advances the chapters`,
+      advanced,
+      `chapter ${await chapter(page)}`,
+    );
+    // Chapters switch instantly and show their complete picture; stage text
+    // passes AA in each (both sides on phones).
+    await page.locator(".mk-walk [aria-current]").focus();
+    await page.keyboard.press("Home");
+    const low = [],
+      small = [];
+    let scanned = 0;
+    for (let c = 1; c <= 8; c++) {
+      if (c > 1) await page.keyboard.press("ArrowRight");
+      const scene = await page.evaluate(
+        (c) =>
+          [...document.querySelectorAll(`.mk-walk [data-s="${c}"]`)].map(
+            (s) => getComputedStyle(s).opacity,
+          ),
+        c,
+      );
+      if (!scene.every((o) => o === "1"))
+        fail(`${tag}: chapter ${c} instant`, `scene opacities ${scene}`);
+      for (const side of vp.phone ? ["coach", "phone"] : [""]) {
+        if (side)
+          await page.evaluate(
+            (s) => (document.querySelector(".mk-walk").dataset.end = s),
+            side,
+          );
+        const r = await scanText(page, `c${c}${side}`);
+        low.push(...r.low);
+        small.push(...r.small);
+        scanned += r.scanned;
+      }
+    }
+    check(
+      `${tag}: stage text AA contrast (${scanned} scanned)`,
+      low.length === 0 && scanned > 100,
+      low.slice(0, 6).join(" | "),
+    );
+    check(
+      `${tag}: stage text at least 11px`,
+      small.length === 0,
+      small.slice(0, 6).join(" | "),
+    );
+    check(
+      `${tag}: nothing animated after the chapters`,
+      (await walkAnimations(page)).length === 0,
+      (await walkAnimations(page)).join(" | "),
+    );
+    await page.close();
+    await ctx.close();
   }
-  check(
-    `${tag}: stage text AA contrast (${scanned} scanned)`,
-    low.length === 0 && scanned > 100,
-    low.slice(0, 6).join(" | "),
-  );
-  check(
-    `${tag}: stage text at least 11px`,
-    small.length === 0,
-    small.slice(0, 6).join(" | "),
-  );
-  check(
-    `${tag}: nothing animated after the chapters`,
-    (await walkAnimations(page)).length === 0,
-    (await walkAnimations(page)).join(" | "),
-  );
-  await page.close();
-  await ctx.close();
 }
 
 // ---------------------------------------------------------------------------
@@ -1204,6 +1405,21 @@ for (const vp of [VIEWPORTS[1], VIEWPORTS[2]]) {
   const { page, errors } = await open(ctx, "/how-it-works?lang=ar");
   await page.waitForSelector(".mk-walk[data-ready]");
   await center(page);
+  // With the switch at "always" the player auto-plays under reduced motion:
+  // Pause it (still on chapter 1's complete picture) before measuring.
+  if (SWITCH === "always") {
+    await waitFor(
+      page,
+      () => document.querySelector(".mk-walk")?.dataset.state === "playing",
+    );
+    if ((await state(page)) === "playing")
+      await page.locator(".mk-walk-play").click();
+    check(
+      `${tag}: paused before measuring`,
+      (await state(page)) === "paused" && (await chapter(page)) === 1,
+      `state ${await state(page)}, chapter ${await chapter(page)}`,
+    );
+  }
   const m = await page.evaluate((phone) => {
     const mid = (s) => {
       const r = document.querySelector(s).getBoundingClientRect();

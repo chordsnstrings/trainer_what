@@ -583,7 +583,14 @@ test("motion hygiene: transform and opacity only, tokens, hover media, reduced m
         "spring outside the success pop",
       );
   }
+  // The reduced-motion rules stay for the marketing motion switch's
+  // "device" mode, and skip the marketing root while it is "always"
+  // (tests/marketing-motion-sitewide.test.ts checks every selector).
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
+  assert.match(
+    css,
+    /\.mk-walk:not\(:where\(\[data-mk-motion="always"\], \[data-mk-motion="always"\] \*\)\) \*::before/,
+  );
   assert.doesNotMatch(css, /infinite/);
   // The pop (spring) is used only on success states in the mocks: the
   // success badges, the ticks and Live.
@@ -621,7 +628,14 @@ test("the motion island stays React-only and web dependencies are explicitly rev
   const imports = [...island.matchAll(/^import[\s\S]*?from "([^"]+)";/gm)].map(
     (m) => m[1],
   );
-  assert.deepEqual(imports, ["react"]);
+  // React, and the marketing motion switch (a constant with no imports of
+  // its own: components/marketing/motion-mode.ts).
+  assert.deepEqual(imports, ["react", "./motion-mode"]);
+  const mode = await readFile(
+    new URL("../apps/web/components/marketing/motion-mode.ts", import.meta.url),
+    "utf8",
+  );
+  assert.doesNotMatch(mode, /^\s*import\s/m);
   const root = JSON.parse(
     await readFile(new URL("../package.json", import.meta.url), "utf8"),
   );

@@ -213,10 +213,19 @@ test("keyframes move only transform, opacity and stroke-dashoffset", async () =>
 test("the member's Reduce motion choice and the device setting stop everything", async () => {
   const text = await css("motion.css");
   const { rules } = readCss(text);
-  const off = rules.find((r) => r.selector.includes(':root[data-reduce-motion="on"] *,'));
+  // Every element and pseudo-element, except the marketing site's own while
+  // its motion switch is "always" (data-mk-motion on .mk and the assistant
+  // host, components/marketing/motion-mode.ts). The exclusion names only
+  // "always" and sits in :where() (no specificity), so with "device", and
+  // on every subscriber surface, the rule matches exactly what `*` did.
+  const MARKETING_ALWAYS = ':not(:where([data-mk-motion="always"], [data-mk-motion="always"] *))';
+  const off = rules.find((r) => r.selector.includes(`:root[data-reduce-motion="on"] *${MARKETING_ALWAYS},`));
   assert.ok(off, "the in-app reduce rule");
-  for (const target of ["*", "*::before", "*::after", "*::backdrop"])
-    assert.ok(off.selector.includes(`:root[data-reduce-motion="on"] ${target}`), target);
+  for (const target of ["", "::before", "::after", "::backdrop"])
+    assert.ok(off.selector.includes(`:root[data-reduce-motion="on"] *${MARKETING_ALWAYS}${target}`), target || "*");
+  // Marketing excluded: no other exclusion, and no unscoped `*` left.
+  assert.equal(off.selector.match(/:root\[data-reduce-motion="on"\]/g)?.length, 4);
+  assert.doesNotMatch(off.selector, /\] \*(::[a-z]+)?\s*(,|$)/);
   assert.deepEqual(
     off.decls.map((d) => `${d.prop}: ${d.value}`),
     ["animation: none !important", "transition: none !important", "scroll-behavior: auto !important"],

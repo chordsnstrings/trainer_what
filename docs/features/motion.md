@@ -15,8 +15,9 @@ The shared onboarding/My Brain conversation has a separate, explicit owner-reque
 
 ## Principles
 
-1. **Feedback within 100 ms of every tap.** A press answers in
-   `--motion-instant` (80 ms) before any network work starts.
+1. **Feedback within 100 ms of every tap.** A press answers at once
+   (`--motion-instant`, 120 ms since the 20 October 2026 CI pass) before
+   any network work starts.
 2. **Motion explains change.** Something that arrives shows where it came
    from; something that leaves shows where it went; a value that changes
    shows which way it moved. Nothing moves only to decorate.
@@ -33,23 +34,35 @@ The shared onboarding/My Brain conversation has a separate, explicit owner-reque
 
 ## Tokens (`apps/web/app/motion.css`, mirrored in `components/motion.ts`)
 
+The values below are the ones in `motion.css` now. The subscriber CI pass of
+20 October 2026 (`docs/SUBSCRIBER_CI_2026-10-20.md`) shortened them from the
+first pass (80 / 140 / 200 / 280 / 420 / 640 ms, a 30 ms stagger for six
+items and an overshooting spring); this table was corrected on 22 October
+2026.
+
 | Token | Value | Use |
 | ----- | ----- | --- |
-| `--motion-instant` | 80 ms | Press down, a tint, a check box answering |
-| `--motion-fast` | 140 ms | Release, tab crossfade, small state changes, a number rolling |
+| `--motion-instant` | 120 ms | Press down, a tint, a check box answering |
+| `--motion-fast` | 180 ms | Release, tab crossfade, small state changes, a number rolling |
 | `--motion-base` | 200 ms | Arrivals (cards, toasts, messages), exits of sheets, disclosure height, theme crossfade |
-| `--motion-slow` | 280 ms | Sheets and bars sliding up from the bottom edge |
-| `--motion-emphasis` | 420 ms | Celebration and progress only (a finished workout, a drawn success check) |
-| `--motion-progress` | 640 ms | Bars and rings growing to their value the first time they are seen (at most 700 ms) |
+| `--motion-slow` | 220 ms | Sheets and bars sliding up from the bottom edge |
+| `--motion-emphasis` | 240 ms | Celebration and progress only (a finished workout, a drawn success check) |
+| `--motion-progress` | 240 ms | Bars and rings growing to their value the first time they are seen |
 | `--motion-loop-typing` / `--motion-loop-shimmer` / `--motion-loop-breathe` | 1.2 s / 1.4 s / 4 s | The only loops: typing dots, skeleton shimmer, the listening ring |
 | `--ease-out` | `cubic-bezier(0.2, 0, 0, 1)` | Arrivals and releases |
 | `--ease-in` | `cubic-bezier(0.4, 0, 1, 1)` | Departures |
 | `--ease-in-out` | `cubic-bezier(0.4, 0, 0.2, 1)` | Things that move from one place to another (the tab indicator) |
-| `--ease-spring` | `cubic-bezier(0.34, 1.4, 0.64, 1)` | Small overshoot for success moments only (a logged set, a badge, a finished workout) |
+| `--ease-spring` | `cubic-bezier(0.2, 0, 0, 1)` | Success moments (a logged set, a badge, a finished workout); no overshoot since the CI pass |
 | `--motion-distance-xs` / `-sm` / `-md` | 4 / 8 / 16 px | Nudges and shakes / arrivals / sub-page slides and sheets' dialogs |
 
-Stagger: 30 ms between siblings, at most 6 items (`MOTION.stagger`,
-`MOTION.staggerMax`).
+Stagger: 12 ms between siblings, for at most 4 items (`--motion-stagger`,
+`MOTION.stagger`, `MOTION.staggerMax`).
+
+The marketing site's tokens (`--mk-*` in `apps/web/app/marketing.css`,
+`docs/features/marketing-motion.md`) are separate and keep their own values:
+80 / 140 / 200 / 280 / 420 ms and a spring with overshoot. Only
+`--motion-base` (200 ms) and the out, in and in-out curves still have the
+same values as their `--mk-` counterparts.
 
 ## Rules
 
@@ -256,9 +269,15 @@ them with the same tokens and reduced-motion rules:
   `npm run test:pwa` (33 passed) and `npm run test:dark` (61 screens,
   0 failures).
 
-Note: "Reduce motion" is a device choice; on that device it also stills
-the marketing site's own motion (the global rule in `motion.css`), which is
-the member's accessibility preference rather than a change to the site.
+Note: "Reduce motion" is a device choice. It used to still the marketing
+site's own motion on that device as well (the global rule in `motion.css`).
+Since 22 October 2026 the marketing site plays its short motion for every
+visitor (the owner's decision; `MARKETING_MOTION = "always"` in
+`components/marketing/motion-mode.ts`), so that rule skips the marketing
+root and Kamran's assistant host (`[data-mk-motion="always"]`); the member
+app, coach websites, joining and sign-in pages are unchanged, and the home
+page's pinned scroll scenes still follow the choice. Setting the switch to
+`"device"` restores the earlier behaviour exactly.
 
 ## Verification round (30 September 2026)
 
