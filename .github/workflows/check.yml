@@ -64,7 +64,11 @@ jobs:
     runs-on: ubuntu-24.04
     # 1,905 tests plus all browser journeys exceeded 35 minutes. Keep every
     # gate and allow the remaining onboarding/domain checks and cleanup to finish.
-    timeout-minutes: 45
+    # 22 October 2026: two main runs were cancelled at 45 minutes with every
+    # test passing so far, because runner setup was slow (apt-get up to 16 min,
+    # the Playwright install up to 9.5 min, npm run check up to 23 min). Those
+    # runs needed about 51 and 58 minutes.
+    timeout-minutes: 75
     env:
       PUBLIC_APP_URL: http://localhost:3000
       API_INTERNAL_URL: http://127.0.0.1:4000

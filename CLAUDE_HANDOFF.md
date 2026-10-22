@@ -2,7 +2,7 @@
 
 ## Work in progress
 
-### Marketing motion — merged, deploy pending (CI timeout), 22 October 2026 (Claude, updated 12:35 UTC)
+### Marketing motion — merged, deploy pending (CI timeout), 22 October 2026 (Claude, updated 13:22 UTC)
 
 Plan: `docs/MARKETING_MOTION_PLAN_2026-10-22.md` (merged as #88), with its review corrections binding. Owner decisions: "B / sure / accept the speed cost for now. we can always switch it back to motion matching the device."
 - **Approved:** Variant B (all short marketing motion always on; the pinned scroll scenes still follow OS reduce motion and the member's setting), the hero additions, and the speed cost.
@@ -83,15 +83,19 @@ Plan: `docs/MARKETING_MOTION_PLAN_2026-10-22.md` (merged as #88), with its revie
   - The test steps took the same time on every run. The browser check, for example, took 6.7 min each time.
   - The job's normal 30–44 min is close to its 45-minute limit.
   - Claude cannot re-run jobs (the API returns 403). So the records PR #90 was merged to start a fresh `main` run, which deploys `827fb2d`'s code plus these docs.
-  - **Suggested follow-up for the owner:** raise `application`'s `timeout-minutes` in `.github/workflows/check.yml` (for example to 60), or cache the apt and Playwright installs. This is not done yet.
+- **The #90 run timed out too.** Main run 39778688437 on `1d7c6fb` was cancelled at 45 min (13:14 UTC), during "Backend onboarding, navigation and responsive UI". Every earlier step had passed.
+  - Setup was slow again: `apt-get` 5.5 min, `npm run check` 18 min, Playwright install 7.5 min.
+  - The two runs needed about 58 and 51 minutes.
+- **PR #91 (opened 13:20 UTC):** `application`'s `timeout-minutes` goes from 45 to 75, with a dated comment. No gate changes.
+  - It needs its own CI, then a merge. The `main` run on its merge commit deploys #89, #90 and #91 together.
 - **Records:** the stage entry is in `docs/COMPLETION_STAGES.md`. `docs/PROJECT_MEMORY.md` gains two rules: the switch and how to flip it back, and running browser suites in parallel on the production build.
 
 **Waiting on the owner (optional):** whether to retry the hero "trains" sweep with a larger LCP sample (for example 15+ cold loads per width). It stays out until then.
 
 **Next action:**
-1. Watch the `main` run started by the #90 merge until the release header shows #90's merge commit. That release includes `827fb2d`.
-2. Record the live time here and in the stage entry.
-3. If `application` times out again, raise its timeout in a small PR. The owner can also re-run the job from the Actions page.
+1. When PR #91's CI is green, merge it with the full SHA.
+2. Watch the `main` run on its merge commit with `scripts/watch-release.sh` until it is live. Record the live time in the next records update.
+3. The owner can also re-run a cancelled job from the Actions page; Claude gets a 403.
 
 ### Meal-photo estimates: switched on live after a passing Seed 2.0 Pro test — 20–21 October 2026 (Claude)
 
