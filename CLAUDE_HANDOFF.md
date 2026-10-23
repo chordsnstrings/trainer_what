@@ -2,124 +2,39 @@
 
 ## Work in progress
 
-### Marketing motion — merged, deploy pending (CI timeout), 22–23 October 2026 (Claude, updated 03:08 UTC 23 Oct)
+### Marketing motion — live, 23 October 2026 (Claude, 05:05 UTC)
 
-Plan: `docs/MARKETING_MOTION_PLAN_2026-10-22.md` (merged as #88), with its review corrections binding. Owner decisions: "B / sure / accept the speed cost for now. we can always switch it back to motion matching the device."
-- **Approved:** Variant B (all short marketing motion always on; the pinned scroll scenes still follow OS reduce motion and the member's setting), the hero additions, and the speed cost.
-- **Not approved:** un-pinning the journey walkthrough on phones. It is not being built.
+**Live since 04:25 UTC on 23 Oct.** Live release is `ca93c6380a34ed8f137e05999126d3fff1700736` (#92). It carries:
+- #89, the motion work (`827fb2d`);
+- #90, its records;
+- #91 and #92, the CI time limits.
 
-**Where it stands:**
-- **Phase 1 is done and pushed** as `62d92a4` on `claude/repository-overview-osejlw`, in draft PR #89.
-  - The switch is `MARKETING_MOTION` in `apps/web/components/marketing/motion-mode.ts`. It is "always" now; set it to "device" to restore motion that matches the device.
-  - Checks run locally: 47 node tests passed; both typechecks clean; journey browser check 231/0; member motion check 0 failures; sitewide device-mode run passed.
-  - Brand (38) and RTL failures are identical to `main`. Phone has 9 failures against 11 on `main`, all on member `/app/intake`.
-  - The sitewide always-mode run has 25 failures. 23 are LCP/TBT/long-task budget misses that `main` also has.
-  - **One open regression for Phase 2 to fix:** CLS 0.0022 on load at 1366x900 on `/` for reduce and cookie visitors, and on `/?scenes=on` under reduce.
-  - PR #89 CI passed 8/8 on `0c899e1` (Phase 1 plus the handoff).
-- **Phase 2 is done**, committed as `ae73c13` (08:46 UTC) and pushed at 08:58 UTC.
-  - CLS fix: the browser sometimes painted the hero before its last line ("Free to join …") arrived. The bottom-aligned column then jumped 35px. This could hit any visitor.
-    - The home hero now has `<link rel="expect" href="#mk-relay-cap" blocking="render">`, so the browser waits for the rest of the hero before painting.
-    - A proxy that holds the HTML at that point reproduced 0.00218 before the fix. After it, every group reads 0 at 1366 and 390.
-  - Micro-animations:
-    - commission pills enter in order from the inline start, 80ms apart;
-    - FAQ rows cascade 40ms apart;
-    - the closing CTA arrow nudges once;
-    - the hero `.mk-cta` arrow nudges at 2.55s and is done by 2.97s;
-    - the /features ticks pop.
-    - Each starts when it is itself seen (its own trigger), per the review correction.
-  - Checks run: node tests 113/113; both typechecks clean; `npm run build` passed; targeted Playwright check 116/116 (390, 1366, Arabic, reduce).
-  - **Not yet run:** the full `test:marketing-motion`, brand, RTL and phone suites. These are left for the single final run.
-  - PR #89 CI passed 8/8 on `8bcb0cf` (Phase 2 plus the handoff).
-- **Phase 3 is done**, committed as `f9c9fae` and pushed at 09:42 UTC.
-  - **Scroll-scenes engine:** it no longer requests a frame forever. It wakes on scroll, resize, `fonts.ready`, `scenes-on`/`data-scenes-still` changes, `mk-scene:seek`, IntersectionObserver or ResizeObserver changes, and pointer input (only while an ambient recipe is mounted). It stops 150ms after the last wake-up.
-    - Scrubbing is identical: 126 of 126 sampled positions matched the old engine at 390 and 1366.
-    - New `tests/scroll-scenes-engine.test.ts` with 8 tests.
-  - **Hero "trains" sweep: built, then reverted (not shipped).** The one allowed LCP comparison (5 cold loads at CPU 4x) did not prove LCP unchanged:
-    - 1366: 756 → 744ms;
-    - 390: 656 → 848ms (+192ms against a 50ms allowance).
-    - That is probably noise, since the sweep doesn't touch the lede at 390. A retry needs a larger sample, which is the owner's call.
-  - Checks run: node 121/121; both typechecks; build; targeted Playwright 58/58.
-- **Reviews (three, read-only):** no blocker.
-  - One major finding: in "always" mode the journey check no longer scans stage-text contrast and size per chapter. The scan only runs in "device" mode.
-  - Minor findings:
-    - the concept checks never run with the member cookie;
-    - the hero-arrow-at-rest check cannot fail;
-    - the /features tick check can skip silently;
-    - nothing ties the ambient flag to the recipes that need it;
-    - the /features ticks never play at phone width;
-    - the doc's "ends within 2.5 s" line is stale.
-  - No build with `MARKETING_MOTION="device"` has been made. Reversibility rests on static tests and reading the code.
-- **Review fixes are done**, committed as `47dc175` and pushed at 10:13 UTC.
-  - The journey check scans stage text (AA, 11px) per chapter in either mode.
-  - The /features set table has its own trigger, so its ticks play on phones too.
-  - The concept pass runs with the cookie, and the rest/tick checks can fail.
-  - A static test ties `ambient` to the recipes that read time or the pointer.
-  - The stale doc sentence is fixed.
-  - Full `test:marketing-motion` (09:30–09:53 UTC):
-    - journey: 243 passed, 0 failed;
-    - sitewide: CLS 0 on load and while scrolling, for every page, width and cohort.
-    - Its 7 failures were the check's own bug: the hero nudge restart used `offsetWidth`, which an SVG doesn't have. After the fix, a targeted re-run reported 0 failures.
-  - The main/base timed comparison was not made, because no base build was available. Timings are reported, not judged.
-  - Node 122/122 and both typechecks clean on the final tree.
-- **Owner said "stalled again" at about 10:07 UTC.** The `verify-and-fix` agent had chained brand → RTL → phone → motion one at a time on `next dev`; the brand check alone took 10+ minutes with no output.
-  - Claude stopped workflow `w3v1bkz5n` at 10:09 UTC. All its processes are gone.
-  - Brand, RTL, phone and motion now run in parallel on the production build (`RTL_WEB_MODE=start`, each on its own ports and database), started 10:09:49 UTC.
-  - Logs: `/tmp/claude-0/-home-user-trainer-what/14381359-c138-56f9-a25b-830f6a2f39f9/scratchpad/final-test-{brand,rtl,phone,motion}.log`.
-- **Final suites, done 10:30 UTC:**
-  - Brand: the 38 failures are identical to `main` (diffed).
-  - Phone: the 11 failures are identical to `main`.
-  - RTL: crashes at admin sign-in (`waitForURL` stuck on `/admin/settings`), exactly as on `main`.
-  - Member motion:
-    - It failed twice (1, then 2 member view-transition layout shifts) while the brand check ran alongside.
-    - It passed with 0 failures run alone on a quiet machine.
-    - `main` passed with 0 failures run alone (`test-motion-base-main.log`).
-    - This reads as a CPU-load timing artefact.
-- **PR #89 marked ready (10:33 UTC)** with these results in its body.
-  - CI on head `fb85541`: 7 of 8 green; `application` still running at 10:33 UTC.
-  - Pushing anything to the branch restarts the roughly 45-minute CI run. Handoff edits are therefore committed locally and go out after the merge, in a docs-only PR.
-- **Merged at 10:57 UTC.** CI was 8/8 green on `fb85541`, and PR #89 was squash-merged as `827fb2de8982c16d15dc83d2ec0d5ecbaf9c1124`.
-- **Main CI on `827fb2d` did not deploy.** Its `application` job was cancelled at its 45-minute `timeout-minutes` (11:41 UTC, run 39766840217), during `run-browser-check.mjs`. Live therefore stayed on `100c812`.
-  - The cause was the runner, not the code: `apt-get install` took 16 min (20 s on the Phase 1 PR run) and `npm run check` took 23 min (15 min on the PR).
-  - The test steps took the same time on every run. The browser check, for example, took 6.7 min each time.
-  - The job's normal 30–44 min is close to its 45-minute limit.
-  - Claude cannot re-run jobs (the API returns 403). So the records PR #90 was merged to start a fresh `main` run, which deploys `827fb2d`'s code plus these docs.
-- **The #90 run timed out too.** Main run 39778688437 on `1d7c6fb` was cancelled at 45 min (13:14 UTC), during "Backend onboarding, navigation and responsive UI". Every earlier step had passed.
-  - Setup was slow again: `apt-get` 5.5 min, `npm run check` 18 min, Playwright install 7.5 min.
-  - The two runs needed about 58 and 51 minutes.
-- **PR #91 (opened 13:20 UTC):** `application`'s `timeout-minutes` goes from 45 to 75, with a dated comment. No gate changes.
-  - It needs its own CI, then a merge. The `main` run on its merge commit deploys #89, #90 and #91 together.
-- **#91 merged as `482b41b` (15:33 UTC). Its main run 39806027298 still did not deploy.**
-  - `application` passed in 40 min.
-  - `homepage-call` was cancelled at its 15-min limit: `apt-get` took 10 min, and the Playwright install was still running at the cut-off.
-  - Live stays on `100c812`.
-- **How deploys work:** the host deploys main only when that commit's latest `check.yml` push run succeeded (`approved_head` in `infra/digitalocean/common.py`).
-  - So the owner clicking **"Re-run failed jobs"** on run 39806027298 is the fastest way to go live. Claude gets a 403 on re-run.
-- **Next PR (opened about 17:20 UTC):** gives every setup-heavy job room for slow runners. Tests and gates are unchanged.
+The "Verify serving release" run succeeded at 04:25:29 UTC. A live fetch at 05:00 UTC confirmed:
+- `data-mk-motion="always"` on `/`, `/how-it-works`, `/pricing`, `/features` and `/earnings-calculator`. On `/` it appears twice: the `.mk` root and the assistant host.
+- `<link rel="expect" … blocking="render">` on `/`.
+- Nothing on `/login`.
 
-  | Job | Before | After |
-  |---|---|---|
-  | daily-workflows | 15 | 30 |
-  | homepage-call | 15 | 40 |
-  | subscriber-ui | 12 | 30 |
-  | ux-spacing | 20 | 40 |
-  | postgres-and-container | 20 | 40 |
-  | compose-topology | 20 | 30 |
-  | wildcard-edge | 15 | 30 |
-- **PR #92's first CI run (17:17 UTC, 22 Oct):** 7 of 8 green, `application` in 39 min.
-  - `postgres-and-container` was cancelled at 40 min with its `apt-get install` still downloading.
-  - That step needed 106 MB (110 packages) from `azure.archive.ubuntu.com` at about 40 KB/s; one 27 MB package took 12 min.
-  - The same mirror ran at 9.6 MB/s earlier that day. So the root cause of every cancellation on 22 Oct was a slow Ubuntu mirror, not the code or the tests.
-  - At 03:05 UTC on 23 Oct the same package downloaded at 25 MB/s, so the mirror had recovered.
-  - This handoff update was pushed to #92, which starts a fresh CI run.
-  - **Possible follow-up:** cache the apt `.deb` archives, or trim the shared apt line (the postgres job installs ffmpeg and tesseract it may not need). That would make CI independent of mirror speed. Not done.
-- **Records:** the stage entry is in `docs/COMPLETION_STAGES.md`. `docs/PROJECT_MEMORY.md` gains two rules: the switch and how to flip it back, and running browser suites in parallel on the production build.
+**What shipped** (owner decisions: Variant B, hero additions, speed cost accepted):
+- Short marketing motion now plays for every visitor. The pinned scroll scenes still follow reduce motion.
+- Concept micro-animations on their own triggers.
+- The hero CLS fix.
+- An event-driven scroll-scenes loop with an idle stop.
+- The "trains" sweep was reverted, so it is not live.
+- Switch back with `MARKETING_MOTION = "device"` in `apps/web/components/marketing/motion-mode.ts`.
+- Checks and details: the 2026-10-22 entry in `docs/COMPLETION_STAGES.md`. The switch rule is in `docs/PROJECT_MEMORY.md`.
 
-**Waiting on the owner (optional):** whether to retry the hero "trains" sweep with a larger LCP sample (for example 15+ cold loads per width). It stays out until then.
+**Why it took until 23 Oct:** three `main` runs on 22 Oct were cancelled by job time limits, with every test passing up to the cut-off.
+- `apt-get` was downloading from a slow Ubuntu mirror (`azure.archive.ubuntu.com`, about 40 KB/s against 9.6 MB/s normally).
+- The mirror had recovered by 03:05 UTC on 23 Oct (25 MB/s).
+- #91 and #92 raised the limits: `application` to 75 min, and the other setup-heavy jobs to 30–40 min.
+- The host deploys `main` only after that commit's `check.yml` push run succeeds (`approved_head` in `infra/digitalocean/common.py`).
+- Claude gets a 403 on job re-runs. Only the owner can click "Re-run failed jobs".
 
-**Next action:**
-1. When PR #92's new run is green, merge it with the full SHA.
-2. Watch its `main` run with `scripts/watch-release.sh` until it is live. Record the live time in the next records update.
-3. If the owner re-runs run 39806027298 first, `482b41b` deploys sooner, and the timeouts PR redeploys later.
+**Waiting on the owner (optional):**
+- Whether to retry the hero "trains" sweep with a larger LCP sample (15+ cold loads per width).
+- Whether to cache CI's apt downloads, or trim the shared apt line, so a slow mirror cannot block deploys again.
+
+**Next action:** none for this stage.
 
 ### Meal-photo estimates: switched on live after a passing Seed 2.0 Pro test — 20–21 October 2026 (Claude)
 

@@ -2,7 +2,7 @@
 
 Application implementation and the job audit are complete for the current phase. [PR #1](https://github.com/chordsnstrings/trainer_what/pull/1) contains the work; [combined verification](VERIFICATION_2026-09-27.md) records the passing final code revision. The owner authorized merge to main. Real services and deployment remain the next phase; screenshots were waived. Historical entries below record the evidence available at each stage and may contain superseded pending-check statements.
 
-## Stage 2026-10-22 — marketing motion always on, concept micro-animations (PR #89 merged as `827fb2d`)
+## Stage 2026-10-22 — marketing motion always on, concept micro-animations (PR #89 merged as `827fb2d`, live 23 October 2026 at 04:25 UTC as `ca93c63`)
 
 The owner asked to "switch on motion always" on the marketing site and take the smooth transitions and micro-animations from an uploaded concept, keeping the widgets and the trainer-onboarding focus. The plan is `docs/MARKETING_MOTION_PLAN_2026-10-22.md` (#88). Owner decisions: "B / sure / accept the speed cost for now. we can always switch it back to motion matching the device." Un-pinning the journey walkthrough on phones was not approved and was not built.
 
@@ -39,6 +39,16 @@ Checks run on the final tree:
 - PR CI: 8/8 on `fb85541`.
 
 Process note: twice the owner reported the agents as stalled. They were running long timed comparisons, and later the browser suites one at a time on `next dev`. Claude stopped the workflow and ran the suites in parallel on the production build (`RTL_WEB_MODE=start`), which took 15 minutes.
+
+Release:
+- **Live 23 October, 04:25 UTC.** The release is `ca93c6380a34ed8f137e05999126d3fff1700736`, and the "Verify serving release" run succeeded.
+  - A live fetch confirmed `data-mk-motion="always"` on the five marketing pages and the render-blocking `rel="expect"` on `/`.
+  - Nothing changed on `/login`.
+- **Three earlier `main` runs did not deploy:** `827fb2d`, `1d7c6fb` and `482b41b`, on 22 October. Each was cancelled by a job time limit while every test that ran passed.
+  - Cause: `apt-get` downloading from a slow Ubuntu mirror (`azure.archive.ubuntu.com` at about 40 KB/s). It had recovered by 23 October.
+  - PR #91 raised `application`'s `timeout-minutes` from 45 to 75.
+  - PR #92 gave the other setup-heavy jobs 30–40 minutes.
+  - Claude cannot re-run jobs (403), so each retry needed a new commit on `main`.
 
 ## Stage 2026-10-19 — music agent never stalls on a failed AI plan (PR #77, live `15de319`)
 
