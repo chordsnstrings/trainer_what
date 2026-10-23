@@ -1,6 +1,22 @@
 {
   "permissions": {
     "allow": [
+      "Bash",
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep",
+      "NotebookEdit",
+      "WebFetch",
+      "WebSearch",
+      "Agent",
+      "Workflow",
+      "Skill",
+      "TaskStop",
+      "mcp__github",
+      "mcp__Claude_Code_Remote",
+      "mcp__Claude_Docs",
       "Bash(scripts/watch-release.sh:*)",
       "Bash(sh scripts/watch-release.sh:*)",
       "Bash(curl -s -o /dev/null -D - https://trainsyou.com/api/v1/ready:*)"

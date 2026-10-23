@@ -355,7 +355,7 @@ caption, the first element after the copy, is parsed. Nothing is hidden or
 moved; browsers without `rel=expect` ignore it. The LCP element is
 unchanged (the lede at 390x844, the H1 at 1366x900).
 
-**The Pace sweep behind "trains": built, measured, not shipped (Phase 3).**
+**The Pace sweep behind "trains": built, measured, then shipped on the owner's instruction (23 October 2026).**
 The owner approved the sweep only if LCP was proven unchanged. The plan
 allowed one comparison: `/` at 390x844 and 1366x900, 5 cold loads each,
 this branch before the sweep against the same branch with it.
@@ -382,6 +382,24 @@ this branch before the sweep against the same branch with it.
   then on Pace (`#d5f24a`), both far above 4.5:1.
 - **Trying again.** It needs a fresh comparison with more loads, and the
   owner's agreement to run one.
+- **Shipped, 23 October 2026.** The owner said "Hero trains highlight had to
+  be there". The same build went back in: `marketing.css` (`.mk-mark::before`,
+  `@keyframes mk-sweep`) and the static test in
+  `tests/marketing-motion-sitewide.test.ts`.
+  - **Browser check on a local production build:** at 390x844, 1366x900 and
+    `?lang=ar` at 390, each with no preference and with emulated reduce
+    (switch `"always"`), the sweep runs once (420 ms after a 120 ms delay).
+    By 1.5 s it is at rest (`scale: none`, fill `#d5f24a`, word `#171917`),
+    with load CLS 0 and no page errors: 6 of 6 passed.
+  - **LCP with the sweep, same script, 10 cold loads per width:**
+    - 390x844 (the lede): 400/340/364/324/340/444/428/324/460/460 ms,
+      median 400 ms;
+    - 1366x900 (the H1): 436/448/548/580/572/564/524/524/444/424 ms,
+      median 524 ms.
+    - Both are below the 22 October "before" medians (656 and 756 ms) on
+      the same script and machine type, so the earlier +192 ms was noise
+      from machine load.
+  - **Node tests:** the 12 marketing and motion files, 123 passed, 0 failed.
 
 ## Budget and checks
 
@@ -545,8 +563,8 @@ No timed comparison was run for this pass.
 
 Phase 3 made the home page's scroll-scenes engine event-driven, with an idle
 stop (`docs/features/scroll-scenes.md`, "The frame loop", which also has that
-part's own results). The Pace sweep was measured and left out (see "The Pace
-sweep behind "trains"" above). The tree was run after `npm run build`
+part's own results). The Pace sweep was measured and left out then, and shipped on 23 October
+(see "The Pace sweep behind "trains"" above). The tree was run after `npm run build`
 against a local production server, in local Chromium only.
 
 - **Node tests:** 121 passed, 0 failed. The files were

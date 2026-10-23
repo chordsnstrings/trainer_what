@@ -167,7 +167,7 @@ const SPRING_ALLOWED = [
   ".mk-queue-item.done .badge svg",
 ];
 /** The load-in entrances that may use the enter easing (the concept's plate curve). */
-const ENTER_ALLOWED = ['.mk-band-pills > [data-mk-item="in"]'];
+const ENTER_ALLOWED = ['.mk-band-pills > [data-mk-item="in"]', ".mk .mk-hero .mk-mark::before"];
 /** :hover rules that are functions, not effects: they stay on every device. */
 const HOVER_ALLOWED = [
   {
@@ -842,4 +842,45 @@ test("the home page's first paint waits for the whole hero copy (CLS 0 when the 
   // The caption is the relay's first element, always rendered.
   assert.match(relay, /<figure className="mk-relay" aria-labelledby="mk-relay-cap">\s+<figcaption id="mk-relay-cap" className="sr-only">/);
   assert.equal([...site.matchAll(/rel="expect"/g)].length, 1, "only the home hero blocks the first paint");
+});
+
+test('the Pace sweep behind "trains": once at load, from the left, scale only, and at rest the fill the span had', async () => {
+  const rules = cssRules(await readFile(web("app/marketing.css"), "utf8"));
+  const top = (selector: string) => rules.find((r) => !r.context.length && r.selectors.includes(selector));
+  const value = (selector: string, property: string) => top(selector)?.declarations.find((d) => d.property === property)?.value;
+  // The span: its own stacking context (with z-index -1 alone the fill
+  // would paint under the hero's background), ink, its fragments cloned,
+  // and no background of its own: the fill is its ::before.
+  assert.equal(value(".mk-mark", "position"), "relative");
+  assert.equal(value(".mk-mark", "isolation"), "isolate");
+  assert.equal(value(".mk-mark", "color"), "var(--on-lime)");
+  assert.equal(value(".mk-mark", "box-decoration-break"), "clone");
+  assert.equal(value(".mk-mark", "background-color"), undefined);
+  assert.equal(value(".mk-mark", "background"), undefined);
+  for (const [property, expected] of [
+    ["content", '""'],
+    ["position", "absolute"],
+    ["inset", "0"],
+    ["z-index", "-1"],
+    ["border-radius", "inherit"],
+    ["background-color", "var(--lime)"],
+  ])
+    assert.equal(value(".mk-mark::before", property), expected, `.mk-mark::before ${property}`);
+  // The sweep: the home hero's mark only, once, 120ms in, on the enter
+  // curve, from a fixed left edge (the H1 stays English under ?lang=ar, so
+  // it does not follow --inline-sign), and only `scale` moves.
+  assert.equal(value(".mk .mk-hero .mk-mark::before", "transform-origin"), "0 50%");
+  assert.equal(value(".mk .mk-hero .mk-mark::before", "animation"), "mk-sweep var(--mk-dur-emphasis) var(--mk-ease-enter) 120ms 1 backwards");
+  assert.deepEqual(
+    rules.filter((r) => r.context.includes("@keyframes mk-sweep")).map((r) => [r.selector, r.declarations.map((d) => `${d.property}: ${d.value}`)]),
+    [["from", ["scale: 0 1"]]],
+  );
+  assert.deepEqual(
+    rules.filter((r) => r.declarations.some((d) => /^animation/.test(d.property) && d.value.includes("mk-sweep"))).map((r) => r.selector),
+    [".mk .mk-hero .mk-mark::before"],
+  );
+  // Colour changes stay instant: nothing transitions or animates the mark's colour.
+  for (const rule of rules.filter((r) => r.selector.includes(".mk-mark")))
+    for (const d of rule.declarations)
+      if (/^(transition|animation)/.test(d.property)) assert.doesNotMatch(d.value, /color|background/, `${rule.selector} ${d.property}`);
 });

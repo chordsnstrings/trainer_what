@@ -893,14 +893,28 @@ a.mk-nav-top {
   /* "Teach your AI." / "It trains your" / "subscribers." */
   max-inline-size: 6.8em;
 }
-/* The Pace highlight: a solid fill behind ink, never Pace text. */
+/* The Pace highlight: a solid fill behind ink, never Pace text. The fill
+   is the span's own ::before, under the word: position and isolation give
+   the span its own stacking context, so z-index -1 keeps the fill above
+   the hero's background. At rest it covers the same box the span's
+   background did; it sweeps in once at load (the Motion section, "The Pace
+   sweep"). */
 .mk-mark {
-  background-color: var(--lime);
+  position: relative;
+  isolation: isolate;
   color: var(--on-lime);
   padding-inline: 0.08em;
   border-radius: 2px;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
+}
+.mk-mark::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background-color: var(--lime);
 }
 .mk-hero-lede {
   font-size: 18px;
@@ -2278,6 +2292,25 @@ a.mk-nav-top {
 }
 .mk-motion .mk-closing-cta[data-mk-cue="in"] > .lucide-arrow-right {
   animation: mk-nudge var(--mk-dur-emphasis) var(--mk-ease-in-out) 280ms 1;
+}
+/* The Pace sweep (owner, 23 October 2026: "Hero trains highlight had to be
+   there"): once, at load, the fill behind "trains" in the home H1 grows
+   from the word's left edge, 120ms in, on the enter curve, and is complete
+   by about 540ms. The word is ink from the first paint, on white and then
+   on Pace (AA on both), and its colour never changes; nothing else in the
+   H1 moves and no layout changes (scale on the pseudo-element only). Always
+   from the left, even right to left: the H1 stays English under ?lang=ar.
+   With the switch at "device", reduced motion stops it (the ::before rule
+   in the reduced-motion block below, and motion.css for the member's
+   choice), and the fill is simply there. */
+@keyframes mk-sweep {
+  from {
+    scale: 0 1;
+  }
+}
+.mk .mk-hero .mk-mark::before {
+  transform-origin: 0 50%;
+  animation: mk-sweep var(--mk-dur-emphasis) var(--mk-ease-enter) 120ms 1 backwards;
 }
 
 /* Single-line links: a 1px ink bar slides in from the inline start on
