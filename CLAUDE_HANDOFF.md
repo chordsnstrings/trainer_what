@@ -2,6 +2,13 @@
 
 ## Work in progress
 
+### Tool permissions — 23 October 2026 (Claude)
+
+Owner: "Always allow all tool usage. It's taking too long".
+- `.claude/settings.json` now allows every tool. That covers Bash, Read, Edit, Write, Glob, Grep, web fetch and search, agents, workflows, skills, and the GitHub, Claude Code Remote and Claude Docs connectors.
+- The three earlier release-watch rules are kept.
+- Cloud sessions cannot use bypass mode. For no prompts at all, the owner should also pick **Auto** in the mode dropdown next to the prompt box.
+
 ### Marketing motion — live, 23 October 2026 (Claude, 05:05 UTC)
 
 **Live since 04:25 UTC on 23 Oct.** Live release is `ca93c6380a34ed8f137e05999126d3fff1700736` (#92). It carries:
