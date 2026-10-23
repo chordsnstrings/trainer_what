@@ -2,6 +2,20 @@
 
 Application implementation and the job audit are complete for the current phase. [PR #1](https://github.com/chordsnstrings/trainer_what/pull/1) contains the work; [combined verification](VERIFICATION_2026-09-27.md) records the passing final code revision. The owner authorized merge to main. Real services and deployment remain the next phase; screenshots were waived. Historical entries below record the evidence available at each stage and may contain superseded pending-check statements.
 
+## Stage 2026-10-23 — hero "trains" sweep shipped (owner: "Hero trains highlight had to be there")
+
+The Phase 3 sweep is restored as built on 22 October: the fill sits on `.mk-mark::before`, and `mk-sweep` grows it once with `scale`, from the left, 120 ms in, finishing by about 540 ms. It has the same static test.
+
+Checks run on this tree:
+- node tests (12 marketing and motion files): 123 passed, 0 failed;
+- `npm run build`;
+- a local production-build browser check, 6 of 6 cases (390, 1366 and Arabic at 390, each with no preference and with reduce, switch "always"): it plays once, rests on the Pace fill with ink text, CLS 0, no errors;
+- LCP over 10 cold loads per width: median 400 ms at 390 (the lede) and 524 ms at 1366 (the H1). Both are below the 22 October "before" medians (656 and 756 ms) on the same script, so the earlier +192 ms was noise.
+
+Not run: the full brand, RTL, phone and marketing-motion suites; the change is one CSS rule on the home H1.
+
+Shipped with PR #94; the live time will be added after it deploys.
+
 ## Stage 2026-10-22 — marketing motion always on, concept micro-animations (PR #89 merged as `827fb2d`, live 23 October 2026 at 04:25 UTC as `ca93c63`)
 
 The owner asked to "switch on motion always" on the marketing site and take the smooth transitions and micro-animations from an uploaded concept, keeping the widgets and the trainer-onboarding focus. The plan is `docs/MARKETING_MOTION_PLAN_2026-10-22.md` (#88). Owner decisions: "B / sure / accept the speed cost for now. we can always switch it back to motion matching the device." Un-pinning the journey walkthrough on phones was not approved and was not built.

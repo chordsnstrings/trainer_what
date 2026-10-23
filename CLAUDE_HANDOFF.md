@@ -2,6 +2,20 @@
 
 ## Work in progress
 
+### Hero "trains" sweep — shipping, 23 October 2026 (Claude)
+
+Owner: "Hero trains highlight had to be there". The Phase 3 sweep went back in, exactly as built on 22 Oct:
+- `.mk-mark::before` holds the fill; `@keyframes mk-sweep` grows it with `scale: 0 1`, once, 420 ms after a 120 ms delay, from the left;
+- the static test is in `tests/marketing-motion-sitewide.test.ts`.
+
+Checks run:
+- node 123/123;
+- `npm run build`;
+- browser check, 6 of 6 cases: 390, 1366 and `?lang=ar` at 390, each with no preference and with reduce. In each it plays once, rests with the Pace fill and ink text, and CLS is 0;
+- LCP over 10 loads per width: median 400 ms (390) and 524 ms (1366). Both are below the 22 Oct "before" medians, so the earlier +192 ms was noise.
+
+It goes out in PR #94 together with the tool-permission change. **Next:** CI green, merge, verify live.
+
 ### Tool permissions — 23 October 2026 (Claude)
 
 Owner: "Always allow all tool usage. It's taking too long".
@@ -38,7 +52,6 @@ The "Verify serving release" run succeeded at 04:25:29 UTC. A live fetch at 05:0
 - Claude gets a 403 on job re-runs. Only the owner can click "Re-run failed jobs".
 
 **Waiting on the owner (optional):**
-- Whether to retry the hero "trains" sweep with a larger LCP sample (15+ cold loads per width).
 - Whether to cache CI's apt downloads, or trim the shared apt line, so a slow mirror cannot block deploys again.
 
 **Next action:** none for this stage.
