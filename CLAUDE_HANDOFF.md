@@ -2,7 +2,7 @@
 
 ## Work in progress
 
-### Marketing motion — merged, deploy pending (CI timeout), 22 October 2026 (Claude, updated 17:20 UTC)
+### Marketing motion — merged, deploy pending (CI timeout), 22–23 October 2026 (Claude, updated 03:08 UTC 23 Oct)
 
 Plan: `docs/MARKETING_MOTION_PLAN_2026-10-22.md` (merged as #88), with its review corrections binding. Owner decisions: "B / sure / accept the speed cost for now. we can always switch it back to motion matching the device."
 - **Approved:** Variant B (all short marketing motion always on; the pinned scroll scenes still follow OS reduce motion and the member's setting), the hero additions, and the speed cost.
@@ -105,12 +105,19 @@ Plan: `docs/MARKETING_MOTION_PLAN_2026-10-22.md` (merged as #88), with its revie
   | postgres-and-container | 20 | 40 |
   | compose-topology | 20 | 30 |
   | wildcard-edge | 15 | 30 |
+- **PR #92's first CI run (17:17 UTC, 22 Oct):** 7 of 8 green, `application` in 39 min.
+  - `postgres-and-container` was cancelled at 40 min with its `apt-get install` still downloading.
+  - That step needed 106 MB (110 packages) from `azure.archive.ubuntu.com` at about 40 KB/s; one 27 MB package took 12 min.
+  - The same mirror ran at 9.6 MB/s earlier that day. So the root cause of every cancellation on 22 Oct was a slow Ubuntu mirror, not the code or the tests.
+  - At 03:05 UTC on 23 Oct the same package downloaded at 25 MB/s, so the mirror had recovered.
+  - This handoff update was pushed to #92, which starts a fresh CI run.
+  - **Possible follow-up:** cache the apt `.deb` archives, or trim the shared apt line (the postgres job installs ffmpeg and tesseract it may not need). That would make CI independent of mirror speed. Not done.
 - **Records:** the stage entry is in `docs/COMPLETION_STAGES.md`. `docs/PROJECT_MEMORY.md` gains two rules: the switch and how to flip it back, and running browser suites in parallel on the production build.
 
 **Waiting on the owner (optional):** whether to retry the hero "trains" sweep with a larger LCP sample (for example 15+ cold loads per width). It stays out until then.
 
 **Next action:**
-1. When the job-timeouts PR is green, merge it with the full SHA.
+1. When PR #92's new run is green, merge it with the full SHA.
 2. Watch its `main` run with `scripts/watch-release.sh` until it is live. Record the live time in the next records update.
 3. If the owner re-runs run 39806027298 first, `482b41b` deploys sooner, and the timeouts PR redeploys later.
 
