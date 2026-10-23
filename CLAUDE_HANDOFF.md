@@ -2,7 +2,7 @@
 
 ## Work in progress
 
-### Hero "trains" sweep — shipping, 23 October 2026 (Claude)
+### Hero "trains" sweep — live, 23 October 2026 (Claude, 06:45 UTC)
 
 Owner: "Hero trains highlight had to be there". The Phase 3 sweep went back in, exactly as built on 22 Oct:
 - `.mk-mark::before` holds the fill; `@keyframes mk-sweep` grows it with `scale: 0 1`, once, 420 ms after a 120 ms delay, from the left;
@@ -14,7 +14,15 @@ Checks run:
 - browser check, 6 of 6 cases: 390, 1366 and `?lang=ar` at 390, each with no preference and with reduce. In each it plays once, rests with the Pace fill and ink text, and CLS is 0;
 - LCP over 10 loads per width: median 400 ms (390) and 524 ms (1366). Both are below the 22 Oct "before" medians, so the earlier +192 ms was noise.
 
-It goes out in PR #94 together with the tool-permission change. **Next:** CI green, merge, verify live.
+**Live since 06:36 UTC on 23 Oct** as `df12b532490ad71d877763c4115793999ca84572` (PR #94, together with the allow-all tool settings).
+- `scripts/watch-release.sh` reported LIVE.
+- The live home page links the CSS chunk that carries `mk-sweep`, and its H1 has `<span class="mk-mark">trains</span>`.
+
+**CI note:** the main run for the records commit `9edc68c` (#93, docs only) failed once in `run-browser-check.mjs`.
+- The failing assertion: "member app 390x844: the bar covers the end of the page (content ends at 758.5, bar starts at 638.1)" (`assertConsentBar` in `scripts/browser-completion-check.mjs`).
+- The same code passed on every other run that day (PR #92 and #94, main `ca93c63` and `df12b53`), so it is intermittent.
+- The likely cause is a race: the `.consent-bar-space` spacer gets its height from a `ResizeObserver` after mount, and the check scrolls to the bottom 250 ms after the bar's rise.
+- **If it recurs:** make the check wait until the spacer's height equals the bar's before measuring, or give the spacer its height on first render.
 
 ### Tool permissions — 23 October 2026 (Claude)
 
