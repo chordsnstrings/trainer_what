@@ -7,9 +7,12 @@ on:
 permissions:
   contents: read
 jobs:
+  # Limits leave room for slow runner setup (22 October 2026: apt-get took
+  # up to 16 min and the Playwright install up to 9.5 min, so jobs were
+  # cancelled with every test passing). Tests and gates are unchanged.
   daily-workflows:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -36,7 +39,7 @@ jobs:
           if-no-files-found: ignore
   homepage-call:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -139,7 +142,7 @@ jobs:
           if-no-files-found: ignore
   subscriber-ui:
     runs-on: ubuntu-24.04
-    timeout-minutes: 12
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -189,7 +192,7 @@ jobs:
           if-no-files-found: ignore
   ux-spacing:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -222,7 +225,7 @@ jobs:
           if-no-files-found: ignore
   postgres-and-container:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 40
     services:
       postgres:
         image: postgres:17.6-alpine
@@ -273,7 +276,7 @@ jobs:
     # The deployed topology from the built image: database, migrate, api, web,
     # worker and a loopback HTTP edge in place of Caddy. Throwaway secrets only.
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -282,7 +285,7 @@ jobs:
         run: bash scripts/compose-smoke.sh
   wildcard-edge:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
