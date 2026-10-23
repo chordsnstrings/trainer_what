@@ -2,7 +2,7 @@
 
 Application implementation and the job audit are complete for the current phase. [PR #1](https://github.com/chordsnstrings/trainer_what/pull/1) contains the work; [combined verification](VERIFICATION_2026-09-27.md) records the passing final code revision. The owner authorized merge to main. Real services and deployment remain the next phase; screenshots were waived. Historical entries below record the evidence available at each stage and may contain superseded pending-check statements.
 
-## Stage 2026-10-23 — hero "trains" sweep shipped (owner: "Hero trains highlight had to be there")
+## Stage 2026-10-23 — hero "trains" sweep shipped (owner: "Hero trains highlight had to be there"; PR #94, live `df12b53`)
 
 The Phase 3 sweep is restored as built on 22 October: the fill sits on `.mk-mark::before`, and `mk-sweep` grows it once with `scale`, from the left, 120 ms in, finishing by about 540 ms. It has the same static test.
 
@@ -14,7 +14,7 @@ Checks run on this tree:
 
 Not run: the full brand, RTL, phone and marketing-motion suites; the change is one CSS rule on the home H1.
 
-Shipped with PR #94; the live time will be added after it deploys.
+Live 23 October at 06:36 UTC as `df12b53` (PR #94). The release header matched, and the live home page CSS carries `mk-sweep`.
 
 ## Stage 2026-10-22 — marketing motion always on, concept micro-animations (PR #89 merged as `827fb2d`, live 23 October 2026 at 04:25 UTC as `ca93c63`)
 
