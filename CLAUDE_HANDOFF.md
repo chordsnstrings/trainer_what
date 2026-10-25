@@ -2,32 +2,53 @@
 
 ## Work in progress
 
-### Home page redesign from the owner's HTML: reviewed, waiting on the owner, 25 October 2026 (Claude)
+### Home page as the owner's HTML design: in progress, 25 October 2026 (Claude)
 
-The owner asked for three things: check that the current implementation works; rebuild the home page from their uploaded HTML design (sections: hero decision feed, stats band, "What is trainsyou?", at a glance, how it works, 7 tools replaced, platform, earnings and follower scenarios, control, pricing bars, specialties and guides, FAQ, end box, sticky phone bar); and review that design for SEO, LLM SEO and sign-up conversion. They said to ask before starting. Nothing has been built or run yet. Branch: `claude/confident-wozniak-n32to1`.
+The owner answered the four questions:
+- **Checks:** a full check.
+- **Design:** an exact copy of the HTML, including its GSAP 3D scroll motion.
+- **Additions:** none ("as it is now").
+- **Release:** a PR first, and the owner approves before anything merges or deploys.
 
-Facts checked so far (code reads only; dependencies are not installed, and the container has Node 22 while the repo needs Node 24):
-- Every page the design links to exists in the registry (specialties, guides, all features including `team` and `progress-and-client-twin`).
-- "91 capabilities" matches the 91 entries in `marketing-features.ts`.
-- The H1 already matches `BRAND_COPY.homeHeadline`.
+Branch: `claude/confident-wozniak-n32to1`. Nothing is merged or deployed.
 
-Gaps in the design that need fixing before it ships:
-1. There is no real social proof.
-2. The calculator's "you keep" ignores card fees, which the current site itemises.
-3. The follower figures are hard-coded, so they would drift from the live model.
-4. It loads GSAP and Google Fonts from outside CDNs, and its scroll-scrubbed 3D and magnetic buttons break the "short, play once" motion rule.
-5. Every internal link opens a new tab, and every URL is hard-coded to trainsyou.com.
-6. It drops Arabic, the availability gating for nutrition and voice, and the hero's claim-your-address field.
-7. It is about 4 times the 400-word home budget that `scripts/brand-check.mjs` enforces.
-8. HowTo, FAQ and speakable markup no longer earn Google rich results. They are still useful to LLMs.
+**Baseline (before any change), all passed:**
+- typecheck;
+- `npm test`: 1,965 tests, 1,964 passed, 0 failed, 1 skipped, 24m43s;
+- `npm run build`;
+- live crawl of trainsyou.com: 39 sitemap pages and 41 internal links, all 200, each with one H1, a description, a self-canonical and valid JSON-LD;
+- the `main` CI run for this exact commit `e4e2f8c` ([39913170469](https://github.com/chordsnstrings/trainer_what/actions/runs/39913170469)): every job green, browser and PostgreSQL jobs included.
 
-**Waiting on the owner:**
-- How far to take "check everything works".
-- How faithfully to build the design.
-- Which conversion additions to make, and whether real testimonials or trainer numbers exist.
-- Whether to merge and deploy, or only push the branch.
+**What has been built (checkpoint, not yet complete):**
+- `components/marketing/home-design.tsx` (markup), `home-design-runtime.tsx` (the design's script, with clean-up for navigation in place) and `app/home-design.css`.
+  - The CSS is generated from the design: `tyh-` class prefix, rules scoped to `.tyh`, logical properties.
+- GSAP `3.15.0` is bundled. The design's Google Inter (with the optical-size axis) is self-hosted. The design's Pace lockup is `BRAND_ASSETS.lockupPace`.
+- The home registry entry now carries the design's words, for metadata, llms files and JSON-LD:
+  - adds SoftwareApplication, a 4-step HowTo and speakable selectors;
+  - the meta description is shortened from 184 to 155 characters;
+  - the old home renderer has been removed from `site.tsx`.
 
-**Next action:** act on the owner's answers.
+**Fidelity check against the owner's file:**
+- At 1366, 1080, 720 and 390 px, all 745 elements match in tag, class, text, links and attributes.
+- Computed styles match, apart from 33 `left`/`right` values written as `start`/`end`.
+- Full-page reduced-motion screenshots: 0 different pixels at all four widths.
+- With motion, any remaining differences are anti-aliasing on the hero button, about the same as the design file against itself (720 to 1,369 pixels).
+
+**Fixes found by that comparison:**
+- the root font size: the app's 14px against the design's 16px rem;
+- global element-rule leaks;
+- split text nodes;
+- `backdrop-filter` dropped by the CSS compiler when it came before its `-webkit-` form.
+
+**Behaviour check passed:** menu, sticky bar, calculator maths and its sign-up link price, campaign parameters on sign-up links, feed replay, FAQ, JSON-LD equal to the page, navigating away and back, no console errors.
+
+**Remaining:**
+- update the unit and browser tests that assert the old home;
+- re-run typecheck, the unit tests, the build, the browser suites and the PostgreSQL suite;
+- update the records;
+- open the PR for the owner's approval.
+
+**Next action:** update the tests.
 
 ### Hero "trains" sweep — live, 23 October 2026 (Claude, 06:45 UTC)
 

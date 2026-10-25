@@ -89,6 +89,9 @@ test("every supplied logo, icon and share image is in apps/web/public/brand at i
   await png(BRAND_ASSETS.appleTouchIcon, 180, 180, true);
   await png(BRAND_ASSETS.shareImage, 1200, 630, true);
   await png(BRAND_ASSETS.lockupInkPng, 2400, 608, false);
+  // The home design's lockup, as the owner supplied it (25 October 2026).
+  const pace = await sharp(await readFile(pub(BRAND_ASSETS.lockupPace))).metadata();
+  assert.deepEqual([pace.format, pace.width, pace.height], ["webp", 480, 95]);
   // The SVG logos are the supplied outlined artwork: ink for light surfaces,
   // white for dark ones, never retyped.
   for (const [asset, fill] of [

@@ -59,6 +59,7 @@ import "./daily-workflows.css";
 import "./affiliates.css";
 import "./onboarding-chat.css";
 import "./subscriber-polish.css";
+import "./home-design.css";
 
 // The trainsyou typeface: Inter (SIL OFL 1.1, app/fonts/Inter-OFL.txt), the
 // variable-weight files of @fontsource-variable/inter 5.3.0 kept in the
@@ -103,8 +104,43 @@ const interDisplay = localFont({
   src: "./fonts/inter-display-medium-latin.woff2", weight: "500", style: "normal",
   display: "swap", variable: "--font-inter-display", preload: false, adjustFontFallback: "Arial",
 });
+// The home design's Inter (app/home-design.css): the variable font with the
+// optical size axis that the design loads from Google Fonts, hosted here with
+// the same subsets. No fallback face and no preload, as in the design.
+const interOpsz = localFont({
+  src: "./fonts/inter-opsz-latin.woff2",
+  weight: "400 600",
+  style: "normal",
+  display: "swap",
+  variable: "--font-inter-opsz",
+  preload: false,
+  adjustFontFallback: false,
+  declarations: [
+    {
+      prop: "unicode-range",
+      value:
+        "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD",
+    },
+  ],
+});
+const interOpszExt = localFont({
+  src: "./fonts/inter-opsz-latin-ext.woff2",
+  weight: "400 600",
+  style: "normal",
+  display: "swap",
+  variable: "--font-inter-opsz-ext",
+  preload: false,
+  adjustFontFallback: false,
+  declarations: [
+    {
+      prop: "unicode-range",
+      value:
+        "U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF",
+    },
+  ],
+});
 /** Locally hosted Inter body and Display headings. */
-const fontVariables = `${interLatin.variable} ${interLatinExt.variable} ${interDisplay.variable}`;
+const fontVariables = `${interLatin.variable} ${interLatinExt.variable} ${interDisplay.variable} ${interOpsz.variable} ${interOpszExt.variable}`;
 
 export async function generateMetadata(): Promise<Metadata> {
   // The platform name comes from the Super admin settings (APP_NAME), and is
