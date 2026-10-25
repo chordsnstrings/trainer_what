@@ -4,6 +4,8 @@
 
 ### Home page as the owner's HTML design: PR open, waiting on the owner's approval, 25 October 2026 (Claude)
 
+PR: [chordsnstrings/trainer_what#96](https://github.com/chordsnstrings/trainer_what/pull/96). Do not merge or deploy without the owner's approval.
+
 The owner asked for three things:
 - check the current implementation;
 - build the home page from their uploaded HTML;
