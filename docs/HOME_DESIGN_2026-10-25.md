@@ -37,7 +37,8 @@ The home page (`/`) renders the design in place of the previous home. Every othe
   - the design's Google Fonts Inter (variable, with the optical-size axis) is self-hosted from the same files as `--font-inter-opsz` (latin) and `--font-inter-opsz-ext`.
 - **GSAP `3.15.0`** (exact pin) in `apps/web`.
   - The file loaded 3.12.5 from cdnjs; 3.15 has the same API and the free standard licence.
-  - Only `home-design-runtime.tsx` imports it (enforced by a test), and Next loads it only on `/`.
+  - Only `home-design-runtime.tsx` imports it (enforced by a test), and only `/` renders that component, so GSAP runs only on `/`.
+  - Correction (25 October, after merge): every page downloads it. The single catch-all page gives the whole app one shared client bundle (about 850 KB gzip before this change). GSAP and ScrollTrigger are in that bundle, so every page downloads about 42 KB gzip more, about 5 %. On other pages the code is never run. Making it a dynamic import inside the runtime's effect would move it to a chunk only `/` fetches.
 - **Registry** (`packages/contracts/src/marketing-content.ts`): the home entry carries the design's words, so metadata, the sitemap, `llms.txt`, `llms-full.txt` and the JSON-LD say what the page says:
   - title "AI Coaching Platform for Personal Trainers";
   - the eyebrow, lede and H1, with the second sentence marked;

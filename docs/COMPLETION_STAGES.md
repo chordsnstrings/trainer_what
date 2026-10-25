@@ -2,7 +2,7 @@
 
 Application implementation and the job audit are complete for the current phase. [PR #1](https://github.com/chordsnstrings/trainer_what/pull/1) contains the work; [combined verification](VERIFICATION_2026-09-27.md) records the passing final code revision. The owner authorized merge to main. Real services and deployment remain the next phase; screenshots were waived. Historical entries below record the evidence available at each stage and may contain superseded pending-check statements.
 
-## Stage 2026-10-25 — home page as the owner's HTML design (PR pending owner approval)
+## Stage 2026-10-25 — home page as the owner's HTML design (PR #96 approved and merged as `af457bd`; not live yet)
 
 The owner asked for three things:
 - check that the implementation works;
@@ -49,7 +49,30 @@ They chose a full check, an exact copy including GSAP 3D scroll motion, no addit
 - the dark check fails only on member-app screens.
 - The baseline also fails the old home's 400-word limit at 447 words, which this change removes.
 
-Remaining: the PR's CI (the full matrix, including PostgreSQL, the container and the workspace, member and site-builder journeys, none of which were rerun locally) and the owner's approval. Nothing is merged or deployed.
+**PR CI:** all 8 jobs passed on `ddd3127` (run 40197740852) and on the final head `d852870` (run 40200671984).
+
+**Release, 25 October (evening UTC):**
+- The owner approved: "Approved but Make sure that nothing form the implementation stop working". PR #96 was squash-merged at about 21:00 UTC as `af457bd`. Its tree is identical to the checked head `d852870`.
+- **`main` run 40233449380 failed in `subscriber-ui`** at "WHOOP trainer rules and member recovery workout journey". After 30 s, `whoop-training-check.mjs:278` was still waiting for the workout-start request.
+- **Cause (pre-existing, time-dependent, not this change):**
+  - `seed-demo.ts` schedules the member's programme from Dubai's date, but the check's browser used the runner's UTC clock;
+  - between 20:00 and 24:00 UTC, Dubai is a day ahead, so Today showed a rest day with "Next: Strength foundations · Tomorrow" and no start button;
+  - the PR runs at 13:00–14:40 UTC passed, and the failure began at 21:03 UTC.
+- **Evidence:**
+  - reproduced 3 of 3 times locally at about 21:10 UTC on `af457bd`;
+  - the unchanged baseline `e4e2f8c`, built separately, fails at the same line;
+  - a probe screenshot showed the rest day.
+- **Fix:** the check's browser contexts use `timezoneId: "Asia/Dubai"`, as `capture-app-views.mjs` already does. With it, the full WHOOP journey passed 2 of 2 times locally at about 21:15 UTC, inside the failing window.
+- **Correction to the record:** GSAP runs only on `/`, but every page downloads it. The single catch-all page gives the app one shared client bundle, and GSAP adds about 42 KB gzip to the 852 KB every page already loads, about 5 %. Measured on the built pages. `docs/HOME_DESIGN_2026-10-25.md` is corrected.
+- **Live snapshot before the deploy, 21:0x UTC:**
+  - the sitemap crawl found 39 pages and 41 internal links, all 200 with no metadata issues;
+  - a 28-route snapshot (sign-in, sign-up, workspace, member app, text files, API readiness, Arabic pages) was saved for comparison.
+- **Live check script,** HTTP only with no browser on the live site: 44 checks of the home page's markup, head, JSON-LD, every referenced file and font, GSAP and Arabic. All 44 passed against the local build of `af457bd`.
+
+Remaining:
+- the PR with the WHOOP timezone fix and these records;
+- a fresh `main` run, then the deploy and the "Verify serving release" run;
+- the live check and crawl compared with the snapshot.
 
 ## Stage 2026-10-23 — hero "trains" sweep shipped (owner: "Hero trains highlight had to be there"; PR #94, live `df12b53`)
 

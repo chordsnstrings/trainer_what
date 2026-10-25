@@ -2,22 +2,32 @@
 
 ## Work in progress
 
-### Home page as the owner's HTML design: approved and merged, deploy in progress, 25 October 2026 (Claude, 21:01 UTC)
+### Home page as the owner's HTML design: merged, deploy blocked by a pre-existing WHOOP check, fix PR next, 25 October 2026 (Claude, 21:20 UTC)
 
-PR: [chordsnstrings/trainer_what#96](https://github.com/chordsnstrings/trainer_what/pull/96). The owner approved it on 25 October: "Approved but Make sure that nothing form the implementation stop working". Squash-merged as `af457bde92cdab27cee3598c16d408cbb7b6e014` on `main` at about 21:00 UTC.
+PR: [chordsnstrings/trainer_what#96](https://github.com/chordsnstrings/trainer_what/pull/96). The owner approved it on 25 October: "Approved but Make sure that nothing form the implementation stop working". Squash-merged as `af457bde92cdab27cee3598c16d408cbb7b6e014` on `main` at about 21:00 UTC. Its tree is identical to the checked PR head `d852870`.
+
+**Not live yet.** The live release is still `e4e2f8c`.
+
+**Why:** `main` run [40233449380](https://github.com/chordsnstrings/trainer_what/actions/runs/40233449380) failed in `subscriber-ui`, at the WHOOP journey (`whoop-training-check.mjs:278`, waiting for the workout start). The host deploys only after a green `main` run.
+- **Cause, pre-existing and time-dependent:** `seed-demo.ts` schedules the member's programme from Dubai's date, but the check's browser uses the runner's UTC clock. Between 20:00 and 24:00 UTC, Dubai is a day ahead, so Today shows a rest day with no start button.
+- **Evidence:** reproduced 3 of 3 times locally on `af457bd`; the baseline `e4e2f8c` fails at the same line; a probe screenshot showed "Rest day · Next: Strength foundations · Tomorrow".
+- **Fix:** `timezoneId: "Asia/Dubai"` on the check's browser contexts, as `capture-app-views.mjs` already does. The full WHOOP journey then passed 2 of 2 times locally at about 21:15 UTC.
+- Re-running jobs would not help before 00:00 UTC, and Claude gets a 403 on re-runs anyway.
 
 **Running now:**
-- `main`'s `check.yml` push run for `af457bd`. The host deploys `main` only after that run succeeds.
-- `scripts/watch-release.sh af457bd… 100` in the session, polling `https://trainsyou.com/api/v1/ready`. At 21:01 UTC the live release was still `e4e2f8c` (the previous release).
+- the PR with that fix, the release records, and a correction (GSAP runs only on `/` but downloads on every page with the shared bundle, about 42 KB gzip, about 5 %);
+- the rest of `main` run 40233449380 (`application`, `postgres-and-container`, `ux-spacing`);
+- `scripts/watch-release.sh` in the session, polling `https://trainsyou.com/api/v1/ready` for `af457bd`. It needs a new target once the fix merges.
 
-**Not done yet:** the deploy, the "Verify serving release" run, and the live check.
+**Done for the live check:**
+- the pre-deploy snapshot: the crawl (39 pages, 41 links, clean) and 28 other routes;
+- a 44-check HTTP-only home check, which passed against the local build of `af457bd`.
 
-**Next action:** when `af457bd` is live, check that nothing stopped working, using HTTP fetches only (no browser on the live site):
-- crawl every sitemap page and internal link against the baseline (39 pages, 41 links, clean before the change);
-- the live home: the design markup, every script, style, font and image it references, JSON-LD, robots, and the registry text;
-- `llms.txt`, `llms-full.txt`, `sitemap.xml`, `robots.txt`, API readiness and the sign-in and sign-up routes.
-
-Then record the result here and in `docs/COMPLETION_STAGES.md`.
+**Next action:**
+1. Get the fix PR's CI green and merge it.
+2. Watch the new `main` run, the deploy and "Verify serving release".
+3. Run the live home check, the crawl and the route snapshot, and compare them with the pre-deploy snapshot.
+4. Record the result here and in `docs/COMPLETION_STAGES.md`.
 
 **PR CI:** all 8 jobs green on `ddd3127` ([run 40197740852](https://github.com/chordsnstrings/trainer_what/actions/runs/40197740852), 14:05 UTC) and again on the final head `d852870` ([run 40200671984](https://github.com/chordsnstrings/trainer_what/actions/runs/40200671984), 14:39 UTC, docs only):
 - application;

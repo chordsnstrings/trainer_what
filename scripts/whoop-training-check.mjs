@@ -21,6 +21,8 @@ async function login(email) {
   const context = await browser.newContext({
     viewport: { width: 1280, height: 900 },
     serviceWorkers: "block",
+    // The demo seed schedules from Dubai's date; a UTC browser sees a rest day 20:00–24:00 UTC.
+    timezoneId: "Asia/Dubai",
   });
   const response = await context.request.post(base + "/api/v1/auth/login", {
     headers: { origin: base },
