@@ -101,7 +101,7 @@ try {
       )
       .toBeGreaterThanOrEqual(1);
     // Real Next navigation during the pending call must keep microphone and document alive.
-    await page.locator('.mk-footer a[href="/about"]').first().click();
+    await page.locator('footer a[href="/about"]').first().click();
     await expect(page).toHaveURL(base + "/about");
     await panel
       .getByRole("button", { name: "Minimize call", exact: true })

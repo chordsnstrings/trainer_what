@@ -1,5 +1,7 @@
 # Public marketing site: multi-page, conversion, SEO and LLM SEO
 
+**Current home page — 25 October 2026.** The home page (`/`) is now the owner's own HTML design, copied exactly. It lives in `components/marketing/home-design.tsx`, `home-design-runtime.tsx` and `app/home-design.css`, and the record is [HOME_DESIGN_2026-10-25.md](../HOME_DESIGN_2026-10-25.md). The registry's home entry carries the design's words for metadata, `llms*.txt` and JSON-LD. The "Light site, relay hero", journey band and scroll-scene sections below describe the previous home and are history. Every other page is unchanged.
+
 Work package branch: `core/marketing-site` (base `b9ec7c1`). Migration:
 `067_early_access.sql` (review fixes; 063-066 are taken by other packages).
 

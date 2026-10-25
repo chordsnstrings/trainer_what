@@ -717,10 +717,6 @@ const TECH_FAQ: MarketingFaq = {
   q: "Do I need technical skills?",
   a: "No. Setup is a guided checklist: answer interview questions, confirm rules in plain language, test scenarios and set your offer. Your website and app are set up for you.",
 };
-const INSTAGRAM_FAQ: MarketingFaq = {
-  q: "How do my Instagram followers become subscribers?",
-  a: "You share your coaching link in your bio and Stories. Followers open your branded page, choose your offer and pay in AED. The follower calculator headlines a strong case: a best case, not typical. Cautious and typical results show too. An estimate, not a promise.",
-};
 /**
  * The home page's answer-first introduction: the "What is {APP_NAME}?"
  * paragraph of the owner's design (25 October 2026), shown on the page, in
@@ -771,10 +767,14 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         },
       },
       {
+        // Its steps are the page's HowTo structured data. The design also
+        // listed four setup steps there that the page does not show; search
+        // engines ask for structured data that readers can see, so the
+        // HowTo carries these three instead.
         id: "how",
         heading: "You teach. It learns. They train.",
         body: ["Your AI asks you when it is unsure, and pain or red flags always go to you."],
-        cards: [
+        steps: [
           { title: "You teach", body: "Add your methods, rules and programmes." },
           { title: "{APP_NAME} learns", body: "Your coaching, applied to every day, with confidence checks. It asks you when it is unsure." },
           { title: "Subscribers train", body: "Daily sessions, next-week progressions and an optional voice-led add-on." },
@@ -860,17 +860,6 @@ export const MARKETING_CONTENT: MarketingPage[] = [
           "Turning Instagram followers into clients",
           "Pricing online coaching in the UAE",
           "The UAE advertiser permit",
-        ],
-      },
-      {
-        // The HowTo structured data of the design (not a block on the page).
-        id: "start",
-        heading: "How to build an AI coaching service with {APP_NAME}",
-        steps: [
-          { title: "Add a method", body: "Add your methods, rules and programmes." },
-          { title: "Test a response", body: "See how your AI handles a client situation." },
-          { title: "Set your price", body: "Choose a free trial, monthly or yearly offer, priced in AED." },
-          { title: "Review and publish", body: "You decide when your AI is ready, then share your link." },
         ],
       },
     ],

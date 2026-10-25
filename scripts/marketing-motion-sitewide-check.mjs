@@ -29,27 +29,16 @@
 //     22 October 2026);
 //   - "device": no reveal, no running animation or transition, no settle,
 //     and the page is static;
-// - the pinned scroll scenes follow both settings in either mode: /?scenes=on
-//   (automated browsers only get scenes with it) has <html class="scenes-on">
-//   before the first paint without reduced motion, and none under either
-//   source, where the journey auto-plays ("always") or waits ("device");
-// - the scenes' frame loop is event-driven (scroll-scenes.ts): with scenes on,
-//   every animation-frame callback on the page is counted; frames run while
-//   the page scrolls through the journey's pin, none at all in the second
-//   that starts 500 ms after the last input, and a data-scenes-still toggle
-//   or "scenes-on" removed without a scroll wakes it (no inline style is
-//   left under a scene);
 // - the concept pass (22 October 2026), untimed, on the build under test at
 //   both widths, without reduced motion and (with "always") under each
 //   source (the device setting and the member's cookie), and in Arabic at
-//   390: the commission pills wait for their own trigger and load from the
-//   inline start 80ms apart on the enter curve, the home FAQ rows cascade
-//   40ms apart (at most 240ms), the closing button's arrow nudges once
-//   280ms after the button itself comes into view, the hero's arrow takes
-//   over after the relay (from 2.53 s) and is at rest by 5 s on its own
-//   timeline, both arrows nudge toward the reading direction, the /features
-//   set ticks wait for the set table's own trigger at every width and pop
-//   80ms apart from 520ms, and nothing overflows sideways.
+//   390: on /pricing the FAQ rows cascade 40ms apart (at most 240ms) and the
+//   closing button's arrow nudges once, toward the reading direction, 280ms
+//   after the button itself comes into view; the /features set ticks wait
+//   for the set table's own trigger at every width and pop 80ms apart from
+//   520ms; and nothing overflows sideways. (The home page's hero hand-off,
+//   band pills and pinned scroll scenes went with its redesign on 25
+//   October 2026.)
 //
 // It starts `next start` for this checkout's existing production build (run
 // `npm run build` first) and, with MOTION_BASE_DIR, for a built checkout of
@@ -85,7 +74,11 @@ const RUNS = Number(env.MOTION_RUNS ?? 5);
 const REDUCED_RUNS = Number(env.MOTION_REDUCED_RUNS ?? 3);
 /** The reduced-motion sources: the device setting, and the member's own choice. */
 const SOURCES = ["reduce", "cookie"];
-const PAGES = (env.MOTION_PAGES ?? "/,/how-it-works,/pricing,/features,/earnings-calculator").split(",");
+// The home page left this check on 25 October 2026: it is the owner's own
+// design (components/marketing/home-design.tsx), without the marketing
+// reveal, the relay, the band pills or the scroll scenes measured here; its
+// motion is checked by scripts/brand-check.mjs.
+const PAGES = (env.MOTION_PAGES ?? "/how-it-works,/pricing,/features,/earnings-calculator").split(",");
 const VIEWPORTS = [
   { name: "390x844", viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true },
   { name: "1366x900", viewport: { width: 1366, height: 900 }, deviceScaleFactor: 1, isMobile: false, hasTouch: false },
@@ -506,7 +499,7 @@ async function noScript(browser, device, base) {
 async function switchOf(browser, base) {
   const context = await browser.newContext({ javaScriptEnabled: false });
   const page = await context.newPage();
-  await page.goto(base + "/", { waitUntil: "domcontentloaded", timeout: 120_000 });
+  await page.goto(base + "/pricing", { waitUntil: "domcontentloaded", timeout: 120_000 });
   const mode = await page.evaluate(() => document.querySelector(".mk")?.getAttribute("data-mk-motion") ?? "device");
   await context.close();
   return mode;
@@ -574,74 +567,6 @@ async function reducedState(browser, device, base, source = "reduce") {
 const reduced = (browser, device, base) => reducedState(browser, device, base, "reduce");
 
 /**
- * The pinned scroll scenes on /?scenes=on (automated browsers get scenes
- * only with it): on before the first paint without reduced motion; off under
- * either reduced-motion source, whatever the marketing switch, and then the
- * journey plays or waits as the switch says. CLS on load in each.
- */
-async function scenes(browser, device, base) {
-  const out = {};
-  for (const pref of ["no-preference", ...SOURCES]) {
-    const { context, page, errors } = await openPage(browser, device, base + "/?scenes=on", { reducedMotion: pref, frames: true });
-    await page.waitForTimeout(2000);
-    const r = await page.evaluate(() => ({
-      atParse: window.__mk.scenesAtParse ?? null,
-      after: document.documentElement.classList.contains("scenes-on"),
-      clsLoad: window.__mk.shifts.reduce((n, s) => n + s.value, 0),
-    }));
-    // The frame loop (scroll-scenes.ts): frames while scrolling, none once
-    // idle, and woken without a scroll by the attributes it watches.
-    const engine = !r.after
-      ? null
-      : await page.evaluate(async () => {
-          const pause = (ms) => new Promise((done) => setTimeout(done, ms));
-          const since = (t) => window.__frames.filter((f) => f > t).length;
-          const html = document.documentElement;
-          const out = {};
-          const band = document.querySelector("[data-scene='journey']");
-          const top = band ? band.getBoundingClientRect().top + scrollY : innerHeight;
-          let t = performance.now();
-          for (let i = 1; i <= 6; i++) {
-            scrollTo(0, top + i * innerHeight * 0.3);
-            await pause(60);
-          }
-          out.scrollFrames = since(t);
-          await pause(500);
-          t = performance.now();
-          await pause(1000);
-          out.idleFrames = since(t);
-          t = performance.now();
-          html.setAttribute("data-scenes-still", "");
-          await pause(200);
-          out.stillFrames = since(t);
-          html.removeAttribute("data-scenes-still");
-          await pause(700);
-          t = performance.now();
-          html.classList.remove("scenes-on");
-          await pause(300);
-          out.offFrames = since(t);
-          out.styledAfterOff = [...document.querySelectorAll("[data-scene], [data-scene] *")].filter(
-            (el) => el.style.transform || el.style.opacity || el.style.clipPath,
-          ).length;
-          return out;
-        });
-    let journey = null;
-    if (!r.after && (await page.locator(".mk-walk-stage").count())) {
-      await page.evaluate(() => document.querySelector(".mk-walk-stage").scrollIntoView({ block: "center", behavior: "instant" }));
-      journey = await page
-        .waitForFunction(() => document.querySelector(".mk-walk")?.dataset.state === "playing", null, { timeout: 4000, polling: 100 })
-        .then(
-          () => "playing",
-          () => page.evaluate(() => document.querySelector(".mk-walk")?.dataset.state ?? null),
-        );
-    }
-    out[pref] = { ...r, engine, journey, errors };
-    await context.close();
-  }
-  return out;
-}
-
-/**
  * The concept pass's motion on the build under test (22 October 2026,
  * docs/features/marketing-motion.md): the commission pills wait for their
  * own trigger and load from the inline start 80ms apart on the enter
@@ -682,17 +607,11 @@ async function conceptMotion(browser, device, base, reducedMotion, query = "") {
     );
   const until = (page, fn) => page.waitForFunction(fn, null, { timeout: 4000, polling: 50 }).then(() => true, () => false);
   try {
-    const { context, page, errors } = await openPage(browser, device, base + "/" + query, { reducedMotion, throttle: false });
+    // The FAQ rows and the closing hand-off, on /pricing (the home page's
+    // hero hand-off and band pills went with its redesign, 25 October 2026).
+    const { context, page, errors } = await openPage(browser, device, base + "/pricing" + query, { reducedMotion, throttle: false });
     await until(page, () => document.querySelector(".mk.mk-motion"));
     await page.waitForTimeout(200);
-    out.hero = (await timings(page, ".mk-hero .mk-cta > .lucide-arrow-right", "mk-nudge"))[0] ?? null;
-    out.pillsAtLoad = await page.evaluate(() => ({
-      cue: document.querySelector(".mk-band-pills")?.dataset.mkCue ?? null,
-      translate: getComputedStyle(document.querySelector(".mk-band-pills > li")).translate,
-    }));
-    await page.evaluate(() => document.querySelector(".mk-band-pills").scrollIntoView({ block: "center", behavior: "instant" }));
-    out.pillsIn = await until(page, () => document.querySelector(".mk-band-pills").dataset.mkCue === "in");
-    out.pills = await timings(page, ".mk-band-pills > li", "translate");
     out.overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     await page.evaluate(() => document.querySelector(".mk-faqs").scrollIntoView({ block: "start", behavior: "instant" }));
     out.faqIn = await until(page, () => document.querySelector(".mk-faqs").dataset.mkCue === "in");
@@ -701,28 +620,6 @@ async function conceptMotion(browser, device, base, reducedMotion, query = "") {
     out.closingIn = await until(page, () => document.querySelector(".mk-closing-cta").dataset.mkCue === "in");
     out.closing = (await timings(page, ".mk-closing-cta > .lucide-arrow-right", "mk-nudge"))[0] ?? null;
     out.closingPeak = await peak(page, ".mk-closing-cta > .lucide-arrow-right");
-    // The hero's hand-off, on its own timeline (nothing has touched it), is
-    // over by 5 s from the load.
-    await page.waitForTimeout(Math.max(0, 5000 - (await page.evaluate(() => performance.now()))));
-    out.heroAt5s = await page.evaluate(() => {
-      const a = document.querySelector(".mk-hero .mk-cta > .lucide-arrow-right");
-      return {
-        at: Math.round(performance.now()),
-        translate: getComputedStyle(a).translate,
-        running: a.getAnimations().filter((x) => x.playState === "running").length,
-      };
-    });
-    // Only then its direction: the nudge is restarted (its CSS animation
-    // replayed) and held at its peak. The arrow is an SVG element, which
-    // has no offsetWidth: reading its computed style is what applies the
-    // "none" before the rule's animation comes back.
-    await page.evaluate(() => {
-      const a = document.querySelector(".mk-hero .mk-cta > .lucide-arrow-right");
-      a.style.animation = "none";
-      void getComputedStyle(a).animationName;
-      a.style.animation = "";
-    });
-    out.heroPeak = await peak(page, ".mk-hero .mk-cta > .lucide-arrow-right");
     out.overflowAfter = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     out.errors.push(...errors);
     await context.close();
@@ -819,7 +716,6 @@ async function measure(browser, builds, reducedBuilds) {
         results[label].reduced[device.name] = await reducedState(browser, device, base, "reduce");
         results[label].reducedCookie ??= {};
         results[label].reducedCookie[device.name] = await reducedState(browser, device, base, "cookie");
-        results[label].scenes[device.name] = await scenes(browser, device, base);
         results[label].concept ??= {};
         results[label].concept[device.name] = {
           motion: await conceptMotion(browser, device, base, "no-preference"),
@@ -986,17 +882,8 @@ try {
       if ((source === "reduced" || source === "cookie") && !always) continue;
       const label = `concept motion ${source} ${device}`;
       if (c.errors.length) fail(label, `errors: ${c.errors.slice(0, 2).join("; ")}`);
-      if (!c.hero || c.hero.delay < 2530 || c.hero.delay + c.hero.duration > 4500 || c.hero.iterations !== 1)
-        fail(label, `the hero hand-off: ${JSON.stringify(c.hero)}`);
-      if (!c.heroAt5s || c.heroAt5s.translate !== "none" || c.heroAt5s.running) fail(label, `the hero arrow is not at rest by 5 s: ${JSON.stringify(c.heroAt5s)}`);
       const sign = source === "rtl" ? -1 : 1;
-      if (c.heroPeak !== `${3 * sign}px` || c.closingPeak !== `${3 * sign}px`)
-        fail(label, `the arrows nudge the wrong way: hero ${c.heroPeak}, closing ${c.closingPeak}`);
-      if (c.pillsAtLoad?.cue !== "pending" || c.pillsAtLoad?.translate !== `${-16 * sign}px`)
-        fail(label, `the pills do not wait at the inline start: ${JSON.stringify(c.pillsAtLoad)}`);
-      const pills = c.pills ?? [];
-      if (!c.pillsIn || pills.length !== 4 || !pills.every((t, i) => t && t.delay === i * 80 && t.easing === "cubic-bezier(0.2, 0.8, 0.2, 1)"))
-        fail(label, `the pills do not load 80ms apart on the enter curve: ${JSON.stringify(pills)}`);
+      if (c.closingPeak !== `${3 * sign}px`) fail(label, `the closing arrow nudges the wrong way: ${c.closingPeak}`);
       if (!c.faqIn || (c.faq ?? []).some((d, i) => d !== Math.min(i * 40, 240))) fail(label, `the FAQ rows: ${JSON.stringify(c.faq)}`);
       if (!c.closingIn || !c.closing || c.closing.delay !== 280 || c.closing.iterations !== 1 || c.closing.delay + c.closing.duration > 700)
         fail(label, `the closing nudge: ${JSON.stringify(c.closing)}`);
@@ -1007,30 +894,6 @@ try {
         fail(label, `the set ticks do not wait for their table: ${JSON.stringify(c.setsWait)}`);
       else if (!c.setsIn || JSON.stringify(c.ticks) !== JSON.stringify([520, 600]) || !(c.ticksAfter ?? []).every((t) => t === "1 none" || t === "1 1"))
         fail(label, `the set ticks: in ${c.setsIn}, delays ${JSON.stringify(c.ticks)}, after ${JSON.stringify(c.ticksAfter)}`);
-    }
-  // The pinned scenes follow both settings in either mode (Variant B).
-  for (const [device, byPref] of Object.entries(results.builds.new.scenes))
-    for (const [pref, r] of Object.entries(byPref)) {
-      const label = `/?scenes=on ${pref} ${device}`;
-      if (r.errors.length) fail(label, `page errors: ${r.errors.slice(0, 2).join("; ")}`);
-      if (r.clsLoad > 0.001) fail(label, `CLS on load ${r.clsLoad.toFixed(4)}`);
-      if (pref === "no-preference") {
-        if (!r.atParse || !r.after) fail(label, `scenes not on before the first paint (${r.atParse}/${r.after})`);
-        // The frame loop is event-driven and stops when idle.
-        const e = r.engine;
-        if (!e) fail(label, "the frame loop was not measured");
-        else {
-          if (!(e.scrollFrames > 0)) fail(label, `no animation frame while scrolling through the journey (${e.scrollFrames})`);
-          if (e.idleFrames !== 0) fail(label, `${e.idleFrames} animation frame(s) in the second after 500 ms without input`);
-          if (!(e.stillFrames > 0)) fail(label, "data-scenes-still did not wake the frame loop");
-          if (!(e.offFrames > 0) || e.styledAfterOff)
-            fail(label, `scenes-on removed without a scroll: ${e.offFrames} frame(s), ${e.styledAfterOff} element(s) still styled inline`);
-        }
-      } else {
-        if (r.atParse || r.after) fail(label, `scenes on under reduced motion (${r.atParse}/${r.after})`);
-        if (always ? r.journey !== "playing" : r.journey === "playing")
-          fail(label, `the journey ${r.journey === "playing" ? "auto-played" : `did not auto-play (state ${r.journey})`}`);
-      }
     }
 
   // Against the base: LCP, CLS and long tasks.

@@ -9,13 +9,16 @@
 .tyh, .tyh * { box-sizing:border-box;margin:0;padding:0 }
 :root:has(.tyh) { -webkit-text-size-adjust:100%;scroll-behavior:smooth;scroll-padding-top:80px }
 body:has(.tyh) { background:#FFFFFF;overflow-x:hidden }
-.tyh { background:var(--white);color:var(--ink);font-family:var(--font-inter-opsz-ext),var(--font-inter-opsz),system-ui,-apple-system,"Segoe UI",sans-serif;font-size:1rem;line-height:1.5;-webkit-font-smoothing:antialiased }
+.tyh { background:var(--white);color:var(--ink);font-family:var(--font-inter-opsz-ext),var(--font-inter-opsz),system-ui,-apple-system,"Segoe UI",sans-serif;font-size:1rem;line-height:1.5;-webkit-font-smoothing:antialiased;overflow-x:clip }
 /* Not in the design: the app's own root size and element rules
    (globals.css) would otherwise reach the page; this restores what the
    browser gives them in the design file (rem is the browser's default
    size, as in the design). The assistant and the consent bar keep the
-   app's 14px. */
-:root:has(.tyh) { font-size:100% }
+   app's 14px. The root also clips sideways (overflow-x on .tyh above): the
+   scroll scenes start blocks up to 40px to the side, which the design hides
+   with body overflow-x:hidden; clip also holds on iOS and in right to left,
+   and keeps the sticky header working. */
+:root:has(.tyh) { font-size:100%;background:#FFFFFF;color-scheme:light }
 :root:has(.tyh) :is(.mk-assistant-host, .consent-bar) { font-size:14px }
 .tyh :is(h1, h2, h3) { font-family:inherit;letter-spacing:normal;line-height:inherit }
 .tyh p { line-height:inherit }

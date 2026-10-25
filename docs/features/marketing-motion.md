@@ -1,5 +1,7 @@
 # Marketing site motion
 
+**25 October 2026:** the home page is the owner's own design, with its own motion: GSAP scroll scenes, CSS entrances and device reduced motion ([HOME_DESIGN_2026-10-25.md](../HOME_DESIGN_2026-10-25.md)). The marketing reveal, the relay, the band pills and the hero hand-off described here no longer appear on `/`. They still apply to the other marketing pages, and `scripts/marketing-motion-sitewide-check.mjs` no longer measures `/`.
+
 The owner asked: "marketing site should get microanimation revamp. And should
 allow a UI animation that shows how the whole coach onboarding process will go
 like and how that will translate to a subscriber. the whole workflow." This is

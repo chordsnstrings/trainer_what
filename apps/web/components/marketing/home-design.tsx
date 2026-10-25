@@ -391,7 +391,12 @@ export function HomeDesign({
 }) {
   const name = platform.name;
   const t = (s: string) => brandText(s, name, platform.followerModel);
-  const signup = claimCta(platform.registrationOpen).href;
+  // The design's sign-up buttons; while registration is closed they offer
+  // early access instead (frame.tsx claimCta).
+  const claim = claimCta(platform.registrationOpen);
+  const signup = claim.href;
+  const open = platform.registrationOpen;
+  const teach = open ? "Teach your AI — free" : claim.label;
   const h1 = t(page.h1);
   const mark = page.h1Highlight ? t(page.h1Highlight) : "";
   const lead = h1.slice(0, h1.length - mark.length).trimEnd();
@@ -440,7 +445,13 @@ export function HomeDesign({
               Sign in
             </Link>
             <Link className="tyh-btn tyh-b-pace tyh-sm" data-signup="" data-cta="nav" href={signup}>
-              Teach your AI<span className="tyh-nfree"> — free</span>
+              {open ? (
+                <>
+                  Teach your AI<span className="tyh-nfree"> — free</span>
+                </>
+              ) : (
+                claim.label
+              )}
             </Link>
             <button
               className="tyh-ib tyh-burger"
@@ -465,7 +476,7 @@ export function HomeDesign({
           Sign in
         </Link>
         <Link className="tyh-btn tyh-b-pace" data-signup="" data-cta="menu" href={signup}>
-          Teach your AI — free
+          {teach}
         </Link>
       </div>
       <main id="main">
@@ -484,7 +495,7 @@ export function HomeDesign({
               <p className="tyh-lead">{t(page.lede ?? "")}</p>
               <div className="tyh-ctas">
                 <Link className="tyh-btn tyh-b-pace" data-signup="" data-cta="hero" href={signup}>
-                  Teach your AI — free
+                  {teach}
                 </Link>
                 <Link className="tyh-lnk" data-cta="sec-hero" href="/how-it-works" target="_blank" rel="noopener">
                   See how it works <Arrow />
@@ -640,7 +651,7 @@ export function HomeDesign({
               <p className="tyh-sub">Everything you need to run online coaching, under your own name.</p>
               <div className="tyh-ctas">
                 <Link className="tyh-btn tyh-b-pace" data-signup="" data-cta="tools" href={signup}>
-                  Teach your AI — free
+                  {teach}
                 </Link>
                 <Link className="tyh-lnk" data-cta="sec-tools" href="/features" target="_blank" rel="noopener">
                   All features <Arrow />
@@ -828,7 +839,7 @@ export function HomeDesign({
                   promise of earnings.
                 </p>
                 <Link className="tyh-btn tyh-b-pace tyh-wide" data-signup="" data-cta="calculator" href={signup}>
-                  Start free at this price
+                  {open ? "Start free at this price" : claim.label}
                 </Link>
               </div>
               <div className="tyh-fol tyh-rv">
@@ -894,7 +905,7 @@ export function HomeDesign({
               <p className="tyh-sub">Choose what runs on its own. Take over any subscriber at any time.</p>
               <div className="tyh-ctas">
                 <Link className="tyh-btn tyh-b-pace" data-signup="" data-cta="control" href={signup}>
-                  Teach your AI — free
+                  {teach}
                 </Link>
                 <Link className="tyh-lnk" data-cta="sec-control" href="/trainer-brain" target="_blank" rel="noopener">
                   How your AI decides <Arrow />
@@ -1014,15 +1025,22 @@ export function HomeDesign({
             <div className="tyh-end-box">
               <div>
                 <h2 id="end-h" className="tyh-h2">
-                  Your coaching.
-                  <br />
-                  Beyond your hours.
+                  {/* The brand line, for the trainsyou brand (as on every page's closing panel). */}
+                  {usesBrandIdentity(name) ? (
+                    <>
+                      Your coaching.
+                      <br />
+                      Beyond your hours.
+                    </>
+                  ) : (
+                    "Ready to teach your AI?"
+                  )}
                 </h2>
                 <p className="tyh-sub">Free to set up. No subscription fee. Nothing goes live until you publish.</p>
               </div>
               <div className="tyh-ctas">
                 <Link className="tyh-btn tyh-b-pace" data-signup="" data-cta="end" href={signup}>
-                  Teach your AI — free
+                  {teach}
                 </Link>
                 <Link className="tyh-lnk" data-cta="sec-end" href="/how-it-works" target="_blank" rel="noopener">
                   See how it works <Arrow />
@@ -1035,7 +1053,7 @@ export function HomeDesign({
       <div className="tyh-mbar" id="mbar">
         <span>Free to set up</span>
         <Link className="tyh-btn tyh-b-pace tyh-sm" data-signup="" data-cta="sticky-mobile" href={signup}>
-          Teach your AI
+          {open ? "Teach your AI" : claim.label}
         </Link>
       </div>
       <footer>
