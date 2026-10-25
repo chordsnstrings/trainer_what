@@ -2,32 +2,27 @@
 
 ## Work in progress
 
-### Home page as the owner's HTML design: merged, deploy blocked by a pre-existing WHOOP check, fix PR next, 25 October 2026 (Claude, 21:20 UTC)
+### Home page as the owner's HTML design: merged, fix merged, deploy in progress, 25 October 2026 (Claude, 21:57 UTC)
 
-PR: [chordsnstrings/trainer_what#96](https://github.com/chordsnstrings/trainer_what/pull/96). The owner approved it on 25 October: "Approved but Make sure that nothing form the implementation stop working". Squash-merged as `af457bde92cdab27cee3598c16d408cbb7b6e014` on `main` at about 21:00 UTC. Its tree is identical to the checked PR head `d852870`.
+PR: [chordsnstrings/trainer_what#96](https://github.com/chordsnstrings/trainer_what/pull/96). The owner approved it on 25 October: "Approved but Make sure that nothing form the implementation stop working". Squash-merged as `af457bd` at about 21:00 UTC. Its tree is identical to the checked PR head `d852870`.
 
-**Not live yet.** The live release is still `e4e2f8c`.
+**Not live yet.** At 21:39 UTC the live release was still `e4e2f8c`.
 
-**Why:** `main` run [40233449380](https://github.com/chordsnstrings/trainer_what/actions/runs/40233449380) failed in `subscriber-ui`, at the WHOOP journey (`whoop-training-check.mjs:278`, waiting for the workout start). The host deploys only after a green `main` run.
-- **Cause, pre-existing and time-dependent:** `seed-demo.ts` schedules the member's programme from Dubai's date, but the check's browser uses the runner's UTC clock. Between 20:00 and 24:00 UTC, Dubai is a day ahead, so Today shows a rest day with no start button.
-- **Evidence:** reproduced 3 of 3 times locally on `af457bd`; the baseline `e4e2f8c` fails at the same line; a probe screenshot showed "Rest day · Next: Strength foundations · Tomorrow".
-- **Fix:** `timezoneId: "Asia/Dubai"` on the check's browser contexts, as `capture-app-views.mjs` already does. The full WHOOP journey then passed 2 of 2 times locally at about 21:15 UTC.
-- Re-running jobs would not help before 00:00 UTC, and Claude gets a 403 on re-runs anyway.
+**What happened:**
+- `main` run [40233449380](https://github.com/chordsnstrings/trainer_what/actions/runs/40233449380) for `af457bd` failed in `subscriber-ui` at the WHOOP journey (`whoop-training-check.mjs:278`). Every other job passed, including `application` with all its website, sign-up and workspace journeys.
+- **Cause, pre-existing and time-dependent:** the demo seed schedules from Dubai's date while the check's browser used UTC. Between 20:00 and 24:00 UTC, Today shows a rest day and no start button.
+  - Reproduced 3 of 3 times locally, and on the baseline `e4e2f8c`.
+- **Fix:** [PR #97](https://github.com/chordsnstrings/trainer_what/pull/97) sets `timezoneId: "Asia/Dubai"` on the check's browser contexts (as `capture-app-views.mjs` does) and adds the release records and the GSAP download correction.
+  - All 8 PR jobs passed on `15afe0d` inside the failing window. `subscriber-ui` finished at 21:22 UTC.
+  - Squash-merged as `3142b594da68c3a01a6cbc8fdb5846ceeb5c1ca2` at about 21:57 UTC.
 
 **Running now:**
-- [PR #97](https://github.com/chordsnstrings/trainer_what/pull/97) with that fix, the release records, and a correction (GSAP runs only on `/` but downloads on every page with the shared bundle, about 42 KB gzip, about 5 %);
-- the rest of `main` run 40233449380 (`application`, `postgres-and-container`, `ux-spacing`);
-- `scripts/watch-release.sh` in the session, polling `https://trainsyou.com/api/v1/ready` for `af457bd`. It needs a new target once the fix merges.
+- the `main` `check.yml` push run for `3142b59`. The host deploys after it passes, then "Verify serving release" runs;
+- `scripts/watch-release.sh 3142b59… 90` in the session.
 
-**Done for the live check:**
-- the pre-deploy snapshot: the crawl (39 pages, 41 links, clean) and 28 other routes;
-- a 44-check HTTP-only home check, which passed against the local build of `af457bd`.
+**Done for the live check:** the pre-deploy snapshot (crawl of 39 pages and 41 links, clean; 28 other routes) and a 44-check HTTP-only home check that passed against the local build.
 
-**Next action:**
-1. Get the fix PR's CI green and merge it.
-2. Watch the new `main` run, the deploy and "Verify serving release".
-3. Run the live home check, the crawl and the route snapshot, and compare them with the pre-deploy snapshot.
-4. Record the result here and in `docs/COMPLETION_STAGES.md`.
+**Next action:** when `3142b59` is live, run the home check, the crawl and the route snapshot, compare them with the pre-deploy snapshot, and record the result here and in `docs/COMPLETION_STAGES.md`.
 
 **PR CI:** all 8 jobs green on `ddd3127` ([run 40197740852](https://github.com/chordsnstrings/trainer_what/actions/runs/40197740852), 14:05 UTC) and again on the final head `d852870` ([run 40200671984](https://github.com/chordsnstrings/trainer_what/actions/runs/40200671984), 14:39 UTC, docs only):
 - application;
