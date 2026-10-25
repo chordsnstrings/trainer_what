@@ -11,6 +11,8 @@ They asked to be asked before starting. They then answered four questions:
 - **Additions:** none ("as it is now").
 - **Release:** a PR first. The owner approves before anything merges or deploys.
 
+**Status:** the owner approved it. It has been live since 25 October 2026 at 22:48 UTC as `3142b59` (PR #96, plus PR #97, which fixed a pre-existing time-dependent WHOOP check that had blocked the deploy). The post-deploy live check is in `docs/COMPLETION_STAGES.md` (2026-10-25).
+
 ## What was built
 
 The home page (`/`) renders the design in place of the previous home. Every other marketing page is unchanged.

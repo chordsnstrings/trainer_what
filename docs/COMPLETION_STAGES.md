@@ -2,7 +2,7 @@
 
 Application implementation and the job audit are complete for the current phase. [PR #1](https://github.com/chordsnstrings/trainer_what/pull/1) contains the work; [combined verification](VERIFICATION_2026-09-27.md) records the passing final code revision. The owner authorized merge to main. Real services and deployment remain the next phase; screenshots were waived. Historical entries below record the evidence available at each stage and may contain superseded pending-check statements.
 
-## Stage 2026-10-25 — home page as the owner's HTML design (PR #96 approved and merged as `af457bd`; not live yet)
+## Stage 2026-10-25 — home page as the owner's HTML design (PR #96 approved, merged as `af457bd`; live 25 October 2026 at 22:48 UTC as `3142b59` with PR #97)
 
 The owner asked for three things:
 - check that the implementation works;
@@ -69,10 +69,22 @@ They chose a full check, an exact copy including GSAP 3D scroll motion, no addit
   - a 28-route snapshot (sign-in, sign-up, workspace, member app, text files, API readiness, Arabic pages) was saved for comparison.
 - **Live check script,** HTTP only with no browser on the live site: 44 checks of the home page's markup, head, JSON-LD, every referenced file and font, GSAP and Arabic. All 44 passed against the local build of `af457bd`.
 
-Remaining:
-- the PR with the WHOOP timezone fix and these records;
-- a fresh `main` run, then the deploy and the "Verify serving release" run;
-- the live check and crawl compared with the snapshot.
+**Deployed:**
+- PR #97 (the WHOOP fix and records) passed all 8 jobs on `15afe0d` inside the failing window. It was squash-merged as `3142b59` at about 21:56 UTC.
+- `main` run 40237821779 passed every job.
+- "Verify serving release" run 40241155496 succeeded at 22:47:53 UTC, and `watch-release.sh` reported LIVE `3142b59` at 22:48:29 UTC.
+
+**Live check after the deploy** (22:49 UTC, HTTP only):
+- **Home:** 44 of 44 checks passed. They cover the markup, head, JSON-LD (including FAQ equal to the page and a 3-step HowTo), all 30 referenced files and 5 fonts, GSAP, the Arabic RTL page and the lockup.
+- **Crawl:** the same 39 pages and 41 links, all 200, with no issues. The only differences from before are the home page's title, description and links, and the new robots directives on the 38 indexable pages.
+- **Routes:** 26 of 28 are unchanged, covering sign-in, sign-up, workspace, member app, API readiness, text files and the Arabic pages. The two intended changes are the Arabic home title and the lockup image.
+- **Text files:** `llms-full.txt` and the sitemap's home entry carry the new text and date. `llms.txt` and `robots.txt` are unchanged.
+- **JS per page:** 852 KB gzip before and 894 KB after. The extra is GSAP in the shared bundle, and it runs only on `/`.
+
+Remaining: none required. Optional, for the owner:
+- load GSAP only on `/` with a dynamic import;
+- clean up the dormant previous-home code;
+- the declined conversion items.
 
 ## Stage 2026-10-23 — hero "trains" sweep shipped (owner: "Hero trains highlight had to be there"; PR #94, live `df12b53`)
 

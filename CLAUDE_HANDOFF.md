@@ -2,27 +2,39 @@
 
 ## Work in progress
 
-### Home page as the owner's HTML design: merged, fix merged, deploy in progress, 25 October 2026 (Claude, 21:57 UTC)
+None. The home design below is live and checked. The only open item is optional and the owner's call: see "Waiting on the owner" in the entry below.
+
+### Home page as the owner's HTML design — live, 25 October 2026 at 22:48 UTC as `3142b59` (Claude)
 
 PR: [chordsnstrings/trainer_what#96](https://github.com/chordsnstrings/trainer_what/pull/96). The owner approved it on 25 October: "Approved but Make sure that nothing form the implementation stop working". Squash-merged as `af457bd` at about 21:00 UTC. Its tree is identical to the checked PR head `d852870`.
 
-**Not live yet.** At 21:39 UTC the live release was still `e4e2f8c`.
+**Live since 22:48:29 UTC on 25 Oct** as `3142b594da68c3a01a6cbc8fdb5846ceeb5c1ca2` (#96 plus [#97](https://github.com/chordsnstrings/trainer_what/pull/97)).
+- `main` run [40237821779](https://github.com/chordsnstrings/trainer_what/actions/runs/40237821779) passed every job.
+- [Verify serving release](https://github.com/chordsnstrings/trainer_what/actions/runs/40241155496) succeeded at 22:47:53 UTC.
+- `scripts/watch-release.sh` reported LIVE.
 
-**What happened:**
-- `main` run [40233449380](https://github.com/chordsnstrings/trainer_what/actions/runs/40233449380) for `af457bd` failed in `subscriber-ui` at the WHOOP journey (`whoop-training-check.mjs:278`). Every other job passed, including `application` with all its website, sign-up and workspace journeys.
-- **Cause, pre-existing and time-dependent:** the demo seed schedules from Dubai's date while the check's browser used UTC. Between 20:00 and 24:00 UTC, Today shows a rest day and no start button.
+**Why it took two merges:** `main` run [40233449380](https://github.com/chordsnstrings/trainer_what/actions/runs/40233449380) for `af457bd` failed in `subscriber-ui`, at the WHOOP journey (`whoop-training-check.mjs:278`). Every other job passed, including `application`.
+- **Cause, pre-existing and time-dependent:** `seed-demo.ts` schedules from Dubai's date, but the check's browser used UTC. Between 20:00 and 24:00 UTC, Today shows a rest day and no start button.
   - Reproduced 3 of 3 times locally, and on the baseline `e4e2f8c`.
-- **Fix:** [PR #97](https://github.com/chordsnstrings/trainer_what/pull/97) sets `timezoneId: "Asia/Dubai"` on the check's browser contexts (as `capture-app-views.mjs` does) and adds the release records and the GSAP download correction.
-  - All 8 PR jobs passed on `15afe0d` inside the failing window. `subscriber-ui` finished at 21:22 UTC.
-  - Squash-merged as `3142b594da68c3a01a6cbc8fdb5846ceeb5c1ca2` at about 21:57 UTC.
+- **Fix:** #97 sets `timezoneId: "Asia/Dubai"` on the check's browser contexts, as `capture-app-views.mjs` does.
+  - It passed 2 of 2 times locally, and in all 8 PR jobs inside that window.
+  - Squash-merged as `3142b59`.
+- **Rule for later:** browser checks against seeded data should use the Dubai clock. This is in `docs/PROJECT_MEMORY.md`.
 
-**Running now:**
-- the `main` `check.yml` push run for `3142b59`. The host deploys after it passes, then "Verify serving release" runs;
-- `scripts/watch-release.sh 3142b59… 90` in the session.
-
-**Done for the live check:** the pre-deploy snapshot (crawl of 39 pages and 41 links, clean; 28 other routes) and a 44-check HTTP-only home check that passed against the local build.
-
-**Next action:** when `3142b59` is live, run the home check, the crawl and the route snapshot, compare them with the pre-deploy snapshot, and record the result here and in `docs/COMPLETION_STAGES.md`.
+**Live check after the deploy** (22:49 UTC, HTTP only, no browser on the live site; scripts in the session scratchpad):
+- **Home, 44 of 44 checks passed:**
+  - the design markup: root, menu, sticky bar, calculator, feed, 8 FAQs, the analytics preferences control, and sign-up links to `/signup`;
+  - the title, a 155-character description, the canonical URL and the robots directives;
+  - one H1, and one JSON-LD block (Organization, WebSite, WebPage with speakable, SoftwareApplication, HowTo with 3 steps, an FAQPage matching the 8 questions shown, BreadcrumbList);
+  - all 30 scripts, styles and images it references, and all 5 fonts in its CSS, return 200 with the right type;
+  - the GSAP chunk, `/?lang=ar` in RTL, and the Pace lockup as WebP.
+- **Sitemap crawl:** the same 39 pages and 41 internal links, all 200, with no metadata or JSON-LD issues.
+  - Against the pre-deploy crawl, the only changes are the home page's new title, description and links, and `max-image-preview:large, max-snippet:-1` on all 38 indexable pages, as intended.
+- **The 28-route snapshot is unchanged** apart from two intended changes: the Arabic home page's new title, and the lockup now served as `image/webp`. The unchanged routes cover sign-in, sign-up, password and magic-link pages, `/trainer`, `/admin`, `/app`, the offline page, `robots.txt`, the manifest, the service worker, the OG image, `/api/v1/ready`, and the Arabic pricing and how-it-works pages.
+- **Text files:**
+  - `llms-full.txt` carries the design's home text, and the sitemap's home `lastmod` is 2026-10-25;
+  - `llms.txt` and `robots.txt` are unchanged, since neither lists the home page's text.
+- **JS on every page:** 894 KB gzip, against 852 KB before. The extra 42 KB is GSAP in the shared bundle. It runs only on `/`, because only `/` renders `HomeDesignRuntime`.
 
 **PR CI:** all 8 jobs green on `ddd3127` ([run 40197740852](https://github.com/chordsnstrings/trainer_what/actions/runs/40197740852), 14:05 UTC) and again on the final head `d852870` ([run 40200671984](https://github.com/chordsnstrings/trainer_what/actions/runs/40200671984), 14:39 UTC, docs only):
 - application;
@@ -83,6 +95,7 @@ Branch `claude/confident-wozniak-n32to1`. The record is `docs/HOME_DESIGN_2026-1
 - the dark check fails only on member-app screens.
 
 **Waiting on the owner:** nothing required.
+- Optional: whether GSAP should load only on `/` (a dynamic import inside the runtime's effect) to save every other page about 42 KB gzip.
 - Optional: the conversion items they declined for now (social proof, a card-fee line, the claim-your-address field).
 - Optional: a later cleanup of the dormant previous-home code.
 
