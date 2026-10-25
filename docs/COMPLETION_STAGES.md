@@ -30,14 +30,16 @@ They chose a full check, an exact copy including GSAP 3D scroll motion, no addit
 **Fidelity against the owner's file** (local copy, 4 widths, with and without motion):
 - all 745 elements match in tag, class, text, links and attributes;
 - computed styles match apart from 33 `start`/`end` equivalents;
-- full-page reduced-motion screenshots differ only on the copyright line's new preferences button, about 726 pixels.
+- full-page reduced-motion screenshots differ only on the copyright line's new preferences button, about 726 pixels;
+- with motion, the remaining differences are raster noise: the file against itself and the build against itself show the same.
 
 **Checks run on this head:**
 - typecheck and `npm run build` passed;
-- the marketing unit subset passed: 54 of 54 after the last changes; 83 of 83 earlier with the journey and motion files;
+- `npm test`: 1,965 tests, 1,964 passed, 0 failed, 1 skipped, 24m35s;
 - homepage call check (voice noise and call journey at 390 and 1280) passed;
 - marketing motion: journey player 209 of 209 and the site-wide check passed;
-- the behaviour check passed;
+- CI's browser check (`run-browser-check.mjs` after `seed:demo`) passed: the commerce journey in English and Arabic on phone and desktop, and the browser smoke test including the consent lifecycle. Its first run caught the missing footer preferences control;
+- the behaviour check passed on the final build, including the assistant button rising above the sticky bar;
 - the brand check passes on every public page including `/` and `/?lang=ar`, and all eight home checks pass.
 
 **Pre-existing local-check failures**, identical on the baseline `e4e2f8c` and not caused by this change; the homepage call and marketing-motion checks above had none:
@@ -47,7 +49,7 @@ They chose a full check, an exact copy including GSAP 3D scroll motion, no addit
 - the dark check fails only on member-app screens.
 - The baseline also fails the old home's 400-word limit at 447 words, which this change removes.
 
-Remaining: the full unit suite on the final head, the PR's CI, and the owner's approval.
+Remaining: the PR's CI (the full matrix, including PostgreSQL, the container and the workspace, member and site-builder journeys, none of which were rerun locally) and the owner's approval. Nothing is merged or deployed.
 
 ## Stage 2026-10-23 — hero "trains" sweep shipped (owner: "Hero trains highlight had to be there"; PR #94, live `df12b53`)
 

@@ -91,12 +91,14 @@ Only item 1 adds anything a visitor sees; the HowTo and the description are read
 
 - **Structure:** all 745 elements match in tag, class (prefix aside), text, link, target and attributes, at every width.
 - **Computed styles** (about 60 properties per element) match, apart from 33 `text-align` values written as `start`/`end` instead of `left`/`right`, which is the same in English.
-- **Full-page screenshots under reduced motion:** 0 different pixels at 1366, 1080, 720 and 390.
+- **Full-page screenshots under reduced motion:** 0 different pixels at 1366, 1080, 720 and 390 before the footer's preferences button was added. After it, about 726 pixels differ, all on the copyright line. Page heights are unchanged.
 - **With motion:**
   - the hero after the entrances, and scrolled states at 900 / 1800 / 2700 / 3600 / 4500 px, match. The 1366 hero differs by 889 to 964 pixels on the primary button's edges;
   - the same file compared with itself differs by 720 to 1,369 pixels on the same rows, from raster noise on its `will-change` button;
-  - a scrolled state caught mid-scrub differs by a few thousand pixels in some runs and 0 in others.
-- **Behaviour check (`behaviour.mjs`, local production build), all passed:**
+  - one scrolled state per run differs by a few thousand to about 19,000 pixels (1,800 px in one run, 3,600 px in another), with 0 at the others;
+  - the built page compared with itself shows the same: 7,000 to 30,000 pixels at the scrolled states, including the 3,600 px earnings cards. These differences are raster noise from GPU-composited scenes, not a design difference.
+- **Behaviour check (`behaviour.mjs`, local production build), all passed on the final build:**
+  - the assistant's round button rises above the sticky bar, checked with a stand-in button because the fixture has the assistant off;
   - the menu opens and closes, including with Escape and on a link;
   - the sticky bar shows only between the hero and the end box;
   - the calculator: 150 at AED 199 → 29,850 / 6,965 / 22,885, 23.3%, and the sign-up link gets `price_aed=199` and the campaign parameters;

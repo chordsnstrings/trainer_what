@@ -2,78 +2,62 @@
 
 ## Work in progress
 
-### Home page as the owner's HTML design: in progress, 25 October 2026 (Claude)
+### Home page as the owner's HTML design: PR open, waiting on the owner's approval, 25 October 2026 (Claude)
 
-The owner answered the four questions:
+The owner asked for three things:
+- check the current implementation;
+- build the home page from their uploaded HTML;
+- review it for SEO, LLM SEO and conversion.
+
+Their answers:
 - **Checks:** a full check.
-- **Design:** an exact copy of the HTML, including its GSAP 3D scroll motion.
-- **Additions:** none ("as it is now").
-- **Release:** a PR first, and the owner approves before anything merges or deploys.
+- **Design:** "Exact copy of the HTML", with its GSAP 3D scroll motion.
+- **Additions:** none.
+- **Release:** a PR first, and the owner approves before any merge or deploy.
 
-Branch: `claude/confident-wozniak-n32to1`. Nothing is merged or deployed.
+Branch `claude/confident-wozniak-n32to1`. The record is `docs/HOME_DESIGN_2026-10-25.md`, the stage entry is in `docs/COMPLETION_STAGES.md` (2026-10-25), and the standing rule is in `docs/PROJECT_MEMORY.md`.
 
-**Baseline (before any change), all passed:**
-- typecheck;
-- `npm test`: 1,965 tests, 1,964 passed, 0 failed, 1 skipped, 24m43s;
-- `npm run build`;
-- live crawl of trainsyou.com: 39 sitemap pages and 41 internal links, all 200, each with one H1, a description, a self-canonical and valid JSON-LD;
-- the `main` CI run for this exact commit `e4e2f8c` ([39913170469](https://github.com/chordsnstrings/trainer_what/actions/runs/39913170469)): every job green, browser and PostgreSQL jobs included.
+**Checks of the current implementation, before any change (`e4e2f8c`):**
+- typecheck passed;
+- `npm test`: 1,964 passed, 0 failed, 1 skipped;
+- build passed;
+- live crawl of 39 pages and 41 links: clean;
+- `main` CI for that commit: green.
 
-**What has been built (checkpoint, not yet complete):**
-- `components/marketing/home-design.tsx` (markup), `home-design-runtime.tsx` (the design's script, with clean-up for navigation in place) and `app/home-design.css`.
-  - The CSS is generated from the design: `tyh-` class prefix, rules scoped to `.tyh`, logical properties.
-- GSAP `3.15.0` is bundled. The design's Google Inter (with the optical-size axis) is self-hosted. The design's Pace lockup is `BRAND_ASSETS.lockupPace`.
-- The home registry entry now carries the design's words, for metadata, llms files and JSON-LD:
-  - adds SoftwareApplication, a 4-step HowTo and speakable selectors;
-  - the meta description is shortened from 184 to 155 characters;
-  - the old home renderer has been removed from `site.tsx`.
+**What was built:**
+- `components/marketing/home-design.tsx`, `home-design-runtime.tsx` and `app/home-design.css`:
+  - generated from the file, with the `tyh-` prefix and every rule scoped under `.tyh`;
+  - GSAP 3.15.0, used on `/` only;
+  - the design's Inter self-hosted, and its Pace lockup.
+- The registry home entry carries the design's words. The JSON-LD adds SoftwareApplication, a HowTo from the 3 visible steps, and speakable selectors.
+- Robots on indexable pages gets `max-image-preview:large` and `max-snippet:-1`.
+- Two visible additions: an "Analytics preferences" footer control (consent withdrawal) and `overflow-x: clip`.
+- The meta description is trimmed to 155 characters.
 
-**Fidelity check against the owner's file:**
-- At 1366, 1080, 720 and 390 px, all 745 elements match in tag, class, text, links and attributes.
-- Computed styles match, apart from 33 `left`/`right` values written as `start`/`end`.
-- Full-page reduced-motion screenshots: 0 different pixels at all four widths.
-- With motion, any remaining differences are anti-aliasing on the hero button, about the same as the design file against itself (720 to 1,369 pixels).
+**Verification on this head:**
+- Fidelity against the owner's file, at 4 widths with and without motion:
+  - all 745 elements match in tag, class, text, links and attributes;
+  - computed styles match apart from 33 `start`/`end` equivalents;
+  - reduced-motion screenshots differed by 0 pixels before the footer control and now differ only on the copyright line;
+  - the motion differences equal the file's and the build's own raster noise.
+- The behaviour check passed.
+- typecheck, build, and `npm test` (1,964 passed, 0 failed, 1 skipped) all passed.
+- These local checks passed: CI's `run-browser-check`, the homepage call check, marketing motion (journey 209/209 and site-wide), and the brand check for all public pages and the 8 home checks.
 
-**Fixes found by that comparison:**
-- the root font size: the app's 14px against the design's 16px rem;
-- global element-rule leaks;
-- split text nodes;
-- `backdrop-filter` dropped by the CSS compiler when it came before its `-webkit-` form.
+**Pre-existing local-check failures, identical on the baseline and not this change's:**
+- brand and RTL sign-in waits for `/trainer` while the seeded coach lands on `/admin/settings`;
+- dark workspace logo, member-app and coach-site dark-mode expectations;
+- `onboarding-presence` contrast of 4.30:1;
+- the dark check fails only on member-app screens.
 
-**Behaviour check passed:** menu, sticky bar, calculator maths and its sign-up link price, campaign parameters on sign-up links, feed replay, FAQ, JSON-LD equal to the page, navigating away and back, no console errors.
+**Waiting on the owner:**
+- approve the PR, or ask for changes, after viewing the page. Nothing is merged or deployed.
+- Optional: the conversion items they declined for now (social proof, a card-fee line, the claim-your-address field).
+- Optional: a later cleanup of the dormant previous-home code.
 
-**Since then (checkpoint `e4bad6b`, pushed):**
-- Tests and browser checks now cover the new page:
-  - the home test checks the registry against the page;
-  - a CSS guard keeps `home-design.css` under `.tyh`;
-  - GSAP is reviewed and allowed only in `home-design-runtime.tsx`.
-- The HowTo uses the 3 visible steps.
-- Closed registration and renamed platforms keep their wording.
-- Brand, RTL, motion and homepage-call scripts now point at the new page.
-- The record is `docs/HOME_DESIGN_2026-10-25.md`.
+**Left by the session (owner may delete):** two empty files, `/rtl.log` and `/dark.log`, at the container root. A misgrouped shell command created them, and the safety check blocked removing files at `/`.
 
-**Local brand check (current head):**
-- Every public page, including `/` and `/?lang=ar`, passes.
-- All 8 home checks pass in light and dark: first screen, notice, motion, reduced motion, RTL.
-- It found 6px of sideways overflow in Arabic at 390 px, now fixed with `overflow-x: clip` on the home root.
-- Its remaining failures are outside the home page:
-  - coach sign-in waits for `/trainer` but the seeded coach lands on `/admin/settings`;
-  - the dark workspace logo;
-  - the member app's and coach site's branding;
-  - one `onboarding-presence` contrast value of 4.30:1.
-- The same sign-in timeout stops the RTL check.
-- The dark check fails only on member-app screens; `/`, `/login` and `/coaches` pass.
-
-**Running now:**
-- the same brand and RTL checks on the baseline `e4e2f8c` (worktree `/home/user/tw-baseline`), to confirm those failures are pre-existing.
-
-**Still to run:**
-- CI's `run-browser-check`, the homepage call check and the marketing-motion checks on the current head;
-- the full unit suite;
-- the fidelity re-check;
-- then the records and the PR for the owner's approval.
-
-**Next action:** read the baseline results.
+**Next action:** drive the PR's CI to green, then wait for the owner's approval.
 
 ### Hero "trains" sweep — live, 23 October 2026 (Claude, 06:45 UTC)
 
