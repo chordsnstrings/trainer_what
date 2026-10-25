@@ -300,6 +300,10 @@ test("metadata: unique branded titles, canonical and Open Graph addresses per pa
     assert.equal(m.openGraph.locale, "en_AE");
     assert.equal(m.twitter.title, m.title);
     assert.equal(m.robots.index, page.indexable);
+    if (page.indexable) {
+      assert.equal(m.robots["max-image-preview"], "large");
+      assert.equal(m.robots["max-snippet"], -1);
+    }
     for (const text of [m.title, m.description])
       assert.doesNotMatch(text, /\{APP_NAME\}/);
   }
@@ -543,6 +547,9 @@ test("home: the owner's design (25 October 2026), its words from the registry", 
   for (const href of links.filter((h) => h.startsWith("/")))
     assert.ok(marketingPage(href) || ["/signup", "/login", "/coaches"].includes(href), href);
   assert.match(decode(html.match(/<main[\s\S]*?<\/main>/)![0]), /\bUAE\b/);
+  // The analytics consent's preferences open from the footer, as on every
+  // other public page (components/acquisition.tsx).
+  assert.match(html, /<footer>[\s\S]*<button type="button" class="tyh-prefs" data-analytics-preferences="">Analytics preferences<\/button>[\s\S]*<\/footer>/);
 });
 
 // All app stylesheets load on every page (app/layout.tsx), so the home

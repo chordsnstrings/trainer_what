@@ -32,7 +32,8 @@
 // - the concept pass (22 October 2026), untimed, on the build under test at
 //   both widths, without reduced motion and (with "always") under each
 //   source (the device setting and the member's cookie), and in Arabic at
-//   390: on /pricing the FAQ rows cascade 40ms apart (at most 240ms) and the
+//   390: on /pricing the FAQ rows cascade 40ms apart (at most 240ms) with
+//   their section's reveal and the
 //   closing button's arrow nudges once, toward the reading direction, 280ms
 //   after the button itself comes into view; the /features set ticks wait
 //   for the set table's own trigger at every width and pop 80ms apart from
@@ -614,7 +615,12 @@ async function conceptMotion(browser, device, base, reducedMotion, query = "") {
     await page.waitForTimeout(200);
     out.overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     await page.evaluate(() => document.querySelector(".mk-faqs").scrollIntoView({ block: "start", behavior: "instant" }));
-    out.faqIn = await until(page, () => document.querySelector(".mk-faqs").dataset.mkCue === "in");
+    // An inner page's FAQ rows cascade with their section's reveal; the
+    // home page's had a trigger of their own (data-mk-cue).
+    out.faqIn = await until(page, () => {
+      const faqs = document.querySelector(".mk-faqs");
+      return faqs.dataset.mkCue === "in" || faqs.closest("[data-mk-reveal]")?.dataset.mkReveal === "in";
+    });
     out.faq = (await timings(page, ".mk-faqs > *", "translate")).map((t) => t?.delay ?? null);
     await page.evaluate(() => document.querySelector(".mk-closing-cta").scrollIntoView({ block: "center", behavior: "instant" }));
     out.closingIn = await until(page, () => document.querySelector(".mk-closing-cta").dataset.mkCue === "in");

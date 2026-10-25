@@ -50,36 +50,40 @@ The home page (`/`) renders the design in place of the previous home. Every othe
 
 ## Where the build differs from the file, and why
 
-None of these changes what a visitor sees in the production configuration, except the HowTo and the description, which only search engines read.
+Only item 1 adds anything a visitor sees; the HowTo and the description are read only by search engines; the rest change nothing on screen in the production configuration.
 
-1. **Font and GSAP are served from this site, not Google Fonts and cdnjs.** The files and API are the same. This removes two third-party origins: speed, privacy, and no failure when a CDN is down.
-2. **The two time-based GSAP entrances are CSS:** the hero copy rising (y 24, 700 ms, power3.out, 80 ms stagger) and the feed turning in on desktop (1 s, 150 ms delay).
+1. **"Analytics preferences" in the footer's copyright line** (an underlined text button, like every other public footer). The analytics consent (`components/acquisition.tsx`) opens its preferences only from a footer control marked `data-analytics-preferences`. Without it, a visitor on the home page could not change or withdraw their answer. CI's browser check caught this.
+
+2. **Font and GSAP are served from this site, not Google Fonts and cdnjs.** The files and API are the same. This removes two third-party origins: speed, privacy, and no failure when a CDN is down.
+3. **The two time-based GSAP entrances are CSS:** the hero copy rising (y 24, 700 ms, power3.out, 80 ms stagger) and the feed turning in on desktop (1 s, 150 ms delay).
    - They use the same values, so they start with the first paint instead of after the script loads. With the script loading after hydration, the hero would otherwise flash visible, hide, then animate.
    - The scroll-scrubbed scenes and the magnetic buttons stay on GSAP, as written.
-3. **Links are relative paths** (`/signup`, `/pricing`, …), the same addresses on trainsyou.com. They are `next/link` where the design opens in the same tab.
-4. **Computed figures equal the file's figures today.** Text comes from the configured platform name, so a renamed platform never shows "trainsyou". The figures come from the code, so they cannot drift:
+4. **Links are relative paths** (`/signup`, `/pricing`, …), the same addresses on trainsyou.com. They are `next/link` where the design opens in the same tab.
+5. **Computed figures equal the file's figures today.** Text comes from the configured platform name, so a renamed platform never shows "trainsyou". The figures come from the code, so they cannot drift:
    - 91 capabilities;
    - 7 tools;
    - 25→10 % and the 25/20/15/10 bars;
    - the follower table: 7,000 followers at AED 199 gives 398 / 2,985 / 23,084 AED;
    - "30% yearly cancellations".
-5. **While registration is closed**, the sign-up buttons read "Join early access" and go to `/get-started#early-access`, as before. Live registration is open, so the design's wording shows.
-6. **For a renamed platform**, the end box asks "Ready to teach your AI?" instead of the trainsyou brand line, as every other page does.
-7. **Meta description:** shortened from 184 to 155 characters, the length search results show. The wording is the file's, minus "nothing to pay upfront" and one "your".
-8. **HowTo structured data:**
+6. **While registration is closed**, the sign-up buttons read "Join early access" and go to `/get-started#early-access`, as before. Live registration is open, so the design's wording shows.
+7. **For a renamed platform**, the end box asks "Ready to teach your AI?" instead of the trainsyou brand line, as every other page does.
+8. **Robots meta** `max-image-preview:large, max-snippet:-1`, as in the file, now on every indexable marketing page.
+9. **Meta description:** shortened from 184 to 155 characters, the length search results show. The wording is the file's, minus "nothing to pay upfront" and one "your".
+10. **HowTo structured data:**
    - The file listed four setup steps ("Add a method", "Test a response", "Set your price", "Review and publish") that the page does not show.
    - Google's structured-data guidelines ask for marked-up content to be visible, and the repo's JSON-LD test enforces it.
    - So the HowTo uses the three visible "How it works" steps.
-9. **The app's own CSS was neutralised under `.tyh`:**
+11. **The app's own CSS was neutralised under `.tyh`:**
    - its 14 px root (the design's rem are 16 px);
    - its heading font, letter-spacing and line-heights;
    - paragraph line-height, `small`, table header case and colour, the last table row's border;
    - input padding, and `font: inherit` on range inputs;
    - the paper canvas behind the page.
    - The assistant panel and consent bar keep the app's 14 px.
-10. **`backdrop-filter` is written after its `-webkit-` form.** The CSS compiler drops the standard one when it comes first, which left the header unblurred.
-11. **Text written as one string where the file has one text node.** React's server-render markers between split text nodes changed kerning on a few glyphs.
-12. **The assistant's round button** (bottom right, 52 px) rises 72 px while the sticky phone bar shows, so it never sits on the bar's button.
+12. **`backdrop-filter` is written after its `-webkit-` form.** The CSS compiler drops the standard one when it comes first, which left the header unblurred.
+13. **Text written as one string where the file has one text node.** React's server-render markers between split text nodes changed kerning on a few glyphs.
+14. **`overflow-x: clip` on the root.** The scroll scenes start blocks up to 40 px to the side. The design hides that with `body { overflow-x: hidden }`, which iOS does not always honour, and in Arabic the offset showed as 6 px of sideways scroll (brand check). The clip keeps the sticky header working.
+15. **The assistant's round button** (bottom right, 52 px) rises 72 px while the sticky phone bar shows, so it never sits on the bar's button.
 
 ## Fidelity check (the file against the built page)
 

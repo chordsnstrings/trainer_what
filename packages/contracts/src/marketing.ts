@@ -539,8 +539,10 @@ export function marketingMetadata(page: MarketingPage, ctx: MarketingContext) {
     title,
     description,
     canonical: url,
+    // Indexable pages allow large image previews and full snippets (the
+    // owner's home design, 25 October 2026, carries the same directives).
     robots: page.indexable
-      ? { index: true, follow: true }
+      ? { index: true, follow: true, "max-image-preview": "large" as const, "max-snippet": -1 }
       : { index: false, follow: true },
     openGraph: {
       type: page.kind === "guide" ? ("article" as const) : ("website" as const),

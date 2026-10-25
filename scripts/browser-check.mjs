@@ -70,13 +70,17 @@ async function checkMarketingSite({ page, base }) {
     const response = await page.goto(base + route);
     if (!response?.ok())
       throw new Error(`${route} answered ${response?.status()}`);
-    const main = page.locator("main#main.mk-main");
+    // The home page is the owner's own design (components/marketing/
+    // home-design.tsx, 25 October 2026): its own frame, whose footer columns
+    // are not a site-map landmark.
+    const home = route === "/";
+    const main = page.locator(home ? "main#main" : "main#main.mk-main");
     const h1 = main.getByRole("heading", { level: 1 });
     await h1.waitFor();
     if ((await h1.count()) !== 1 || !(await h1.innerText()).trim())
       throw new Error(`${route} must show exactly one non-empty H1`);
     await page.getByRole("navigation", { name: "Main" }).waitFor();
-    await page.getByRole("navigation", { name: "Site map" }).waitFor();
+    if (!home) await page.getByRole("navigation", { name: "Site map" }).waitFor();
     if (route === "/demo") {
       const panel = main.getByRole("tabpanel");
       await main.getByRole("tab", { name: "New pain", exact: true }).click();

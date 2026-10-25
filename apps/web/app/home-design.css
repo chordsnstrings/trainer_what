@@ -417,6 +417,10 @@ body:has(.tyh) { background:#FFFFFF;overflow-x:hidden }
 @media (min-width:1081px) and (prefers-reduced-motion:no-preference) {
   .tyh.tyh-js .tyh-feed { transform:translate3d(0px, 0px, -40px) rotateY(-14deg) rotateX(10deg);animation:tyh-feed-in 1s cubic-bezier(.215,.61,.355,1) 150ms backwards }
 }
+/* Not in the design: the footer's analytics preferences (home-design.tsx),
+   a text button in the copyright line like the other footers' one. */
+.tyh .tyh-prefs { text-decoration:underline;text-underline-offset:2px }
+.tyh .tyh-prefs:hover { color:var(--ink) }
 /* Not in the design: the assistant's round button (marketing.css) sits
    where the sticky phone bar's button is, so it rises above the bar while
    the bar shows. */

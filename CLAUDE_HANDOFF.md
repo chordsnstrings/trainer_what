@@ -42,13 +42,38 @@ Branch: `claude/confident-wozniak-n32to1`. Nothing is merged or deployed.
 
 **Behaviour check passed:** menu, sticky bar, calculator maths and its sign-up link price, campaign parameters on sign-up links, feed replay, FAQ, JSON-LD equal to the page, navigating away and back, no console errors.
 
-**Remaining:**
-- update the unit and browser tests that assert the old home;
-- re-run typecheck, the unit tests, the build, the browser suites and the PostgreSQL suite;
-- update the records;
-- open the PR for the owner's approval.
+**Since then (checkpoint `e4bad6b`, pushed):**
+- Tests and browser checks now cover the new page:
+  - the home test checks the registry against the page;
+  - a CSS guard keeps `home-design.css` under `.tyh`;
+  - GSAP is reviewed and allowed only in `home-design-runtime.tsx`.
+- The HowTo uses the 3 visible steps.
+- Closed registration and renamed platforms keep their wording.
+- Brand, RTL, motion and homepage-call scripts now point at the new page.
+- The record is `docs/HOME_DESIGN_2026-10-25.md`.
 
-**Next action:** update the tests.
+**Local brand check (current head):**
+- Every public page, including `/` and `/?lang=ar`, passes.
+- All 8 home checks pass in light and dark: first screen, notice, motion, reduced motion, RTL.
+- It found 6px of sideways overflow in Arabic at 390 px, now fixed with `overflow-x: clip` on the home root.
+- Its remaining failures are outside the home page:
+  - coach sign-in waits for `/trainer` but the seeded coach lands on `/admin/settings`;
+  - the dark workspace logo;
+  - the member app's and coach site's branding;
+  - one `onboarding-presence` contrast value of 4.30:1.
+- The same sign-in timeout stops the RTL check.
+- The dark check fails only on member-app screens; `/`, `/login` and `/coaches` pass.
+
+**Running now:**
+- the same brand and RTL checks on the baseline `e4e2f8c` (worktree `/home/user/tw-baseline`), to confirm those failures are pre-existing.
+
+**Still to run:**
+- CI's `run-browser-check`, the homepage call check and the marketing-motion checks on the current head;
+- the full unit suite;
+- the fidelity re-check;
+- then the records and the PR for the owner's approval.
+
+**Next action:** read the baseline results.
 
 ### Hero "trains" sweep — live, 23 October 2026 (Claude, 06:45 UTC)
 

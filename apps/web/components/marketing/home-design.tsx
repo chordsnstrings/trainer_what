@@ -1085,7 +1085,13 @@ export function HomeDesign({
             <span id="yr" className="tyh-num">
               {new Date().getFullYear()}
             </span>
-            {` ${name}. Earnings and follower figures are estimates, not promises. Coaching is not medical advice.`}
+            {` ${name}. Earnings and follower figures are estimates, not promises. Coaching is not medical advice. `}
+            {/* Not in the design: the analytics consent's preferences open
+                only from a footer control (components/acquisition.tsx), so a
+                visitor can change or withdraw their answer here too. */}
+            <button type="button" className="tyh-prefs" data-analytics-preferences="">
+              Analytics preferences
+            </button>
           </p>
         </div>
       </footer>
