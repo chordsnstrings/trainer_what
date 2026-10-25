@@ -6,6 +6,18 @@
 
 PR: [chordsnstrings/trainer_what#96](https://github.com/chordsnstrings/trainer_what/pull/96). Do not merge or deploy without the owner's approval.
 
+**PR CI, 25 October 14:05 UTC:** all 8 jobs green on head `ddd3127` ([run 40197740852](https://github.com/chordsnstrings/trainer_what/actions/runs/40197740852)):
+- application;
+- postgres-and-container;
+- homepage-call;
+- subscriber-ui;
+- ux-spacing;
+- daily-workflows;
+- compose-topology;
+- wildcard-edge.
+
+The PR merges cleanly and has no review threads. It is waiting only on the owner's approval.
+
 The owner asked for three things:
 - check the current implementation;
 - build the home page from their uploaded HTML;
@@ -59,7 +71,7 @@ Branch `claude/confident-wozniak-n32to1`. The record is `docs/HOME_DESIGN_2026-1
 
 **Left by the session (owner may delete):** two empty files, `/rtl.log` and `/dark.log`, at the container root. A misgrouped shell command created them, and the safety check blocked removing files at `/`.
 
-**Next action:** drive the PR's CI to green, then wait for the owner's approval.
+**Next action:** wait for the owner's approval. Then merge, deploy and verify the serving release, per the standing release instruction.
 
 ### Hero "trains" sweep — live, 23 October 2026 (Claude, 06:45 UTC)
 
