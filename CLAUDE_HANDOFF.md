@@ -2,11 +2,24 @@
 
 ## Work in progress
 
-### Home page as the owner's HTML design: PR open, waiting on the owner's approval, 25 October 2026 (Claude)
+### Home page as the owner's HTML design: approved and merged, deploy in progress, 25 October 2026 (Claude, 21:01 UTC)
 
-PR: [chordsnstrings/trainer_what#96](https://github.com/chordsnstrings/trainer_what/pull/96). Do not merge or deploy without the owner's approval.
+PR: [chordsnstrings/trainer_what#96](https://github.com/chordsnstrings/trainer_what/pull/96). The owner approved it on 25 October: "Approved but Make sure that nothing form the implementation stop working". Squash-merged as `af457bde92cdab27cee3598c16d408cbb7b6e014` on `main` at about 21:00 UTC.
 
-**PR CI, 25 October 14:05 UTC:** all 8 jobs green on head `ddd3127` ([run 40197740852](https://github.com/chordsnstrings/trainer_what/actions/runs/40197740852)):
+**Running now:**
+- `main`'s `check.yml` push run for `af457bd`. The host deploys `main` only after that run succeeds.
+- `scripts/watch-release.sh af457bd… 100` in the session, polling `https://trainsyou.com/api/v1/ready`. At 21:01 UTC the live release was still `e4e2f8c` (the previous release).
+
+**Not done yet:** the deploy, the "Verify serving release" run, and the live check.
+
+**Next action:** when `af457bd` is live, check that nothing stopped working, using HTTP fetches only (no browser on the live site):
+- crawl every sitemap page and internal link against the baseline (39 pages, 41 links, clean before the change);
+- the live home: the design markup, every script, style, font and image it references, JSON-LD, robots, and the registry text;
+- `llms.txt`, `llms-full.txt`, `sitemap.xml`, `robots.txt`, API readiness and the sign-in and sign-up routes.
+
+Then record the result here and in `docs/COMPLETION_STAGES.md`.
+
+**PR CI:** all 8 jobs green on `ddd3127` ([run 40197740852](https://github.com/chordsnstrings/trainer_what/actions/runs/40197740852), 14:05 UTC) and again on the final head `d852870` ([run 40200671984](https://github.com/chordsnstrings/trainer_what/actions/runs/40200671984), 14:39 UTC, docs only):
 - application;
 - postgres-and-container;
 - homepage-call;
@@ -16,7 +29,7 @@ PR: [chordsnstrings/trainer_what#96](https://github.com/chordsnstrings/trainer_w
 - compose-topology;
 - wildcard-edge.
 
-The PR merges cleanly and has no review threads. It is waiting only on the owner's approval.
+The PR merged cleanly and had no review threads.
 
 The owner asked for three things:
 - check the current implementation;
@@ -64,14 +77,12 @@ Branch `claude/confident-wozniak-n32to1`. The record is `docs/HOME_DESIGN_2026-1
 - `onboarding-presence` contrast of 4.30:1;
 - the dark check fails only on member-app screens.
 
-**Waiting on the owner:**
-- approve the PR, or ask for changes, after viewing the page. Nothing is merged or deployed.
+**Waiting on the owner:** nothing required.
 - Optional: the conversion items they declined for now (social proof, a card-fee line, the claim-your-address field).
 - Optional: a later cleanup of the dormant previous-home code.
 
 **Left by the session (owner may delete):** two empty files, `/rtl.log` and `/dark.log`, at the container root. A misgrouped shell command created them, and the safety check blocked removing files at `/`.
 
-**Next action:** wait for the owner's approval. Then merge, deploy and verify the serving release, per the standing release instruction.
 
 ### Hero "trains" sweep — live, 23 October 2026 (Claude, 06:45 UTC)
 
