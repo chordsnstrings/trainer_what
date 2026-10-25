@@ -125,19 +125,6 @@ test("the captions are the registry's eight steps, unchanged, in the same list",
     assert.equal(decode(li.match(/<p>([\s\S]*?)<\/p>/)![1]), t(steps[i].body));
   });
   // The player's chapter names are the same titles, in the same order.
-  const compact = render("/");
-  const band = element(
-    compact,
-    /<section class="mk-home-band mk-home-paper mk-walk-band"/,
-  );
-  assert.match(band, /<p class="mk-walk-caption">Claim your address<\/p>/);
-  const labels = [
-    ...band.matchAll(/class="mk-walk-seg"[^>]*aria-label="([^"]+)"/g),
-  ].map((m) => m[1]);
-  assert.deepEqual(
-    labels,
-    steps.map((s) => t(s.title)),
-  );
   const named = [
     ...section.matchAll(/class="mk-walk-seg"[^>]*aria-labelledby="([^"]+)"/g),
   ].map((m) => m[1]);
@@ -197,7 +184,8 @@ test("each subscriber line is registry text, looked up, never copied", () => {
     "If your published teaching covers it, the labelled digital coach replies from your rules.",
     "Today’s session first, then the week ahead.",
     "Your price and terms before paying.",
-    "Followers open your branded page, choose your offer and pay in AED.",
+    // The home FAQ's answer, as the owner's home design words it.
+    "Followers open your branded page, choose an offer and pay in AED.",
     "Today’s session and the days ahead, with dates.",
     "A note when their trainer is reviewing a change.",
     "Subscribers pay you monthly or upfront, by card, in AED.",
@@ -244,48 +232,7 @@ test("the walkthrough shows whatever the platform flags say", () => {
   for (const [label, platform] of states) {
     assert.equal(journeyAvailable(platform), true, label);
     assert.match(render("/how-it-works", platform), /class="mk-walk mk-walk-full"/, label);
-    assert.match(render("/", platform), /class="mk-walk mk-walk-compact"/, label);
   }
-});
-
-test("the home band adds no heading and no new sentence; its stage shows the same sample screens as /how-it-works", () => {
-  const html = render("/");
-  const band = element(
-    html,
-    /<section class="mk-home-band mk-home-paper mk-walk-band"/,
-  );
-  // Directly after the hero, labelled by the existing section heading.
-  const hero = element(html, /<section class="mk-hero"/);
-  assert.equal(html.indexOf(band), html.indexOf(hero) + hero.length);
-  assert.match(band, /aria-labelledby="mk-walk-label"/);
-  assert.match(
-    band,
-    /<p class="small-label mk-walk-label" id="mk-walk-label">From setup to daily coaching<\/p>/,
-  );
-  assert.doesNotMatch(band, /<h[1-6][\s>]/);
-  // Real words in the mock screens (owner, 6 October 2026: placeholder bars
-  // did not explain anything): exactly the full player's sample screens.
-  const stage = element(band, /<div class="mk-walk-stage"/);
-  const fullStage = element(
-    render("/how-it-works"),
-    /<div class="mk-walk-stage"/,
-  );
-  assert.notEqual(decode(stage), "");
-  assert.equal(decode(stage), decode(fullStage));
-  // The label, the active step's title, what it means for the subscriber
-  // (the registry line /how-it-works shows, after the "Who does what"
-  // column header) and the link.
-  assert.equal(
-    decode(band.replace(stage, "")),
-    "From setup to daily coaching Claim your address Your subscriber : " +
-      registryLine(SUBSCRIBER_LINES[0]) +
-      " See how it works",
-  );
-  assert.match(
-    band,
-    /<p class="mk-walk-then"><span class="mk-walk-sub-label">[\s\S]*?Your subscriber<span class="sr-only">:<\/span><\/span> <span>Your brand: name, colours, logo and an installable home-screen icon\.<\/span><\/p>/,
-  );
-  assert.match(band, /href="\/how-it-works#steps"/);
 });
 
 // Words the mocks may use that are not elsewhere on the marketing site.
@@ -298,16 +245,9 @@ test("the mocks: no AI costs, fees, model names or amounts; only the listed new 
   const html = render("/how-it-works", with_({ nutrition: true, voice: true }));
   const stage = decode(element(html, /<div class="mk-walk-stage"/));
   const lines = SUBSCRIBER_LINES.map(registryLine).join(" ");
-  const band = decode(
-    element(
-      render("/"),
-      /<section class="mk-home-band mk-home-paper mk-walk-band"/,
-    ),
-  );
   for (const [where, text] of [
     ["stage", stage],
     ["subscriber lines", lines],
-    ["home band", band],
   ]) {
     assert.doesNotMatch(
       text,
@@ -659,6 +599,7 @@ test("the motion island stays React-only and web dependencies are explicitly rev
     "@ricky0123/vad-web",
     "@sapphi-red/web-noise-suppressor",
     "@trainer/domain",
+    "gsap",
     "lucide-react",
     "next",
     "onnxruntime-web",
@@ -670,6 +611,10 @@ test("the motion island stays React-only and web dependencies are explicitly rev
   assert.equal(web.dependencies["@ricky0123/vad-web"], "0.0.31");
   assert.equal(web.dependencies["@sapphi-red/web-noise-suppressor"], "0.4.1");
   assert.equal(web.dependencies["onnxruntime-web"], "1.30.0");
+  // GSAP runs the owner's home design's scroll scenes (25 October 2026:
+  // "exact copy of the HTML"); only home-design-runtime.tsx imports it
+  // (tests/marketing-motion-sitewide.test.ts).
+  assert.equal(web.dependencies.gsap, "3.15.0");
   // The stylesheet is imported next to the marketing stylesheet.
   const layout = await readFile(
     new URL("../apps/web/app/layout.tsx", import.meta.url),

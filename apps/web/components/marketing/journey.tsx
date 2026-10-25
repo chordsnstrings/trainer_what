@@ -16,10 +16,8 @@
 // player renders only while registration is open and the model, payments
 // and payouts providers are available. Otherwise /how-it-works shows its
 // steps exactly as before and the home page has no journey band.
-import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
 import {
-  ArrowRight,
   BatteryFull,
   Check,
   Laptop,
@@ -940,63 +938,6 @@ export function Journey({
           </div>
         }
       />
-    </section>
-  );
-}
-
-/**
- * The home band: the same stage without words, the active step's title and
- * what it means for the subscriber (the same registry line /how-it-works
- * shows), the controls and the link to the full walkthrough. No heading
- * (the home page keeps its six H2s); the existing section heading is its
- * label.
- */
-export function JourneyBand({
-  platform,
-  t,
-}: {
-  platform: PublicPlatform;
-  t: (s: string) => string;
-}) {
-  const section = marketingPage("/how-it-works")!.sections.find(
-    (s) => s.id === "steps",
-  )!;
-  return (
-    <section
-      className="mk-home-band mk-home-paper mk-walk-band"
-      aria-labelledby="mk-walk-label"
-      // Scroll scenes: while they are on (and the viewport is tall enough,
-      // app/scroll-scenes.css) the band pins and scrolling plays the
-      // chapters (components/marketing/journey-scene.ts).
-      data-scene="journey"
-      data-pin=""
-      style={{ "--len": 480, "--len-phone": 500 } as CSSProperties}
-    >
-      <div data-stage="">
-        <div className="mk-container">
-          <JourneyPlayer
-            variant="compact"
-            groupLabel="mk-walk-label"
-            titles={(section.steps ?? []).map((s) => t(s.title))}
-            timing={JOURNEY_TIMING}
-            head={
-              <p className="small-label mk-walk-label" id="mk-walk-label">
-                {t(section.heading)}
-              </p>
-            }
-            stage={<Stage c={context(platform, true)} platform={platform} />}
-            subs={SUBSCRIBER_LINES.map((ref) => t(registryLine(ref)))}
-            subLabel={<SubscriberLabel />}
-            foot={
-              <p className="mk-home-more mk-walk-more">
-                <Link className="text-link mk-link" href="/how-it-works#steps">
-                  See how it works <ArrowRight size={15} aria-hidden="true" />
-                </Link>
-              </p>
-            }
-          />
-        </div>
-      </div>
     </section>
   );
 }

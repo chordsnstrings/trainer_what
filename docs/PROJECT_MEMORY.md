@@ -29,6 +29,11 @@ The downloadable `trainsyou-ux-ui-audit-2026-10-19.html` was refreshed and saved
   - To switch back, set `MARKETING_MOTION` in `apps/web/components/marketing/motion-mode.ts` to `"device"`; it is one constant.
   - Short marketing motion plays even for visitors with reduce motion. The pinned scroll scenes and every member, trainer and coach-site surface still follow reduce motion.
   - Keep the marketing widgets and the trainer sign-up path as they are. New motion must be short, play once, and run off its own visibility trigger.
+- The home page is the owner's own HTML design, copied exactly (owner, 25 October 2026: "Exact copy of the HTML"; record in `docs/HOME_DESIGN_2026-10-25.md`).
+  - It lives in `components/marketing/home-design.tsx`, `home-design-runtime.tsx` and `app/home-design.css` (generated from the file: `tyh-` prefix, scoped under `.tyh`).
+  - Its GSAP scroll-scrubbed 3D and magnetic buttons override the "short, play once" rule above, for the home page only. Its motion follows the device's reduced-motion setting, as the design does.
+  - The owner chose no additions: no social proof, no card-fee line, links that open new tabs as in the file. Change its look only from a new owner design.
+  - The previous home's components (hero relay, journey compact band, scroll scenes) are dormant. Remove them in a separate cleanup once the owner approves the page.
 - Run long browser suites in parallel on the production build (`RTL_WEB_MODE=start`, each runner on its own ports and database). Never run them one after another on `next dev`, and never repeat timed comparisons; the owner flags slow agents as stalled.
 - Deploys run only after `main`'s `check.yml` push run succeeds (`approved_head` in `infra/digitalocean/common.py`). A job cancelled by its time limit blocks the release even when every test passed. Claude cannot re-run jobs (403): either the owner clicks "Re-run failed jobs", or a new commit on `main` starts a fresh run. Slow `apt-get` mirrors (22 October 2026) were the cause so far, so check step timings before blaming the code.
 

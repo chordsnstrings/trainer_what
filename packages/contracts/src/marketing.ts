@@ -67,7 +67,9 @@ export type JsonLdKind =
   | "FAQPage"
   | "HowTo"
   | "Article"
-  | "WebApplication";
+  | "WebApplication"
+  /** The platform itself, with its free offer (home page only). */
+  | "SoftwareApplication";
 /** Provider-driven availability shown as a chip on feature tiles and pages. */
 export type AvailabilityKey =
   | "model"
@@ -537,8 +539,10 @@ export function marketingMetadata(page: MarketingPage, ctx: MarketingContext) {
     title,
     description,
     canonical: url,
+    // Indexable pages allow large image previews and full snippets (the
+    // owner's home design, 25 October 2026, carries the same directives).
     robots: page.indexable
-      ? { index: true, follow: true }
+      ? { index: true, follow: true, "max-image-preview": "large" as const, "max-snippet": -1 }
       : { index: false, follow: true },
     openGraph: {
       type: page.kind === "guide" ? ("article" as const) : ("website" as const),
@@ -559,6 +563,23 @@ export function marketingMetadata(page: MarketingPage, ctx: MarketingContext) {
 }
 
 /** Schema.org JSON-LD for a page, built only from text the page shows. */
+/** The home design's SoftwareApplication offer and feature list (25 October 2026). */
+const SOFTWARE_OFFER =
+  "Free to join, free coaching site and app, free AI teaching. Commission only when subscribers pay: 25% (first 100), 20% (101-300), 15% (301-1,000), 10% (1,001+). Each rate applies only to subscribers in its band.";
+const SOFTWARE_FEATURES = [
+  "Trainer Brain: teach your AI your rules and cases",
+  "Personalised, dated training plans",
+  "Branded subscriber app with set logging, rest timers and offline mode",
+  "Coaching website and your own domain",
+  "Optional nutrition tier",
+  "Optional voice coach add-on",
+  "Paid bookings in AED",
+  "Chat and labelled digital coach",
+  "Progress and Client Twin",
+  "AED card payments and monthly UAE payouts",
+  "Safety rules enforced in code",
+  "Team roles",
+];
 export function marketingJsonLd(shown: MarketingPage, ctx: MarketingContext) {
   const page = marketingPageFor(shown, ctx.availability);
   const t = (text: string) => brandText(text, ctx.appName, ctx.followerModel);
@@ -622,6 +643,9 @@ export function marketingJsonLd(shown: MarketingPage, ctx: MarketingContext) {
     breadcrumb: { "@id": url + "#breadcrumb" },
     primaryImageOfPage: { "@type": "ImageObject", url: image },
   };
+  // The home design's quotable blocks: the definition and the facts list.
+  if (page.kind === "home")
+    webPage.speakable = { "@type": "SpeakableSpecification", cssSelector: ["#what p", "#facts dl"] };
   if (primary === "Article") {
     Object.assign(webPage, {
       "@type": "Article",
@@ -644,11 +668,14 @@ export function marketingJsonLd(shown: MarketingPage, ctx: MarketingContext) {
     })),
   });
   if (page.jsonLd.includes("HowTo")) {
-    const steps = page.sections.find((s) => s.steps)?.steps ?? [];
+    const stepsSection = page.sections.find((s) => s.steps);
+    const steps = stepsSection?.steps ?? [];
     graph.push({
       "@type": "HowTo",
       "@id": url + "#howto",
-      name: t(page.h1),
+      // The home page names its steps ("How to build an AI coaching
+      // service with ..."); other pages are the how-to themselves.
+      name: t(page.kind === "home" && stepsSection ? stepsSection.heading : page.h1),
       description: t(page.intro),
       step: steps.map((step, i) => ({
         "@type": "HowToStep",
@@ -669,6 +696,27 @@ export function marketingJsonLd(shown: MarketingPage, ctx: MarketingContext) {
       isAccessibleForFree: true,
       description: t(page.intro),
       publisher: { "@id": orgId },
+    });
+  if (page.jsonLd.includes("SoftwareApplication"))
+    graph.push({
+      "@type": "SoftwareApplication",
+      "@id": base + "/#software",
+      name: ctx.appName,
+      applicationCategory: "BusinessApplication",
+      applicationSubCategory: "AI coaching platform for personal trainers",
+      operatingSystem: "Web (installable app)",
+      url: base + "/",
+      description: t(page.intro),
+      audience: { "@type": "BusinessAudience", audienceType: "Personal trainers" },
+      publisher: { "@id": orgId },
+      offers: {
+        "@type": "Offer",
+        price: "0",
+        priceCurrency: "AED",
+        description: SOFTWARE_OFFER,
+        url: base + "/signup",
+      },
+      featureList: SOFTWARE_FEATURES,
     });
   if (page.faqs.length && page.jsonLd.includes("FAQPage"))
     graph.push({

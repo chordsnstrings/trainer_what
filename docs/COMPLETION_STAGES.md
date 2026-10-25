@@ -2,6 +2,55 @@
 
 Application implementation and the job audit are complete for the current phase. [PR #1](https://github.com/chordsnstrings/trainer_what/pull/1) contains the work; [combined verification](VERIFICATION_2026-09-27.md) records the passing final code revision. The owner authorized merge to main. Real services and deployment remain the next phase; screenshots were waived. Historical entries below record the evidence available at each stage and may contain superseded pending-check statements.
 
+## Stage 2026-10-25 — home page as the owner's HTML design (PR pending owner approval)
+
+The owner asked for three things:
+- check that the implementation works;
+- implement the site design as an uploaded HTML file;
+- review that design for SEO, LLM SEO and sign-up conversion.
+
+They chose a full check, an exact copy including GSAP 3D scroll motion, no additions, and a PR first, so nothing merges or deploys without their approval. The record is `docs/HOME_DESIGN_2026-10-25.md`.
+
+**Baseline before any change (`e4e2f8c`):**
+- typecheck passed;
+- `npm test`: 1,965 tests, 1,964 passed, 0 failed, 1 skipped;
+- `npm run build` passed;
+- live crawl: 39 sitemap pages and 41 internal links, all 200, with valid metadata and JSON-LD;
+- `main` CI run 39913170469 for that commit: every job green.
+
+**What changed:**
+- **The home page** renders the design: `home-design.tsx`, `home-design-runtime.tsx` and `app/home-design.css`, generated and scoped under `.tyh` with the `tyh-` class prefix.
+- **Assets and dependencies:** GSAP 3.15.0 (home only); the design's Inter self-hosted; the Pace lockup asset.
+- **The registry home entry** carries the design's words. The JSON-LD adds SoftwareApplication, a visible-steps HowTo and speakable selectors.
+- **Robots** gets `max-image-preview:large` and `max-snippet:-1` on indexable pages.
+- **Removed:** the old home renderer and `JourneyBand`.
+- **Visible additions to the design:** an "Analytics preferences" footer control (consent withdrawal) and `overflow-x: clip` (6 px sideways scroll in Arabic).
+- **Not visible:** the meta description is trimmed to 155 characters, and closed registration and renamed platforms keep their wording.
+
+**Fidelity against the owner's file** (local copy, 4 widths, with and without motion):
+- all 745 elements match in tag, class, text, links and attributes;
+- computed styles match apart from 33 `start`/`end` equivalents;
+- full-page reduced-motion screenshots differ only on the copyright line's new preferences button, about 726 pixels;
+- with motion, the remaining differences are raster noise: the file against itself and the build against itself show the same.
+
+**Checks run on this head:**
+- typecheck and `npm run build` passed;
+- `npm test`: 1,965 tests, 1,964 passed, 0 failed, 1 skipped, 24m35s;
+- homepage call check (voice noise and call journey at 390 and 1280) passed;
+- marketing motion: journey player 209 of 209 and the site-wide check passed;
+- CI's browser check (`run-browser-check.mjs` after `seed:demo`) passed: the commerce journey in English and Arabic on phone and desktop, and the browser smoke test including the consent lifecycle. Its first run caught the missing footer preferences control;
+- the behaviour check passed on the final build, including the assistant button rising above the sticky bar;
+- the brand check passes on every public page including `/` and `/?lang=ar`, and all eight home checks pass.
+
+**Pre-existing local-check failures**, identical on the baseline `e4e2f8c` and not caused by this change; the homepage call and marketing-motion checks above had none:
+- brand and RTL checks: the seeded coach signs in to `/admin/settings` while the scripts wait for `/trainer` or `/app`;
+- the dark workspace logo, the member app's and coach site's dark-mode branding expectations;
+- `onboarding-presence` contrast of 4.30:1 on `/trainer/brain`;
+- the dark check fails only on member-app screens.
+- The baseline also fails the old home's 400-word limit at 447 words, which this change removes.
+
+Remaining: the PR's CI (the full matrix, including PostgreSQL, the container and the workspace, member and site-builder journeys, none of which were rerun locally) and the owner's approval. Nothing is merged or deployed.
+
 ## Stage 2026-10-23 — hero "trains" sweep shipped (owner: "Hero trains highlight had to be there"; PR #94, live `df12b53`)
 
 The Phase 3 sweep is restored as built on 22 October: the fill sits on `.mk-mark::before`, and `mk-sweep` grows it once with `scale`, from the left, 120 ms in, finishing by about 540 ms. It has the same static test.

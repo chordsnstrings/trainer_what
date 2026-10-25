@@ -2,6 +2,77 @@
 
 ## Work in progress
 
+### Home page as the owner's HTML design: PR open, waiting on the owner's approval, 25 October 2026 (Claude)
+
+PR: [chordsnstrings/trainer_what#96](https://github.com/chordsnstrings/trainer_what/pull/96). Do not merge or deploy without the owner's approval.
+
+**PR CI, 25 October 14:05 UTC:** all 8 jobs green on head `ddd3127` ([run 40197740852](https://github.com/chordsnstrings/trainer_what/actions/runs/40197740852)):
+- application;
+- postgres-and-container;
+- homepage-call;
+- subscriber-ui;
+- ux-spacing;
+- daily-workflows;
+- compose-topology;
+- wildcard-edge.
+
+The PR merges cleanly and has no review threads. It is waiting only on the owner's approval.
+
+The owner asked for three things:
+- check the current implementation;
+- build the home page from their uploaded HTML;
+- review it for SEO, LLM SEO and conversion.
+
+Their answers:
+- **Checks:** a full check.
+- **Design:** "Exact copy of the HTML", with its GSAP 3D scroll motion.
+- **Additions:** none.
+- **Release:** a PR first, and the owner approves before any merge or deploy.
+
+Branch `claude/confident-wozniak-n32to1`. The record is `docs/HOME_DESIGN_2026-10-25.md`, the stage entry is in `docs/COMPLETION_STAGES.md` (2026-10-25), and the standing rule is in `docs/PROJECT_MEMORY.md`.
+
+**Checks of the current implementation, before any change (`e4e2f8c`):**
+- typecheck passed;
+- `npm test`: 1,964 passed, 0 failed, 1 skipped;
+- build passed;
+- live crawl of 39 pages and 41 links: clean;
+- `main` CI for that commit: green.
+
+**What was built:**
+- `components/marketing/home-design.tsx`, `home-design-runtime.tsx` and `app/home-design.css`:
+  - generated from the file, with the `tyh-` prefix and every rule scoped under `.tyh`;
+  - GSAP 3.15.0, used on `/` only;
+  - the design's Inter self-hosted, and its Pace lockup.
+- The registry home entry carries the design's words. The JSON-LD adds SoftwareApplication, a HowTo from the 3 visible steps, and speakable selectors.
+- Robots on indexable pages gets `max-image-preview:large` and `max-snippet:-1`.
+- Two visible additions: an "Analytics preferences" footer control (consent withdrawal) and `overflow-x: clip`.
+- The meta description is trimmed to 155 characters.
+
+**Verification on this head:**
+- Fidelity against the owner's file, at 4 widths with and without motion:
+  - all 745 elements match in tag, class, text, links and attributes;
+  - computed styles match apart from 33 `start`/`end` equivalents;
+  - reduced-motion screenshots differed by 0 pixels before the footer control and now differ only on the copyright line;
+  - the motion differences equal the file's and the build's own raster noise.
+- The behaviour check passed.
+- typecheck, build, and `npm test` (1,964 passed, 0 failed, 1 skipped) all passed.
+- These local checks passed: CI's `run-browser-check`, the homepage call check, marketing motion (journey 209/209 and site-wide), and the brand check for all public pages and the 8 home checks.
+
+**Pre-existing local-check failures, identical on the baseline and not this change's:**
+- brand and RTL sign-in waits for `/trainer` while the seeded coach lands on `/admin/settings`;
+- dark workspace logo, member-app and coach-site dark-mode expectations;
+- `onboarding-presence` contrast of 4.30:1;
+- the dark check fails only on member-app screens.
+
+**Waiting on the owner:**
+- approve the PR, or ask for changes, after viewing the page. Nothing is merged or deployed.
+- Optional: the conversion items they declined for now (social proof, a card-fee line, the claim-your-address field).
+- Optional: a later cleanup of the dormant previous-home code.
+
+**Left by the session (owner may delete):** two empty files, `/rtl.log` and `/dark.log`, at the container root. A misgrouped shell command created them, and the safety check blocked removing files at `/`.
+
+**Next action:** wait for the owner's approval. Then merge, deploy and verify the serving release, per the standing release instruction.
+
 ### Hero "trains" sweep — live, 23 October 2026 (Claude, 06:45 UTC)
 
 Owner: "Hero trains highlight had to be there". The Phase 3 sweep went back in, exactly as built on 22 Oct:
