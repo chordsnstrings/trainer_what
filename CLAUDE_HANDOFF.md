@@ -2,6 +2,33 @@
 
 ## Work in progress
 
+### Home page redesign from the owner's HTML: reviewed, waiting on the owner, 25 October 2026 (Claude)
+
+The owner asked for three things: check that the current implementation works; rebuild the home page from their uploaded HTML design (sections: hero decision feed, stats band, "What is trainsyou?", at a glance, how it works, 7 tools replaced, platform, earnings and follower scenarios, control, pricing bars, specialties and guides, FAQ, end box, sticky phone bar); and review that design for SEO, LLM SEO and sign-up conversion. They said to ask before starting. Nothing has been built or run yet. Branch: `claude/confident-wozniak-n32to1`.
+
+Facts checked so far (code reads only; dependencies are not installed, and the container has Node 22 while the repo needs Node 24):
+- Every page the design links to exists in the registry (specialties, guides, all features including `team` and `progress-and-client-twin`).
+- "91 capabilities" matches the 91 entries in `marketing-features.ts`.
+- The H1 already matches `BRAND_COPY.homeHeadline`.
+
+Gaps in the design that need fixing before it ships:
+1. There is no real social proof.
+2. The calculator's "you keep" ignores card fees, which the current site itemises.
+3. The follower figures are hard-coded, so they would drift from the live model.
+4. It loads GSAP and Google Fonts from outside CDNs, and its scroll-scrubbed 3D and magnetic buttons break the "short, play once" motion rule.
+5. Every internal link opens a new tab, and every URL is hard-coded to trainsyou.com.
+6. It drops Arabic, the availability gating for nutrition and voice, and the hero's claim-your-address field.
+7. It is about 4 times the 400-word home budget that `scripts/brand-check.mjs` enforces.
+8. HowTo, FAQ and speakable markup no longer earn Google rich results. They are still useful to LLMs.
+
+**Waiting on the owner:**
+- How far to take "check everything works".
+- How faithfully to build the design.
+- Which conversion additions to make, and whether real testimonials or trainer numbers exist.
+- Whether to merge and deploy, or only push the branch.
+
+**Next action:** act on the owner's answers.
+
 ### Hero "trains" sweep — live, 23 October 2026 (Claude, 06:45 UTC)
 
 Owner: "Hero trains highlight had to be there". The Phase 3 sweep went back in, exactly as built on 22 Oct:
