@@ -15,7 +15,7 @@ PR: [chordsnstrings/trainer_what#96](https://github.com/chordsnstrings/trainer_w
 - Re-running jobs would not help before 00:00 UTC, and Claude gets a 403 on re-runs anyway.
 
 **Running now:**
-- the PR with that fix, the release records, and a correction (GSAP runs only on `/` but downloads on every page with the shared bundle, about 42 KB gzip, about 5 %);
+- [PR #97](https://github.com/chordsnstrings/trainer_what/pull/97) with that fix, the release records, and a correction (GSAP runs only on `/` but downloads on every page with the shared bundle, about 42 KB gzip, about 5 %);
 - the rest of `main` run 40233449380 (`application`, `postgres-and-container`, `ux-spacing`);
 - `scripts/watch-release.sh` in the session, polling `https://trainsyou.com/api/v1/ready` for `af457bd`. It needs a new target once the fix merges.
 
