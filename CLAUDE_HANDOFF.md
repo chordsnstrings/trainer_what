@@ -2,11 +2,34 @@
 
 ## Work in progress
 
-### Home page as the owner's HTML design: PR open, waiting on the owner's approval, 25 October 2026 (Claude)
+### Home page as the owner's HTML design: merged, deploy blocked by a pre-existing WHOOP check, fix PR next, 25 October 2026 (Claude, 21:20 UTC)
 
-PR: [chordsnstrings/trainer_what#96](https://github.com/chordsnstrings/trainer_what/pull/96). Do not merge or deploy without the owner's approval.
+PR: [chordsnstrings/trainer_what#96](https://github.com/chordsnstrings/trainer_what/pull/96). The owner approved it on 25 October: "Approved but Make sure that nothing form the implementation stop working". Squash-merged as `af457bde92cdab27cee3598c16d408cbb7b6e014` on `main` at about 21:00 UTC. Its tree is identical to the checked PR head `d852870`.
 
-**PR CI, 25 October 14:05 UTC:** all 8 jobs green on head `ddd3127` ([run 40197740852](https://github.com/chordsnstrings/trainer_what/actions/runs/40197740852)):
+**Not live yet.** The live release is still `e4e2f8c`.
+
+**Why:** `main` run [40233449380](https://github.com/chordsnstrings/trainer_what/actions/runs/40233449380) failed in `subscriber-ui`, at the WHOOP journey (`whoop-training-check.mjs:278`, waiting for the workout start). The host deploys only after a green `main` run.
+- **Cause, pre-existing and time-dependent:** `seed-demo.ts` schedules the member's programme from Dubai's date, but the check's browser uses the runner's UTC clock. Between 20:00 and 24:00 UTC, Dubai is a day ahead, so Today shows a rest day with no start button.
+- **Evidence:** reproduced 3 of 3 times locally on `af457bd`; the baseline `e4e2f8c` fails at the same line; a probe screenshot showed "Rest day · Next: Strength foundations · Tomorrow".
+- **Fix:** `timezoneId: "Asia/Dubai"` on the check's browser contexts, as `capture-app-views.mjs` already does. The full WHOOP journey then passed 2 of 2 times locally at about 21:15 UTC.
+- Re-running jobs would not help before 00:00 UTC, and Claude gets a 403 on re-runs anyway.
+
+**Running now:**
+- [PR #97](https://github.com/chordsnstrings/trainer_what/pull/97) with that fix, the release records, and a correction (GSAP runs only on `/` but downloads on every page with the shared bundle, about 42 KB gzip, about 5 %);
+- the rest of `main` run 40233449380 (`application`, `postgres-and-container`, `ux-spacing`);
+- `scripts/watch-release.sh` in the session, polling `https://trainsyou.com/api/v1/ready` for `af457bd`. It needs a new target once the fix merges.
+
+**Done for the live check:**
+- the pre-deploy snapshot: the crawl (39 pages, 41 links, clean) and 28 other routes;
+- a 44-check HTTP-only home check, which passed against the local build of `af457bd`.
+
+**Next action:**
+1. Get the fix PR's CI green and merge it.
+2. Watch the new `main` run, the deploy and "Verify serving release".
+3. Run the live home check, the crawl and the route snapshot, and compare them with the pre-deploy snapshot.
+4. Record the result here and in `docs/COMPLETION_STAGES.md`.
+
+**PR CI:** all 8 jobs green on `ddd3127` ([run 40197740852](https://github.com/chordsnstrings/trainer_what/actions/runs/40197740852), 14:05 UTC) and again on the final head `d852870` ([run 40200671984](https://github.com/chordsnstrings/trainer_what/actions/runs/40200671984), 14:39 UTC, docs only):
 - application;
 - postgres-and-container;
 - homepage-call;
@@ -16,7 +39,7 @@ PR: [chordsnstrings/trainer_what#96](https://github.com/chordsnstrings/trainer_w
 - compose-topology;
 - wildcard-edge.
 
-The PR merges cleanly and has no review threads. It is waiting only on the owner's approval.
+The PR merged cleanly and had no review threads.
 
 The owner asked for three things:
 - check the current implementation;
@@ -64,14 +87,12 @@ Branch `claude/confident-wozniak-n32to1`. The record is `docs/HOME_DESIGN_2026-1
 - `onboarding-presence` contrast of 4.30:1;
 - the dark check fails only on member-app screens.
 
-**Waiting on the owner:**
-- approve the PR, or ask for changes, after viewing the page. Nothing is merged or deployed.
+**Waiting on the owner:** nothing required.
 - Optional: the conversion items they declined for now (social proof, a card-fee line, the claim-your-address field).
 - Optional: a later cleanup of the dormant previous-home code.
 
 **Left by the session (owner may delete):** two empty files, `/rtl.log` and `/dark.log`, at the container root. A misgrouped shell command created them, and the safety check blocked removing files at `/`.
 
-**Next action:** wait for the owner's approval. Then merge, deploy and verify the serving release, per the standing release instruction.
 
 ### Hero "trains" sweep — live, 23 October 2026 (Claude, 06:45 UTC)
 
