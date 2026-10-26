@@ -2,20 +2,20 @@
 
 ## Work in progress
 
-### Status at 11:22 UTC on 26 October 2026 (Claude)
+### Status at 12:08 UTC on 26 October 2026 (Claude)
 
-**#102 merged as `f1fbf8e` at 11:21 UTC. It also carries #101 (`d497572`). Not live yet.**
-- #102's PR CI was 8/8 green on `2bf87f1`; the merged head added only a handoff update.
-  - With `scripts/ci-apt-mirror.sh`, homepage-call took 5 minutes and postgres-and-container 11.
-- Now running:
-  - `main`'s check.yml push run on `f1fbf8e`;
-  - `scripts/watch-release.sh f1fbf8e 90`, which logs to the session's `watch-102.log`.
-- Expected live around 12:05 UTC.
-- **Next:**
-  - When live, verify `/trainer` (sign-in redirect), the marketing pages, and the phone menu markup and CSS.
-  - Then record the live time for #101 and #102 in `docs/COMPLETION_STAGES.md` and here, in a records PR from this branch, which was restarted from `main`.
-- If the `main` run fails: root-cause it from the job steps (the mirror probe's output shows any switch) and fix it with a new commit.
-- Waiting on the owner: nothing. Delete the stray `/oq-daily.log` when convenient.
+**Live since 12:04 UTC: Today "One queue" (#101) and the phone menu (#102), as `main` HEAD `f1fbf8e`.**
+- `main` run 40314343561 passed all 8 jobs (homepage-call in 5 minutes with `scripts/ci-apt-mirror.sh`).
+- The watcher read `f1fbf8e` at 12:04:12 UTC.
+- Checked live:
+  - the five marketing pages answer 200 with the new menu markup;
+  - the served CSS carries the menu's exit and the four review fixes;
+  - `/trainer` answers 200, and its JavaScript carries the One queue strings ("Up next", "Jump to", "Your AI right now", "Pause live motion" and others), none of which were in `f5565b1`.
+- Recorded in `docs/COMPLETION_STAGES.md` (both 26 October entries) through records PR #103.
+- **Next:** merge #103 (Markdown only). Then nothing is open from these requests.
+- Waiting on the owner:
+  - a look at the new Today and the phone menu on a phone;
+  - deleting the stray `/oq-daily.log` (a safety check stopped Claude from removing it).
 
 ### Home page as the owner's HTML design: live since 22:47 UTC on 25 October 2026 (Claude, checked 04:10 UTC on 26 Oct)
 

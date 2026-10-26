@@ -2,7 +2,7 @@
 
 Application implementation and the job audit are complete for the current phase. [PR #1](https://github.com/chordsnstrings/trainer_what/pull/1) contains the work; [combined verification](VERIFICATION_2026-09-27.md) records the passing final code revision. The owner authorized merge to main. Real services and deployment remain the next phase; screenshots were waived. Historical entries below record the evidence available at each stage and may contain superseded pending-check statements.
 
-## Stage 2026-10-26 — marketing phone menu, and CI picks a fast Ubuntu mirror (PR #102, open)
+## Stage 2026-10-26 — marketing phone menu, and CI picks a fast Ubuntu mirror (PR #102, merged as `f1fbf8e`; live since 12:04 UTC on 26 October 2026)
 
 Owner, 26 October 2026, with a screenshot of the trainsyou.com phone menu: "The menu system should look better and more animated and more aesthetically pleasing with micro animations for the user with smooth animations".
 
@@ -42,9 +42,16 @@ Checks (local, Node 24):
   - widening to 1200 px closes it and the page scrolls again.
 - With classic scrollbars at 1000 px the header does not move. Kamran's button is off in the local build, so a `.mk-assistant-fab` element was added to the page for the check; it was hidden while the menu was open and visible again after.
 
-**Not merged yet.** It merges when its CI is green, and the next `main` head then deploys this change together with #101.
+PR CI: 8/8 green on `2bf87f1`. The probe ran in every job, homepage-call took 5 minutes and postgres-and-container 11, where both had been stuck in apt on the previous head. Merged at 11:21 UTC as `f1fbf8e`; the merged head added only a handoff update.
 
-## Stage 2026-10-26 — trainer Today as "One queue", rail sidebar, page-to-page motion, Jump to (PR #101, merged as `d497572`; not live yet)
+**Live since 12:04 UTC on 26 October 2026**, as `main` HEAD `f1fbf8e`:
+- `main` run 40314343561 passed all 8 jobs at 11:57 UTC; homepage-call took 5 minutes.
+- The watcher read `f1fbf8e` in the release header of `/api/v1/ready` at 12:04:12 UTC.
+- Checked live at 12:05 UTC:
+  - `/`, `/how-it-works`, `/pricing`, `/features` and `/earnings-calculator` each answer 200 with `data-mk-motion="always"` and the new menu markup (`mk-burger`, `mk-mobile-link`, `mk-mobile-actions`).
+  - The served CSS has `mk-menu-out`, `.mk-header:has(.mk-mobile-menu[open])`, `scrollbar-gutter:stable`, the hidden `.mk-assistant-fab` rule, and still `mk-sweep`.
+
+## Stage 2026-10-26 — trainer Today as "One queue", rail sidebar, page-to-page motion, Jump to (PR #101, merged as `d497572`; live since 12:04 UTC on 26 October 2026 with #102)
 
 The owner chose design B, "One queue", and approved it ("approved."). Two decisions shaped it: "the dashboard should feel alive", and "our moat is the AI training, not personal one on one training."
 - **Today:**
@@ -67,7 +74,10 @@ Checks:
 - The PR's final CI passed 7 of 8 jobs. `homepage-call` was cancelled by an apt stall before any test ran; it had passed on `3b3df13`.
 - `main` run 40301256607 on `d497572` passed 7 of 8 jobs, including the application job (full `npm run check` and every browser journey). `homepage-call` was cancelled at its 40-minute limit while `apt-get install ffmpeg` downloaded from a slow mirror, so the release gate did not open.
 
-**Not live.** The site still serves `f5565b1`. PR #102 carries the CI mirror fix; its merge gives `main` a new head with both changes.
+**Live since 12:04 UTC on 26 October 2026**, as `main` HEAD `f1fbf8e` (#102, which carries the CI mirror fix; its run passed 8/8).
+- `/trainer` answers 200; the sign-in check happens in the page.
+- Its served JavaScript carries "Up next", "Later today", "Jump to", "Done today", "Your AI right now", "Getting better" and "Pause live motion".
+- None of these strings were in the web app at `f5565b1`.
 
 ## Stage 2026-10-26 — HTML home design taken off; the multipage marketing design is back
 
