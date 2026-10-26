@@ -2,7 +2,7 @@
 
 ## Work in progress
 
-### Status at 05:16 UTC on 26 October 2026 (Claude)
+### Status at 05:21 UTC on 26 October 2026 (Claude)
 
 **1. HTML home design taken off; multipage marketing design restored.**
 - Owner: "the HTML design should be taken off. our previous marketing design is multipage one. let's get that back".
@@ -41,7 +41,11 @@
 - **Pages.** A 120 ms exit, then the swap, then a 240 ms directional entry with 30 ms bands, plus a route bar.
 - **Focus card.** The button turns into a check, the card lifts away, and the next item rises from the queue. The ring and counts roll. Undo is available.
 - **Arrivals.** A new item never jumps under the pointer: it waits as "1 new · show". A `stage` tweak shows the setup (onboarding) version.
-- **Next:** the owner reviews B. On a go-ahead, implement it in `apps/web` (Today, the workspace navigation, view transitions), and add a trainer-workspace section to `docs/features/motion.md`.
+- **Owner approved B at 05:20 UTC on 26 Oct: "approved."**
+- **In progress, implementation:**
+  - Step 1: a workflow maps the shell and navigation, the queue data, the live-panel data and the checks that touch Today and the nav.
+  - Then plan, build (Today, the workspace navigation, the command palette, page transitions, motion), review, run the full checks, open a PR, merge and deploy.
+  - Where the mockup shows data the API does not have yet (for example clients training right now), the build uses only real data and says so.
 
 ### Home page as the owner's HTML design: live since 22:47 UTC on 25 October 2026 (Claude, checked 04:10 UTC on 26 Oct)
 
