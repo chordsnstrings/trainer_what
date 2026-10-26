@@ -2,36 +2,36 @@
 
 ## Work in progress
 
-### Status at 10:05 UTC on 26 October 2026 (Claude)
+### Status at 10:12 UTC on 26 October 2026 (Claude)
 
 **1. Today, "One queue" (#101): merged as `d497572` at about 09:35 UTC. Not live yet.**
-- Final PR CI: 7/8 green, including application (full `npm test` and browser-check), daily-workflows, ux-spacing and postgres-and-container.
-- homepage-call was cancelled by an infrastructure stall: `playwright install --with-deps` hung on an apt font download for 40 minutes. No test ran.
-  - It passed on `3b3df13`, and nothing after that commit touches the home page.
-  - Jobs cannot be re-run from the session (403). A note is on the PR.
-- `main`'s push run repeats every job before deploy.
-- `scripts/watch-release.sh d497572 90` is watching. At 10:01 UTC the site still served `f5565b1`.
+- `main` push run 40301256607 (started 09:39 UTC):
+  - six jobs passed: wildcard-edge, compose-topology, daily-workflows, subscriber-ui, ux-spacing, postgres-and-container;
+  - application has passed `npm run check` and browser-check and is on the website builder journeys;
+  - homepage-call has hung in `apt-get install ffmpeg` since 09:40 UTC. This is the same slow-mirror stall as on the PR, and the job limit is 40 minutes.
+- If homepage-call is cancelled, the `main` head fails and `d497572` is not deployed on its own. Jobs cannot be re-run from the session (403). Merging #102 would then give `main` a new head that carries both changes.
+- `scripts/watch-release.sh d497572 90` is watching. At 10:04 UTC the site still served `f5565b1`.
 - **Next:** verify `/trainer` and the marketing pages when it goes live, then record the live time in `docs/COMPLETION_STAGES.md`.
 
-**2. Phone menu on the marketing site: built and pushed for a new PR.**
+**2. Phone menu on the marketing site: draft PR #102 (`7edd1d5`). CI started at 10:03 UTC.**
 - Owner, 26 Oct (screenshot of the trainsyou.com phone menu): "The menu system should look better and more animated and more aesthetically pleasing with micro animations for the user with smooth animations."
-- Built on `claude/repository-overview-osejlw`:
+- What changed:
   - "Menu" is a pill. Its two lines turn into a cross, and it fills with Pace while the menu is open.
-  - The panel hangs from the header with rounded lower corners. It drops in, and its rows rise 18 ms apart.
+  - The panel drops in, and its rows rise 18 ms apart.
   - The page behind dims and stops scrolling.
-  - Rows are 48 px, with a soft fill on press and an arrow that leans forward.
-  - The current page keeps a Pace tint.
+  - Rows are 48 px, with a press fill and an arrow nudge.
   - "Sign in" and the call to action are pinned at the panel's foot.
   - Closing plays a 150 ms exit. "Menu", Escape (focus returns to "Menu"), a tap outside and a link all close it.
-  - Without JavaScript it is still a `<details>`.
   - Files: `components/marketing/mobile-menu.tsx` (new), `frame.tsx`, `app/marketing.css`.
 - **Checks:**
   - web `tsc` clean;
-  - `npm run build` passed;
-  - marketing-motion-sitewide, marketing-site, marketing-journey and logical-css: 49/49, including a new phone-menu test;
-  - a local browser check at 390 and 360 px: open, cross, dim, scroll lock, Escape and focus, tap outside, "Menu" again, link to /pricing, no sideways overflow, buttons visible.
-- Running: the sitewide marketing motion browser check.
-- **Next:** open a draft PR. Merge only after `d497572` is live, because the host deploys only `main`'s head.
+  - build passed;
+  - four marketing test files 49/49;
+  - a local browser check at 390 and 360 px passed.
+- Running: the sitewide marketing motion browser check. So far CLS is 0 on every page and width.
+- **Next:**
+  - If `d497572` goes live: mark #102 ready, then merge it when its CI is green.
+  - If the `main` run is cancelled: merge #102 as soon as its own CI is green, so the next `main` head deploys both.
 
 ### Home page as the owner's HTML design: live since 22:47 UTC on 25 October 2026 (Claude, checked 04:10 UTC on 26 Oct)
 
