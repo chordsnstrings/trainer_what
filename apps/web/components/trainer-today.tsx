@@ -1,22 +1,22 @@
 "use client";
 import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { Brain, Check, ChevronRight, Clock, Sparkles } from "lucide-react";
+import { AlertCircle, Brain, Check, ChevronRight, Clock, Sparkles } from "lucide-react";
 import { api, type State } from "./workspace-ui";
 import { WorkspaceScope, useWorkspaceValue } from "./workspace-continuity";
-import { useSharedInbox } from "./workspace-inbox-store";
+import { todayProgress, useSharedInbox } from "./workspace-inbox-store";
 import { InboxCard, KIND_LABEL } from "./workspace-inbox";
 import { coachSetupOpen } from "./superadmin-access";
-import { INBOX_CHANGED } from "./workspace-nav";
 import { setupHref } from "./setup-wizard-model";
 import { useLive, type LiveSnapshot } from "./workspace-live";
 import { countUp, prefersReducedMotion } from "./motion";
 import { formatRelative } from "../lib/format";
 import {
+  arrivalAhead,
   buildQueue,
-  decisionsWaiting,
   entryTitle,
   focusOf,
+  isSafety,
   type QueueEntry,
   type RuleSuggestion,
   type SetupSummary,
@@ -24,35 +24,88 @@ import {
 
 /**
  * Today (docs/features/trainer-workspace.md): one queue, one decision at a
- * time. Up next shows the most urgent thing that needs the coach, with its
- * actions right there; Then lists the rest. Beside it, what the coach's AI is
- * doing: clients training with it now, what the Brain did, and how it is
- * getting better. The moat is the AI coaching, so sessions are not the
- * headline here. Every number comes from existing endpoints.
+ * time. Up next keeps the card the coach is working on until they finish it,
+ * move it Later or pick another; anything more urgent that comes in shows
+ * beside it instead of replacing it. Then lists the rest. Beside it, what
+ * the coach's AI is doing: clients training with it now, what the Brain did,
+ * and how it is getting better. The moat is the AI coaching, so sessions are
+ * not the headline here. Every number comes from existing endpoints; the
+ * decisions finished today come from the server with the inbox.
  */
 
-/** A block of the page that loads once when Today opens. */
-function useOnce<T>(path: string | null) {
-  const [data, setData] = useState<T | null>(null),
+/** Answers kept between visits (the workspace mounts again on every page),
+ * per workspace scope: shown at once, then read again in the background. */
+const kept = new Map<string, unknown>();
+if (typeof window !== "undefined")
+  window.addEventListener("workspace-session-cleared", () => kept.clear());
+
+/** A block of the page that loads when Today opens. `settled`: it answered
+ * (now or on an earlier visit), failed, or was never asked for (path null). */
+function useOnce<T>(scope: string, path: string | null) {
+  const key = path ? `${scope}|${path}` : "";
+  const [data, setData] = useState<T | null>(() => (key && kept.has(key) ? (kept.get(key) as T) : null)),
     [failed, setFailed] = useState(false);
   useEffect(() => {
     if (!path) return;
     let live = true;
     api(path).then(
-      (r) => live && setData(r),
+      (r) => {
+        kept.set(key, r);
+        if (live) setData(r);
+      },
       () => live && setFailed(true),
     );
     return () => {
       live = false;
     };
-  }, [path]);
-  return { data, failed };
+  }, [key, path]);
+  // A source no longer asked for (setup finished) drops out of the queue.
+  return { data: path ? data : null, failed: failed && data === null, settled: !path || data !== null || failed };
+}
+/** A rule suggestion the coach decided: gone from the kept answer too. */
+function forgetSuggestion(scope: string, id: string) {
+  const key = `${scope}|/brain/suggestions`;
+  const data = kept.get(key) as { suggestions?: RuleSuggestion[] } | undefined;
+  if (data?.suggestions) kept.set(key, { ...data, suggestions: data.suggestions.filter((s) => s.id !== id) });
 }
 
-/** Item keys that arrived after the queue first loaded, for a few seconds. */
-function useNewKeys(keys: string[], ready: boolean) {
+/** Re-renders every half minute while the tab is visible, so "2 min ago"
+ * stays true (the live store only publishes when its data changes). */
+function useClock() {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") tick((n) => n + 1);
+    }, 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+}
+const startOfLocalDay = () => {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+};
+
+/** How long an arrival shows "New" once it is on screen. */
+const NEW_MS = 4000;
+
+/**
+ * Queue keys that arrived after the page was ready. While `holding()` (the
+ * pointer is over Then, or keyboard focus is in it) an arrival waits in
+ * `held`, unless `urgent(key)`. `release()` shows the held keys and marks
+ * them new from that moment. `known` only grows, so a key is new once and is
+ * never held again after it was shown. "New" expires on its own timer, which
+ * later changes to the queue do not cancel.
+ */
+function useArrivals(
+  keys: string[],
+  ready: boolean,
+  holding: () => boolean,
+  urgent: (key: string) => boolean,
+) {
   const known = useRef<Set<string> | null>(null);
-  const [fresh, setFresh] = useState<Map<string, number>>(new Map());
+  const [fresh, setFresh] = useState<ReadonlyMap<string, number>>(() => new Map());
+  const [held, setHeld] = useState<string[]>([]);
   const signature = keys.join("\n");
   useLayoutEffect(() => {
     if (!ready) return;
@@ -60,17 +113,42 @@ function useNewKeys(keys: string[], ready: boolean) {
       known.current = new Set(keys);
       return;
     }
-    const added = keys.filter((k) => !known.current!.has(k));
-    for (const k of added) known.current.add(k);
+    const seen = known.current;
+    const added = keys.filter((k) => !seen.has(k));
     if (!added.length) return;
-    const until = Date.now() + 4000;
-    setFresh((m) => new Map([...m, ...added.map((k) => [k, until] as const)]));
-    const timer = window.setTimeout(() => setFresh((m) => new Map([...m].filter(([, t]) => t > Date.now()))), 4100);
-    return () => window.clearTimeout(timer);
-    // `signature` stands for `keys`.
+    for (const k of added) seen.add(k);
+    const wait = holding() ? added.filter((k) => !urgent(k)) : [];
+    const show = added.filter((k) => !wait.includes(k));
+    if (wait.length) setHeld((h) => [...h, ...wait]);
+    if (show.length) {
+      const until = Date.now() + NEW_MS;
+      setFresh((m) => new Map([...m, ...show.map((k) => [k, until] as const)]));
+    }
+    // `signature` stands for `keys`; `holding` and `urgent` are read at arrival.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature, ready]);
-  return fresh;
+  useEffect(() => {
+    if (!fresh.size) return;
+    const wait = Math.max(0, Math.min(...fresh.values()) - Date.now()) + 50;
+    const timer = window.setTimeout(() => {
+      const now = Date.now();
+      setFresh((m) => {
+        const kept = new Map([...m].filter(([, until]) => until > now));
+        return kept.size === m.size ? m : kept;
+      });
+    }, wait);
+    return () => window.clearTimeout(timer);
+  }, [fresh]);
+  // Held keys that were resolved meanwhile are not counted or shown.
+  const present = new Set(keys);
+  const waiting = held.filter((k) => present.has(k));
+  const release = () => {
+    if (!held.length) return;
+    const until = Date.now() + NEW_MS;
+    if (waiting.length) setFresh((m) => new Map([...m, ...waiting.map((k) => [k, until] as const)]));
+    setHeld([]);
+  };
+  return { fresh, held: waiting, release };
 }
 
 const today = () =>
@@ -181,6 +259,7 @@ function SetupCard({ setup }: { setup: SetupSummary }) {
 }
 
 function AiNow({ live }: { live: LiveSnapshot }) {
+  useClock();
   const n = live.training.length;
   return (
     <section className="oq-panel oq-panel-now" aria-labelledby="oq-now">
@@ -214,6 +293,7 @@ function AiNow({ live }: { live: LiveSnapshot }) {
 }
 
 function BrainFeed({ live }: { live: LiveSnapshot }) {
+  useClock();
   return (
     <section className="oq-panel oq-panel-brain" aria-labelledby="oq-brain">
       <div className="oq-panel-head">
@@ -282,23 +362,44 @@ function GettingBetter({ progress, failed, rules }: { progress: { weeks: Week[] 
   );
 }
 
+/** Up next's card and what the queue held when it was pinned. */
+type Pin = { key: string; seen: string[] };
+/** How long a finished card takes to leave (oq-card-out runs 120ms). */
+const LEAVE_MS = 140;
+const aheadLabel = (e: QueueEntry) =>
+  isSafety(e)
+    ? `Safety report${e.kind === "inbox" && e.item.clientName ? ` from ${e.item.clientName.split(" ")[0]}` : ""}`
+    : `More urgent: ${entryTitle(e)}`;
+
 export function TrainerToday({ state }: { state: State }) {
   const scope = useContext(WorkspaceScope);
   const inbox = useSharedInbox(scope);
   const live = useLive(`${state.user.tenantId}:${state.user.userId}`, state, true);
   const owner = state.user.role === "owner";
   const setupOpen = coachSetupOpen(state);
-  const rules = useOnce<{ suggestions: RuleSuggestion[] }>(owner ? "/brain/suggestions" : null);
-  const setup = useOnce<SetupSummary>(setupOpen ? "/setup" : null);
-  const progress = useOnce<{ weeks: Week[] }>("/brain/progress");
+  const rules = useOnce<{ suggestions: RuleSuggestion[] }>(scope, owner ? "/brain/suggestions" : null);
+  const setup = useOnce<SetupSummary>(scope, setupOpen ? "/setup" : null);
+  const progress = useOnce<{ weeks: Week[] }>(scope, "/brain/progress");
   const [later, setLater] = useWorkspaceValue<string[]>("today:later", []);
   const [doneHere, setDoneHere] = useWorkspaceValue<{ text: string; at: number }[]>("today:done", []);
+  // Up next keeps its card until the coach finishes it, moves it Later or
+  // picks another. Kept for the session like Later, so leaving Today and
+  // coming back shows the same card. `seen`: the queue when it was pinned;
+  // only what arrives after that is surfaced over it.
+  const [pin, setPin] = useWorkspaceValue<Pin | null>("today:pin", null);
   const [handled, setHandled] = useState<string[]>([]);
-  const [picked, setPicked] = useState<string | null>(null);
-  const [leaving, setLeaving] = useState(false);
-  const [notice, setNotice] = useState("");
-  const [held, setHeld] = useState<string[]>([]);
-  const hovering = useRef(false);
+  // The card just finished, shown leaving for LEAVE_MS. Its data is already gone.
+  const [leaving, setLeaving] = useState<QueueEntry | null>(null);
+  const [notice, setNotice] = useState<{ id: number; text: string } | null>(null);
+  const [focusRequest, setFocusRequest] = useState(0);
+  const noticeSeq = useRef(0);
+  const leaveTimer = useRef<number | undefined>(undefined);
+  const shownKey = useRef<string | null>(null);
+  const pointerInThen = useRef(false);
+  const focusPanel = useRef<HTMLElement>(null);
+  const focusTitle = useRef<HTMLHeadingElement>(null);
+  const thenPanel = useRef<HTMLElement>(null);
+  const thenTitle = useRef<HTMLHeadingElement>(null);
 
   const queue = useMemo(
     () =>
@@ -310,51 +411,107 @@ export function TrainerToday({ state }: { state: State }) {
       ),
     [inbox.items, rules.data, setup.data, later, handled],
   );
-  const ready = inbox.items !== null;
-  const fresh = useNewKeys(queue.map((e) => e.key), ready);
-  // Arrivals while the pointer is over the list wait in a pill.
-  useEffect(() => {
-    if (!hovering.current) return;
-    const added = [...fresh.keys()].filter((k) => !held.includes(k));
-    if (added.length) setHeld((h) => [...h, ...added]);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fresh]);
-  const visible = queue.filter((e) => !held.includes(e.key));
-  const focus = focusOf(visible, picked);
-  const rest = visible.filter((e) => e !== focus);
-  const waiting = decisionsWaiting(queue);
-  // Today's finished decisions: the server's count, plus any finished here
-  // since that count was taken.
-  const done = live.doneToday + doneHere.filter((d) => d.at > live.updatedAt).length;
+  // Ready once every source this page asked for has answered or failed, so
+  // rules and setup are part of the first picture, never arrivals.
+  const ready = inbox.items !== null && rules.settled && setup.settled;
+  const safety = new Set(queue.filter(isSafety).map((e) => e.key));
+  const arrivals = useArrivals(
+    queue.map((e) => e.key),
+    ready,
+    () => pointerInThen.current || !!thenPanel.current?.contains(document.activeElement),
+    (key) => safety.has(key),
+  );
+  const visible = queue.filter((e) => !arrivals.held.includes(e.key));
+  // The pinned card while it is in the queue, else the first visible one (pinned below).
+  const upcoming = ready ? focusOf(visible, pin?.key ?? null) : null;
+  const shown = leaving ?? upcoming;
+  const rest = ready ? visible.filter((e) => e.key !== upcoming?.key && e.key !== leaving?.key) : [];
+  const pinned = !leaving && pin && upcoming && pin.key === upcoming.key ? pin : null;
+  const ahead = pinned ? arrivalAhead(visible, upcoming, pinned.seen) : null;
+  // Today's decisions: finished (the server's count, with finishes on this
+  // tab applied at once) and still waiting. The rail shows the same numbers.
+  const { done, waiting, total } = todayProgress(inbox);
+  const finishedToday = doneHere.filter((d) => d.at >= startOfLocalDay());
   const first = state.user.name?.split(" ")[0] || "coach";
 
-  /** One decision finished: the card leaves, the next one rises from the queue. */
-  const finish = (message: string, apply: () => void) => {
-    setDoneHere((list) => [{ text: message, at: Date.now() }, ...list].slice(0, 30));
-    setNotice(message);
-    setPicked(null);
-    const run = () => {
-      apply();
-      setLeaving(false);
-    };
-    if (prefersReducedMotion()) return run();
-    setLeaving(true);
-    window.setTimeout(run, 140);
+  // Pin whatever Up next shows when nothing is pinned (first load, after a
+  // finish or Later) or the pinned item was resolved elsewhere.
+  useLayoutEffect(() => {
+    if (ready && !leaving && upcoming && pin?.key !== upcoming.key)
+      setPin({ key: upcoming.key, seen: visible.map((e) => e.key) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, leaving, upcoming?.key, pin?.key]);
+  useLayoutEffect(() => {
+    shownKey.current = shown?.key ?? null;
+  });
+  useEffect(() => () => window.clearTimeout(leaveTimer.current), []);
+
+  const releaseIfAway = () => {
+    if (!pointerInThen.current && !thenPanel.current?.contains(document.activeElement)) arrivals.release();
   };
-  const onInboxDone = (id: string, message: string) =>
-    finish(message, () => {
-      inbox.setItems((list) => list?.filter((i) => i.id !== id) ?? list);
-      window.dispatchEvent(new Event(INBOX_CHANGED));
-    });
-  const releaseHeld = () => setHeld([]);
+  // After a pick or a finish, focus goes to "Up next", unless the coach has
+  // already put it somewhere else (another panel, the Jump to dialog).
+  useEffect(() => {
+    if (!focusRequest) return;
+    const active = document.activeElement;
+    if (active && active !== document.body && !focusPanel.current?.contains(active)) return;
+    focusTitle.current?.focus();
+    releaseIfAway();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusRequest]);
+
+  const pick = (key: string) => {
+    setPin({ key, seen: visible.map((e) => e.key) });
+    setFocusRequest((n) => n + 1);
+  };
+  const moveLater = () => {
+    if (!upcoming) return;
+    const key = upcoming.key;
+    setLater((l) => [...l.filter((k) => k !== key), key]);
+    setPin(null);
+  };
+  /** One decision finished: its data goes now; on screen the card leaves, then the next one rises. */
+  const finish = (entry: QueueEntry, message: string, apply: () => void) => {
+    noticeSeq.current += 1;
+    setNotice({ id: noticeSeq.current, text: message });
+    setDoneHere((list) => [{ text: message, at: Date.now() }, ...list].slice(0, 30));
+    apply();
+    // A card the coach left while it was saving (they picked another) just goes.
+    if (shownKey.current !== entry.key) return;
+    const settle = () => {
+      leaveTimer.current = undefined;
+      setLeaving(null);
+      setPin((p) => (p?.key === entry.key ? null : p));
+      setFocusRequest((n) => n + 1);
+    };
+    window.clearTimeout(leaveTimer.current);
+    if (prefersReducedMotion()) return settle();
+    setLeaving(entry);
+    leaveTimer.current = window.setTimeout(settle, LEAVE_MS);
+  };
 
   const focusBody = (entry: QueueEntry): ReactNode =>
     entry.kind === "inbox" ? (
       <ul className="oq-inbox-focus">
-        <InboxCard key={entry.key} item={entry.item} onDone={onInboxDone} variant="focus" />
+        <InboxCard
+          key={entry.key}
+          item={entry.item}
+          variant="focus"
+          onDone={(id, message) => finish(entry, message, () => inbox.finish({ id }))}
+        />
       </ul>
     ) : entry.kind === "rule" ? (
-      <RuleCard suggestion={entry.suggestion} onDone={(m) => finish(m, () => setHandled((h) => [...h, entry.key]))} />
+      <RuleCard
+        key={entry.key}
+        suggestion={entry.suggestion}
+        onDone={(message) =>
+          finish(entry, message, () => {
+            setHandled((h) => [...h, entry.key]);
+            forgetSuggestion(scope, entry.suggestion.id);
+            inbox.finish({ rule: entry.suggestion.id });
+          })
+        }
+      />
     ) : (
       <SetupCard setup={entry.setup} />
     );
@@ -373,11 +530,11 @@ export function TrainerToday({ state }: { state: State }) {
                 : "Nothing needs you right now. Your AI keeps coaching."}
           </p>
         </div>
-        {ready && done + waiting > 0 && (
+        {ready && total > 0 && (
           <div className="oq-done">
-            <Ring done={done} total={done + waiting} />
+            <Ring done={done} total={total} />
             <span>
-              <strong><Counted value={done} /> of {done + waiting}</strong>
+              <strong><Counted value={done} /> of {total}</strong>
               <small className="muted">done today</small>
             </span>
           </div>
@@ -385,27 +542,33 @@ export function TrainerToday({ state }: { state: State }) {
       </header>
 
       {notice && (
-        <p className="notice success oq-notice" role="status" key={notice + done}>
-          <Check size={17} /> {notice}
+        <p key={notice.id} className="notice success oq-notice">
+          <Check size={17} aria-hidden="true" /> {notice.text}
         </p>
       )}
 
       <div className="oq-grid">
-        <section className="oq-focus" aria-labelledby="oq-focus-title">
+        <section className="oq-focus" aria-labelledby="oq-focus-title" ref={focusPanel}>
           <div className="oq-focus-head">
-            <h2 id="oq-focus-title">Up next</h2>
-            {focus && rest.length > 0 && (
-              <button
-                type="button"
-                className="text-button"
-                onClick={() => {
-                  setLater((l) => [...l.filter((k) => k !== focus.key), focus.key]);
-                  setPicked(null);
-                }}
-              >
-                <Clock size={15} /> Later today
-              </button>
-            )}
+            <h2 id="oq-focus-title" ref={focusTitle} tabIndex={-1}>Up next</h2>
+            <div className="oq-focus-tools">
+              {ahead && (
+                <button
+                  type="button"
+                  className={"oq-ahead" + (isSafety(ahead) ? " is-safety" : "")}
+                  onClick={() => pick(ahead.key)}
+                >
+                  {isSafety(ahead) && <AlertCircle size={15} aria-hidden="true" />}
+                  <span dir="auto">{aheadLabel(ahead)}</span>
+                  <span aria-hidden="true">·</span> Open now
+                </button>
+              )}
+              {upcoming && !leaving && rest.length > 0 && (
+                <button type="button" className="text-button" onClick={moveLater}>
+                  <Clock size={15} /> Later today
+                </button>
+              )}
+            </div>
           </div>
           {inbox.error && !inbox.items && (
             <p className="notice error" role="alert">
@@ -414,12 +577,12 @@ export function TrainerToday({ state }: { state: State }) {
             </p>
           )}
           {!ready && !inbox.error && <p className="muted" role="status">Loading what needs you…</p>}
-          {ready && focus && (
-            <div key={focus.key} className={"oq-focus-body" + (leaving ? " is-leaving" : "")}>
-              {focusBody(focus)}
+          {shown && (
+            <div key={shown.key} className={"oq-focus-body" + (leaving ? " is-leaving" : "")} inert={!!leaving}>
+              {focusBody(shown)}
             </div>
           )}
-          {ready && !focus && (
+          {ready && !shown && (
             <div className="oq-clear">
               <span className="oq-clear-mark" aria-hidden="true"><Check size={24} /></span>
               <h3>Nothing waits for you</h3>
@@ -431,39 +594,54 @@ export function TrainerToday({ state }: { state: State }) {
         <section
           className="oq-then"
           aria-labelledby="oq-then-title"
-          onPointerEnter={() => (hovering.current = true)}
+          ref={thenPanel}
+          onPointerEnter={() => {
+            pointerInThen.current = true;
+          }}
           onPointerLeave={() => {
-            hovering.current = false;
-            releaseHeld();
+            pointerInThen.current = false;
+            releaseIfAway();
+          }}
+          onBlur={(event) => {
+            if (!pointerInThen.current && !event.currentTarget.contains(event.relatedTarget as Node | null))
+              arrivals.release();
           }}
         >
           <div className="oq-then-head">
-            <h2 id="oq-then-title">Then <span className="muted">· {rest.length}</span></h2>
+            <h2 id="oq-then-title" ref={thenTitle} tabIndex={-1}>Then <span className="muted">· {rest.length}</span></h2>
             <span className="muted oq-small">Safety first, then oldest</span>
           </div>
-          {held.length > 0 && (
-            <button type="button" className="oq-pending" onClick={releaseHeld}>
-              {held.length} new · show
+          {arrivals.held.length > 0 && (
+            <button
+              type="button"
+              className="oq-pending"
+              onClick={() => {
+                // Focus first, so it does not go down with the pill.
+                thenTitle.current?.focus();
+                arrivals.release();
+              }}
+            >
+              {arrivals.held.length} new · show
             </button>
           )}
           {ready && !rest.length && <p className="muted oq-small">Nothing else waits.</p>}
           <ul className="oq-list">
             {rest.slice(0, 6).map((e) => (
-              <li key={e.key} className={fresh.has(e.key) ? "is-new" : ""}>
-                <button type="button" className="oq-row" onClick={() => setPicked(e.key)}>
+              <li key={e.key} className={arrivals.fresh.has(e.key) ? "is-new" : ""}>
+                <button type="button" className="oq-row" onClick={() => pick(e.key)}>
                   <span className={"oq-avatar" + (e.kind === "inbox" ? "" : " is-brain")} aria-hidden="true">
                     {e.kind === "inbox" ? (e.item.clientName ?? "?").slice(0, 1) : <Brain size={16} />}
                   </span>
                   <span className="oq-row-main">
                     <span className="oq-row-title" dir="auto">{entryTitle(e)}</span>
                     <span className="oq-row-meta">
-                      <span className={"oq-tag" + (e.kind === "inbox" && e.item.type === "safety" ? " is-safety" : "")}>
+                      <span className={"oq-tag" + (isSafety(e) ? " is-safety" : "")}>
                         {e.kind === "inbox" ? KIND_LABEL[e.item.type as keyof typeof KIND_LABEL] : e.kind === "rule" ? "Learning" : "Setup"}
                       </span>
                       {e.kind === "inbox" && e.item.clientName && <span>{e.item.clientName}</span>}
                     </span>
                   </span>
-                  {fresh.has(e.key) && <span className="oq-new">New</span>}
+                  {arrivals.fresh.has(e.key) && <span className="oq-new">New</span>}
                   <ChevronRight className="oq-go" size={16} aria-hidden="true" />
                 </button>
               </li>
@@ -476,9 +654,9 @@ export function TrainerToday({ state }: { state: State }) {
           )}
           <details className="oq-done-list">
             <summary>Done today · {done}</summary>
-            {doneHere.length ? (
+            {finishedToday.length ? (
               <ul>
-                {doneHere.slice(0, 8).map((d) => (
+                {finishedToday.slice(0, 8).map((d) => (
                   <li key={d.at}><Check size={14} aria-hidden="true" /> {d.text}</li>
                 ))}
               </ul>
@@ -492,6 +670,13 @@ export function TrainerToday({ state }: { state: State }) {
         <BrainFeed live={live} />
         <GettingBetter progress={progress.data} failed={progress.failed} rules={state.totals?.confirmedRules ?? null} />
       </div>
+
+      {/* Always mounted, out of the grid's flow; only the keyed child changes,
+          so each finish and each surfaced arrival is announced once. */}
+      <p className="sr-only" role="status">{notice && <span key={notice.id}>{notice.text}</span>}</p>
+      <p className="sr-only" aria-live="polite">
+        {ahead && <span key={ahead.key}>{aheadLabel(ahead)} came in. It is next after this card.</span>}
+      </p>
     </div>
   );
 }

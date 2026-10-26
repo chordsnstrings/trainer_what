@@ -451,11 +451,12 @@ export function registerBrainLearning(
       b = z.object({ version: z.number().int().positive() }).strict().parse(req.body);
     return db.tenant(a, async (tx) => {
       const rows = await tx.query(
-        "UPDATE records SET status='dismissed',version=version+1,updated_at=now() WHERE id=$1 AND kind='brain_suggestion' AND status='suggested' AND version=$2 RETURNING id",
+        "UPDATE records SET status='dismissed',version=version+1,updated_at=now() WHERE id=$1 AND kind='brain_suggestion' AND status='suggested' AND version=$2 RETURNING id,data->>'target' AS target",
         [uuid.parse((req.params as any).id), b.version],
       );
       if (!rows.length) throw fail(409, "SUGGESTION_CHANGED", "This suggestion changed; refresh first");
-      await event(tx, a, "brain.suggestion_dismissed", rows[0].id);
+      // The target lets Today count rule decisions only (trainer-inbox.ts).
+      await event(tx, a, "brain.suggestion_dismissed", rows[0].id, { target: rows[0].target === "nutrition" ? "nutrition" : "rule" });
       return { ok: true };
     });
   });

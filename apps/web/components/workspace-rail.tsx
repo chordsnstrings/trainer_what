@@ -1,8 +1,10 @@
 "use client";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { Pause, PanelLeft, PanelLeftClose, Play } from "lucide-react";
-import type { LiveSnapshot } from "./workspace-live";
+import { useLive, type LiveSnapshot } from "./workspace-live";
+import { todayProgress, useSharedInbox } from "./workspace-inbox-store";
 import { prefersReducedMotion } from "./motion";
+import type { State } from "./workspace-ui";
 
 /**
  * The trainer rail's own controls (docs/features/trainer-workspace.md):
@@ -52,17 +54,31 @@ export function useRailPrefs() {
   };
 }
 
-/** What the rail's status line says, in turn: only live, true facts. */
-export function tickerLines(live: LiveSnapshot | undefined, waiting: number): string[] {
+/** What the rail's status line says, in turn: only live, true facts.
+ * `progress` is today's decisions (workspace-inbox-store.ts todayProgress). */
+export function tickerLines(live: LiveSnapshot | undefined, progress: { done: number; waiting: number }): string[] {
   if (!live) return [];
   const lines: string[] = [];
   const training = live.training.length;
+  const { done, waiting } = progress;
   if (training) lines.push(`${training} ${training === 1 ? "client is" : "clients are"} training with your AI`);
   if (live.writing) lines.push(`Your Brain is writing ${live.writing === 1 ? "a plan" : `${live.writing} plans`}`);
   lines.push(waiting ? `${waiting} ${waiting === 1 ? "decision waits" : "decisions wait"} for you` : "Nothing waits for you");
-  if (live.doneToday) lines.push(`${live.doneToday} done today`);
+  if (done) lines.push(`${done} done today`);
   if (live.feed[0]) lines.push(live.feed[0].text);
   return lines;
+}
+
+/** The workspace scope the shared inbox is kept under (WorkspaceScope). */
+export const inboxScope = (state: State) =>
+  `${state.user.tenantId}:${state.user.userId}:${state.user.role}:${state.user.platformRole}`;
+
+/** The ticker with its own subscriptions, so a poll re-renders this line,
+ * never the page around it. */
+export function LiveTicker({ state, enabled, paused }: { state: State; enabled: boolean; paused: boolean }) {
+  const inbox = useSharedInbox(inboxScope(state), enabled);
+  const live = useLive(`${state.user.tenantId}:${state.user.userId}`, state, enabled);
+  return <RailTicker lines={enabled ? tickerLines(live, todayProgress(inbox)) : []} paused={paused} />;
 }
 
 /** One line of what is happening now, turning every five seconds. */
@@ -85,6 +101,9 @@ export function RailTicker({ lines, paused }: { lines: string[]; paused: boolean
   );
 }
 
+/** Action buttons whose names say what they do next; `data-on` marks the
+ * state for styling (a changing name and aria-pressed together would read
+ * "Play live motion, pressed"). */
 export function RailControls({ pinned, paused, setPinned, setPaused }: ReturnType<typeof useRailPrefs>) {
   const reduced = typeof window !== "undefined" && prefersReducedMotion();
   return (
@@ -92,7 +111,7 @@ export function RailControls({ pinned, paused, setPinned, setPaused }: ReturnTyp
       <button
         type="button"
         className="text-button rail-control"
-        aria-pressed={paused}
+        data-on={paused || undefined}
         disabled={reduced}
         onClick={() => setPaused(!paused)}
       >
@@ -102,7 +121,7 @@ export function RailControls({ pinned, paused, setPinned, setPaused }: ReturnTyp
       <button
         type="button"
         className="text-button rail-control rail-pin"
-        aria-pressed={pinned}
+        data-on={pinned || undefined}
         onClick={() => setPinned(!pinned)}
       >
         <span className="nav-icon">{pinned ? <PanelLeftClose size={16} aria-hidden="true" /> : <PanelLeft size={16} aria-hidden="true" />}</span>

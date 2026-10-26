@@ -351,10 +351,10 @@ Today while they are true.
 
 | Where | What moves | Code |
 |---|---|---|
-| Rail | Opens over the page on hover after 120 ms (no delay on keyboard focus), folds after 200 ms; labels stagger in 12 ms apart; the ink pill glides to the current page, a light pill follows the pointer; the Inbox count pops and haloes when an item arrives; the Today ring eases to its value | `app/trainer-rail.css`, `components/workspace-navigation.tsx` |
+| Rail | Opens over the page on hover after 120 ms (no delay on keyboard focus; Escape folds it at once), folds after 200 ms; group links appear with the panel, never before it; labels stagger in 12 ms apart; the ink pill glides to the current page, a light pill follows the pointer; the Inbox count pops and haloes when an item arrives; the Today ring eases to its value | `app/trainer-rail.css`, `components/workspace-navigation.tsx` |
 | Rail, live | Typing dots on My Brain while a plan is written, else a breathing dot on Clients while someone trains (one loop at a time); the ticker line changes every 5 s | `components/workspace-rail.tsx` |
 | Page to page | The page being left dims and lifts 4 px (`--motion-instant`); a 2 px bar runs at the top while the next page loads and carries on across the workspace's remount; the new page rises 16 px from below (a place further down the menu), drops 16 px from above (further up) or rises 8 px (anything else); loading blocks fade in after 160 ms | `app/workspace-transitions.css`, `components/workspace-transitions.tsx` |
-| Today | Bands rise in 30 ms apart; a finished card lifts away (`--motion-instant`, up 8 px, scale 0.97) and the next rises in (`--motion-base`); rows that arrive slide in and glow once; the done ring, workout bars and the 8-week bars ease to their values; a row lifts 1 px under the pointer and its arrow leans forward | `app/trainer-today.css`, `components/trainer-today.tsx` |
+| Today | Bands rise in 30 ms apart (from above when arriving from a place further down the menu); a finished card lifts away (`--motion-instant`, up 8 px, scale 0.97) and the next rises in (`--motion-base`); an urgent arrival's chip drops in beside "Up next"; rows that arrive slide in and glow once; the done ring, workout bars and the 8-week bars ease to their values; a row lifts 1 px under the pointer and its arrow leans forward | `app/trainer-today.css`, `components/trainer-today.tsx` |
 | Jump to | The menu rises in like a dialog; the backdrop fades | `app/workspace-transitions.css` |
 
 - Every animation and transition sits inside

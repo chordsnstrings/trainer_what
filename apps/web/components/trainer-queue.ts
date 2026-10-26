@@ -65,7 +65,7 @@ export function buildQueue(
   ];
 }
 
-/** The entry shown in Up next: the one the coach picked, else the first. */
+/** The entry shown in Up next: the one pinned (shown, or picked by the coach), else the first. */
 export function focusOf(queue: QueueEntry[], picked: string | null): QueueEntry | null {
   return (picked && queue.find((e) => e.key === picked)) || queue[0] || null;
 }
@@ -78,7 +78,32 @@ export function entryTitle(entry: QueueEntry): string {
   return next ? `Finish setup: ${next.label}` : "Finish setup";
 }
 
-/** Decisions waiting, for the header and the rail (setup is not a decision). */
+/** An inbox item the coach can finish now. A session that has not ended yet
+ * waits in the queue (its card links to Bookings) but is not a decision until
+ * attendance can be recorded. */
+export function isDecision(item: InboxItem): boolean {
+  return !(item.type === "booking" && !item.actions.includes("attended"));
+}
+
+/** Decisions waiting, for the header sentence (setup is not a decision). */
 export function decisionsWaiting(queue: QueueEntry[]): number {
-  return queue.filter((e) => e.kind !== "setup").length;
+  return queue.filter((e) => e.kind === "rule" || (e.kind === "inbox" && isDecision(e.item))).length;
+}
+
+/** A safety report or paused training: it never waits behind other work. */
+export const isSafety = (e: QueueEntry): boolean => e.kind === "inbox" && e.item.type === "safety";
+
+/**
+ * An inbox item that came in after the coach started on `focus` (its key is
+ * not in `seen`) and should not wait silently behind it: any safety report,
+ * or anything more urgent. First in queue order; the card on screen stays.
+ */
+export function arrivalAhead(visible: QueueEntry[], focus: QueueEntry | null, seen: readonly string[]): QueueEntry | null {
+  if (!focus) return null;
+  const known = new Set(seen);
+  return (
+    visible.find(
+      (e) => e.key !== focus.key && !known.has(e.key) && e.kind === "inbox" && (isSafety(e) || e.urgency < focus.urgency),
+    ) ?? null
+  );
 }

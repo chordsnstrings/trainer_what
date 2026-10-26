@@ -2,6 +2,7 @@
 import { memberApiUrl, memberHref } from "../lib/trainer-preview-routing";
 import { useT } from "../lib/i18n/react";
 import { useEffect, useState } from "react";
+import { INBOX_CHANGED } from "./workspace-inbox-store";
 
 async function api(path: string, method = "GET", body?: unknown) {
   const response = await fetch(memberApiUrl("/api/v1" + path), {
@@ -59,6 +60,8 @@ export function TrainingHoldReview({
                   note: form.get("note"),
                   reviewed: form.get("reviewed") === "on",
                 });
+                // The inbox, the rail and Today count it now, not at the next poll.
+                window.dispatchEvent(new Event(INBOX_CHANGED));
                 await load();
                 await onChange?.();
               } catch (e) {

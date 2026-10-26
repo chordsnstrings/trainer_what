@@ -101,6 +101,13 @@ export function operationsRoutes(
         if (screen.hold)
           await openTrainingHold(tx, a, a.userId, b.message, undefined, screen);
       }
+      // A coach reply that answers the member (they wrote last on an open
+      // request) finishes an inbox item; a follow-up does not (trainer-inbox.ts).
+      const last = r.data.messages.at(-1);
+      const answered =
+        a.role !== "subscriber" &&
+        r.status === "open" &&
+        last?.authorId === r.owner_user_id;
       r.data.messages.push({
         text: b.message,
         authorId: a.userId,
@@ -110,7 +117,7 @@ export function operationsRoutes(
         "UPDATE records SET data=$2,status=$3,updated_at=now() WHERE id=$1",
         [r.id, JSON.stringify(r.data), b.resolve ? "resolved" : "open"],
       );
-      await event(tx, a, "support.replied", r.id, { resolved: b.resolve });
+      await event(tx, a, "support.replied", r.id, { resolved: b.resolve, answered });
       return { ok: true };
     });
   });

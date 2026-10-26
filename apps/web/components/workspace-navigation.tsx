@@ -4,7 +4,10 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import { Calendar, CheckCircle, ChevronDown, Globe, Inbox, Brain, Settings, Users, Wallet, Shield, Activity } from "lucide-react";
 import { CLIENT_TOOLS, moreGroups, SETUP_HREF } from "./workspace-nav";
 import type { State } from "./workspace-ui";
-import type { LiveSnapshot } from "./workspace-live";
+import { useLive, type LiveSnapshot } from "./workspace-live";
+import { todayProgress, useSharedInbox } from "./workspace-inbox-store";
+import { inboxScope } from "./workspace-rail";
+import { setAppBadge } from "./pwa";
 import { prefersReducedMotion } from "./motion";
 
 type Item = [label: string, href: string];
@@ -74,6 +77,23 @@ function useRailPills(nav: React.RefObject<HTMLElement | null>, enabled: boolean
     }
     place(next);
     lastPill = next;
+    // Anything above the page's item can move it without a new address: a
+    // group opened or closed, the folded rail hiding group bodies, the
+    // drawer becoming the rail past 900px. The pill follows.
+    const follow = () => {
+      const at = { top: target.offsetTop, height: target.offsetHeight };
+      if (lastPill && at.top === lastPill.top && at.height === lastPill.height) return;
+      place(at);
+      lastPill = at;
+    };
+    const observer = new ResizeObserver(follow);
+    for (const child of el.querySelectorAll(":scope > :not(.rail-pill, .rail-hover)")) observer.observe(child);
+    const wide = matchMedia("(width > 900px)");
+    wide.addEventListener("change", follow);
+    return () => {
+      observer.disconnect();
+      wide.removeEventListener("change", follow);
+    };
   }, [nav, enabled, path]);
   const onPointerMove = (event: React.PointerEvent) => {
     const h = hover.current, el = nav.current;
@@ -88,10 +108,34 @@ function useRailPills(nav: React.RefObject<HTMLElement | null>, enabled: boolean
   return { pill, hover, onPointerMove, onPointerLeave };
 }
 
-export function WorkspaceNavigation({ state, path, count, setupOpen, live, safety = false, rail = false }: {
+/**
+ * The menu with its live values. It subscribes to the shared inbox and the
+ * live picture itself, so a poll re-renders the menu, never the page. The
+ * inbox count also goes on the installed app's icon.
+ */
+export function WorkspaceMenu({ state, path, setupOpen, rail, coach, liveOn }: {
+  state: State; path: string; setupOpen: boolean; rail: boolean;
+  /** Owners and staff in the coaching workspace: they have an inbox. */
+  coach: boolean;
+  /** The rail's live instruments are on screen (wider than 900px). */
+  liveOn: boolean;
+}) {
+  const inbox = useSharedInbox(inboxScope(state), coach);
+  const live = useLive(`${state.user.tenantId}:${state.user.userId}`, state, coach && liveOn);
+  const count = coach ? inbox.count : 0;
+  useEffect(() => { if (coach) setAppBadge(count); }, [coach, count]);
+  const progress = todayProgress(inbox);
+  return <WorkspaceNavigation state={state} path={path} count={count} setupOpen={setupOpen}
+    live={coach && liveOn ? live : undefined} progress={coach ? progress : undefined}
+    safety={coach && !!inbox.items?.some((item) => item.type === "safety")} rail={rail} />;
+}
+
+export function WorkspaceNavigation({ state, path, count, setupOpen, live, progress, safety = false, rail = false }: {
   state: State; path: string; count: number; setupOpen: boolean;
   /** The live picture (workspace-live.ts) for owners and staff. */
   live?: LiveSnapshot;
+  /** Today's decisions, finished and in all (workspace-inbox-store.ts). */
+  progress?: { done: number; total: number };
   /** A safety item is waiting: the Inbox count turns red. */
   safety?: boolean;
   /** The trainer rail: pills, live instruments. */
@@ -107,7 +151,7 @@ export function WorkspaceNavigation({ state, path, count, setupOpen, live, safet
   const nav = useRef<HTMLElement>(null);
   const pills = useRailPills(nav, rail && !admin, path);
   const instruments = rail && !admin && role !== "finance" && !!live;
-  const done = live?.doneToday ?? 0, total = done + count;
+  const done = progress?.done ?? 0, total = progress?.total ?? 0;
   const training = live?.training.length ?? 0, writing = live?.writing ?? 0;
   const inboxArrival = useArrival("inbox", count), trainingArrival = useArrival("training", training);
   // One live loop at a time: the Brain writing, else clients training.

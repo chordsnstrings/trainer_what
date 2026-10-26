@@ -9,11 +9,8 @@ import {
   TrainerMore,
   TrainerTabBar,
   trainerTitle,
-  useInboxCount,
-  useInboxSafety,
 } from "./workspace-nav";
-import { useLive } from "./workspace-live";
-import { RailControls, RailTicker, tickerLines, useRailPrefs } from "./workspace-rail";
+import { LiveTicker, RailControls, inboxScope, useRailPrefs } from "./workspace-rail";
 import { TeamControls } from "./team-controls";
 import { CoachSwitcher } from "./joining";
 import { AdminComplimentaryAccess } from "./complimentary-access";
@@ -128,7 +125,7 @@ import {
 import { usePathname } from "next/navigation";
 import { useRouter } from "./preview-navigation";
 import Link from "./preview-navigation";
-import { WorkspaceNavigation } from "./workspace-navigation";
+import { WorkspaceMenu } from "./workspace-navigation";
 import { WorkspaceScope, WorkspaceContinuity, clearWorkspaceViews, flushWorkspaceEdits } from "./workspace-continuity";
 import { WorkspaceFeedback, confirmWorkspace } from "./workspace-feedback";
 import { JumpMenu, RouteBar, useRouteArrival } from "./workspace-transitions";
@@ -271,6 +268,19 @@ function WorkspaceSwitcher({
     </label>
   );
 }
+/** A rail folded with Escape opens again once the pointer has left and focus
+ * is outside it, so the next hover or Tab works as usual. */
+function settleRail(event: React.SyntheticEvent<HTMLElement>) {
+  const panel = event.currentTarget;
+  requestAnimationFrame(() => {
+    if (!panel.matches(":hover") && !panel.contains(document.activeElement)) panel.removeAttribute("data-dismissed");
+  });
+}
+/** Focus moving to another rail item after Escape opens the rail again, so
+ * its labels and group links are there for the keyboard. */
+function reopenRail(event: React.FocusEvent<HTMLElement>) {
+  if (event.relatedTarget && event.currentTarget.contains(event.relatedTarget as Node)) event.currentTarget.removeAttribute("data-dismissed");
+}
 function PlainShell({
   children,
   className,
@@ -364,27 +374,15 @@ export default function Workspace({
   shownState.current = state;
   // This release's service worker; members choose when a new one reloads.
   const serviceWorker = useAppServiceWorker(!preview && path.startsWith("/app"));
-  // Open inbox items for the Inbox tab and the app icon (coaches only);
-  // refreshed with every workspace reload.
-  const inboxCount = useInboxCount(
-    !!state &&
-      ["owner", "staff"].includes(state.user.role) &&
-      path.startsWith("/trainer"),
-    state,
-  );
-  // The trainer rail's live picture and the safety colour on its Inbox count
-  // (owners and staff in the coaching workspace; components/workspace-live.ts).
-  const coachLive =
+  // Owners and staff in the coaching workspace have an inbox (its count on
+  // the menu, the tab bar and the app icon) and, on the rail, the live
+  // picture. The menu, ticker and tab bar subscribe to those stores
+  // themselves, so a poll never re-renders the page here.
+  const coach =
     !!state &&
     ["owner", "staff"].includes(state.user.role) &&
-    path.startsWith("/trainer") &&
-    !state.platformWorkspace;
-  const inboxSafety = useInboxSafety(coachLive, state);
-  const live = useLive(
-    state ? `${state.user.tenantId}:${state.user.userId}` : "",
-    state,
-    coachLive,
-  );
+    path.startsWith("/trainer");
+  const coachLive = coach && !state?.platformWorkspace && !compactNav;
   const railPrefs = useRailPrefs();
   // How the page arrived, for the page-to-page motion (workspace-transitions.tsx).
   const arrival = useRouteArrival(path, !loading && !!state);
@@ -568,6 +566,21 @@ export default function Workspace({
     document.addEventListener("keydown", keydown);
     return () => { document.removeEventListener("keydown", keydown); previous?.focus(); };
   }, [mobile]);
+  // WCAG 1.4.13: Escape folds the trainer rail that hover or keyboard focus
+  // opened over the page (app/trainer-rail.css [data-dismissed]). Wider than
+  // 900px only, never inside a dialog, never preventDefault: the drawer's
+  // Escape above, Jump to and page dialogs keep theirs.
+  useEffect(() => {
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
+      if ((event.target as Element | null)?.closest?.("dialog") || !matchMedia("(width > 900px)").matches) return;
+      const panel = document.querySelector<HTMLElement>(".workspace.is-rail:not(.is-pinned) .sidebar-panel");
+      if (!panel || panel.hasAttribute("data-dismissed")) return;
+      if (panel.matches(":hover") || panel.contains(document.activeElement)) panel.setAttribute("data-dismissed", "");
+    };
+    document.addEventListener("keydown", keydown);
+    return () => document.removeEventListener("keydown", keydown);
+  }, []);
   // Enrolling an authenticator clears the Superadmin setup banner.
   useEffect(() => {
     const refresh = () => void load();
@@ -1257,7 +1270,7 @@ export default function Workspace({
       <MemberLanguage member={`${state.user.tenantId}:${state.user.userId}`} />
       {!path.startsWith("/admin") && <MemberAppManifest tenantId={state.tenant.id} role={state.user.role} />}
       <aside className={"sidebar " + (mobile ? "is-open" : "")} inert={compactNav && !mobile} aria-label="Workspace navigation">
-        <div className="sidebar-panel">
+        <div className="sidebar-panel" onPointerLeave={settleRail} onBlur={settleRail} onFocus={reopenRail}>
         <Link href={path.startsWith("/admin") || state.platformWorkspace ? "/admin" : "/trainer"} className="wordmark">
           {rail && (
             <span className="rail-mark" aria-hidden="true">
@@ -1298,9 +1311,9 @@ export default function Workspace({
           current={state.user.tenantId}
           userId={state.user.userId}
         />
-        <WorkspaceNavigation state={state} path={path} count={inboxCount} setupOpen={setupOpen} live={coachLive ? live : undefined} safety={inboxSafety} rail={rail} />
+        <WorkspaceMenu state={state} path={path} setupOpen={setupOpen} rail={rail} coach={coach} liveOn={coachLive} />
         <div className="sidebar-bottom">
-          {rail && <RailTicker lines={tickerLines(coachLive ? live : undefined, inboxCount)} paused={railPrefs.paused} />}
+          {rail && <LiveTicker state={state} enabled={coachLive} paused={railPrefs.paused} />}
           {rail && <RailControls {...railPrefs} />}
           <button className="text-button" onClick={() => void signOut()}>
             <span className="nav-icon"><LogOut size={15} /></span><span className="nav-label">Sign out</span>
@@ -1354,7 +1367,8 @@ export default function Workspace({
           <TrainerTabBar
             role={state.user.role}
             path={path}
-            inboxCount={inboxCount}
+            inboxScope={inboxScope(state)}
+            coach={coach}
           />
         )}
         <footer className="workspace-footer">

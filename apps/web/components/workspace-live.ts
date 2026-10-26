@@ -6,11 +6,12 @@ import { INBOX_CHANGED } from "./workspace-inbox-store";
 /**
  * The trainer workspace's live picture (docs/features/trainer-workspace.md,
  * "Today"): who is training with the coach's AI right now, what the Brain
- * did, whether it is writing a plan, and how many decisions the coach has
- * finished today. Seeded from /bootstrap (no extra request when a page
- * opens), then refreshed once a minute while the tab is visible, for owners
- * and staff only. Every value comes from records and events the workspace
- * can already read; nothing here is estimated.
+ * did, and whether it is writing a plan. Seeded from /bootstrap (no extra
+ * request when a page opens), then refreshed once a minute while the tab is
+ * visible, for owners and staff only. Every value comes from records and
+ * events the workspace can already read; nothing here is estimated. The
+ * decisions finished today come from the server with the inbox
+ * (workspace-inbox-store.ts), not from here.
  */
 
 export type LiveTraining = {
@@ -35,8 +36,7 @@ export type LiveSnapshot = {
   feed: FeedItem[];
   /** Plans the Brain started writing in the last 30 minutes and has not finished. */
   writing: number;
-  /** Decisions the signed-in coach finished since local midnight. */
-  doneToday: number;
+  /** When the data was read (not when it was last shown). */
   updatedAt: number;
 };
 
@@ -56,18 +56,6 @@ export const TRAINING_WINDOW_MS = 3 * 3600_000;
 /** A plan still being written after this long is shown as stalled, not live. */
 export const WRITING_WINDOW_MS = 30 * 60_000;
 
-/** Coach actions that finish a decision, as recorded in the events table. */
-export const DONE_EVENTS = new Set([
-  "exception.resolved",
-  "brain.plan_reviewed",
-  "brain.plan_rejected",
-  "safety.hold_resolved",
-  "booking.outcome",
-  "support.replied",
-  "brain.suggestion_confirmed",
-  "brain.suggestion_dismissed",
-]);
-
 const PLAN_FINISHED = new Set([
   "brain.plan_delivered",
   "brain.plan_review_required",
@@ -76,11 +64,6 @@ const PLAN_FINISHED = new Set([
 ]);
 
 const ms = (iso: string) => Date.parse(iso) || 0;
-const startOfLocalDay = (now: number) => {
-  const d = new Date(now);
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
-};
 
 export function nameMap(members: any[] | undefined): Map<string, string> {
   return new Map(
@@ -143,14 +126,6 @@ export function plansBeingWritten(events: EventRow[], now: number): number {
       e.name === "brain.plan_generation_started" &&
       !finished.has(e.subject_id) &&
       now - ms(e.created_at) <= WRITING_WINDOW_MS,
-  ).length;
-}
-
-/** Decisions this coach finished since local midnight. */
-export function doneToday(events: EventRow[], userId: string, now: number): number {
-  const since = startOfLocalDay(now);
-  return events.filter(
-    (e) => e.actor_id === userId && DONE_EVENTS.has(e.name) && ms(e.created_at) >= since,
   ).length;
 }
 
@@ -218,7 +193,6 @@ export function deriveLive(
     training: deriveTraining(input.workouts, input.sets, names, now),
     feed: deriveFeed(input.events, names, userId),
     writing: plansBeingWritten(input.events, now),
-    doneToday: doneToday(input.events, userId, now),
   };
 }
 
@@ -239,7 +213,7 @@ type Entry = {
   stop?: () => void;
   pending?: Promise<void>;
 };
-const EMPTY: LiveSnapshot = { training: [], feed: [], writing: 0, doneToday: 0, updatedAt: 0 };
+const EMPTY: LiveSnapshot = { training: [], feed: [], writing: 0, updatedAt: 0 };
 /** Bootstrap payloads already used, so a re-render of an older page never
  * replaces a fresher minute's refresh. */
 const seeded = new WeakSet<object>();
@@ -247,26 +221,34 @@ const entries = new Map<string, Entry>();
 /** Refresh interval while the tab is visible. */
 export const LIVE_REFRESH_MS = 60_000;
 
+/** Derives the picture now; listeners hear it only when it changed, so the
+ * half-minute clock re-renders nothing unless the training window moved. */
 function publish(e: Entry) {
   if (!e.source) return;
-  e.snapshot = { ...deriveLive(e.source, e.userId, Date.now()), updatedAt: Date.now() };
+  const derived = deriveLive(e.source, e.userId, Date.now());
+  const { updatedAt: _, ...last } = e.snapshot;
+  if (e.snapshot !== EMPTY && JSON.stringify(derived) === JSON.stringify(last)) return;
+  e.snapshot = { ...derived, updatedAt: e.source.at };
   for (const listener of e.listeners) listener();
 }
 
-function refresh(e: Entry) {
+/** Reads the picture again. `eventsOnly` after the coach acts: an action
+ * changes the feed, never who is training. */
+function refresh(e: Entry, eventsOnly = false): Promise<void> {
   if (e.pending) return e.pending;
+  const started = Date.now();
   e.pending = Promise.all([
     api("/workspace/pages/events?limit=100"),
-    api("/workspace/pages/records?kind=workout&status=active&limit=20"),
-    api("/workspace/pages/sets?limit=100"),
+    eventsOnly && e.source ? null : api("/workspace/pages/records?kind=workout&status=active&limit=20"),
+    eventsOnly && e.source ? null : api("/workspace/pages/sets?limit=100"),
   ])
     .then(([events, workouts, sets]) => {
       e.source = {
         events: events.items ?? [],
-        workouts: workouts.items ?? [],
-        sets: sets.items ?? [],
+        workouts: workouts ? (workouts.items ?? []) : (e.source?.workouts ?? []),
+        sets: sets ? (sets.items ?? []) : (e.source?.sets ?? []),
         members: e.source?.members,
-        at: Date.now(),
+        at: started,
       };
       publish(e);
     })
@@ -320,11 +302,17 @@ export function useLive(scope: string, state: State | null, enabled: boolean) {
           if (document.visibilityState === "visible") void refresh(entry);
         };
         const timer = window.setInterval(tick, LIVE_REFRESH_MS);
-        // The coach just finished something: the done count and feed follow.
-        const acted = () => void refresh(entry);
+        // The coach just finished something: the feed follows, after any
+        // read already in flight (which may predate the action).
+        const acted = () => {
+          if (entry.pending) void entry.pending.then(() => refresh(entry, true));
+          else void refresh(entry, true);
+        };
         window.addEventListener(INBOX_CHANGED, acted);
-        // Relative times ("2 min ago") and the training window move on their own.
-        const clock = window.setInterval(() => publish(entry), 30_000);
+        // The training window and the writing window move on their own.
+        const clock = window.setInterval(() => {
+          if (document.visibilityState === "visible") publish(entry);
+        }, 30_000);
         const cleared = () => {
           entry.source = null;
           entry.snapshot = EMPTY;

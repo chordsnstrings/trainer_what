@@ -2,6 +2,7 @@
 import { WebsiteQuickEdit } from "./website-quick-edit";
 import "../app/site-builder-editor.css";
 import { confirmWorkspace } from "./workspace-feedback";
+import { useSaveBeforeLeave } from "./workspace-continuity";
 import { useSearchParams } from "next/navigation";
 
 import {
@@ -571,6 +572,13 @@ function DesktopSiteBuilder({ tenant, returnTo }: { tenant: EditorTenant; return
     const timer = window.setTimeout(() => void saveNow(), 1100);
     return () => window.clearTimeout(timer);
   }, [draft, dirty, busy, saveNow, saveTick]);
+  // Any way out of the Studio inside the workspace (a menu link, Jump to)
+  // saves the draft first; a conflict or an invalid draft keeps the coach
+  // here with its message on screen (workspace-continuity.tsx).
+  useSaveBeforeLeave(
+    () => !!historyRef.current && JSON.stringify(historyRef.current.present) !== savedJson.current,
+    async () => !!(await saveNow()),
+  );
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => {
       if (

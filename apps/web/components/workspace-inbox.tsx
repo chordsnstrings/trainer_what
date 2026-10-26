@@ -18,7 +18,7 @@ import {
 import { formatWhen } from "../lib/format";
 import { api, Badge, Card, Empty, type State } from "./workspace-ui";
 import { coachSetupOpen } from "./superadmin-access";
-import { INBOX_CHANGED, SETUP_HREF } from "./workspace-nav";
+import { SETUP_HREF } from "./workspace-nav";
 import { CoachingMessages } from "./training-workspace";
 
 /**
@@ -222,13 +222,13 @@ export function InboxCard({
       )}
       {item.ask && (
         <p className="inbox-ask" dir="auto">
-          <small>{item.clientName ? `${item.clientName.split(" ")[0]} asked` : "Your client asked"}</small>
+          <small dir="ltr">{item.clientName ? `${item.clientName.split(" ")[0]} asked` : "Your client asked"}</small>
           {item.ask}
         </p>
       )}
       {item.draft && mode !== "edit" && (
         <blockquote className="inbox-draft" dir="auto">
-          <small>Reply draft</small>
+          <small dir="ltr">Reply draft</small>
           {item.draft}
         </blockquote>
       )}
@@ -467,14 +467,14 @@ export function ChatList({
 }
 
 export function Inbox({ state, compact = false }: { state: State; compact?: boolean }) {
-  const { items, error, load, setItems } = useSharedInbox(useContext(WorkspaceScope));
+  const { items, error, load, finish } = useSharedInbox(useContext(WorkspaceScope));
   const chats = useChats(!compact);
   const [done, setDone] = useState(""),
     [view, setView] = useWorkspaceQuery("view", "todo");
   const onDone = (id: string, message: string) => {
-    setItems((list) => list?.filter((i) => i.id !== id) ?? list);
+    // Leaves the list and counts as done everywhere (the rail, Today).
+    finish({ id });
     setDone(message);
-    window.dispatchEvent(new Event(INBOX_CHANGED));
     void chats.load();
   };
   const unread = chats.chats?.filter((c) => c.awaitingReply).length ?? 0;

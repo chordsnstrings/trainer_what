@@ -6,17 +6,19 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import {
+  arrivalAhead,
   buildQueue,
   decisionsWaiting,
   entryTitle,
   focusOf,
+  isDecision,
   type RuleSuggestion,
   type SetupSummary,
 } from "../apps/web/components/trainer-queue.ts";
+import { todayProgress } from "../apps/web/components/workspace-inbox-store.ts";
 import {
   deriveFeed,
   deriveTraining,
-  doneToday,
   nameMap,
   plannedSets,
   plansBeingWritten,
@@ -97,6 +99,42 @@ test("finished setup leaves the queue, and Later today moves items to the end in
   assert.equal(focusOf([], null), null);
 });
 
+test("Up next keeps its card; a safety report or anything more urgent shows beside it", () => {
+  const inbox = [
+    item("plan", "plan_draft", 3, "2026-10-26T08:00:00Z"),
+    item("reply", "reply_draft", 1, "2026-10-26T07:00:00Z"),
+  ];
+  const before = buildQueue(inbox, [], null);
+  const seen = before.map((e) => e.key);
+  assert.equal(arrivalAhead(before, focusOf(before, "plan"), seen), null, "nothing new yet");
+  // New after the coach started on the plan: a safety report and a booking.
+  const after = buildQueue(
+    [...inbox, item("safety", "safety", 0, "2026-10-26T09:00:00Z"), item("visit", "booking", 4, "2026-10-26T09:00:00Z")],
+    [],
+    null,
+  );
+  // The pinned card stays on screen; the safety report is surfaced.
+  assert.equal(focusOf(after, "plan")?.key, "plan");
+  assert.equal(arrivalAhead(after, focusOf(after, "plan"), seen)?.key, "safety");
+  // A less urgent arrival is not; a pick with everything seen surfaces nothing.
+  assert.equal(arrivalAhead(after.filter((e) => e.key !== "safety"), focusOf(after, "plan"), seen), null);
+  assert.equal(arrivalAhead(after, focusOf(after, "safety"), after.map((e) => e.key)), null);
+});
+
+test("sessions that have not ended wait in the queue but are not decisions yet", () => {
+  const upcoming = { ...item("soon", "booking", 4, "2026-10-26T12:00:00Z"), actions: ["review"] };
+  const ended = { ...item("past", "booking", 3, "2026-10-26T06:00:00Z"), actions: ["attended", "no_show"] };
+  const reply = item("reply", "reply_draft", 1, "2026-10-26T07:00:00Z");
+  assert.equal(isDecision(upcoming), false);
+  assert.equal(isDecision(ended), true);
+  const queue = buildQueue([upcoming, ended, reply], [rule("r1", "2026-10-26T06:00:00Z")], setup(1, 2));
+  assert.equal(decisionsWaiting(queue), 3);
+  // The ring on Today and on the rail: the server's done count, inbox
+  // decisions and rule suggestions waiting.
+  assert.deepEqual(todayProgress({ items: [upcoming, ended, reply], done: 4, rules: 1 }), { done: 4, waiting: 3, total: 7 });
+  assert.deepEqual(todayProgress({ items: null, done: 0, rules: 0 }), { done: 0, waiting: 0, total: 0 });
+});
+
 const NOW = Date.parse("2026-10-26T10:00:00Z");
 const members = [
   { id: "u1", name: "Lina Haddad" },
@@ -136,7 +174,7 @@ test("clients training now come from active workouts started in the last three h
   assert.equal(training[0].setsDone, 1);
 });
 
-test("plans being written, decisions done today and the Brain's feed come from events", () => {
+test("plans being written and the Brain's feed come from events", () => {
   const event = (id: string, name: string, at: string, actor: string | null = "u1", subject: string | null = null) => ({
     id,
     name,
@@ -157,13 +195,6 @@ test("plans being written, decisions done today and the Brain's feed come from e
     event("e10", "workout.completed", "2026-10-26T09:58:00Z", "u1"),
   ];
   assert.equal(plansBeingWritten(events, NOW), 1);
-  // Midnight is local: compare with a time zone free count.
-  const since = new Date(NOW);
-  since.setHours(0, 0, 0, 0);
-  const expected = events.filter(
-    (e) => e.actor_id === "coach" && ["exception.resolved", "brain.suggestion_confirmed", "support.replied"].includes(e.name) && Date.parse(e.created_at) >= since.getTime(),
-  ).length;
-  assert.equal(doneToday(events, "coach", NOW), expected);
   const feed = deriveFeed(events, nameMap(members), "coach", 3);
   assert.deepEqual(
     feed.map((f) => [f.by, f.text]),

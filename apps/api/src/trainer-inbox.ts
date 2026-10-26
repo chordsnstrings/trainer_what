@@ -113,6 +113,81 @@ export async function chatSummaries(
   }));
 }
 
+/**
+ * Whether the client's chat shows in the inbox as waiting for a reply: the
+ * client wrote last, and no open question or active hold already covers them
+ * (the same rule as the chat items in `inboxItems`). A coach reply to such a
+ * chat finishes that item (`chat.replied`, POST /messages).
+ */
+export async function chatAwaitingReply(tx: Tx, clientId: string): Promise<boolean> {
+  const [row] = await tx.query(
+    `SELECT
+       (SELECT data->>'author' FROM records WHERE kind='message' AND owner_user_id=$1::uuid
+         ORDER BY created_at DESC, id DESC LIMIT 1) AS author,
+       EXISTS (SELECT 1 FROM records WHERE kind='exception' AND status='open'
+         AND coalesce(data->>'subscriberId', owner_user_id::text)=$2::text) AS covered,
+       EXISTS (SELECT 1 FROM records WHERE kind='training_hold' AND status='active'
+         AND owner_user_id=$1::uuid) AS held`,
+    [clientId, clientId],
+  );
+  return row?.author === "subscriber" && !row.covered && !row.held;
+}
+
+/** Coach actions that finish an inbox item or a rule suggestion, as events.
+ * Each is written once per item by a status/version-guarded update, so the
+ * key below counts every finished decision once. */
+const DONE_EVENTS = [
+  "exception.resolved",
+  "brain.plan_reviewed",
+  "brain.plan_rejected",
+  "safety.hold_resolved",
+  "booking.outcome",
+  "support.replied",
+  "chat.replied",
+  "brain.suggestion_confirmed",
+  "brain.suggestion_dismissed",
+];
+const DAY_MS = 24 * 3600_000;
+/** The start of the coach's local day, sent by the browser as epoch ms.
+ * Anything missing or implausible falls back to the last 24 hours. */
+export function doneSince(raw: unknown, now = Date.now()): Date {
+  const ms = typeof raw === "string" && /^\d{1,15}$/.test(raw) ? Number(raw) : NaN;
+  return new Date(ms >= now - DAY_MS - 2 * 3600_000 && ms <= now + 60_000 ? ms : now - DAY_MS);
+}
+
+/** Decisions this coach finished since `since`, one key per item. Owner and
+ * staff read events through the tenant's row policies; no row limit. */
+export async function doneToday(tx: Tx, a: Actor, since: Date): Promise<string[]> {
+  const rows = await tx.query(
+    `SELECT key FROM (
+       SELECT CASE
+         WHEN name='exception.resolved' THEN 'exception:'||subject_id
+         WHEN name IN ('brain.plan_reviewed','brain.plan_rejected') THEN 'plan:'||subject_id
+         WHEN name='safety.hold_resolved' THEN 'hold:'||subject_id
+         WHEN name='booking.outcome' THEN 'booking:'||subject_id
+         WHEN name IN ('brain.suggestion_confirmed','brain.suggestion_dismissed') THEN 'rule:'||subject_id
+         ELSE name||':'||id
+       END AS key, created_at
+       FROM events
+       WHERE actor_id=$1 AND created_at>=$2::timestamptz AND name=ANY($3::text[])
+         AND coalesce(data->>'answered','true')<>'false'
+         AND coalesce(data->>'target','rule')<>'nutrition'
+         AND data->>'nutritionCaseId' IS NULL
+     ) d GROUP BY key ORDER BY min(created_at)`,
+    [a.userId, since.toISOString(), DONE_EVENTS],
+  );
+  return rows.map((r) => String(r.key));
+}
+
+/** Rule suggestions waiting for the owner (Today's "Make this a rule?"). */
+async function rulesWaiting(tx: Tx, a: Actor): Promise<number> {
+  if (a.role !== "owner") return 0;
+  const [row] = await tx.query(
+    "SELECT count(*)::int AS n FROM records WHERE kind='brain_suggestion' AND status='suggested' AND coalesce(data->>'target','rule')<>'nutrition'",
+  );
+  return Number(row?.n ?? 0);
+}
+
 export async function inboxItems(tx: Tx, a: Actor): Promise<InboxItem[]> {
   const items: InboxItem[] = [];
   const names = new Map<string, string>(
@@ -378,7 +453,15 @@ export function registerTrainerInbox(app: FastifyInstance, db: Database) {
       const items = await inboxItems(tx, a);
       const byType: Partial<Record<InboxType, number>> = {};
       for (const i of items) byType[i.type] = (byType[i.type] ?? 0) + 1;
-      return { items, counts: { total: items.length, byType } };
+      // Today's ring and the rail: what this coach finished since the start
+      // of their day (?since=, epoch ms) and the rule suggestions waiting.
+      const since = doneSince((req.query as Record<string, unknown> | undefined)?.since);
+      const done = await doneToday(tx, a, since);
+      return {
+        items,
+        counts: { total: items.length, byType, rules: await rulesWaiting(tx, a) },
+        done: { since: since.toISOString(), count: done.length },
+      };
     });
   });
   app.get("/api/v1/trainer/chats", async (req) => {
