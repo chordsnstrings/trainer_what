@@ -2,19 +2,20 @@
 
 ## Work in progress
 
-### Status at 11:15 UTC on 26 October 2026 (Claude)
+### Status at 11:22 UTC on 26 October 2026 (Claude)
 
-**Owner asked "is it live?" No. The site still serves `f5565b1`.** Neither #101 (Today, "One queue") nor #102 (phone menu) is live yet.
-- #101 (`d497572`) never deployed. Its `main` run (40301256607) had homepage-call cancelled at the 40-minute limit while apt downloaded ffmpeg at about 40 KB/s.
-- #102 on `2bf87f1` carries the phone menu, the four review fixes and `scripts/ci-apt-mirror.sh`.
-  - CI is 7/8 green. homepage-call passed in 5 minutes and postgres-and-container in 11; both were stuck in apt on the previous head.
-  - The application job is on its last browser journeys, after `npm run check` and browser-check passed.
+**#102 merged as `f1fbf8e` at 11:21 UTC. It also carries #101 (`d497572`). Not live yet.**
+- #102's PR CI was 8/8 green on `2bf87f1`; the merged head added only a handoff update.
+  - With `scripts/ci-apt-mirror.sh`, homepage-call took 5 minutes and postgres-and-container 11.
+- Now running:
+  - `main`'s check.yml push run on `f1fbf8e`;
+  - `scripts/watch-release.sh f1fbf8e 90`, which logs to the session's `watch-102.log`.
+- Expected live around 12:05 UTC.
 - **Next:**
-  - When application passes, mark #102 ready and squash-merge it. The head will be this handoff-only commit, whose code is identical to `2bf87f1`.
-  - Then `main`'s check run (about 35 minutes) and the deploy (about 10 minutes): expected live around 12:05 UTC.
-  - Then verify `/trainer`, the marketing pages and the phone menu live, and record the live time.
-- Earlier details: the 11:00 status in git history, and the 26 October stage entries in `docs/COMPLETION_STAGES.md`.
-- Waiting on the owner: nothing. The note stands: delete the stray `/oq-daily.log`.
+  - When live, verify `/trainer` (sign-in redirect), the marketing pages, and the phone menu markup and CSS.
+  - Then record the live time for #101 and #102 in `docs/COMPLETION_STAGES.md` and here, in a records PR from this branch, which was restarted from `main`.
+- If the `main` run fails: root-cause it from the job steps (the mirror probe's output shows any switch) and fix it with a new commit.
+- Waiting on the owner: nothing. Delete the stray `/oq-daily.log` when convenient.
 
 ### Home page as the owner's HTML design: live since 22:47 UTC on 25 October 2026 (Claude, checked 04:10 UTC on 26 Oct)
 
