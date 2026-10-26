@@ -2,13 +2,29 @@
 
 ## Work in progress
 
-### HTML home design taken off; multipage marketing design restored — 26 October 2026 (Claude)
+### Status at 04:50 UTC on 26 October 2026 (Claude)
 
-Owner: "the HTML design should be taken off. our previous marketing design is multipage one. let's get that back".
-- #96 (`af457bd`) is reverted, so the code is byte-identical to `e4e2f8c`: the multipage site with the motion work and the "trains" sweep.
-- #97's WHOOP check fix is kept.
-- The records stay; the memory rule is updated.
-- **Next:** fast checks, a PR, CI green, merge, then verify live on `/`, `/how-it-works`, `/pricing`, `/features` and `/earnings-calculator`, including that `mk-sweep` is served.
+**1. HTML home design taken off; multipage marketing design restored.**
+- Owner: "the HTML design should be taken off. our previous marketing design is multipage one. let's get that back".
+- PR #99 (head `196c5c2`) reverts #96 (`af457bd`). The code is byte-identical to `e4e2f8c`: the multipage site, its motion work and the "trains" sweep. #97's WHOOP check fix is kept.
+- PR CI: 7 of 8 jobs green; `application` was still running at 04:41 UTC.
+- **Next:** merge when green, then verify live on `/`, `/how-it-works`, `/pricing`, `/features` and `/earnings-calculator`, including that `mk-sweep` is served.
+
+**2. Trainer workspace favicon back to the trainsyou Y.**
+- Owner: "change the favicon back to what it was. currently it's KS".
+- Cause: signed in, `MemberAppManifest` (`apps/web/components/member-app-install.tsx`) swapped the tab and apple-touch icons for the workspace's install icon. The API draws that from the coach's initials when no logo is uploaded, hence "KS".
+- Fix: only members (`subscriber`) get the coach's tab and home-screen icons. The trainer workspace keeps `/brand/favicon.svg` and `/brand/favicon.ico`. The member app and coach websites are unchanged.
+- Checks: `tests/brand.test.ts` 12/12 (a new assertion covers this); web `tsc` clean.
+- Not changed: an installed trainer workspace on Android still takes its icon from the coach manifest, which uses the same initials icon.
+- **Next:** this ships as the next PR once #99 merges, so #99's CI is not restarted.
+
+**3. Trainer dashboard redesign: three concepts.**
+- Owner asked for 3 mockups of the trainer Today dashboard: less friction day to day and in onboarding; smooth page and sidebar animation; micro-animations; grid-structured; within the CI.
+- Canvas: https://claude.ai/artifact/XcN33J2FAHKNzieBDdBH2r (private to the owner).
+  - Concept A, "Guided Today", is published.
+  - Concepts B ("One queue") and C ("Day board") are being written.
+- The canvas uses trainsyou's colours, type and motion tokens from `apps/web/app/globals.css` and `motion.css`. Neither design system on the account is trainsyou's.
+- **Waiting on the owner:** a choice of concept before any implementation.
 
 ### Home page as the owner's HTML design: live since 22:47 UTC on 25 October 2026 (Claude, checked 04:10 UTC on 26 Oct)
 

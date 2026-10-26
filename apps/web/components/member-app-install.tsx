@@ -113,18 +113,23 @@ export function MemberAppManifest({
           swapLinks('link[rel="manifest"]', "manifest", install.manifestUrl, {
             crossorigin: "use-credentials",
           }),
-          swapLinks(
-            'link[rel="apple-touch-icon"]',
-            "apple-touch-icon",
-            install.icons.apple,
-            { sizes: "180x180" },
-          ),
-          swapLinks('link[rel="icon"]', "icon", install.icons.icon, {
-            type: "image/png",
-            sizes: "192x192",
-          }),
           swapMeta("apple-mobile-web-app-title", install.shortName),
         );
+        // Members get their coach's tab and home-screen icons. The trainer
+        // workspace keeps the trainsyou mark (owner, 26 October 2026).
+        if (role === "subscriber")
+          undo.push(
+            swapLinks(
+              'link[rel="apple-touch-icon"]',
+              "apple-touch-icon",
+              install.icons.apple,
+              { sizes: "180x180" },
+            ),
+            swapLinks('link[rel="icon"]', "icon", install.icons.icon, {
+              type: "image/png",
+              sizes: "192x192",
+            }),
+          );
         // A member's browser colour follows their appearance choice
         // (MemberAppearance in components/appearance.tsx); the trainer
         // workspace keeps the trainer's colour in both schemes.
