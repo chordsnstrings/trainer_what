@@ -2,20 +2,29 @@
 
 ## Work in progress
 
-### Status at 12:08 UTC on 26 October 2026 (Claude)
+### Status at 12:20 UTC on 26 October 2026 (Claude)
 
-**Live since 12:04 UTC: Today "One queue" (#101) and the phone menu (#102), as `main` HEAD `f1fbf8e`.**
-- `main` run 40314343561 passed all 8 jobs (homepage-call in 5 minutes with `scripts/ci-apt-mirror.sh`).
-- The watcher read `f1fbf8e` at 12:04:12 UTC.
-- Checked live:
-  - the five marketing pages answer 200 with the new menu markup;
-  - the served CSS carries the menu's exit and the four review fixes;
-  - `/trainer` answers 200, and its JavaScript carries the One queue strings ("Up next", "Jump to", "Your AI right now", "Pause live motion" and others), none of which were in `f5565b1`.
-- Recorded in `docs/COMPLETION_STAGES.md` (both 26 October entries) through records PR #103.
-- **Next:** merge #103 (Markdown only). Then nothing is open from these requests.
-- Waiting on the owner:
-  - a look at the new Today and the phone menu on a phone;
-  - deleting the stray `/oq-daily.log` (a safety check stopped Claude from removing it).
+**New request: a conversion-led marketing revamp, with three concepts for every page.**
+- Owner, 26 Oct: "ok now let's do the same for the marketing site. first understand what converts the most, research, and then let's revamp the marketing site which will have the best conversion along with a beautiful aesthetic design with smooth animation. give 3 different concepts, for all pages".
+- Running: research workflow `wf_aa03c418-771`. It covers:
+  - an audit of the current site from the code;
+  - sourced conversion evidence;
+  - a competitor teardown (Trainerize, TrueCoach, Everfit, Kahunas and AI-coach products);
+  - UAE trainer buyer research.
+  - Then a synthesis into a playbook, a page-by-page blueprint and three concept directions, an adversarial critique, and a revision.
+- **Next:**
+  - Build three clickable multipage prototypes covering every page template, with real content and no invented proof.
+  - Publish them as one artifact with the research findings.
+  - The owner then picks a concept. Implementation happens only after that.
+- **Constraints carried in:**
+  - multipage;
+  - AI coaching as the headline;
+  - "frontier model";
+  - always-on but smooth motion;
+  - AED, UAE and Arabic RTL;
+  - honest labels.
+- **Earlier today:** #101 (Today "One queue") and #102 (phone menu) have been live since 12:04 UTC as `f1fbf8e`; records are in #103.
+- Waiting on the owner: nothing yet. Delete the stray `/oq-daily.log` when convenient.
 
 ### Home page as the owner's HTML design: live since 22:47 UTC on 25 October 2026 (Claude, checked 04:10 UTC on 26 Oct)
 
