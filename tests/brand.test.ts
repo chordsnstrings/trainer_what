@@ -89,9 +89,6 @@ test("every supplied logo, icon and share image is in apps/web/public/brand at i
   await png(BRAND_ASSETS.appleTouchIcon, 180, 180, true);
   await png(BRAND_ASSETS.shareImage, 1200, 630, true);
   await png(BRAND_ASSETS.lockupInkPng, 2400, 608, false);
-  // The home design's lockup, as the owner supplied it (25 October 2026).
-  const pace = await sharp(await readFile(pub(BRAND_ASSETS.lockupPace))).metadata();
-  assert.deepEqual([pace.format, pace.width, pace.height], ["webp", 480, 95]);
   // The SVG logos are the supplied outlined artwork: ink for light surfaces,
   // white for dark ones, never retyped.
   for (const [asset, fill] of [
@@ -186,16 +183,14 @@ test("marketing pages share the trainsyou card on the home page and a branded pr
   assert.equal(acmeOrg.slogan, undefined);
 });
 
-test("the approved lines lead the home page and llms.txt", () => {
+test("the approved lines lead the home page, its description and llms.txt", () => {
   const home = marketingPage("/")!;
   // The home H1 says what happens; the brand line closes every page instead.
-  // The eyebrow, introduction and description are the owner's home design
-  // (25 October 2026), which opens with the audience and the descriptor.
   assert.equal(home.h1, BRAND_COPY.homeHeadline);
-  assert.ok(home.eyebrow.startsWith(BRAND_COPY.audience), home.eyebrow);
-  const descriptor = BRAND_COPY.descriptor[0].toLowerCase() + BRAND_COPY.descriptor.slice(1);
-  assert.ok(home.intro.startsWith(`{APP_NAME} is a ${descriptor} for personal trainers.`), home.intro);
-  assert.ok(home.description.startsWith("Teach your own AI how you coach"));
+  assert.equal(home.eyebrow, BRAND_COPY.audience.toUpperCase());
+  assert.ok(home.intro.startsWith("Teach your own AI how you coach"));
+  assert.ok(home.intro.includes("Build a paid coaching offering around your methods, your identity and your standards"));
+  assert.ok(home.description.startsWith(BRAND_COPY.line));
   const llms = llmsTxt({ origin: ORIGIN, appName: "trainsyou" });
   assert.ok(llms.includes(`${BRAND_COPY.descriptor}. ${BRAND_COPY.audience}. ${BRAND_COPY.line}`));
   assert.ok(llms.includes(BRAND_COPY.introduction));
@@ -234,25 +229,17 @@ test("the brand line is the closing heading on every marketing page; a renamed p
         origin: ORIGIN,
       }),
     );
-    // The home page closes with its design's end box.
-    const match = html.match(
-      path === "/"
-        ? /<section class="tyh-end"[^>]*>([\s\S]*?)<\/section>/
-        : /<section class="mk-closing"[^>]*>([\s\S]*?)<\/section>/,
-    );
+    const match = html.match(/<section class="mk-closing"[^>]*>([\s\S]*?)<\/section>/);
     assert.ok(match, path + " has a closing panel");
     return match[1];
   };
-  const panel = closing("/pricing");
-  assert.match(panel, new RegExp(`<h2[^>]*>${BRAND_COPY.line.replace(/\./g, "\\.")}</h2>`));
-  assert.match(panel, /Guided setup\. Nothing goes live until you publish\./);
-  assert.doesNotMatch(panel, /class="eyebrow"/, "the closing panel has no eyebrow");
-  const home = closing("/");
-  assert.match(home, /<h2 id="end-h" class="tyh-h2">Your coaching\.<br\/>Beyond your hours\.<\/h2>/);
-  assert.match(home, /Free to set up\. No subscription fee\. Nothing goes live until you publish\./);
-  assert.match(home, /href="\/how-it-works"/);
-  // Registration is closed in this platform: the design's buttons offer early access.
-  assert.match(home, /href="\/get-started#early-access">Join early access</);
+  for (const path of ["/", "/pricing"]) {
+    const panel = closing(path);
+    assert.match(panel, new RegExp(`<h2[^>]*>${BRAND_COPY.line.replace(/\./g, "\\.")}</h2>`), path);
+    assert.match(panel, /Guided setup\. Nothing goes live until you publish\./);
+    assert.doesNotMatch(panel, /class="eyebrow"/, "the closing panel has no eyebrow");
+  }
+  assert.match(closing("/"), /href="\/how-it-works"/);
   assert.match(closing("/pricing"), /href="\/follower-calculator"/);
   const acme = closing("/", "Acme Coaching");
   assert.match(acme, /<h2[^>]*>Ready to teach your AI\?<\/h2>/);

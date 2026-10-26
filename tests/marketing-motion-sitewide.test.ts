@@ -475,14 +475,7 @@ test("the marketing motion switch: one constant, on the marketing root and the a
   };
   await walk(web("app/"), "app/");
   await walk(web("components/"), "components/");
-  // The home design's root carries it too (components/marketing/home-design.tsx).
-  const home = await readFile(web("components/marketing/home-design.tsx"), "utf8");
-  assert.match(home, /<div className="tyh" id="tyh" data-mk-motion=\{MARKETING_MOTION\} suppressHydrationWarning>/);
-  assert.deepEqual(carriers.sort(), [
-    "components/marketing/assistant-button.tsx",
-    "components/marketing/home-design.tsx",
-    "components/marketing/site.tsx",
-  ]);
+  assert.deepEqual(carriers.sort(), ["components/marketing/assistant-button.tsx", "components/marketing/site.tsx"]);
 
   // CSS: every reduced-motion rule that reaches the marketing root or the
   // assistant host is kept and skips "always". Element rules: the device's
@@ -663,25 +656,16 @@ test("the script's motion values are the CSS tokens, and no animation library is
   assert.ok(staggers.length >= 9, `${staggers.length} item staggers`);
   assert.equal(Math.max(...staggers), MAX_STAGGER);
   // Marketing components import React, Next's link/router, the icon set, the
-  // workspace packages and each other: no animation library. The one
-  // exception is the owner's home design (25 October 2026: "exact copy of
-  // the HTML"), whose script runs its scroll scenes on GSAP.
+  // workspace packages and each other: no animation library.
   const dir = new URL("../apps/web/components/marketing/", import.meta.url);
-  const gsapUsers: string[] = [];
   for (const file of (await readdir(dir)).filter((f) => /\.tsx?$/.test(f))) {
     const source = await readFile(new URL(file, dir), "utf8");
-    for (const [, from] of source.matchAll(/(?:^|\n)\s*(?:import|export)[^;]*?from\s+"([^"]+)"/g)) {
-      if (/^gsap(\/ScrollTrigger)?$/.test(from)) {
-        gsapUsers.push(file);
-        continue;
-      }
+    for (const [, from] of source.matchAll(/(?:^|\n)\s*(?:import|export)[^;]*?from\s+"([^"]+)"/g))
       assert.ok(
         /^(react|next\/(link|navigation)|lucide-react|@trainer\/(contracts|domain)|\.{1,2}\/)/.test(from),
         `${file} imports ${from}`,
       );
-    }
   }
-  assert.deepEqual([...new Set(gsapUsers)], ["home-design-runtime.tsx"]);
   const motion = await readFile(new URL("motion.tsx", dir), "utf8");
   assert.deepEqual(
     [...motion.matchAll(/from\s+"([^"]+)"/g)].map((m) => m[1]),
@@ -741,6 +725,7 @@ test("one set of motion tokens; the journey player shares the sitewide press and
   assert.match(motion, /!unit\.closest\(NEVER\)/);
   const journey = await readFile(web("components/marketing/journey.tsx"), "utf8");
   assert.match(journey, /className="mk-section mk-walk-section"/);
+  assert.match(journey, /className="mk-home-band mk-home-paper mk-walk-band"/);
 });
 
 test("the concept pass (22 October 2026): pills, FAQ rows, the arrow hand-offs and the set ticks, each on its own trigger", async () => {
@@ -843,26 +828,20 @@ test("the concept pass (22 October 2026): pills, FAQ rows, the arrow hand-offs a
   );
 });
 
-test("the home design's first paint: the script's marker comes first, the entrances are CSS, nothing blocks rendering", async () => {
-  // The owner's home design (25 October 2026) hides its reveals behind a
-  // class its script sets before the first paint: an inline script as the
-  // root's first child, and a layout effect after a navigation in place.
-  const home = await readFile(web("components/marketing/home-design.tsx"), "utf8");
-  assert.match(
-    home,
-    /data-mk-motion=\{MARKETING_MOTION\} suppressHydrationWarning>\s+\{\/\*[^*]*\*\/\}\s+<script dangerouslySetInnerHTML=\{\{ __html: 'document\.getElementById\("tyh"\)\.classList\.add\("tyh-js"\)' \}\} \/>/,
-  );
-  const runtime = await readFile(web("components/marketing/home-design-runtime.tsx"), "utf8");
-  assert.match(runtime, /useLayoutEffect\(\(\) => \{\s+document\.getElementById\("tyh"\)\?\.classList\.add\("tyh-js"\);/);
-  // The two entrances that play on load are CSS, so they start with the first
-  // paint; the script never tweens the hero copy or the feed's entrance.
-  const css = cssRules(await readFile(web("app/home-design.css"), "utf8"));
-  assert.ok(css.some((r) => r.selector === ".tyh.tyh-js .tyh-hero-t > *" && r.declarations.some((d) => d.property === "animation" && d.value.startsWith("tyh-rise 700ms"))));
-  assert.ok(css.some((r) => r.selector === ".tyh.tyh-js .tyh-feed" && r.declarations.some((d) => d.property === "animation" && d.value.startsWith("tyh-feed-in 1s"))));
-  assert.doesNotMatch(runtime, /gsap\.from\("\.tyh-hero-t/);
-  // The old hero's render-blocking guard went with it.
+test("the home page's first paint waits for the whole hero copy (CLS 0 when the parser yields mid-hero)", async () => {
+  // The hero copy's two columns sit on their bottom edge, so a first paint
+  // between its buttons and the line under them moved the column up when
+  // the line arrived (0.0022 at 1366x900, 22 October 2026). A render-blocking
+  // rel=expect on the element right after the copy (the relay's caption)
+  // keeps the first paint whole.
   const site = await readFile(web("components/marketing/site.tsx"), "utf8");
-  for (const source of [site, home]) assert.doesNotMatch(source, /rel="expect"/);
+  const hero = site.match(/<section className="mk-hero" aria-labelledby="mk-hero-h">[\s\S]*?<HeroFlow /)![0];
+  assert.match(hero, /<link rel="expect" href="#mk-relay-cap" blocking="render" \/>/);
+  assert.ok(hero.indexOf('<link rel="expect"') < hero.indexOf('className="mk-hero-copy"'), "the link comes before the copy");
+  const relay = await readFile(web("components/marketing/hero-flow.tsx"), "utf8");
+  // The caption is the relay's first element, always rendered.
+  assert.match(relay, /<figure className="mk-relay" aria-labelledby="mk-relay-cap">\s+<figcaption id="mk-relay-cap" className="sr-only">/);
+  assert.equal([...site.matchAll(/rel="expect"/g)].length, 1, "only the home hero blocks the first paint");
 });
 
 test('the Pace sweep behind "trains": once at load, from the left, scale only, and at rest the fill the span had', async () => {

@@ -8,16 +8,17 @@
 // always light (28 September 2026): white canvas, the ink lockup, one white
 // theme-color and no dark surface in either device scheme; the workspace
 // keeps the white lockup in dark mode. Marketing pages start at the header
-// logo's edge (one shared container). The home page is the owner's design
-// (25 October 2026, components/marketing/home-design.tsx): its own lockup
-// and root, and a first screen pass as a new visitor sees it (the analytics
-// notice in its default state must cover neither the H1 nor the primary
-// action, both on the first screen at 390x844 and 1440x900; after a scroll
-// the analytics bar is slim with 48 px controls and covers nothing at the
-// end of the page; after an answer, No thanks or Close, no analytics control
-// floats, after a reload too), and a reduced-motion, animation and
-// right-to-left pass (its motion follows the device's setting, as in the
-// design: it plays once, and under reduced motion everything shows). It
+// logo's edge (one shared container). The home page also gets a first
+// screen pass as a new visitor sees it (the analytics notice in its default
+// state must cover neither the primary action nor the relay; all three relay
+// steps on the first screen at 390x844 and 1440x900; after a scroll the
+// analytics bar is slim with 48 px controls and covers nothing at the end of
+// the page; after an answer, No thanks or Close, no analytics control floats,
+// after a reload too), and a reduced-motion,
+// animation, right-to-left and word-count pass (the reduced-motion pass
+// follows the marketing motion switch, data-mk-motion on the marketing root,
+// components/marketing/motion-mode.ts: with "always" the relay plays under
+// reduced motion exactly as without it; with "device" nothing animates). It
 // also checks that a subscriber's member app and a coach website show their
 // trainer's branding, never the platform's, follow the device into dark mode
 // with every text at AA, and set the trainer's browser colour for each
@@ -242,7 +243,7 @@ function measure(page) {
           `${el.tagName.toLowerCase()}${el.className && typeof el.className === "string" ? "." + el.className.trim().split(/\s+/)[0] : ""} "${(el.textContent || el.getAttribute("aria-label") || "").trim().slice(0, 30)}" ${value.toFixed(2)}:1`,
         );
     }
-    const logo = [...document.querySelectorAll(".brand-logo img, .tyh-lockup img")].find(
+    const logo = [...document.querySelectorAll(".brand-logo img")].find(
       (img) => img.checkVisibility?.() && img.getBoundingClientRect().width > 0,
     );
     const root = document.documentElement;
@@ -252,7 +253,7 @@ function measure(page) {
     // luminance below 0.2). Thin rules and meters under 12px are not
     // surfaces.
     const rgb = (c) => (c ? `rgb(${Math.round(c.r)}, ${Math.round(c.g)}, ${Math.round(c.b)})` : null);
-    const pageRoot = document.querySelector(".mk, .public, .tyh");
+    const pageRoot = document.querySelector(".mk, .public");
     const surfaces = {
       html: rgb(parse(getComputedStyle(root).backgroundColor)),
       body: rgb(backdrop(document.body)),
@@ -260,14 +261,12 @@ function measure(page) {
     };
     const dark = [];
     for (const el of document.body.querySelectorAll("*")) {
-      // Buttons, and the home design's pricing chart (its ink bars).
-      if (el.closest(".button, .mk-fake-button, .tyh-btn, .tyh-bv")) continue;
+      if (el.closest(".button, .mk-fake-button")) continue;
       const c = parse(getComputedStyle(el).backgroundColor);
       if (!c || c.a < 0.5 || lum(c) >= 0.2) continue;
       if (!el.checkVisibility?.({ opacityProperty: true, visibilityProperty: true })) continue;
       const r = el.getBoundingClientRect();
-      // Off the page (a skip link before it is focused) is not a surface.
-      if (r.width < 12 || r.height < 12 || r.bottom <= 0 || r.right <= 0) continue;
+      if (r.width < 12 || r.height < 12 || r.bottom <= 0) continue;
       dark.push(
         `${el.tagName.toLowerCase()}${typeof el.className === "string" && el.className ? "." + el.className.trim().split(/\s+/)[0] : ""} ${rgb(c)}`,
       );
@@ -295,7 +294,7 @@ function measure(page) {
         root.scrollWidth - root.clientWidth,
         document.body.scrollWidth - document.body.clientWidth,
       ),
-      platformUi: !!document.querySelector(".platform-ui, .tyh"),
+      platformUi: !!document.querySelector(".platform-ui"),
       logo: logo ? new URL(logo.src).pathname : null,
       logoWidth: logo ? Math.round(logo.getBoundingClientRect().width) : 0,
       anyBrandAsset: !![...document.querySelectorAll("img")].some((img) =>
@@ -316,12 +315,8 @@ function assertPlatform(label, m, scheme, isPublic = false) {
   if (m.overflow > 1) fail(label, `horizontal overflow of ${m.overflow}px`);
   if (!m.platformUi) fail(label, "the platform surface is not .platform-ui");
   // Public platform pages are always light: the ink lockup in both schemes.
-  // The home design shows its own lockup, the symbol on a Pace square, 24 px
-  // tall (about 121 px wide) as the owner drew it.
-  const home = / \/$/.test(label);
-  const expected = home
-    ? "/brand/trainsyou-lockup-pace.webp"
-    : scheme === "dark" && !isPublic
+  const expected =
+    scheme === "dark" && !isPublic
       ? "/brand/trainsyou-lockup-white.svg"
       : "/brand/trainsyou-lockup-ink.svg";
   if (isPublic && m.edges && m.edges.logo !== null && Math.abs(m.edges.logo - m.edges.page) > 1)
@@ -336,8 +331,7 @@ function assertPlatform(label, m, scheme, isPublic = false) {
     if (m.colorScheme !== "light") fail(label, `color-scheme meta ${m.colorScheme}`);
   }
   if (m.logo !== expected) fail(label, `visible logo ${m.logo}, expected ${expected}`);
-  if (m.logo && m.logoWidth < (home ? 120 : 160))
-    fail(label, `lockup ${m.logoWidth}px wide (minimum ${home ? 120 : 160})`);
+  if (m.logo && m.logoWidth < 160) fail(label, `lockup ${m.logoWidth}px wide (minimum 160)`);
   // The trainer workspace installs as the trainer's own app
   // (MemberAppManifest), so its icon is the workspace's; every other
   // platform page shows the trainsyou favicon.
@@ -365,34 +359,46 @@ async function shot(page, label) {
 
 /**
  * The first screen of the home page as a new visitor sees it (the optional
- * analytics notice in its default state): where the H1 and the primary
- * action end, whether any visible notice covers them, and the left edge of
- * every region (one shared container).
+ * analytics notice in its default state): where the hero, the primary
+ * action and the three relay titles end, whether the three steps share one
+ * row, whether any visible notice covers them, and the left edge of every
+ * region (one shared container).
  */
 function firstScreen(page) {
   return page.evaluate(() => {
     const box = (el) => (el ? el.getBoundingClientRect() : null);
-    const h1 = box(document.querySelector("h1"));
-    const cta = box(document.querySelector('.tyh-hero [data-cta="hero"]'));
+    const nodes = [...document.querySelectorAll(".mk-relay-steps > li")].map(box);
+    const titles = [...document.querySelectorAll(".mk-relay-title")].map(box);
+    const cta = box(document.querySelector(".mk-hero .mk-cta"));
     const notices = [...document.querySelectorAll(".acquisition-consent")]
       .map(box)
       .filter((r) => r && r.width > 0 && r.height > 0);
     const covers = (r) =>
       notices.some((n) => n.left < r.right && n.right > r.left && n.top < r.bottom && n.bottom > r.top);
-    const start = (selector) => {
+    const left = (selector) => {
       const r = box(document.querySelector(selector));
-      return r ? Math.round(document.dir === "rtl" ? innerWidth - r.right : r.left) : null;
+      return r ? Math.round(r.left) : null;
     };
     return {
-      h1: h1.bottom,
+      heroBottom: box(document.querySelector(".mk-hero")).bottom,
+      h1: box(document.querySelector("h1")).bottom,
       cta: cta.bottom,
-      covered: covers(cta) || covers(h1),
+      titlesBottom: Math.max(...titles.map((r) => r.bottom)),
+      titleTops: titles.map((r) => Math.round(r.top)),
+      oneRow:
+        nodes.length === 3 &&
+        nodes.every((r) => Math.abs(r.top - nodes[0].top) < 2) &&
+        (document.dir === "rtl"
+          ? nodes[0].left > nodes[1].left && nodes[1].left > nodes[2].left
+          : nodes[0].left < nodes[1].left && nodes[1].left < nodes[2].left),
+      covered: covers(cta) || titles.some(covers),
       notices: notices.length,
       edges: {
-        logo: start(".tyh-nav .tyh-lockup"),
-        hero: start(".tyh-hero h1"),
-        band: start("#how-h"),
-        footer: start("footer .tyh-ft-b"),
+        logo: left(".mk-header .brand-logo"),
+        hero: left(".mk-hero h1"),
+        band: left(".mk-home-inner h2"),
+        closing: left(".mk-closing"),
+        footer: left(".mk-footer-brand"),
       },
     };
   });
@@ -464,49 +470,110 @@ async function consentAnswerChecks(page, label, answer) {
 }
 
 /**
- * The home page (the owner's design): the first screen at 1440x900 and
- * 390x844, its motion with and without reduced motion, and right to left.
+ * The home page: the first screen at 1440x900 and 390x844, the word count,
+ * the relay's motion with and without reduced motion, and the relay in
+ * right to left.
  */
 async function homeChecks(scheme) {
   const seconds = (v) =>
     v.split(",").map((s) => (s.trim().endsWith("ms") ? parseFloat(s) / 1000 : parseFloat(s)));
-  /** The CSS animations on the page and when the last one ends. */
-  const animations = (page) =>
-    page.evaluate(() =>
-      [...document.querySelectorAll(".tyh *")]
-        .map((el) => getComputedStyle(el))
-        .filter((s) => s.animationName !== "none")
-        .map((s) => ({ delay: s.animationDelay, duration: s.animationDuration, count: s.animationIterationCount })),
+  /** The marketing motion switch the page was built with ("device" when absent). */
+  const motionSwitch = (page) =>
+    page.evaluate(() => document.querySelector(".mk")?.getAttribute("data-mk-motion") ?? "device");
+  /**
+   * The relay plays once: every card and its words show from the first
+   * paint, the relay animates, nothing loops, the last animation ends
+   * within 4.5 s and after 5 s it rests on the final picture (the
+   * decorative dot rests hidden). Call it right after the relay appears.
+   */
+  const relayPlaysOnce = async (page, label) => {
+    // Every card and its words show from the first paint; only the wires,
+    // the dot, the core tile's pulse and the row ticks move.
+    const hiddenAtStart = await page.evaluate(() =>
+      [...document.querySelectorAll(".mk-relay-node, .mk-relay-title, .mk-relay-detail, .mk-relay-loop")]
+        .filter((el) => Number(getComputedStyle(el).opacity) !== 1)
+        .map((el) => el.getAttribute("class")),
     );
-  /** After 5 s: the sample feed has played to its approved end. */
-  const feedAtRest = (page) =>
-    page.evaluate(() => ({
-      shown: [...document.querySelectorAll(".tyh-fd")].filter((el) => Number(getComputedStyle(el).opacity) === 1).length,
-      chip: document.querySelector(".tyh-fd[data-i='3'] .tyh-chip")?.textContent,
-      replay: document.getElementById("replay")?.classList.contains("tyh-on"),
-      hero: [...document.querySelectorAll(".tyh-hero-t > *")].every((el) => Number(getComputedStyle(el).opacity) === 1),
-    }));
-  // 1440x900: the H1 and the primary action fit the first screen; every
-  // region starts at the same edge; the notice covers neither and, after a
-  // scroll, is a slim bar.
+    if (hiddenAtStart.length) fail(label, `hidden at first paint: ${hiddenAtStart.slice(0, 4).join("; ")}`);
+    const timing = await page.evaluate(() =>
+      [...document.querySelectorAll(".mk *")].map((el) => {
+        const s = getComputedStyle(el);
+        return {
+          name: s.animationName,
+          delay: s.animationDelay,
+          duration: s.animationDuration,
+          count: s.animationIterationCount,
+          relay: !!el.closest(".mk-relay"),
+        };
+      }),
+    );
+    const animated = timing.filter((t) => t.name !== "none");
+    const infinite = timing.filter((t) => t.count.includes("infinite"));
+    const end = Math.max(
+      0,
+      ...animated.map((t) => {
+        const d = seconds(t.delay),
+          l = seconds(t.duration);
+        return Math.max(...l.map((x, i) => x + (d[i] ?? d[0])));
+      }),
+    );
+    await page.waitForTimeout(5000);
+    const resting = await page.evaluate(() =>
+      [...document.querySelectorAll(".mk-relay *")]
+        .map((el) => [el, Number(getComputedStyle(el).opacity)])
+        .filter(([el, o]) => (el.classList.contains("mk-relay-dot") ? o !== 0 : o !== 1))
+        .map(([el, o]) => `${el.getAttribute("class")} ${o}`),
+    );
+    // The hand-off (22 October 2026): after the relay the hero's primary
+    // action's arrow nudges once (counted in the 4.5 s above) and is back
+    // in place by 5 s.
+    const arrow = await page.evaluate(() => {
+      const a = document.querySelector(".mk-hero .mk-cta > .lucide-arrow-right");
+      return a ? { translate: getComputedStyle(a).translate, running: a.getAnimations().filter((x) => x.playState === "running").length } : null;
+    });
+    if (!animated.some((t) => t.name === "mk-nudge")) fail(label, "the hero arrow has no hand-off");
+    if (!arrow || arrow.translate !== "none" || arrow.running) fail(label, `the hero arrow is not at rest after 5 s: ${JSON.stringify(arrow)}`);
+    if (!animated.some((t) => t.relay)) fail(label, "the relay has no animation");
+    if (infinite.length) fail(label, `${infinite.length} infinite animation(s)`);
+    if (end > 4.5) fail(label, `animation ends at ${end}s`);
+    if (resting.length) fail(label, `not at rest after 5 s: ${resting.slice(0, 4).join("; ")}`);
+    return { animated: animated.length, end };
+  };
+  // 1440x900: the whole hero, header included, fits the first screen; the
+  // three relay titles line up; every region starts at the same edge; the
+  // notice covers nothing and, after a scroll, is a slim bar.
   await screen(`${scheme} 1440x900 / first screen`, async () => {
     const ctx = await context({ width: 1440, height: 900 }, scheme);
     const page = await ctx.newPage();
     await visit(page, "/");
     const f = await firstScreen(page);
-    const m = await page.evaluate(() => ({
-      words: document.querySelector("main").innerText.split(/\s+/).filter(Boolean).length,
-      h2: document.querySelectorAll("main h2").length,
-      h1: document.querySelectorAll("h1").length,
-    }));
+    const m = await page.evaluate(() => {
+      const main = document.querySelector("main");
+      const calc = document.querySelector(".mk-home-calc");
+      const count = (t) => (t ?? "").split(/\s+/).filter(Boolean).length;
+      // The 400-word budget covers `main` outside the follower calculator
+      // (`.mk-home-calc`), which belongs to the calculator package; its
+      // visible words are reported separately so the total is never hidden.
+      return {
+        words: count(main.innerText) - count(calc?.innerText),
+        calcWords: count(calc?.innerText),
+        h2: [...main.querySelectorAll("h2")].length,
+        h1: document.querySelectorAll("h1").length,
+        relayH: document.querySelectorAll(".mk-relay h1, .mk-relay h2, .mk-relay h3, .mk-home-calc h1").length,
+      };
+    });
     const label = `${scheme} 1440x900 /`;
     checked.push({ label, scanned: 0, low: 0, logo: "-" });
-    if (f.h1 > 900 || f.cta > 900)
-      fail(label, `H1 ends at ${Math.round(f.h1)}px, primary action at ${Math.round(f.cta)}px`);
-    if (f.covered) fail(label, "the analytics notice covers the H1 or the primary action");
+    if (f.heroBottom > 900) fail(label, `hero ends at ${Math.round(f.heroBottom)}px`);
+    if (!f.oneRow) fail(label, "the relay steps are not one row of three");
+    if (Math.max(...f.titleTops) - Math.min(...f.titleTops) > 1)
+      fail(label, `relay titles at ${f.titleTops.join("/")}px, not aligned`);
+    if (f.covered) fail(label, "the analytics notice covers the primary action or a relay step");
     if (new Set(Object.values(f.edges)).size !== 1)
       fail(label, `regions start at different edges: ${JSON.stringify(f.edges)}`);
-    if (m.h1 !== 1) fail(label, `${m.h1} H1`);
+    if (m.words > 400) fail(label, `${m.words} visible words in main outside the calculator (limit 400)`);
+    if (m.h2 > 6) fail(label, `${m.h2} H2 headings`);
+    if (m.h1 !== 1 || m.relayH) fail(label, `${m.h1} H1, ${m.relayH} headings in the relay or calculator`);
     await page.mouse.wheel(0, 600);
     const bar = await page
       .locator(".consent-bar")
@@ -516,12 +583,12 @@ async function homeChecks(scheme) {
     if (!bar || bar.height > 72) fail(label, `the analytics bar after a scroll is ${bar?.height}px tall (limit 72)`);
     await consentAnswerChecks(page, label, "No thanks");
     console.log(
-      `home 1440x900 ${scheme}: H1 bottom ${Math.round(f.h1)}px, primary action bottom ${Math.round(f.cta)}px, edges ${JSON.stringify(f.edges)}, ${f.notices} notice(s) before scrolling, bar ${Math.round(bar?.height ?? 0)}px after, ${m.words} words in main, ${m.h2} H2`,
+      `home 1440x900 ${scheme}: hero bottom ${Math.round(f.heroBottom)}px, titles at ${f.titleTops.join("/")}px, edges ${JSON.stringify(f.edges)}, ${f.notices} notice(s) before scrolling, bar ${Math.round(bar?.height ?? 0)}px after, ${m.words} words in main outside the calculator (limit 400), ${m.calcWords} in the calculator, ${m.words + m.calcWords} in total, ${m.h2} H2`,
     );
     await ctx.close();
   });
-  // 390x844: the H1 and the primary action on the first screen, uncovered
-  // by the analytics notice.
+  // 390x844: the H1, the primary action and all three relay steps (a
+  // compact row) on the first screen, uncovered by the analytics notice.
   await screen(`${scheme} 390x844 / first screen`, async () => {
     const ctx = await context({ width: 390, height: 844 }, scheme);
     const page = await ctx.newPage();
@@ -531,7 +598,9 @@ async function homeChecks(scheme) {
     checked.push({ label, scanned: 0, low: 0, logo: "-" });
     if (f.h1 > 844 || f.cta > 844)
       fail(label, `H1 ends at ${Math.round(f.h1)}px, primary action at ${Math.round(f.cta)}px`);
-    if (f.covered) fail(label, "the analytics notice covers the H1 or the primary action");
+    if (f.titlesBottom > 844) fail(label, `the relay titles end at ${Math.round(f.titlesBottom)}px`);
+    if (!f.oneRow) fail(label, "the relay steps are not one compact row");
+    if (f.covered) fail(label, "the analytics notice covers the primary action or a relay step");
     if (new Set(Object.values(f.edges)).size !== 1)
       fail(label, `regions start at different edges: ${JSON.stringify(f.edges)}`);
     // After a scroll: the slim bar, 48 px controls, the end of the page
@@ -546,84 +615,85 @@ async function homeChecks(scheme) {
       fail(label, `the analytics bar covers the end of the page by ${phoneBar.endCovered}px`);
     await consentAnswerChecks(page, label, "Close");
     console.log(
-      `home 390x844 ${scheme}: H1 bottom ${Math.round(f.h1)}px, primary action bottom ${Math.round(f.cta)}px, ${f.notices} notice(s) before scrolling, bar ${phoneBar.height}px after`,
+      `home 390x844 ${scheme}: H1 bottom ${Math.round(f.h1)}px, CTA bottom ${Math.round(f.cta)}px, relay titles end ${Math.round(f.titlesBottom)}px, one row ${f.oneRow}, ${f.notices} notice(s) before scrolling, bar ${phoneBar.height}px after`,
     );
     await ctx.close();
   });
-  // Reduced motion (the device's setting, as in the design): nothing
-  // animates, every block shows, and the feed shows its approved end at once.
+  // Reduced motion follows the marketing motion switch (data-mk-motion on
+  // the marketing root): with "always" (the owner, 22 October 2026) the
+  // relay plays exactly as without the setting (the same rules as "motion
+  // /" below); with "device" nothing animates and the final picture shows
+  // at once.
   await screen(`${scheme} reduced motion /`, async () => {
     const label = `${scheme} reduced motion /`;
     const ctx = await context(VIEWPORTS[1], scheme, "reduce");
     const page = await ctx.newPage();
-    await visit(page, "/");
+    await page.goto(base + "/", { waitUntil: "domcontentloaded" });
+    await page.locator(".mk-relay").waitFor();
+    const switchMode = await motionSwitch(page);
     checked.push({ label, scanned: 0, low: 0, logo: "-" });
-    const running = await animations(page);
-    if (running.length) fail(label, `${running.length} animated element(s)`);
-    const hidden = await page.evaluate(() =>
-      [...document.querySelectorAll(".tyh-rv, .tyh-hw, .tyh-pt, .tyh-tl, .tyh-gd, .tyh-sx")]
-        .filter((el) => Number(getComputedStyle(el).opacity) !== 1)
-        .map((el) => el.getAttribute("class")),
-    );
-    if (hidden.length) fail(label, `${hidden.length} hidden: ${hidden.slice(0, 4).join("; ")}`);
-    const feed = await feedAtRest(page);
-    if (feed.shown !== 4 || feed.chip !== "Approved" || !feed.replay || !feed.hero)
-      fail(label, `not the final picture at once: ${JSON.stringify(feed)}`);
-    console.log(`home reduced motion ${scheme}: ${running.length} animated, ${hidden.length} hidden, feed ${JSON.stringify(feed)}`);
+    if (switchMode === "always") {
+      const r = await relayPlaysOnce(page, label);
+      console.log(`home reduced motion ${scheme} (switch "always"): ${r.animated} animated elements, last ends at ${r.end}s`);
+    } else {
+      const bad = await page.evaluate(() =>
+        [...document.querySelectorAll(".mk-relay *")]
+          .filter((el) => !el.classList.contains("mk-relay-dot"))
+          .map((el) => [el, getComputedStyle(el)])
+          .filter(([, s]) => s.animationName !== "none" || Number(s.opacity) !== 1)
+          .map(([el, s]) => `${el.tagName.toLowerCase()}.${el.getAttribute("class")} ${s.animationName} ${s.opacity}`),
+      );
+      if (bad.length) fail(label, `${bad.length} animated or hidden: ${bad.slice(0, 4).join("; ")}`);
+    }
     await ctx.close();
   });
-  // Motion allowed: the hero and the feed play once, nothing loops, the
-  // last timed animation ends within 4.5 s, and after 5 s the feed rests
-  // approved (the scroll scenes follow the scroll, not the clock).
+  // Motion allowed: it plays once, ends within 4.5 s, and rests on the final
+  // picture (the decorative dot rests hidden).
   await screen(`${scheme} motion /`, async () => {
-    const label = `${scheme} motion /`;
     const ctx = await context(VIEWPORTS[1], scheme);
     const page = await ctx.newPage();
     await page.goto(base + "/", { waitUntil: "domcontentloaded" });
-    await page.locator(".tyh-hero").waitFor();
-    checked.push({ label, scanned: 0, low: 0, logo: "-" });
-    const timing = await animations(page);
-    const end = Math.max(
-      0,
-      ...timing.map((t) => {
-        const d = seconds(t.delay),
-          l = seconds(t.duration);
-        return Math.max(...l.map((x, i) => x + (d[i] ?? d[0])));
-      }),
-    );
-    if (!timing.length) fail(label, "the hero has no entrance");
-    if (timing.some((t) => t.count.includes("infinite"))) fail(label, "an animation repeats forever");
-    if (end > 4.5) fail(label, `animation ends at ${end}s`);
-    await page.waitForTimeout(5000);
-    const feed = await feedAtRest(page);
-    if (feed.shown !== 4 || feed.chip !== "Approved" || !feed.replay || !feed.hero)
-      fail(label, `not at rest after 5 s: ${JSON.stringify(feed)}`);
-    console.log(`home motion ${scheme}: ${timing.length} animated elements, last ends at ${end}s, feed ${JSON.stringify(feed)}`);
+    await page.locator(".mk-relay").waitFor();
+    checked.push({ label: `${scheme} motion /`, scanned: 0, low: 0, logo: "-" });
+    const r = await relayPlaysOnce(page, `${scheme} motion /`);
+    console.log(`home motion ${scheme}: ${r.animated} animated elements, last ends at ${r.end}s`);
     await ctx.close();
   });
-  // Right to left (1440): the layout mirrors with its logical properties
-  // and the lockup keeps its orientation.
+  // Right to left (1440): the steps mirror, the wires point to the next
+  // step, and the lockup and the relay mark keep their orientation.
   await screen(`${scheme} rtl 1440 /`, async () => {
-    const label = `${scheme} rtl 1440 /`;
     const ctx = await context(VIEWPORTS[1], scheme, "reduce");
     const page = await ctx.newPage();
     await visit(page, "/?lang=ar");
+    // With the switch at "always" the relay plays under reduced motion too:
+    // measure its final picture, after it has come to rest (it ends by 4.5 s).
+    if ((await motionSwitch(page)) === "always") await page.waitForTimeout(5500);
     const m = await page.evaluate(() => {
-      const center = (el) => {
-        const r = el.getBoundingClientRect();
-        return r.left + r.width / 2;
+      const center = (r) => r.left + r.width / 2;
+      const nodes = [...document.querySelectorAll(".mk-relay-steps > li")];
+      const boxes = nodes.map((n) => n.getBoundingClientRect());
+      const wires = nodes.slice(0, 2).map((n, i) => {
+        const head = n.querySelector(".mk-relay-head").getBoundingClientRect();
+        const wire = n.querySelector(".mk-relay-wire").getBoundingClientRect();
+        return Math.sign(center(head) - center(wire)) === Math.sign(center(boxes[i + 1]) - center(wire));
+      });
+      const plain = (el) => {
+        const s = getComputedStyle(el);
+        return s.transform === "none" && (s.scale === "none" || s.scale === "1");
       };
-      const img = document.querySelector(".tyh-lockup img");
       return {
         dir: document.documentElement.dir,
-        mirrored: center(document.querySelector(".tyh-hero-t")) > center(document.querySelector(".tyh-feed")),
-        lockup: getComputedStyle(img).transform === "none" && getComputedStyle(img.parentElement).transform === "none",
+        mirrored: center(boxes[0]) > center(boxes[1]) && center(boxes[1]) > center(boxes[2]),
+        wires,
+        lockup: [...document.querySelectorAll(".brand-logo, .brand-logo img")].every(plain),
+        mark: [...document.querySelectorAll(".mk-relay-mark, .mk-relay-mark svg")].every(plain),
       };
     });
-    checked.push({ label, scanned: 0, low: 0, logo: "-" });
-    if (m.dir !== "rtl") fail(label, `document direction ${m.dir}`);
-    if (!m.mirrored) fail(label, "the hero did not mirror");
-    if (!m.lockup) fail(label, "the lockup is mirrored");
+    checked.push({ label: `${scheme} rtl 1440 /`, scanned: 0, low: 0, logo: "-" });
+    if (m.dir !== "rtl") fail(`${scheme} rtl 1440 /`, `document direction ${m.dir}`);
+    if (!m.mirrored) fail(`${scheme} rtl 1440 /`, "the relay steps did not mirror");
+    if (!m.wires.every(Boolean)) fail(`${scheme} rtl 1440 /`, `wires point away: ${m.wires}`);
+    if (!m.lockup || !m.mark) fail(`${scheme} rtl 1440 /`, "the lockup or the relay mark is mirrored");
     await ctx.close();
   });
   // Arabic at 390: no public page overflows.
@@ -644,6 +714,7 @@ async function homeChecks(scheme) {
     await ctx.close();
   });
 }
+
 async function screen(label, fn) {
   try {
     await fn();
@@ -683,19 +754,11 @@ try {
       for (const route of PUBLIC_ROUTES) {
         const label = `${scheme} ${viewport.name} ${route}`;
         await screen(label, async () => {
-          // The home design's scroll scenes hide what is off screen, so its
-          // every section is read with everything shown: under reduced
-          // motion, as the design draws it then.
-          if (route === "/") await page.emulateMedia({ reducedMotion: "reduce" });
-          try {
-            await visit(page, route);
-            const waiting = await revealAll(page);
-            if (waiting) fail(label, `${waiting} section(s) never revealed after a scroll-through`);
-            assertPlatform(label, await measure(page), scheme, true);
-            await shot(page, label);
-          } finally {
-            if (route === "/") await page.emulateMedia({ reducedMotion: "no-preference" });
-          }
+          await visit(page, route);
+          const waiting = await revealAll(page);
+          if (waiting) fail(label, `${waiting} section(s) never revealed after a scroll-through`);
+          assertPlatform(label, await measure(page), scheme, true);
+          await shot(page, label);
         });
       }
     }

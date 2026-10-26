@@ -274,14 +274,13 @@ function measure(page) {
       chevronMirrored: mirrored(".topbar .lucide-chevron-right"),
       arrowMirrored: mirrored(".lucide-arrow-right, .lucide-arrow-up-right"),
       // The marketing header (.mk-header, its content in .mk-header-inner)
-      // is on the platform pages, the home design's (.tyh-nav) on the home
-      // page; coach sign-in and joining pages have the compact
-      // .subscriber-header (components/public-header.tsx).
+      // is on the platform pages; coach sign-in and joining pages have the
+      // compact .subscriber-header (components/public-header.tsx).
       publicWordmark: center(
-        ".subscriber-header > .wordmark, .mk-header-inner > .wordmark, .tyh-nav-in > .tyh-lockup",
+        ".subscriber-header > .wordmark, .mk-header-inner > .wordmark",
       ),
       publicAction: center(
-        ".subscriber-header > nav > .button, .mk-header-actions > .button, .tyh-nr > .tyh-btn",
+        ".subscriber-header > nav > .button, .mk-header-actions > .button",
       ),
       siteIdentity: center(".site-header > a"),
       siteNav: center(".site-header > nav"),

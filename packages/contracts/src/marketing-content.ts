@@ -15,7 +15,6 @@
 import { SETUP_STEPS, SETUP_BRAIN_MINIMUM } from "./coach-setup.ts";
 import { SITE_BUILDER_MODULES, SITE_BUILDER_PRESET_COUNT } from "./site-builder.ts";
 import { BRAND_COPY } from "./brand.ts";
-import { CAPABILITY_COUNT, REPLACES } from "./marketing-features.ts";
 import type {
   AvailabilityLine,
   MarketingCard,
@@ -717,14 +716,17 @@ const TECH_FAQ: MarketingFaq = {
   q: "Do I need technical skills?",
   a: "No. Setup is a guided checklist: answer interview questions, confirm rules in plain language, test scenarios and set your offer. Your website and app are set up for you.",
 };
+const INSTAGRAM_FAQ: MarketingFaq = {
+  q: "How do my Instagram followers become subscribers?",
+  a: "You share your coaching link in your bio and Stories. Followers open your branded page, choose your offer and pay in AED. The follower calculator headlines a strong case: a best case, not typical. Cautious and typical results show too. An estimate, not a promise.",
+};
 /**
- * The home page's answer-first introduction: the "What is {APP_NAME}?"
- * paragraph of the owner's design (25 October 2026), shown on the page, in
- * the SoftwareApplication JSON-LD and at the top of the page in
- * llms-full.txt.
+ * The home page's answer-first introduction (35-65 words, opening with the
+ * copy bank's "Teach your own AI how you coach"). The hero shows the short
+ * lede; this answers the first home FAQ and leads the page in llms-full.txt.
  */
 const HOME_INTRO =
-  "{APP_NAME} is a trainer-led AI coaching platform for personal trainers. Trainers teach their own AI their methods, rules and programmes; the AI then coaches each paying subscriber day by day under the trainer's name, and asks the trainer when it is unsure. Joining, the coaching site and app, and teaching the AI are free; {APP_NAME} earns a commission only when subscribers pay. It is built for the UAE and priced in AED.";
+  "Teach your own AI how you coach: your rules, cases and examples. It builds and adapts each subscriber’s plan day by day, hands you anything it isn’t sure about, and sends pain and medical red flags straight to you. Build a paid coaching offering around your methods, your identity and your standards, priced in AED.";
 
 export const MARKETING_CONTENT: MarketingPage[] = [
   {
@@ -732,163 +734,61 @@ export const MARKETING_CONTENT: MarketingPage[] = [
     kind: "home",
     group: "product",
     navLabel: "Home",
-    // 25 October 2026: the owner's home design, copied exactly
-    // (components/marketing/home-design.tsx). Its sections below repeat the
-    // page's words for llms-full.txt and the structured data; a test checks
-    // that every one of them is on the rendered page.
-    title: "AI Coaching Platform for Personal Trainers",
-    // The design's description, shortened to the 155 characters search
-    // results show.
+    title: "Free-to-join AI trainer platform for UAE coaches",
+    // 28 September 2026 refresh: the H1 says what happens (the trainer
+    // teaches, the platform trains their subscribers); the brand line leads
+    // the description and closes every page. Removed home blocks now live
+    // on deeper pages (docs/features/marketing-site.md "Where the home
+    // content went").
     description:
-      "Teach your own AI how you coach and build a paid coaching offering. Free to set up, commission only when subscribers pay. Built for the UAE, priced in AED.",
+      "Your coaching. Beyond your hours. Free to join: teach your AI how you coach; it trains your subscribers day by day under your brand, priced in AED.",
     h1: BRAND_COPY.homeHeadline,
-    h1Highlight: "It trains your subscribers.",
-    eyebrow: "For personal trainers · Built for the UAE",
-    lede: "Free to set up and nothing to pay upfront. Your AI coaches every subscriber day by day, your way, under your name, and hands anything uncertain to you.",
+    h1Highlight: "trains",
+    eyebrow: "FOR PERSONAL TRAINERS",
+    // One name in the hero ("your AI", as in the H1 and the call to
+    // action); the relay's loop is the only place that says it asks you.
+    lede: "Free to set up, nothing to pay upfront. Share your methods and rules; your AI coaches every subscriber day by day, your way.",
     intro: HOME_INTRO,
-    primaryKeyword: "AI coaching platform for personal trainers",
+    primaryKeyword: "AI personal trainer platform",
     sections: [
       {
-        id: "facts",
-        heading: "{APP_NAME} at a glance",
-        table: {
-          caption: "{APP_NAME} at a glance",
-          columns: ["Topic", "In short"],
-          rows: [
-            ["Who it is for", "Personal trainers who want to turn their method into a paid, AI-supported coaching service."],
-            ["Cost to join", "0 AED. Joining, your coaching site and app, and teaching your AI are free."],
-            ["Commission", "Only when subscribers pay: 25% (first 100), 20% (101–300), 15% (301–1,000), 10% (1,001+), each rate within its band."],
-            ["Your price", "You set it in AED: free trial, monthly or yearly offers."],
-            ["What it includes", `${CAPABILITY_COUNT} capabilities in one workspace, replacing ${REPLACES.length} separate tools.`],
-            ["Safety", "Pain and red flags pause the workout and go to you. Safety rules run in code. AI coaching is labelled as AI."],
-            ["Setup", "A guided checklist. Nothing goes live until you publish."],
-            ["Market", "Built for the UAE, priced in AED."],
-          ],
-        },
-      },
-      {
-        // Its steps are the page's HowTo structured data. The design also
-        // listed four setup steps there that the page does not show; search
-        // engines ask for structured data that readers can see, so the
-        // HowTo carries these three instead.
-        id: "how",
-        heading: "You teach. It learns. They train.",
-        body: ["Your AI asks you when it is unsure, and pain or red flags always go to you."],
-        steps: [
-          { title: "You teach", body: "Add your methods, rules and programmes." },
-          { title: "{APP_NAME} learns", body: "Your coaching, applied to every day, with confidence checks. It asks you when it is unsure." },
-          { title: "Subscribers train", body: "Daily sessions, next-week progressions and an optional voice-led add-on." },
-        ],
-      },
-      {
-        id: "tools",
-        heading: `Stop paying for ${REPLACES.length} separate tools.`,
-        body: ["Everything you need to run online coaching, under your own name."],
-        table: {
-          caption: "What one workspace replaces",
-          columns: ["Instead of", "You get"],
-          rows: [
-            ["A website builder", "Multipage website editor with templates, galleries and private preview"],
-            ["A booking tool", "Session slots, paid bookings, cancellation rules, calendar export"],
-            ["Payments and invoicing", "AED card checkout, trials, promotions, refunds, statements, payouts"],
-            ["A client training app", "Branded day-by-day app with set logging, rest timers, offline mode"],
-            ["A meal-planning app", "Optional nutrition tier: meal plans, recipes, grocery lists, food diary"],
-            ["A client messaging app", "Private chat, scheduled follow-ups, a labelled digital coach"],
-            ["Programme spreadsheets", "Templates, exercise library, automatic scheduling, progress tracking"],
-          ],
-        },
-      },
-      {
-        id: "platform",
-        heading: "Four parts. One platform.",
-        body: [`${CAPABILITY_COUNT} capabilities across your AI, your subscribers’ app, your business and trust.`],
-        cards: [
-          { title: "The Brain", body: "Learns your method, is tested before release, hands uncertain decisions to you and improves from your corrections." },
-          { title: "Subscriber experience", body: "What your clients use every day." },
-          { title: "Your business", body: "Your brand, prices and payouts." },
-          { title: "Trust", body: "Safety and privacy by design." },
-          { title: "Nutrition", body: "Meal plans, recipes, grocery lists and a food diary, as an optional tier." },
-          { title: "Voice coach", body: "Sessions narrated in your verified voice, with subscriber consent." },
-          { title: "Bookings", body: "Paid one-to-one and group sessions in AED, with cancellation rules." },
-          { title: "Progress and Client Twin", body: "One view of each subscriber’s progress and coaching context." },
-        ],
-      },
-      {
-        id: "earnings",
-        heading: "See what you could keep.",
-        body: [
-          "Set your price and subscriber count, or see what {APP_NAME}’s follower calculator estimates from an Instagram audience.",
-          "Estimate from the commission bands only. Each rate applies only to subscribers in its band. Not a promise of earnings.",
-        ],
+        id: "subscribers",
+        heading: "What your subscribers get",
+        body: ["A plan for every day, built your way, that adapts as they train."],
       },
       {
         id: "control",
-        heading: "It coaches. You decide.",
-        body: ["Choose what runs on its own. Take over any subscriber at any time."],
-        cards: [
-          { title: "It asks you when unsure", body: "Uncertain cases come to you instead of being guessed." },
-          { title: "Pain pauses the workout", body: "The workout pauses and you are alerted until you review it." },
-          { title: "Take over any time", body: "Choose what runs on its own. Take over any subscriber, any time." },
-          { title: "Clearly labelled as AI", body: "Subscribers see an AI coach trained by you. Human review is shown when it happens." },
+        heading: "You stay in charge",
+        body: [
+          "You choose what runs on its own. Take over any subscriber, any time.",
         ],
       },
       {
-        id: "pricing",
-        heading: "Free to start. Our share falls as you grow.",
-        bullets: ["Joining", "Your coaching site and app", "Teaching your AI", "Custom domain · optional"],
-        table: {
-          caption: "Commission per paying subscriber",
-          columns: ["Paying subscribers", "Commission"],
-          rows: [
-            ["First 100", "25%"],
-            ["101 – 300", "20%"],
-            ["301 – 1,000", "15%"],
-            ["1,001 +", "10%"],
-          ],
-        },
-        note: "Each rate applies only to subscribers in its band. Priced in AED. You set your own price.",
+        id: "economics",
+        heading: "Free to start. Your price.",
+        body: [
+          "Joining, your coaching site and app, and teaching your AI are free. Nothing to pay upfront; your own domain is optional.",
+          "You set the price in AED. We earn only when subscribers pay: our share starts at 25% and falls as you grow. Card processing is itemised.",
+        ],
       },
       {
-        id: "specialty",
-        heading: "Whatever you coach.",
-        bullets: [
-          "Weight loss",
-          "Strength",
-          "Muscle gain",
-          "Pre and postnatal",
-          "Writing coaching rules",
-          "Turning Instagram followers into clients",
-          "Pricing online coaching in the UAE",
-          "The UAE advertiser permit",
-        ],
+        id: "followers",
+        heading: "What are your followers worth?",
+        body: ["The headline is a strong case for an engaged, growing audience, from published benchmarks and our stated assumptions. An estimate, not a promise."],
       },
     ],
     faqs: [
-      {
-        q: "How does {APP_NAME} work?",
-        a: "Teach your own AI how you coach: your rules, cases and examples. It builds and adapts plans from them, and asks you when it is unsure.",
-      },
-      { q: "Will the AI replace me?", a: "No. It coaches under your name and hands uncertain or safety issues to you." },
-      { q: "What happens when a subscriber reports pain?", a: "The workout pauses and you are alerted, until you review it." },
-      { q: "Does it cost anything to join?", a: "No. {APP_NAME} earns a commission only when your subscribers pay." },
-      { q: "Do I need technical skills?", a: "No. Setup is a guided checklist." },
-      {
-        q: "How do my Instagram followers become subscribers?",
-        a: "You share your coaching link in your bio and Stories. Followers open your branded page, choose an offer and pay in AED.",
-      },
-      {
-        q: "How much commission does {APP_NAME} take?",
-        a: "Only when your subscribers pay: 25% for the first 100 subscribers, 20% for 101–300, 15% for 301–1,000 and 10% from 1,001. Each rate applies only to subscribers in its band.",
-      },
-      {
-        q: "What does {APP_NAME} replace?",
-        a: "A website builder, a booking tool, payments and invoicing, a client training app, a meal-planning app, a client messaging app and programme spreadsheets, in one workspace under your name.",
-      },
+      { q: "How does {APP_NAME} work?", a: HOME_INTRO },
+      REPLACE_FAQ,
+      SAFETY_FAQ,
+      FREE_FAQ,
+      TECH_FAQ,
+      INSTAGRAM_FAQ,
     ],
     related: ["/how-it-works", "/trainer-brain", "/features", "/pricing", "/follower-calculator"],
-    lastUpdated: "2026-10-25",
+    lastUpdated: "2026-10-03",
     indexable: true,
-    jsonLd: ["WebPage", "SoftwareApplication", "HowTo", "FAQPage"],
+    jsonLd: ["WebPage", "FAQPage"],
   },
   {
     path: "/how-it-works",

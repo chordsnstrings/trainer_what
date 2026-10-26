@@ -1,5 +1,7 @@
 # Home page: the owner's HTML design — 25 October 2026
 
+> **Reverted on 26 October 2026.** The owner said: "the HTML design should be taken off. our previous marketing design is multipage one. let's get that back". PR #96's code is reverted, so the marketing site is again the multipage design that was live as `e4e2f8c`. The WHOOP check fix from #97 is kept. This file stays as the record of what was built.
+
 The owner uploaded a complete home page (`index.html`, about 128 KB) and asked for three things:
 - check that the current implementation works;
 - implement the site design as that HTML;

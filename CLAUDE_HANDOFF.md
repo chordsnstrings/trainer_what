@@ -2,6 +2,14 @@
 
 ## Work in progress
 
+### HTML home design taken off; multipage marketing design restored — 26 October 2026 (Claude)
+
+Owner: "the HTML design should be taken off. our previous marketing design is multipage one. let's get that back".
+- #96 (`af457bd`) is reverted, so the code is byte-identical to `e4e2f8c`: the multipage site with the motion work and the "trains" sweep.
+- #97's WHOOP check fix is kept.
+- The records stay; the memory rule is updated.
+- **Next:** fast checks, a PR, CI green, merge, then verify live on `/`, `/how-it-works`, `/pricing`, `/features` and `/earnings-calculator`, including that `mk-sweep` is served.
+
 ### Home page as the owner's HTML design: live since 22:47 UTC on 25 October 2026 (Claude, checked 04:10 UTC on 26 Oct)
 
 **Live.**
