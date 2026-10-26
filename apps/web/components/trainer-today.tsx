@@ -39,9 +39,10 @@ const kept = new Map<string, unknown>();
 if (typeof window !== "undefined")
   window.addEventListener("workspace-session-cleared", () => kept.clear());
 
-/** A block of the page that loads when Today opens. `settled`: it answered
- * (now or on an earlier visit), failed, or was never asked for (path null). */
-function useOnce<T>(scope: string, path: string | null) {
+/** A block of the page that loads when Today opens, and again whenever
+ * `refresh` changes. `settled`: it answered (now or on an earlier visit),
+ * failed, or was never asked for (path null). */
+function useOnce<T>(scope: string, path: string | null, refresh: unknown = 0) {
   const key = path ? `${scope}|${path}` : "";
   const [data, setData] = useState<T | null>(() => (key && kept.has(key) ? (kept.get(key) as T) : null)),
     [failed, setFailed] = useState(false);
@@ -51,14 +52,16 @@ function useOnce<T>(scope: string, path: string | null) {
     api(path).then(
       (r) => {
         kept.set(key, r);
-        if (live) setData(r);
+        if (!live) return;
+        setData(r);
+        setFailed(false);
       },
       () => live && setFailed(true),
     );
     return () => {
       live = false;
     };
-  }, [key, path]);
+  }, [key, path, refresh]);
   // A source no longer asked for (setup finished) drops out of the queue.
   return { data: path ? data : null, failed: failed && data === null, settled: !path || data !== null || failed };
 }
@@ -377,7 +380,9 @@ export function TrainerToday({ state }: { state: State }) {
   const live = useLive(`${state.user.tenantId}:${state.user.userId}`, state, true);
   const owner = state.user.role === "owner";
   const setupOpen = coachSetupOpen(state);
-  const rules = useOnce<{ suggestions: RuleSuggestion[] }>(scope, owner ? "/brain/suggestions" : null);
+  // Read again whenever the server's count of waiting suggestions changes,
+  // so every suggestion the header counts has its card.
+  const rules = useOnce<{ suggestions: RuleSuggestion[] }>(scope, owner ? "/brain/suggestions" : null, inbox.rules);
   const setup = useOnce<SetupSummary>(scope, setupOpen ? "/setup" : null);
   const progress = useOnce<{ weeks: Week[] }>(scope, "/brain/progress");
   const [later, setLater] = useWorkspaceValue<string[]>("today:later", []);
@@ -453,8 +458,10 @@ export function TrainerToday({ state }: { state: State }) {
   // already put it somewhere else (another panel, the Jump to dialog).
   useEffect(() => {
     if (!focusRequest) return;
+    // Only when focus was lost (the row or card that had it went away); a
+    // reply box the next card opened, or anything elsewhere, keeps it.
     const active = document.activeElement;
-    if (active && active !== document.body && !focusPanel.current?.contains(active)) return;
+    if (active && active !== document.body) return;
     focusTitle.current?.focus();
     releaseIfAway();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -615,9 +622,10 @@ export function TrainerToday({ state }: { state: State }) {
             <button
               type="button"
               className="oq-pending"
-              onClick={() => {
-                // Focus first, so it does not go down with the pill.
-                thenTitle.current?.focus();
+              onClick={(event) => {
+                // From the keyboard, focus goes to the heading first so it
+                // does not go down with the pill (a mouse click needs none).
+                if (event.detail === 0) thenTitle.current?.focus();
                 arrivals.release();
               }}
             >
@@ -675,7 +683,11 @@ export function TrainerToday({ state }: { state: State }) {
           so each finish and each surfaced arrival is announced once. */}
       <p className="sr-only" role="status">{notice && <span key={notice.id}>{notice.text}</span>}</p>
       <p className="sr-only" aria-live="polite">
-        {ahead && <span key={ahead.key}>{aheadLabel(ahead)} came in. It is next after this card.</span>}
+        {ahead && (
+          <span key={ahead.key}>
+            {aheadLabel(ahead)} came in.{ahead.key === visible.find((e) => e.key !== upcoming?.key)?.key ? " It is next after this card." : ""}
+          </span>
+        )}
       </p>
     </div>
   );

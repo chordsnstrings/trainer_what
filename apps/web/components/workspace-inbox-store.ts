@@ -23,13 +23,16 @@ type Entry = {
   at: number;
   epoch: number;
   stop?: () => void;
-  /** Items finished here (item id, or `rule:<id>`), with when. A load that
-   * started before a finish cannot know about it, so the finish is applied on
-   * top of that load; a load started after it already reflects it. */
+  /** Items finished here (item id, or `rule:<id>`), with their tick. A load
+   * that started before a finish cannot know about it, so the finish is
+   * applied on top of that load; a load started after it already reflects it. */
   finished: Map<string, number>;
 };
 const entries = new Map<string, Entry>();
 let listening = false;
+/** Orders finishes and load starts. A load started after a finish (even in
+ * the same millisecond) already reflects it; wall-clock time cannot tell. */
+let tick = 0;
 const entry = (scope: string) => {
   let result = entries.get(scope);
   if (!result) {
@@ -69,7 +72,7 @@ function withFinished(e: Entry, s: Snapshot): Snapshot {
 function load(e: Entry): Promise<void> {
   if (e.pending) return e.pending;
   const epoch = e.epoch,
-    started = Date.now();
+    started = ++tick;
   e.pending = api(`/trainer/inbox?since=${startOfLocalDay()}`)
     .then(
       (r) => {
@@ -157,7 +160,7 @@ export function useSharedInbox(scope: string, enabled = true) {
     (what: { id: string } | { rule: string }) => {
       const key = "id" in what ? what.id : `rule:${what.rule}`;
       if (e.finished.has(key)) return;
-      e.finished.set(key, Date.now());
+      e.finished.set(key, ++tick);
       const s = e.snapshot;
       const items = "id" in what ? (s.items?.filter((i) => i.id !== what.id) ?? null) : s.items;
       const removed = (s.items?.length ?? 0) - (items?.length ?? 0);

@@ -218,9 +218,19 @@ export async function inboxItems(tx: Tx, a: Actor): Promise<InboxItem[]> {
     "SELECT id,version,owner_user_id,data,created_at FROM records WHERE kind='training_hold' AND status='active' ORDER BY created_at LIMIT $1",
     [LIMIT],
   );
-  const held = new Set<string>();
+  // Who is already covered by an active hold or an open exception: every one,
+  // not only the cards below, so a chat counts as waiting here exactly when
+  // chatAwaitingReply says so.
+  const held = new Set<string>(
+    (
+      await tx.query("SELECT DISTINCT owner_user_id AS id FROM records WHERE kind='training_hold' AND status='active'")
+    ).map((r) => String(r.id)),
+  );
+  // Holds shown as cards here: a safety report is skipped only when its hold
+  // card is on screen, so a report is never hidden behind the card limit.
+  const heldShown = new Set<string>();
   for (const h of holds) {
-    held.add(h.owner_user_id);
+    heldShown.add(h.owner_user_id);
     push({
       type: "safety",
       recordId: h.id,
@@ -256,14 +266,21 @@ export async function inboxItems(tx: Tx, a: Actor): Promise<InboxItem[]> {
   const asks = new Map<string, string>(
     decisions.map((d) => [d.id, d.request ?? ""]),
   );
-  const waiting = new Set<string>();
+  const waiting = new Set<string>(
+    (
+      await tx.query(
+        "SELECT DISTINCT coalesce(data->>'subscriberId', owner_user_id::text) AS id FROM records WHERE kind='exception' AND status='open'",
+      )
+    )
+      .map((r) => client(String(r.id)))
+      .filter((id): id is string => !!id),
+  );
   for (const e of open) {
     const clientId = client(e.data?.subscriberId ?? e.owner_user_id);
-    if (clientId) waiting.add(clientId);
     const question = clip(e.data?.description);
     if (e.data?.category === "safety") {
       // A hold already shows this report.
-      if (clientId && held.has(clientId)) continue;
+      if (clientId && heldShown.has(clientId)) continue;
       push({
         type: "safety",
         recordId: e.id,

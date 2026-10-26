@@ -576,7 +576,12 @@ export default function Workspace({
       if ((event.target as Element | null)?.closest?.("dialog") || !matchMedia("(width > 900px)").matches) return;
       const panel = document.querySelector<HTMLElement>(".workspace.is-rail:not(.is-pinned) .sidebar-panel");
       if (!panel || panel.hasAttribute("data-dismissed")) return;
-      if (panel.matches(":hover") || panel.contains(document.activeElement)) panel.setAttribute("data-dismissed", "");
+      if (!panel.matches(":hover") && !panel.contains(document.activeElement)) return;
+      // A group's links fold away: focus moves to the group's heading first
+      // (before the attribute, or reopenRail would see that move and undo it).
+      const active = document.activeElement;
+      if (active?.closest(".workspace-nav-group > div")) active.closest("details")?.querySelector<HTMLElement>("summary")?.focus();
+      panel.setAttribute("data-dismissed", "");
     };
     document.addEventListener("keydown", keydown);
     return () => document.removeEventListener("keydown", keydown);
@@ -1270,7 +1275,7 @@ export default function Workspace({
       <MemberLanguage member={`${state.user.tenantId}:${state.user.userId}`} />
       {!path.startsWith("/admin") && <MemberAppManifest tenantId={state.tenant.id} role={state.user.role} />}
       <aside className={"sidebar " + (mobile ? "is-open" : "")} inert={compactNav && !mobile} aria-label="Workspace navigation">
-        <div className="sidebar-panel" onPointerLeave={settleRail} onBlur={settleRail} onFocus={reopenRail}>
+        <div className="sidebar-panel" onPointerEnter={(event) => event.currentTarget.removeAttribute("data-dismissed")} onPointerLeave={settleRail} onBlur={settleRail} onFocus={reopenRail}>
         <Link href={path.startsWith("/admin") || state.platformWorkspace ? "/admin" : "/trainer"} className="wordmark">
           {rail && (
             <span className="rail-mark" aria-hidden="true">

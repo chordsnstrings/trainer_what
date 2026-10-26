@@ -577,7 +577,17 @@ function DesktopSiteBuilder({ tenant, returnTo }: { tenant: EditorTenant; return
   // here with its message on screen (workspace-continuity.tsx).
   useSaveBeforeLeave(
     () => !!historyRef.current && JSON.stringify(historyRef.current.present) !== savedJson.current,
-    async () => !!(await saveNow()),
+    async () =>
+      !!(await saveNow()) ||
+      // Offline or a server error: the coach may still choose to leave. A
+      // conflict keeps them here with its message and "Load saved draft".
+      (!conflictRef.current &&
+        (await confirmWorkspace({
+          title: "Leave without saving?",
+          detail: "Your latest website edits could not be saved. Stay to try again, or leave and lose them.",
+          confirm: "Leave without saving",
+          danger: true,
+        }))),
   );
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => {

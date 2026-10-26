@@ -119,6 +119,8 @@ export function WorkspaceContinuity({ scope }: { scope: string }) {
       if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       const anchor = (event.target as Element)?.closest?.("a[href]") as HTMLAnchorElement | null;
       if (!anchor || anchor.target === "_blank" || anchor.hasAttribute("download") || ![...guards].some(g => g.dirty())) return;
+      // Links on the Website Studio's canvas select or preview; they never leave.
+      if (anchor.closest('.sbe-canvas-stage, [data-route-leg="off"]')) return;
       const url = new URL(anchor.href, location.href);
       if (!/^https?:$/.test(url.protocol) || (url.pathname === location.pathname && url.search === location.search && url.hash)) return;
       event.preventDefault();

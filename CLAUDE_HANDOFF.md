@@ -2,7 +2,7 @@
 
 ## Work in progress
 
-### Status at 07:40 UTC on 26 October 2026 (Claude)
+### Status at 09:15 UTC on 26 October 2026 (Claude)
 
 **1. Live: multipage marketing design (#99) and the trainer favicon fix (#100).**
 - `main` HEAD `f5565b1` has been live since 06:10:47 UTC.
@@ -52,11 +52,24 @@
   - Root and web `tsc` clean.
   - `npm run build` passed.
   - 98/98 across these test files: trainer-today (8), trainer-inbox (7, including the new done-count test), trainer-workspace-web, setup-wizard-web, logical-css, motion-css, member-motion, brand, brain-learning-loop, support-preview, bookings-completion, site-builder-editor-model and site-builder-integration.
-- **Running:**
-  - the backend-ui and daily-workflows browser checks on the new build;
-  - a review workflow on the fix diff (5 reviewers, 2 skeptics per finding);
-  - PR CI on this push.
-- **Next:** fix confirmed review findings, run ux-spacing and browser-check, CI green, merge, deploy watch, verify, record.
+- **Fix round `3b3df13`:**
+  - Backend-ui (15/15) and daily-workflows (6/6) browser checks passed locally on its build.
+  - PR CI was 8/8 green, including "application" (full `npm test` plus browser-check) and ux-spacing.
+- A container restart at about 08:05 UTC lost the first fix-review run and a local ux-spacing run. CI covered ux-spacing.
+- **Second fix-review workflow (3 lenses, 1 skeptic each): 11 confirmed findings, all fixed in the next push.**
+  - Finished items were double counted for up to 30 s: finishes and loads are now ordered by a counter, not the clock.
+  - Chat cover now uses every open exception and hold, the same rule as `chatAwaitingReply`. The safety-report skip still depends only on hold cards on screen.
+  - Today reads suggestions again when the server's rule count changes.
+  - Focus moves only when it was lost.
+  - The "N new" pill moves focus only on keyboard use.
+  - The announcement is accurate.
+  - Studio:
+    - canvas links no longer trigger the leave guard (high);
+    - a failed save (not a conflict) offers "Leave without saving?".
+  - Rail Escape: focus moves from a group link to its heading; the pointer coming back reopens the rail.
+- **Checks on the review fixes:** root and web `tsc` clean. 55/55 across trainer-today, trainer-inbox, trainer-workspace-web, setup-wizard-web, logical-css, site-builder-editor-model, site-builder-integration and support-preview.
+- **Next:** CI green on the new head, then merge, deploy watch, verify, record.
+- **Environment note:** a fresh container has Node 24 via `nvm install 24` (`/opt/nvm/versions/node/v24.22.1/bin`); `/opt/node24` may be gone.
 - **Known and accepted:**
   - Inquiries and follow-ups behind "Review" leave the queue without a countable event.
   - The per-user API rate limit is unchanged (120/min).
