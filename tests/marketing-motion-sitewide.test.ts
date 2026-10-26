@@ -907,6 +907,17 @@ test("the phone menu: a native details that animates in and out and closes on Es
   assert.match(menu, /\.mk-mobile-panel a/);
   assert.match(menu, /prefers-reduced-motion: reduce/);
   assert.match(menu, /data-mk-motion="always"/);
-  assert.match(css, /html\.mk-menu-open \{\s*overflow: hidden;/);
+  assert.match(css, /html\.mk-menu-open \{\s*overflow: hidden;\s*scrollbar-gutter: stable;/);
+  // The dimmed page covers the viewport: the header's blur (which would make
+  // the header the fixed overlay's containing block) pauses while open.
+  assert.match(css, /\.mk-header \{[^}]*backdrop-filter: blur/);
+  assert.match(css, /\.mk-header:has\(\.mk-mobile-menu\[open\]\) \{\s*backdrop-filter: none;/);
+  // Kamran's button does not cover the pinned buttons.
+  assert.match(css, /:root:has\(\.mk-header \.mk-mobile-menu\[open\]\) \.mk-assistant-fab \{\s*visibility: hidden;/);
+  // Past the breakpoint the menu closes, and the lock applies only below it.
+  const breakpoint = menu.match(/const SHOWS = "\((max-width: \d+px)\)";/)?.[1];
+  assert.ok(breakpoint && css.includes(`@media (${breakpoint}) {\n  .mk-nav,`), `menu breakpoint ${breakpoint} matches the CSS`);
+  assert.match(css, new RegExp(`@media \\(${breakpoint}\\) \\{\\s*html\\.mk-menu-open \\{`));
+  assert.match(menu, /if \(!shows\.matches && menu\.open\) finish\(\);/);
 });
 

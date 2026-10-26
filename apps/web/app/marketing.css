@@ -341,9 +341,28 @@ a.mk-nav-top {
   inset-block-end: 0;
   inset-block-start: var(--mk-menu-top, 0px);
   background: rgb(23 25 23 / 22%);
+  /* iOS Safari sends taps on a plain element to document listeners only
+     when it looks clickable. */
+  cursor: pointer;
 }
-html.mk-menu-open {
-  overflow: hidden;
+/* The header's blur makes it the containing block of fixed descendants,
+   which would shrink the dimmed page to nothing; it pauses while the menu
+   is open (the bar is 94% opaque, so the change does not show). */
+.mk-header:has(.mk-mobile-menu[open]) {
+  backdrop-filter: none;
+}
+/* Kamran's button would cover the pinned buttons at the panel's foot. */
+:root:has(.mk-header .mk-mobile-menu[open]) .mk-assistant-fab {
+  visibility: hidden;
+}
+/* The page behind stops scrolling; the scrollbar's space stays, so nothing
+   shifts sideways in browsers with classic scrollbars. Only where the menu
+   shows: components/marketing/mobile-menu.tsx also closes it past 1150px. */
+@media (max-width: 1150px) {
+  html.mk-menu-open {
+    overflow: hidden;
+    scrollbar-gutter: stable;
+  }
 }
 .mk-mobile-nav {
   display: grid;

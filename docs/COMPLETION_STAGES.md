@@ -2,6 +2,73 @@
 
 Application implementation and the job audit are complete for the current phase. [PR #1](https://github.com/chordsnstrings/trainer_what/pull/1) contains the work; [combined verification](VERIFICATION_2026-09-27.md) records the passing final code revision. The owner authorized merge to main. Real services and deployment remain the next phase; screenshots were waived. Historical entries below record the evidence available at each stage and may contain superseded pending-check statements.
 
+## Stage 2026-10-26 — marketing phone menu, and CI picks a fast Ubuntu mirror (PR #102, open)
+
+Owner, 26 October 2026, with a screenshot of the trainsyou.com phone menu: "The menu system should look better and more animated and more aesthetically pleasing with micro animations for the user with smooth animations".
+
+What the menu does now:
+- "Menu" is a pill. Its two lines turn into a cross, and it fills with Pace while the menu is open.
+- The panel drops in from the header, and its rows rise in 18 ms apart.
+- The page behind dims and stops scrolling. The scrollbar keeps its space, so nothing shifts sideways.
+- Rows are 48 px, with a press fill and an arrow nudge. The current page keeps a Pace tint.
+- "Sign in" and the call to action are pinned at the panel's foot. Kamran's button hides while the menu is open so it cannot cover them.
+- Closing plays a 150 ms exit. "Menu", Escape (focus returns to "Menu"), a tap on the dimmed page and a link all close it.
+- A window or tablet that widens past 1150 px closes the menu.
+- Without JavaScript it is still a `<details>`.
+- Files: `components/marketing/mobile-menu.tsx`, `frame.tsx`, `app/marketing.css`.
+
+An independent review (three lenses, each finding verified separately) confirmed four defects, all reproduced in Chromium and all fixed:
+- The header's `backdrop-filter` made the header the containing block of the fixed dim layer, so the dim was 0 px tall and a tap below the panel also clicked the page underneath. The blur now pauses while the menu is open.
+- Kamran's button covered the end of the pinned call to action.
+- The scroll lock removed classic scrollbars, so the page shifted 15 px. `scrollbar-gutter: stable` now keeps the space.
+- Widening past the breakpoint left the page locked behind a hidden menu.
+
+CI: `homepage-call` was cancelled twice on 26 October while downloading ffmpeg at about 40 KB/s from the runners' Azure Ubuntu mirror. On `d497572`'s `main` run it was the only job that did not pass, so `d497572` was not deployed. On the same runs, other jobs installed the same packages in about 20 seconds. `scripts/ci-apt-mirror.sh` now runs first in every job that installs Ubuntu packages:
+- It times the Azure mirror and archive.ubuntu.com on the same 13.6 MB package, 8 seconds each.
+- When the Azure mirror is under 2 MB/s and archive.ubuntu.com is faster, it puts archive.ubuntu.com first in the runner's apt mirror list.
+- Checked locally: apt reads a list in that format and downloads from the first entry, and a simulated slow mirror is switched.
+
+Checks (local, Node 24):
+- web `tsc` clean;
+- `npm run build` passed;
+- `marketing-motion-sitewide`, `marketing-site`, `marketing-journey` and `logical-css`: 49/49 (the menu test now also pins the four fixes);
+- deployment boundary tests: 160 passed, 3 skipped;
+- the sitewide marketing motion browser check passed, with CLS 0 on every page and width.
+- Browser checks of the menu at 390 and 360 px:
+  - open, cross, dim and lock; Escape and focus; tap outside; "Menu" again; link to /pricing; no sideways overflow.
+- At 820×1180:
+  - the dim is 1111 px tall;
+  - a tap below the panel only closes the menu;
+  - widening to 1200 px closes it and the page scrolls again.
+- With classic scrollbars at 1000 px the header does not move. Kamran's button is off in the local build, so a `.mk-assistant-fab` element was added to the page for the check; it was hidden while the menu was open and visible again after.
+
+**Not merged yet.** It merges when its CI is green, and the next `main` head then deploys this change together with #101.
+
+## Stage 2026-10-26 — trainer Today as "One queue", rail sidebar, page-to-page motion, Jump to (PR #101, merged as `d497572`; not live yet)
+
+The owner chose design B, "One queue", and approved it ("approved."). Two decisions shaped it: "the dashboard should feel alive", and "our moat is the AI training, not personal one on one training."
+- **Today:**
+  - Up next shows one decision at a time.
+  - The rest wait in Then, in queue order.
+  - A done ring counts the decisions finished today, on the server.
+  - Live panels show clients training with the coach's AI, what the Brain did, and how it is getting better.
+- **Inbox API:**
+  - reply drafts carry the client's message;
+  - `?since=` returns today's finished decisions and the waiting rule suggestions;
+  - `chat.replied` and answered support are recorded.
+- **Workspace-wide:**
+  - a rail sidebar above 900 px with live instruments, pin, pause and Escape;
+  - page-to-page motion;
+  - Ctrl/Cmd + K "Jump to";
+  - the Website Studio saves before any workspace navigation.
+- **Review:** reviewed twice, and all confirmed findings were fixed.
+
+Checks:
+- The PR's final CI passed 7 of 8 jobs. `homepage-call` was cancelled by an apt stall before any test ran; it had passed on `3b3df13`.
+- `main` run 40301256607 on `d497572` passed 7 of 8 jobs, including the application job (full `npm run check` and every browser journey). `homepage-call` was cancelled at its 40-minute limit while `apt-get install ffmpeg` downloaded from a slow mirror, so the release gate did not open.
+
+**Not live.** The site still serves `f5565b1`. PR #102 carries the CI mirror fix; its merge gives `main` a new head with both changes.
+
 ## Stage 2026-10-26 — HTML home design taken off; the multipage marketing design is back
 
 Owner, 26 October 2026: "the HTML design should be taken off. our previous marketing design is multipage one. let's get that back".

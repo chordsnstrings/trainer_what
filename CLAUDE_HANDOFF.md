@@ -2,36 +2,28 @@
 
 ## Work in progress
 
-### Status at 10:12 UTC on 26 October 2026 (Claude)
+### Status at 11:00 UTC on 26 October 2026 (Claude)
 
-**1. Today, "One queue" (#101): merged as `d497572` at about 09:35 UTC. Not live yet.**
-- `main` push run 40301256607 (started 09:39 UTC):
-  - six jobs passed: wildcard-edge, compose-topology, daily-workflows, subscriber-ui, ux-spacing, postgres-and-container;
-  - application has passed `npm run check` and browser-check and is on the website builder journeys;
-  - homepage-call has hung in `apt-get install ffmpeg` since 09:40 UTC. This is the same slow-mirror stall as on the PR, and the job limit is 40 minutes.
-- If homepage-call is cancelled, the `main` head fails and `d497572` is not deployed on its own. Jobs cannot be re-run from the session (403). Merging #102 would then give `main` a new head that carries both changes.
-- `scripts/watch-release.sh d497572 90` is watching. At 10:04 UTC the site still served `f5565b1`.
-- **Next:** verify `/trainer` and the marketing pages when it goes live, then record the live time in `docs/COMPLETION_STAGES.md`.
+**1. Today, "One queue" (#101): merged as `d497572`. Not live.**
+- `main` run 40301256607 passed 7 of 8 jobs, including the application job.
+- homepage-call was cancelled at its 40-minute limit at 10:19 UTC. It was still downloading ffmpeg at about 40 KB/s from the runners' Azure Ubuntu mirror, so the release gate did not open.
+- The site still serves `f5565b1`.
+- Recorded in `docs/COMPLETION_STAGES.md`.
 
-**2. Phone menu on the marketing site: draft PR #102 (`7edd1d5`). CI started at 10:03 UTC.**
-- Owner, 26 Oct (screenshot of the trainsyou.com phone menu): "The menu system should look better and more animated and more aesthetically pleasing with micro animations for the user with smooth animations."
-- What changed:
-  - "Menu" is a pill. Its two lines turn into a cross, and it fills with Pace while the menu is open.
-  - The panel drops in, and its rows rise 18 ms apart.
-  - The page behind dims and stops scrolling.
-  - Rows are 48 px, with a press fill and an arrow nudge.
-  - "Sign in" and the call to action are pinned at the panel's foot.
-  - Closing plays a 150 ms exit. "Menu", Escape (focus returns to "Menu"), a tap outside and a link all close it.
-  - Files: `components/marketing/mobile-menu.tsx` (new), `frame.tsx`, `app/marketing.css`.
+**2. Phone menu (#102), plus the CI mirror fix.**
+- An independent review confirmed four defects, all reproduced and all fixed:
+  - the dim layer was 0 px tall: the header's blur was its containing block;
+  - Kamran's button covered the pinned call to action;
+  - classic scrollbars shifted the page 15 px;
+  - widening past 1150 px left the page locked.
+- `scripts/ci-apt-mirror.sh` now runs first in every job that installs Ubuntu packages. It puts archive.ubuntu.com first when the Azure mirror is slow. #102's own run on `15242bf` had homepage-call and postgres-and-container stuck in apt for over 35 minutes.
 - **Checks:**
-  - web `tsc` clean;
-  - build passed;
-  - four marketing test files 49/49;
-  - a local browser check at 390 and 360 px passed.
-- Running: the sitewide marketing motion browser check. So far CLS is 0 on every page and width.
-- **Next:**
-  - If `d497572` goes live: mark #102 ready, then merge it when its CI is green.
-  - If the `main` run is cancelled: merge #102 as soon as its own CI is green, so the next `main` head deploys both.
+  - web `tsc` clean and the build passed;
+  - marketing tests 49/49 and deployment boundary tests 160 passed;
+  - the sitewide motion check passed with CLS 0;
+  - menu browser checks at 360, 390, 820 and 1000 px passed (see the stage entry).
+- **Next:** push. When #102's CI is green, mark it ready and squash-merge it. Then watch the `main` run and the deploy, verify `/trainer` and the phone menu live, and record the live time for #101 and #102.
+- Waiting on the owner: nothing. One note: delete the stray `/oq-daily.log`, which a safety check stopped Claude from removing.
 
 ### Home page as the owner's HTML design: live since 22:47 UTC on 25 October 2026 (Claude, checked 04:10 UTC on 26 Oct)
 
