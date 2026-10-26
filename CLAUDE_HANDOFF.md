@@ -2,29 +2,29 @@
 
 ## Work in progress
 
-### Status at 04:50 UTC on 26 October 2026 (Claude)
+### Status at 04:58 UTC on 26 October 2026 (Claude)
 
 **1. HTML home design taken off; multipage marketing design restored.**
 - Owner: "the HTML design should be taken off. our previous marketing design is multipage one. let's get that back".
-- PR #99 (head `196c5c2`) reverts #96 (`af457bd`). The code is byte-identical to `e4e2f8c`: the multipage site, its motion work and the "trains" sweep. #97's WHOOP check fix is kept.
-- PR CI: 7 of 8 jobs green; `application` was still running at 04:41 UTC.
-- **Next:** merge when green, then verify live on `/`, `/how-it-works`, `/pricing`, `/features` and `/earnings-calculator`, including that `mk-sweep` is served.
+- PR #99 was green on all 8 jobs. It was squash-merged as `2493e5eefda0ff3279e5478768be8b0194716456`. Its code is byte-identical to `e4e2f8c`: the multipage site, its motion work and the "trains" sweep. #97's WHOOP check fix is kept.
+- Running: the `main` CI run, then the deploy. `scripts/watch-release.sh` is polling for `2493e5e`.
+- **Next:** verify live on `/`, `/how-it-works`, `/pricing`, `/features` and `/earnings-calculator`, including that `mk-sweep` is served. Then record the live time here and in the 2026-10-26 entry of `docs/COMPLETION_STAGES.md`.
 
-**2. Trainer workspace favicon back to the trainsyou Y.**
+**2. Trainer workspace favicon back to the trainsyou Y. Draft PR #100.**
 - Owner: "change the favicon back to what it was. currently it's KS".
-- Cause: signed in, `MemberAppManifest` (`apps/web/components/member-app-install.tsx`) swapped the tab and apple-touch icons for the workspace's install icon. The API draws that from the coach's initials when no logo is uploaded, hence "KS".
+- Cause: signed in, `MemberAppManifest` (`apps/web/components/member-app-install.tsx`) swapped the tab and apple-touch icons for the workspace install icon. The API draws that icon from the coach's initials when no logo is uploaded, hence "KS".
 - Fix: only members (`subscriber`) get the coach's tab and home-screen icons. The trainer workspace keeps `/brand/favicon.svg` and `/brand/favicon.ico`. The member app and coach websites are unchanged.
-- Checks: `tests/brand.test.ts` 12/12 (a new assertion covers this); web `tsc` clean.
+- Checks: `tests/brand.test.ts` 12/12, with a new assertion; web `tsc` clean. PR CI is running.
 - Not changed: an installed trainer workspace on Android still takes its icon from the coach manifest, which uses the same initials icon.
-- **Next:** this ships as the next PR once #99 merges, so #99's CI is not restarted.
+- **Next:** merge when green, then check the signed-in trainer tab icon.
 
-**3. Trainer dashboard redesign: three concepts.**
-- Owner asked for 3 mockups of the trainer Today dashboard: less friction day to day and in onboarding; smooth page and sidebar animation; micro-animations; grid-structured; within the CI.
+**3. Trainer dashboard redesign: three concepts, all on the canvas.**
 - Canvas: https://claude.ai/artifact/XcN33J2FAHKNzieBDdBH2r (private to the owner).
-  - Concept A, "Guided Today", is published.
-  - Concepts B ("One queue") and C ("Day board") are being written.
-- The canvas uses trainsyou's colours, type and motion tokens from `apps/web/app/globals.css` and `motion.css`. Neither design system on the account is trainsyou's.
-- **Waiting on the owner:** a choice of concept before any implementation.
+- All three are interactive, grid-based, use trainsyou's colours, Inter and motion tokens, and follow reduce motion.
+  - **A, "Guided Today":** setup happens on Today. A six-step rail shows minutes left; the current step runs inline (the "Would you reply like this?" quiz, the price, going live). "Needs you" has inline actions with undo. The sidebar setup meter and the active pill slide. The groups open as an accordion.
+  - **B, "One queue":** one ordered queue mixes client items and setup steps: safety first, then oldest. An "Up next" focus card holds one decision at a time, with a "done today" ring. The icon rail expands on hover and can be pinned. A Ctrl K command palette is included. Page changes are directional.
+  - **C, "Day board":** a timeline of the day with a now-line, free gaps you can click and session details. Tiles count up. "Needs you" rows expand to show their actions. A launch checklist has a progress ring. Coach, Brand and Business are separate sidebar spaces, switched by a sliding segmented control.
+- **Waiting on the owner:** pick a concept, or a mix, before any implementation.
 
 ### Home page as the owner's HTML design: live since 22:47 UTC on 25 October 2026 (Claude, checked 04:10 UTC on 26 Oct)
 
