@@ -2,28 +2,19 @@
 
 ## Work in progress
 
-### Status at 11:00 UTC on 26 October 2026 (Claude)
+### Status at 11:15 UTC on 26 October 2026 (Claude)
 
-**1. Today, "One queue" (#101): merged as `d497572`. Not live.**
-- `main` run 40301256607 passed 7 of 8 jobs, including the application job.
-- homepage-call was cancelled at its 40-minute limit at 10:19 UTC. It was still downloading ffmpeg at about 40 KB/s from the runners' Azure Ubuntu mirror, so the release gate did not open.
-- The site still serves `f5565b1`.
-- Recorded in `docs/COMPLETION_STAGES.md`.
-
-**2. Phone menu (#102), plus the CI mirror fix.**
-- An independent review confirmed four defects, all reproduced and all fixed:
-  - the dim layer was 0 px tall: the header's blur was its containing block;
-  - Kamran's button covered the pinned call to action;
-  - classic scrollbars shifted the page 15 px;
-  - widening past 1150 px left the page locked.
-- `scripts/ci-apt-mirror.sh` now runs first in every job that installs Ubuntu packages. It puts archive.ubuntu.com first when the Azure mirror is slow. #102's own run on `15242bf` had homepage-call and postgres-and-container stuck in apt for over 35 minutes.
-- **Checks:**
-  - web `tsc` clean and the build passed;
-  - marketing tests 49/49 and deployment boundary tests 160 passed;
-  - the sitewide motion check passed with CLS 0;
-  - menu browser checks at 360, 390, 820 and 1000 px passed (see the stage entry).
-- **Next:** push. When #102's CI is green, mark it ready and squash-merge it. Then watch the `main` run and the deploy, verify `/trainer` and the phone menu live, and record the live time for #101 and #102.
-- Waiting on the owner: nothing. One note: delete the stray `/oq-daily.log`, which a safety check stopped Claude from removing.
+**Owner asked "is it live?" No. The site still serves `f5565b1`.** Neither #101 (Today, "One queue") nor #102 (phone menu) is live yet.
+- #101 (`d497572`) never deployed. Its `main` run (40301256607) had homepage-call cancelled at the 40-minute limit while apt downloaded ffmpeg at about 40 KB/s.
+- #102 on `2bf87f1` carries the phone menu, the four review fixes and `scripts/ci-apt-mirror.sh`.
+  - CI is 7/8 green. homepage-call passed in 5 minutes and postgres-and-container in 11; both were stuck in apt on the previous head.
+  - The application job is on its last browser journeys, after `npm run check` and browser-check passed.
+- **Next:**
+  - When application passes, mark #102 ready and squash-merge it. The head will be this handoff-only commit, whose code is identical to `2bf87f1`.
+  - Then `main`'s check run (about 35 minutes) and the deploy (about 10 minutes): expected live around 12:05 UTC.
+  - Then verify `/trainer`, the marketing pages and the phone menu live, and record the live time.
+- Earlier details: the 11:00 status in git history, and the 26 October stage entries in `docs/COMPLETION_STAGES.md`.
+- Waiting on the owner: nothing. The note stands: delete the stray `/oq-daily.log`.
 
 ### Home page as the owner's HTML design: live since 22:47 UTC on 25 October 2026 (Claude, checked 04:10 UTC on 26 Oct)
 
