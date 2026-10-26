@@ -2,7 +2,7 @@
 
 ## Work in progress
 
-### Status at 05:05 UTC on 26 October 2026 (Claude)
+### Status at 05:16 UTC on 26 October 2026 (Claude)
 
 **1. HTML home design taken off; multipage marketing design restored.**
 - Owner: "the HTML design should be taken off. our previous marketing design is multipage one. let's get that back".
@@ -18,23 +18,30 @@
 - Not changed: an installed trainer workspace on Android still takes its icon from the coach manifest, which uses the same initials icon.
 - **Next:** merge when green, then check the signed-in trainer tab icon.
 
-**3. Trainer dashboard redesign: the owner chose B, "One queue".**
-- Canvas: https://claude.ai/artifact/XcN33J2FAHKNzieBDdBH2r (private to the owner). All three concepts are on it.
-- Owner (26 Oct): "one queue is good. but there's not enough micro animation, smooth animations from page to page. I quite like the side bar, but make it smooth and always on motion. the dashboard should feel alive."
-- **In progress:** a motion pass on B.
-  - First, a workflow grounds the work in the repo's motion rules (`motion.css`, `docs/features/motion.md`) and produces two independent motion specs: one for the sidebar, one for pages and micro-animations.
-  - Then B is rewritten with:
-    - page exit and enter choreography;
-    - an always-moving sidebar that reflects live state;
-    - live arrivals in the queue;
-    - completion choreography on the focus card;
-    - a pause-motion control that meets WCAG 2.2.2.
-- Owner, later on 26 Oct: "the next session isn't necessarily our moat. our moat is the AI training, not personal one on one training." B is being refocused:
-  - The queue holds the Brain's plans and replies that wait for the coach, safety hand-offs, and rules suggested from the coach's edits.
-  - Live panels show clients training with the AI now, the Brain's activity, and "Getting better".
-  - The sidebar's always-on motion shows the Brain drafting, clients training now and new items.
-  - Sessions become secondary. Recorded in `docs/PROJECT_MEMORY.md`.
-- **Next:** publish the revised B artboard and show the owner. Implementation in the app waits for the owner's go-ahead on the mockup.
+**3. Trainer dashboard redesign: B, "One queue", revised for the AI moat and for motion. Published, waiting on the owner.**
+- Canvas: https://claude.ai/artifact/XcN33J2FAHKNzieBDdBH2r, artboard `OneQueue.dc.html`. It is private to the owner.
+- Owner, 26 Oct:
+  - "one queue is good. but there's not enough micro animation, smooth animations from page to page. I quite like the side bar, but make it smooth and always on motion. the dashboard should feel alive."
+  - Then: "our moat is the AI training, not personal one on one training." This is saved in `docs/PROJECT_MEMORY.md`.
+- **Grounding.** A workflow (3 agents) read `motion.css` and `docs/features/motion.md`:
+  - The trainer workspace has almost no motion today and no view transitions.
+  - The rules: transform and opacity only, never width; durations 120 to 240 ms with no overshoot; loops only for live states; everything still under reduced motion.
+- **Queue items now.** Safety hand-offs ("Your Brain passed Lina to you"), plans the Brain wrote that wait for the coach, "Make this a rule?" learned from the coach's edits, and reply drafts that arrive live.
+- **Live panels.** "Your AI right now" shows clients mid-workout, with bars that advance and finish. "What your Brain did" is an activity feed with a drafting status. "Getting better" shows approved without edits, the 8-week bars, rules learned and the trained meter.
+- **Sidebar.**
+  - The plate expands with a scale transform and the content opens with a clip. Opening waits 120 ms for hover intent, and closing waits 200 ms.
+  - Labels stagger in. A hover pill follows the pointer. The ink pill glides with a small stretch.
+  - Live instruments:
+    - a done ring on Today;
+    - an Inbox count that rolls, pops and haloes;
+    - typing dots on My Brain while it drafts;
+    - a breathing dot on Clients when people are training;
+    - a rotating ticker line.
+  - Only one ambient loop runs at a time. A "Pause live motion" button meets WCAG 2.2.2.
+- **Pages.** A 120 ms exit, then the swap, then a 240 ms directional entry with 30 ms bands, plus a route bar.
+- **Focus card.** The button turns into a check, the card lifts away, and the next item rises from the queue. The ring and counts roll. Undo is available.
+- **Arrivals.** A new item never jumps under the pointer: it waits as "1 new · show". A `stage` tweak shows the setup (onboarding) version.
+- **Next:** the owner reviews B. On a go-ahead, implement it in `apps/web` (Today, the workspace navigation, view transitions), and add a trainer-workspace section to `docs/features/motion.md`.
 
 ### Home page as the owner's HTML design: live since 22:47 UTC on 25 October 2026 (Claude, checked 04:10 UTC on 26 Oct)
 
