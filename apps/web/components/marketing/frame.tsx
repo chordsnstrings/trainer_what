@@ -1,7 +1,8 @@
 // The public site header and footer. No hooks, so the server-rendered
 // marketing pages, the directory and the client sign-in pages share them.
 import Link from "next/link";
-import { ChevronDown } from "lucide-react";
+import type { CSSProperties } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import {
   BRAND_COPY,
   marketingFooter,
@@ -10,6 +11,7 @@ import {
   type NavLink,
 } from "@trainer/contracts";
 import { PlatformLogo } from "../brand-logo";
+import { MobileMenu } from "./mobile-menu";
 
 export type BrandProps = { appName: string; initials: string };
 export type Cta = { label: string; href: string };
@@ -46,6 +48,16 @@ export function MarketingHeader({
   path,
 }: BrandProps & { cta: Cta; path?: string }) {
   const nav = marketingNav();
+  // The phone menu's rows rise in one after another, 18ms apart (at most
+  // 20 steps); the buttons come last.
+  let row = 0;
+  const rise = () => ({ "--mk-stagger": `${Math.min(row++, 20) * 18}ms` }) as CSSProperties;
+  const mobileLink = (item: NavLink) => (
+    <Link className="mk-mobile-link mk-mobile-row" style={rise()} href={item.href} aria-current={current(item.href, path)}>
+      <span>{item.label}</span>
+      <ChevronRight className="mk-mobile-go" size={18} aria-hidden="true" />
+    </Link>
+  );
   return (
     // The header spans the page (background and rule); its content sits in
     // the one page container, so every region starts at the same edge.
@@ -104,37 +116,45 @@ export function MarketingHeader({
             {cta.label}
           </Link>
         </div>
-        <details className="mk-mobile-menu">
-          <summary>Menu</summary>
+        <MobileMenu>
+          <summary>
+            <span>Menu</span>
+            <span className="mk-burger" aria-hidden="true">
+              <i />
+              <i />
+            </span>
+          </summary>
           <div className="mk-mobile-panel">
-            {nav.map((group) => (
-              <div key={group.label}>
-                {group.href ? (
-                  <Link href={group.href} aria-current={current(group.href, path)}>
-                    {group.label}
-                  </Link>
-                ) : (
-                  <>
-                    <p className="eyebrow">{group.label}</p>
-                    <ul>
-                      {group.links.map((item) => (
-                        <li key={item.href}>
-                          <Link href={item.href} aria-current={current(item.href, path)}>
-                            {item.label}
-                          </Link>
-                        </li>
-                      ))}
-                    </ul>
-                  </>
-                )}
-              </div>
-            ))}
-            <Link href="/login">Sign in</Link>
-            <Link className="button mk-cta" href={cta.href}>
-              {cta.label}
-            </Link>
+            <nav className="mk-mobile-nav" aria-label="Site menu">
+              {nav.map((group) => (
+                <section key={group.label} className="mk-mobile-section">
+                  {group.href ? (
+                    mobileLink({ label: group.label, href: group.href })
+                  ) : (
+                    <>
+                      <p className="eyebrow mk-mobile-row" style={rise()}>
+                        {group.label}
+                      </p>
+                      <ul>
+                        {group.links.map((item) => (
+                          <li key={item.href}>{mobileLink(item)}</li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                </section>
+              ))}
+            </nav>
+            <div className="mk-mobile-actions mk-mobile-row" style={rise()}>
+              <Link className="button secondary" href="/login">
+                Sign in
+              </Link>
+              <Link className="button mk-cta" href={cta.href}>
+                {cta.label}
+              </Link>
+            </div>
           </div>
-        </details>
+        </MobileMenu>
       </div>
     </header>
   );

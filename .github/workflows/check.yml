@@ -10,11 +10,16 @@ jobs:
   # Limits leave room for slow runner setup (22 October 2026: apt-get took
   # up to 16 min and the Playwright install up to 9.5 min, so jobs were
   # cancelled with every test passing). Tests and gates are unchanged.
+  # Every job that installs Ubuntu packages (apt-get or Playwright's
+  # --with-deps) first runs scripts/ci-apt-mirror.sh, which puts
+  # archive.ubuntu.com first when the runner's Azure mirror is slow
+  # (26 October 2026: about 40 KB/s, homepage-call cancelled twice).
   daily-workflows:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      - run: sh scripts/ci-apt-mirror.sh
       - uses: actions/setup-node@v4
         with:
           node-version: 24.19.0
@@ -42,6 +47,7 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
+      - run: sh scripts/ci-apt-mirror.sh
       - uses: actions/setup-node@v4
         with:
           node-version: 24.19.0
@@ -78,6 +84,7 @@ jobs:
       BROWSER_SCREENSHOTS: "false"
     steps:
       - uses: actions/checkout@v4
+      - run: sh scripts/ci-apt-mirror.sh
       - uses: actions/setup-node@v4
         with:
           node-version: 24.19.0
@@ -145,6 +152,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      - run: sh scripts/ci-apt-mirror.sh
       - uses: actions/setup-node@v4
         with:
           node-version: 24.19.0
@@ -195,6 +203,7 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
+      - run: sh scripts/ci-apt-mirror.sh
       - uses: actions/setup-node@v4
         with:
           node-version: 24.19.0
@@ -244,6 +253,7 @@ jobs:
       API_INTERNAL_URL: http://127.0.0.1:4000
     steps:
       - uses: actions/checkout@v4
+      - run: sh scripts/ci-apt-mirror.sh
       - uses: actions/setup-node@v4
         with:
           node-version: 24.19.0

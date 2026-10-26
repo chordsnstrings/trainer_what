@@ -2,79 +2,19 @@
 
 ## Work in progress
 
-### Status at 08:46 UTC on 26 October 2026 (Claude)
+### Status at 11:15 UTC on 26 October 2026 (Claude)
 
-**1. Live: multipage marketing design (#99) and the trainer favicon fix (#100).**
-- `main` HEAD `f5565b1` has been live since 06:10:47 UTC.
-- At 06:16 UTC, `/`, `/how-it-works`, `/pricing`, `/features` and `/earnings-calculator` all:
-  - answered 200;
-  - carried `data-mk-motion="always"`;
-  - had no `.tyh` markup;
-  - served `mk-sweep` in their CSS;
-  - linked the trainsyou favicon.
-- Not checked live: the signed-in trainer tab icon (no cloud browser is used).
-- Recorded in `docs/COMPLETION_STAGES.md` (2026-10-26).
-
-**2. Today, "One queue": the owner approved it at 05:20 UTC ("approved."). It is built, and a fix round is pushed to draft PR #101. It is not merged.**
-- First push `7d06f13`: all 8 CI jobs were green, including "application" (full `npm test` plus browser-check).
-- An independent review found real bugs:
-  - Up next could swap cards while the coach typed.
-  - The done count drifted, and the rail and Today could disagree.
-  - Rail highlights layered or went stale.
-  - Focus was lost after acting on a card.
-  - A route-bar timer race.
-- A research workflow (5 investigators plus a critic) confirmed these and added more:
-  - Chat replies recorded no event.
-  - Jump to could leave the Website Studio without its pending autosave.
-  - Contrast on the open rail.
-  - An Arabic message's direction was set by the English label.
-  - Long-URL overflow.
-  - Whole-workspace re-renders on every poll.
-- **Fix round (this push):**
-  - **Server done count.** `GET /trainer/inbox?since=` now returns `done.count` and `counts.rules`.
-    - A new `chat.replied` event is written when a coach answers a waiting chat.
-    - `support.replied` records `answered`.
-    - A dismissed suggestion records its target.
-  - **One shared store.** The inbox store gets `finish()` with tombstones. The rail, ticker, tab bar and Today read it.
-  - **Today state.** A pinned Up next card. An arrival chip for safety or more urgent items. The page is ready only when every source has answered. Cached loads. Focus moves to "Up next". One announcement per finish.
-  - **Rail.**
-    - Escape folds it.
-    - It opens on keyboard focus only, not on a mouse click.
-    - The pill follows layout changes.
-    - Group links sit above the pill.
-    - The note contrast is fixed.
-    - The folded "Finish setup" is fixed.
-    - Focus rings are not clipped.
-  - **Transitions.** Moves have ids. A bubble-phase listener. Cmd+K on a Mac and Ctrl+K elsewhere, with layout-safe K. Combobox fixes. The Studio registers save-before-leave.
-  - **Layout.** Long text wraps. Labels use `dir="ltr"`. Tap targets are at least 44px on phones.
-  - **Performance.** Leaf subscriptions. Stores publish only on change. Live polling is on only where it is visible. Only events are refreshed after an action.
-- **Checks on the fix round so far:**
-  - Root and web `tsc` clean.
-  - `npm run build` passed.
-  - 98/98 across these test files: trainer-today (8), trainer-inbox (7, including the new done-count test), trainer-workspace-web, setup-wizard-web, logical-css, motion-css, member-motion, brand, brain-learning-loop, support-preview, bookings-completion, site-builder-editor-model and site-builder-integration.
-- **Fix round `3b3df13`:**
-  - Backend-ui (15/15) and daily-workflows (6/6) browser checks passed locally on its build.
-  - PR CI was 8/8 green, including "application" (full `npm test` plus browser-check) and ux-spacing.
-- A container restart at about 08:05 UTC lost the first fix-review run and a local ux-spacing run. CI covered ux-spacing.
-- **Second fix-review workflow (3 lenses, 1 skeptic each): 11 confirmed findings, all fixed in the next push.**
-  - Finished items were double counted for up to 30 s: finishes and loads are now ordered by a counter, not the clock.
-  - Chat cover now uses every open exception and hold, the same rule as `chatAwaitingReply`. The safety-report skip still depends only on hold cards on screen.
-  - Today reads suggestions again when the server's rule count changes.
-  - Focus moves only when it was lost.
-  - The "N new" pill moves focus only on keyboard use.
-  - The announcement is accurate.
-  - Studio:
-    - canvas links no longer trigger the leave guard (high);
-    - a failed save (not a conflict) offers "Leave without saving?".
-  - Rail Escape: focus moves from a group link to its heading; the pointer coming back reopens the rail.
-- **Checks on the review fixes:** root and web `tsc` clean. 55/55 across trainer-today, trainer-inbox, trainer-workspace-web, setup-wizard-web, logical-css, site-builder-editor-model, site-builder-integration and support-preview.
-- **Next:** CI green on the new head, then merge, deploy watch, verify, record.
-- **Environment note:** a fresh container has Node 24 via `nvm install 24` (`/opt/nvm/versions/node/v24.22.1/bin`); `/opt/node24` may be gone.
-- **Known and accepted:**
-  - Inquiries and follow-ups behind "Review" leave the queue without a countable event.
-  - The per-user API rate limit is unchanged (120/min).
-
-Deployment stays with Claude under the standing "always deploy" instruction for merged work.
+**Owner asked "is it live?" No. The site still serves `f5565b1`.** Neither #101 (Today, "One queue") nor #102 (phone menu) is live yet.
+- #101 (`d497572`) never deployed. Its `main` run (40301256607) had homepage-call cancelled at the 40-minute limit while apt downloaded ffmpeg at about 40 KB/s.
+- #102 on `2bf87f1` carries the phone menu, the four review fixes and `scripts/ci-apt-mirror.sh`.
+  - CI is 7/8 green. homepage-call passed in 5 minutes and postgres-and-container in 11; both were stuck in apt on the previous head.
+  - The application job is on its last browser journeys, after `npm run check` and browser-check passed.
+- **Next:**
+  - When application passes, mark #102 ready and squash-merge it. The head will be this handoff-only commit, whose code is identical to `2bf87f1`.
+  - Then `main`'s check run (about 35 minutes) and the deploy (about 10 minutes): expected live around 12:05 UTC.
+  - Then verify `/trainer`, the marketing pages and the phone menu live, and record the live time.
+- Earlier details: the 11:00 status in git history, and the 26 October stage entries in `docs/COMPLETION_STAGES.md`.
+- Waiting on the owner: nothing. The note stands: delete the stray `/oq-daily.log`.
 
 ### Home page as the owner's HTML design: live since 22:47 UTC on 25 October 2026 (Claude, checked 04:10 UTC on 26 Oct)
 
