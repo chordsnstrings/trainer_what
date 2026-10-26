@@ -41,6 +41,8 @@ export type InboxItem = {
   preview: string;
   /** The Brain's draft reply, for reply drafts only. */
   draft: string | null;
+  /** The client's message the draft answers, for reply drafts only. */
+  ask?: string | null;
   createdAt: string;
   actions: InboxAction[];
   /** Where "Open" goes in the trainer workspace. */
@@ -167,15 +169,17 @@ export async function inboxItems(tx: Tx, a: Actor): Promise<InboxItem[]> {
   const decisionIds = open
     .map((e) => e.data?.decisionId)
     .filter((v): v is string => typeof v === "string");
+  const decisions = decisionIds.length
+    ? await tx.query(
+        "SELECT id,data->>'message' AS message,data->>'request' AS request FROM records WHERE kind='decision' AND id=ANY($1::uuid[])",
+        [decisionIds],
+      )
+    : [];
   const drafts = new Map<string, string>(
-    decisionIds.length
-      ? (
-          await tx.query(
-            "SELECT id,data->>'message' AS message FROM records WHERE kind='decision' AND id=ANY($1::uuid[])",
-            [decisionIds],
-          )
-        ).map((d) => [d.id, d.message ?? ""])
-      : [],
+    decisions.map((d) => [d.id, d.message ?? ""]),
+  );
+  const asks = new Map<string, string>(
+    decisions.map((d) => [d.id, d.request ?? ""]),
   );
   const waiting = new Set<string>();
   for (const e of open) {
@@ -206,6 +210,7 @@ export async function inboxItems(tx: Tx, a: Actor): Promise<InboxItem[]> {
         title: "Your Brain drafted a reply",
         preview: question,
         draft: drafts.get(e.data.decisionId) || null,
+        ask: clip(asks.get(e.data.decisionId)) || null,
         createdAt: iso(e.created_at),
         actions: ["approve", "edit_send", "reject", "open_chat"],
         href: "/trainer/exceptions",

@@ -10,7 +10,10 @@ import {
   TrainerTabBar,
   trainerTitle,
   useInboxCount,
+  useInboxSafety,
 } from "./workspace-nav";
+import { useLive } from "./workspace-live";
+import { RailControls, RailTicker, tickerLines, useRailPrefs } from "./workspace-rail";
 import { TeamControls } from "./team-controls";
 import { CoachSwitcher } from "./joining";
 import { AdminComplimentaryAccess } from "./complimentary-access";
@@ -82,6 +85,7 @@ import { MemberNotFound, WorkspaceUnavailable } from "./member-states";
 import { isMemberRoute } from "./member-nav";
 import { TrainerTheme, CoachIdentity } from "./trainer-design";
 import {
+  BRAND_ASSETS,
   BRAND_COPY,
   DEFAULT_PLATFORM_NAME,
   appInitials,
@@ -127,6 +131,7 @@ import Link from "./preview-navigation";
 import { WorkspaceNavigation } from "./workspace-navigation";
 import { WorkspaceScope, WorkspaceContinuity, clearWorkspaceViews, flushWorkspaceEdits } from "./workspace-continuity";
 import { WorkspaceFeedback, confirmWorkspace } from "./workspace-feedback";
+import { JumpMenu, RouteBar, useRouteArrival } from "./workspace-transitions";
 import {
   Check,
   ChevronRight,
@@ -367,6 +372,22 @@ export default function Workspace({
       path.startsWith("/trainer"),
     state,
   );
+  // The trainer rail's live picture and the safety colour on its Inbox count
+  // (owners and staff in the coaching workspace; components/workspace-live.ts).
+  const coachLive =
+    !!state &&
+    ["owner", "staff"].includes(state.user.role) &&
+    path.startsWith("/trainer") &&
+    !state.platformWorkspace;
+  const inboxSafety = useInboxSafety(coachLive, state);
+  const live = useLive(
+    state ? `${state.user.tenantId}:${state.user.userId}` : "",
+    state,
+    coachLive,
+  );
+  const railPrefs = useRailPrefs();
+  // How the page arrived, for the page-to-page motion (workspace-transitions.tsx).
+  const arrival = useRouteArrival(path, !loading && !!state);
   const shown = useMemo(
     () => (state ? mergePages(state, extra) : null),
     [state, extra],
@@ -689,6 +710,9 @@ export default function Workspace({
   const setupOpen = coachSetupOpen(state);
   // The phone's bottom bar shows in the trainer workspace, not /admin.
   const trainerNav = !subscriber && path.startsWith("/trainer");
+  // The trainer rail (72px, opens over the page; app/trainer-rail.css). The
+  // platform administration keeps the full sidebar.
+  const rail = trainerNav && !state.platformWorkspace;
   const props = {
     state: view,
     records,
@@ -1225,14 +1249,25 @@ export default function Workspace({
     );
   return (
     <WorkspaceScope.Provider key={`${state.user.tenantId}:${state.user.userId}:${state.user.role}:${state.user.platformRole}`} value={`${state.user.tenantId}:${state.user.userId}:${state.user.role}:${state.user.platformRole}`}>
-    <PlainShell className={`workspace platform-ui${isSetupPath(path) ? " is-setup" : ""}${path.startsWith("/admin") || state.platformWorkspace ? " is-admin" : ""}`}>
+    <PlainShell className={`workspace platform-ui${isSetupPath(path) ? " is-setup" : ""}${path.startsWith("/admin") || state.platformWorkspace ? " is-admin" : ""}${rail ? " is-rail" : ""}${rail && railPrefs.pinned ? " is-pinned" : ""}${railPrefs.paused ? " motion-paused" : ""}`}>
       <WorkspaceContinuity scope={`${state.user.tenantId}:${state.user.userId}`} />
       <WorkspaceFeedback />
+      <RouteBar />
       <a href="#workspace-content" className="workspace-skip">Skip to content</a>
       <MemberLanguage member={`${state.user.tenantId}:${state.user.userId}`} />
       {!path.startsWith("/admin") && <MemberAppManifest tenantId={state.tenant.id} role={state.user.role} />}
       <aside className={"sidebar " + (mobile ? "is-open" : "")} inert={compactNav && !mobile} aria-label="Workspace navigation">
+        <div className="sidebar-panel">
         <Link href={path.startsWith("/admin") || state.platformWorkspace ? "/admin" : "/trainer"} className="wordmark">
+          {rail && (
+            <span className="rail-mark" aria-hidden="true">
+              {usesBrandIdentity(platformName) ? (
+                <img src={BRAND_ASSETS.symbolInk} alt="" width={26} height={26} />
+              ) : (
+                appInitials(platformName)
+              )}
+            </span>
+          )}
           {subscriber ? (
             <CoachIdentity
               name={state.tenant.name}
@@ -1263,11 +1298,14 @@ export default function Workspace({
           current={state.user.tenantId}
           userId={state.user.userId}
         />
-        <WorkspaceNavigation state={state} path={path} count={inboxCount} setupOpen={setupOpen} />
+        <WorkspaceNavigation state={state} path={path} count={inboxCount} setupOpen={setupOpen} live={coachLive ? live : undefined} safety={inboxSafety} rail={rail} />
         <div className="sidebar-bottom">
+          {rail && <RailTicker lines={tickerLines(coachLive ? live : undefined, inboxCount)} paused={railPrefs.paused} />}
+          {rail && <RailControls {...railPrefs} />}
           <button className="text-button" onClick={() => void signOut()}>
-            <LogOut size={15} /> Sign out
+            <span className="nav-icon"><LogOut size={15} /></span><span className="nav-label">Sign out</span>
           </button>
+        </div>
         </div>
       </aside>
       <main className="main">
@@ -1285,6 +1323,7 @@ export default function Workspace({
             <strong>{topTitle}</strong>
           </div>
           <div className="topbar-right">
+            {!subscriber && <JumpMenu />}
             {subscriber && (
               <CoachSwitcher
                 current={state.user.tenantId}
@@ -1299,9 +1338,17 @@ export default function Workspace({
             <span className="avatar small">{firstName[0]}</span>
           </div>
         </header>
-        <div className="content" id="workspace-content" tabIndex={-1}>
+        <div className="content" id="workspace-content" tabIndex={-1} data-arrive={arrival ?? undefined}>
           {notices}
-          {loading ? <div className="workspace-loading" role="status"><span className="loading-indicator" aria-hidden="true" />Loading…</div> : page}
+          {loading ? (
+            <div className="workspace-loading" role="status" aria-busy="true">
+              <span className="sr-only">Loading…</span>
+              <span className="skeleton-line is-title" aria-hidden="true" />
+              <span className="skeleton-line is-short" aria-hidden="true" />
+              <span className="skeleton-line is-block" aria-hidden="true" />
+              <span className="skeleton-line is-block" aria-hidden="true" />
+            </div>
+          ) : page}
         </div>
         {trainerNav && (
           <TrainerTabBar

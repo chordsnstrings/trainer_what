@@ -1,0 +1,223 @@
+/*
+ * Today, "One queue" (docs/features/trainer-workspace.md, "Today"): one
+ * decision at a time in Up next, the rest of the queue in Then, and the
+ * coach's AI at work beside it. A 12-column grid from 1100px (Up next 7,
+ * Then 5; the three live panels 5, 4 and 3), 2 columns from 700px and one
+ * below. White surfaces, logical properties only; horizontal movement
+ * follows --inline-sign. Motion uses the tokens in motion.css: the page
+ * rises in bands, a finished card leaves and the next one rises, rows that
+ * arrive slide in and glow once, the ring and bars ease to new values, and
+ * only live states loop (the training dot and the Brain's writing dots),
+ * which "Pause live motion" in the rail stops.
+ */
+
+.oq-today { display: grid; gap: var(--workspace-gap, 24px); }
+
+/* Header: greeting and the done ring. */
+.oq-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px 24px; }
+.oq-head .eyebrow { margin: 0 0 6px; }
+.workspace.platform-ui .oq-head h1 { margin: 0; font-size: clamp(25px, 2.5vw, 32px); line-height: 1.15; font-weight: 650; letter-spacing: -0.02em; }
+.oq-summary { margin: 8px 0 0; max-inline-size: 62ch; font-size: 15px; }
+.oq-done { display: flex; align-items: center; gap: 14px; }
+.oq-done strong { display: block; font-size: 22px; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.oq-done small { display: block; font-size: 12px; }
+.oq-ring { inline-size: 56px; block-size: 56px; flex-shrink: 0; }
+.oq-ring circle { fill: none; stroke: var(--line); stroke-width: 6; }
+.oq-ring .oq-ring-value { stroke: var(--ink); stroke-linecap: round; stroke-dasharray: 163.4; transform: rotate(-90deg); transform-origin: 32px 32px; }
+.oq-notice { display: flex; align-items: center; gap: 8px; margin: 0; }
+
+/* The grid. */
+.oq-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--workspace-gap, 24px) 20px; align-items: start; }
+@media (min-width: 700px) {
+  .oq-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .oq-focus, .oq-then, .oq-panel-better { grid-column: 1 / -1; }
+}
+@media (min-width: 1100px) {
+  .oq-grid { grid-template-columns: repeat(12, minmax(0, 1fr)); }
+  .oq-focus { grid-column: span 7; }
+  .oq-then { grid-column: span 5; }
+  .oq-panel-now { grid-column: span 5; }
+  .oq-panel-brain { grid-column: span 4; }
+  .oq-panel-better { grid-column: span 3; }
+}
+
+/* Up next: the one decision, with its actions. */
+.oq-focus { display: flex; flex-direction: column; gap: 16px; min-block-size: 320px; padding: 24px; border: 1px solid var(--line); border-radius: 12px; background: #ffffff; overflow: hidden; }
+.oq-focus-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.workspace.platform-ui .oq-focus-head h2 { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.oq-focus-head .text-button { display: inline-flex; align-items: center; gap: 6px; }
+.oq-focus-body { display: flex; flex-direction: column; flex: 1; }
+.oq-inbox-focus { list-style: none; margin: 0; padding: 0; }
+.inbox-card.is-focus { padding: 0; border: 0; border-radius: 0; gap: 12px; background: transparent; }
+.inbox-card.is-focus.inbox-safety { padding-inline-start: 14px; border-inline-start: 4px solid var(--error); }
+.workspace.platform-ui .inbox-card.is-focus h3 { font-size: 22px; line-height: 1.25; font-weight: 650; letter-spacing: -0.015em; }
+.inbox-card.is-focus .inbox-actions { margin-block-start: 6px; }
+.inbox-card.is-focus .inbox-actions .button { min-block-size: 44px; }
+
+/* The client's message and the Brain's draft read as a short conversation. */
+.inbox-ask { justify-self: start; max-inline-size: 90%; margin: 0; padding: 12px 14px; border-radius: 8px; border-end-start-radius: 2px; background: var(--mint); white-space: pre-wrap; }
+.inbox-ask small { display: block; margin-block-end: 4px; font-size: 11px; font-weight: 600; color: var(--muted); }
+.inbox-card.is-focus .inbox-ask + .inbox-draft { justify-self: end; max-inline-size: 90%; padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--lime) 70%, var(--ink) 10%); border-radius: 8px; border-end-end-radius: 2px; background: color-mix(in srgb, var(--lime) 20%, #ffffff); }
+.inbox-card.is-focus .inbox-ask + .inbox-draft small { font-size: 11px; font-weight: 600; color: var(--ink); }
+
+/* Rule and setup cards. */
+.oq-card-body { display: flex; flex-direction: column; gap: 12px; }
+.oq-card-body > p { margin: 0; }
+.oq-who { display: flex; align-items: center; gap: 12px; margin: 0; }
+.oq-who strong { display: block; }
+.oq-who small { display: block; font-size: 12px; color: var(--muted); }
+.workspace.platform-ui .oq-title { margin: 0; font-size: 22px; line-height: 1.25; font-weight: 650; letter-spacing: -0.015em; }
+.oq-rule { display: grid; gap: 4px; padding: 12px 14px; border-radius: 8px; background: color-mix(in srgb, var(--lime) 20%, #ffffff); border: 1px solid color-mix(in srgb, var(--lime) 70%, var(--ink) 10%); }
+.oq-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; counter-reset: oq-step; }
+.oq-steps li { display: flex; align-items: center; gap: 10px; counter-increment: oq-step; color: var(--muted); }
+.oq-steps li::before { content: counter(oq-step); display: inline-flex; align-items: center; justify-content: center; inline-size: 22px; block-size: 22px; flex-shrink: 0; border-radius: 50%; border: 1px solid var(--line); font-size: 11px; font-weight: 600; }
+.oq-steps li.is-done { text-decoration: line-through; }
+.oq-steps li.is-done::before { content: "✓"; border-color: var(--success); background: var(--success); color: #ffffff; }
+.oq-steps li.is-next { color: var(--ink); font-weight: 600; }
+.oq-steps li.is-next::before { border-color: var(--ink); background: var(--lime); color: var(--ink); }
+
+/* Nothing waits. */
+.oq-clear { display: flex; flex: 1; flex-direction: column; align-items: flex-start; justify-content: center; gap: 10px; }
+.oq-clear h3 { margin: 0; font-size: 22px; font-weight: 650; letter-spacing: -0.015em; }
+.oq-clear p { margin: 0; }
+.oq-clear-mark { display: inline-flex; align-items: center; justify-content: center; inline-size: 56px; block-size: 56px; border-radius: 50%; background: var(--lime); color: var(--ink); }
+
+/* Then: the rest of the queue. */
+.oq-then { display: flex; flex-direction: column; gap: 10px; min-inline-size: 0; }
+.oq-then-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.workspace.platform-ui .oq-then-head h2,
+.workspace.platform-ui .oq-panel-head h2 { margin: 0; font-size: 16px; font-weight: 650; }
+.oq-then-head h2 .muted { font-weight: 500; font-variant-numeric: tabular-nums; }
+.oq-small { font-size: 12px; }
+.workspace.platform-ui .oq-pending { align-self: center; min-block-size: 32px; padding: 0 14px; border: 0; border-radius: 16px; background: var(--lime); color: var(--ink); font-size: 12px; font-weight: 600; }
+.oq-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.oq-list li { position: relative; }
+.workspace.platform-ui .oq-row {
+  position: relative; display: grid; grid-template-columns: 36px minmax(0, 1fr) auto auto; align-items: center; gap: 12px;
+  inline-size: 100%; min-block-size: 60px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
+  background: #fafaf8; color: var(--ink); font: inherit; text-align: start; cursor: pointer;
+}
+.oq-avatar { display: inline-flex; align-items: center; justify-content: center; inline-size: 36px; block-size: 36px; flex-shrink: 0; border-radius: 50%; background: var(--mint); color: var(--ink); font-size: 12px; font-weight: 700; }
+.oq-avatar.is-brain { background: var(--lime); }
+.oq-who .oq-avatar { inline-size: 44px; block-size: 44px; }
+.oq-row-main { display: flex; flex-direction: column; gap: 3px; min-inline-size: 0; }
+.oq-row-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.oq-row-meta { display: flex; align-items: center; gap: 6px; min-inline-size: 0; font-size: 12px; color: var(--muted); }
+.oq-row-meta > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.oq-tag { flex-shrink: 0; padding: 1px 7px; border-radius: 9px; background: var(--mint); color: var(--ink); font-size: 11px; font-weight: 600; }
+.oq-tag.is-safety { background: var(--error-bg); color: var(--error); }
+.oq-new { padding: 1px 7px; border-radius: 9px; background: var(--lime); color: var(--ink); font-size: 11px; font-weight: 700; }
+.oq-go { color: var(--muted); }
+.oq-done-list { border-block-start: 1px solid var(--line); padding-block-start: 10px; }
+.oq-done-list summary { padding-block: 6px; font-weight: 600; cursor: pointer; }
+.oq-done-list ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 6px; }
+.oq-done-list li { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+.oq-done-list li svg { color: var(--success); flex-shrink: 0; }
+
+/* The live panels. */
+.oq-panel { display: flex; flex-direction: column; gap: 12px; min-inline-size: 0; padding: 20px; border: 1px solid var(--line); border-radius: 12px; background: #ffffff; }
+.oq-panel > p { margin: 0; }
+.oq-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.oq-panel .text-button { display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; }
+.oq-live { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--success); }
+.oq-live-dot { inline-size: 8px; block-size: 8px; border-radius: 50%; background: var(--success); }
+.oq-training { list-style: none; margin: 0; padding: 0; display: grid; }
+.oq-training li { display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: center; gap: 12px; padding-block: 8px; }
+.oq-training .oq-avatar { inline-size: 34px; block-size: 34px; font-size: 11px; }
+.oq-training-main { display: flex; flex-direction: column; gap: 5px; min-inline-size: 0; }
+.oq-training-top { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+.oq-training-top a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: var(--ink); }
+.oq-training-top .muted { flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.oq-training .oq-small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.oq-bar { display: block; block-size: 5px; border-radius: 3px; background: var(--mint); overflow: hidden; }
+.oq-bar span { display: block; block-size: 100%; border-radius: 3px; background: var(--ink); transform-origin: calc(50% - 50% * var(--inline-sign, 1)) 50%; }
+.oq-writing { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; border: 1px solid color-mix(in srgb, var(--lime) 70%, var(--ink) 10%); background: color-mix(in srgb, var(--lime) 20%, #ffffff); font-size: 13px; }
+.oq-dots { display: inline-flex; gap: 3px; }
+.oq-dots i { inline-size: 5px; block-size: 5px; border-radius: 50%; background: var(--ink); }
+.oq-feed { list-style: none; margin: 0; padding: 0; display: grid; }
+.oq-feed li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding-block: 9px; border-block-end: 1px solid #ecefe8; }
+.oq-feed li:last-child { border-block-end: 0; }
+.oq-feed strong { display: block; font-size: 13px; font-weight: 600; }
+.oq-feed small { display: block; font-size: 12px; }
+.oq-feed time { font-size: 11px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.oq-feed li.is-client strong::before { content: ""; display: inline-block; inline-size: 6px; block-size: 6px; margin-inline-end: 6px; border-radius: 50%; background: var(--success); vertical-align: middle; }
+.oq-stat { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.oq-stat strong { font-size: 28px; font-weight: 650; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.oq-stat .muted { font-size: 12px; }
+.oq-spark { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); align-items: end; gap: 4px; block-size: 44px; }
+.oq-spark i { display: block; block-size: 100%; border-radius: 2px; background: var(--ink); transform-origin: 50% 100%; }
+.oq-spark i.is-empty { background: var(--line); }
+.oq-line { display: flex; justify-content: space-between; gap: 8px; padding-block-start: 10px; border-block-start: 1px solid #ecefe8; font-size: 13px; }
+.oq-line strong { font-variant-numeric: tabular-nums; }
+
+@media (max-width: 699px) {
+  .oq-focus { min-block-size: 0; padding: 18px; }
+  .workspace.platform-ui .inbox-card.is-focus h3,
+  .workspace.platform-ui .oq-title { font-size: 19px; }
+  .inbox-ask, .inbox-card.is-focus .inbox-ask + .inbox-draft { max-inline-size: 100%; }
+}
+
+/* ---- motion -------------------------------------------------------- */
+@media (prefers-reduced-motion: no-preference) {
+  /* The page rises in bands: header, then each part of the grid. */
+  .oq-today > *, .oq-grid > * { animation: oq-rise var(--motion-emphasis) var(--ease-out) both; }
+  .oq-today > :nth-child(2) { animation-delay: 30ms; }
+  .oq-grid > :nth-child(1) { animation-delay: 60ms; }
+  .oq-grid > :nth-child(2) { animation-delay: 90ms; }
+  .oq-grid > :nth-child(3) { animation-delay: 120ms; }
+  .oq-grid > :nth-child(n + 4) { animation-delay: 150ms; }
+  .oq-grid { animation: none; }
+
+  /* One decision finished: the card lifts away, the next one rises. */
+  .oq-focus-body > * { animation: oq-card-in var(--motion-base) var(--ease-out) both; }
+  .oq-focus-body.is-leaving > * { animation: oq-card-out var(--motion-instant) var(--ease-in) forwards; }
+  .oq-clear-mark { animation: motion-check-pop var(--motion-emphasis) var(--ease-out) both; }
+  .oq-notice { animation: motion-toast-in var(--motion-base) var(--ease-out) both; }
+
+  /* Values ease to where they are now. */
+  .oq-ring .oq-ring-value { transition: stroke-dashoffset var(--motion-emphasis) var(--ease-out); }
+  .oq-bar span { transition: transform var(--motion-emphasis) var(--ease-out); }
+  .oq-spark i { animation: oq-grow var(--motion-emphasis) var(--ease-out) both; }
+  .oq-spark i:nth-child(2) { animation-delay: 30ms; }
+  .oq-spark i:nth-child(3) { animation-delay: 60ms; }
+  .oq-spark i:nth-child(4) { animation-delay: 90ms; }
+  .oq-spark i:nth-child(5) { animation-delay: 120ms; }
+  .oq-spark i:nth-child(6) { animation-delay: 150ms; }
+  .oq-spark i:nth-child(7) { animation-delay: 180ms; }
+  .oq-spark i:nth-child(8) { animation-delay: 210ms; }
+
+  /* A row that arrives slides in from above and glows once. */
+  .oq-list li.is-new .oq-row { animation: oq-arrive var(--motion-base) var(--ease-out) both; }
+  .oq-list li.is-new .oq-row::after { content: ""; position: absolute; inset: -1px; border-radius: 10px; border: 1px solid var(--ink); background: color-mix(in srgb, var(--lime) 18%, transparent); pointer-events: none; animation: motion-glow 1600ms var(--ease-out) both; }
+  .oq-new { animation: motion-badge-pop var(--motion-base) var(--ease-out) both; }
+  .workspace.platform-ui .oq-pending { animation: motion-drop-in var(--motion-base) var(--ease-out) both; }
+  .oq-feed li { animation: oq-arrive var(--motion-base) var(--ease-out) both; }
+
+  /* Rows answer the pointer: a lift, and the arrow leans forward. */
+  .workspace.platform-ui .oq-row { transition: transform var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out); }
+  .oq-go { transition: translate var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }
+
+  /* Live states loop: someone is training, the Brain is writing. */
+  .oq-live-dot { animation: motion-breathe var(--motion-loop-breathe) var(--ease-in-out) infinite; }
+  .oq-dots i { animation: motion-typing var(--motion-loop-typing) var(--ease-in-out) infinite; }
+  .oq-dots i:nth-child(2) { animation-delay: calc(var(--motion-loop-typing) / 6); }
+  .oq-dots i:nth-child(3) { animation-delay: calc(var(--motion-loop-typing) / 3); }
+  .workspace.motion-paused .oq-live-dot,
+  .workspace.motion-paused .oq-dots i { animation: none; }
+}
+@media (prefers-reduced-motion: no-preference) and (hover: hover) {
+  .workspace.platform-ui .oq-row:hover { transform: translateY(-1px); border-color: #c4c9bf; background: #ffffff; }
+  .workspace.platform-ui .oq-row:hover .oq-go { translate: calc(3px * var(--inline-sign, 1)) 0; color: var(--ink); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .workspace.platform-ui .oq-row:active { transform: scale(0.99); }
+}
+@media (hover: hover) {
+  .workspace.platform-ui .oq-row:hover { border-color: #c4c9bf; background: #ffffff; }
+}
+
+@keyframes oq-rise { from { opacity: 0; transform: translateY(var(--arrive-distance, var(--motion-distance-md))); } }
+@keyframes oq-card-in { from { opacity: 0; transform: translateY(var(--motion-distance-sm)); } }
+@keyframes oq-card-out { to { opacity: 0; transform: translateY(calc(var(--motion-distance-sm) * -1)) scale(0.97); } }
+@keyframes oq-arrive { from { opacity: 0; transform: translateY(calc(var(--motion-distance-sm) * -1)); } }
+@keyframes oq-grow { from { transform: scaleY(0); } }

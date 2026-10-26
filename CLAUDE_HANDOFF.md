@@ -2,50 +2,54 @@
 
 ## Work in progress
 
-### Status at 05:21 UTC on 26 October 2026 (Claude)
+### Status at 06:25 UTC on 26 October 2026 (Claude)
 
-**1. HTML home design taken off; multipage marketing design restored.**
-- Owner: "the HTML design should be taken off. our previous marketing design is multipage one. let's get that back".
-- PR #99 was green on all 8 jobs. It was squash-merged as `2493e5eefda0ff3279e5478768be8b0194716456`. Its code is byte-identical to `e4e2f8c`: the multipage site, its motion work and the "trains" sweep. #97's WHOOP check fix is kept.
-- Running: the `main` CI run, then the deploy. `scripts/watch-release.sh` is polling for `2493e5e`.
-- **Next:** verify live on `/`, `/how-it-works`, `/pricing`, `/features` and `/earnings-calculator`, including that `mk-sweep` is served. Then record the live time here and in the 2026-10-26 entry of `docs/COMPLETION_STAGES.md`.
+**1. Live: multipage marketing design (#99) and the trainer favicon fix (#100).**
+- `main` HEAD `f5565b1` has been live since 06:10:47 UTC.
+- At 06:16 UTC, `/`, `/how-it-works`, `/pricing`, `/features` and `/earnings-calculator` all:
+  - answered 200;
+  - carried `data-mk-motion="always"`;
+  - had no `.tyh` markup;
+  - served `mk-sweep` in their CSS;
+  - linked the trainsyou favicon.
+- Not checked live: the signed-in trainer tab icon (no cloud browser is used).
+- Recorded in `docs/COMPLETION_STAGES.md` (2026-10-26).
 
-**2. Trainer workspace favicon back to the trainsyou Y. Draft PR #100.**
-- Owner: "change the favicon back to what it was. currently it's KS".
-- Cause: signed in, `MemberAppManifest` (`apps/web/components/member-app-install.tsx`) swapped the tab and apple-touch icons for the workspace install icon. The API draws that icon from the coach's initials when no logo is uploaded, hence "KS".
-- Fix: only members (`subscriber`) get the coach's tab and home-screen icons. The trainer workspace keeps `/brand/favicon.svg` and `/brand/favicon.ico`. The member app and coach websites are unchanged.
-- Checks: `tests/brand.test.ts` 12/12, with a new assertion; web `tsc` clean. PR CI is running.
-- Not changed: an installed trainer workspace on Android still takes its icon from the coach manifest, which uses the same initials icon.
-- **Next:** merge when green, then check the signed-in trainer tab icon.
+**2. Today, "One queue": the owner approved it at 05:20 UTC ("approved."). It is built and not yet pushed.** Branch `claude/repository-overview-osejlw`, draft PR #101 (records only so far).
 
-**3. Trainer dashboard redesign: B, "One queue", revised for the AI moat and for motion. Published, waiting on the owner.**
-- Canvas: https://claude.ai/artifact/XcN33J2FAHKNzieBDdBH2r, artboard `OneQueue.dc.html`. It is private to the owner.
-- Owner, 26 Oct:
-  - "one queue is good. but there's not enough micro animation, smooth animations from page to page. I quite like the side bar, but make it smooth and always on motion. the dashboard should feel alive."
-  - Then: "our moat is the AI training, not personal one on one training." This is saved in `docs/PROJECT_MEMORY.md`.
-- **Grounding.** A workflow (3 agents) read `motion.css` and `docs/features/motion.md`:
-  - The trainer workspace has almost no motion today and no view transitions.
-  - The rules: transform and opacity only, never width; durations 120 to 240 ms with no overshoot; loops only for live states; everything still under reduced motion.
-- **Queue items now.** Safety hand-offs ("Your Brain passed Lina to you"), plans the Brain wrote that wait for the coach, "Make this a rule?" learned from the coach's edits, and reply drafts that arrive live.
-- **Live panels.** "Your AI right now" shows clients mid-workout, with bars that advance and finish. "What your Brain did" is an activity feed with a drafting status. "Getting better" shows approved without edits, the 8-week bars, rules learned and the trained meter.
-- **Sidebar.**
-  - The plate expands with a scale transform and the content opens with a clip. Opening waits 120 ms for hover intent, and closing waits 200 ms.
-  - Labels stagger in. A hover pill follows the pointer. The ink pill glides with a small stretch.
-  - Live instruments:
-    - a done ring on Today;
-    - an Inbox count that rolls, pops and haloes;
-    - typing dots on My Brain while it drafts;
-    - a breathing dot on Clients when people are training;
-    - a rotating ticker line.
-  - Only one ambient loop runs at a time. A "Pause live motion" button meets WCAG 2.2.2.
-- **Pages.** A 120 ms exit, then the swap, then a 240 ms directional entry with 30 ms bands, plus a route bar.
-- **Focus card.** The button turns into a check, the card lifts away, and the next item rises from the queue. The ring and counts roll. Undo is available.
-- **Arrivals.** A new item never jumps under the pointer: it waits as "1 new · show". A `stage` tweak shows the setup (onboarding) version.
-- **Owner approved B at 05:20 UTC on 26 Oct: "approved."**
-- **In progress, implementation:**
-  - Step 1: a workflow maps the shell and navigation, the queue data, the live-panel data and the checks that touch Today and the nav.
-  - Then plan, build (Today, the workspace navigation, the command palette, page transitions, motion), review, run the full checks, open a PR, merge and deploy.
-  - Where the mockup shows data the API does not have yet (for example clients training right now), the build uses only real data and says so.
+Built in the working tree:
+- **Today** (`trainer-today.tsx`, `trainer-queue.ts`, `app/trainer-today.css`):
+  - Up next shows one decision with its actions: a reply draft shows the client's message (the new inbox `ask` field), plans, safety items, "Make this a rule?" and the setup step.
+  - Then lists the rest, safety first. "Later today" moves an item to the end. New rows wait in a pill while the pointer is over the list.
+  - A done ring.
+  - Panels: "Your AI right now" (clients mid-workout), "What your Brain did" and "Getting better".
+- **Live data** (`workspace-live.ts`): seeded from `/bootstrap`, refreshed once a minute while the tab is visible and after an item is finished. Every value comes from real records and events.
+- **Rail** (`workspace-navigation.tsx`, `workspace-rail.tsx`, `app/trainer-rail.css`):
+  - 72 px, opening to 248 px on hover or focus; it can be pinned.
+  - A gliding pill.
+  - Live instruments: the done ring, the Inbox count (red for safety), Brain writing dots and a clients-training beat.
+  - A ticker, and "Pause live motion".
+- **Page to page** (`workspace-transitions.tsx`, `app/workspace-transitions.css`): the page being left dims, a route bar runs, and the new page arrives from where it sits in the menu. Loading shows soft blocks.
+- **Jump to** (Ctrl or Cmd + K).
+
+Checks so far:
+- Root `tsc` and web `tsc` clean.
+- `npm run build` passed.
+- New `tests/trainer-today.test.ts` 6/6.
+- `logical-css`, `motion-css`, `member-motion`, `setup-wizard-web`, `trainer-inbox` and `brand` tests: 52/52.
+
+- The daily-workflows browser check passed on the production build (local Chromium 1194 via `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`).
+
+Running: the backend-ui browser check and an independent code review. The work is pushed to PR #101 so CI runs it too. It is not merged.
+
+**Next:**
+1. ux-spacing and browser-check.
+2. Full `npm test`.
+3. An independent review.
+4. Push to PR #101 and get CI green.
+5. Merge, watch the deploy, verify, record.
+
+Deployment stays with Claude under the standing "always deploy" instruction for merged work.
 
 ### Home page as the owner's HTML design: live since 22:47 UTC on 25 October 2026 (Claude, checked 04:10 UTC on 26 Oct)
 

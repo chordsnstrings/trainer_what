@@ -284,6 +284,14 @@ export function useInboxCount(enabled: boolean, state?: State | null) {
   return enabled ? count : 0;
 }
 
+/** True while the inbox holds a safety item, so the sidebar's Inbox count
+ * turns red (the same shared request as the count above). */
+export function useInboxSafety(enabled: boolean, state?: State | null) {
+  const scope = state ? `${state.user.tenantId}:${state.user.userId}:${state.user.role}:${state.user.platformRole}` : "";
+  const { items } = useSharedInbox(scope, enabled);
+  return enabled && !!items?.some((item) => item.type === "safety");
+}
+
 /** The phone's bottom bar; hidden on wider screens by CSS. */
 export function TrainerTabBar({
   role,

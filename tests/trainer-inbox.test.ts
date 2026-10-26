@@ -264,6 +264,9 @@ test("the inbox merges every queue, most urgent first, without duplicates", asyn
   assert.equal(byType.safety.clientName, "Hana Held");
   assert.deepEqual(byType.safety.actions, ["review", "open_chat"]);
   assert.equal(byType.reply_draft.draft, "Keep to one session tomorrow and rest well.");
+  // The client's message the draft answers, so Today can show both sides.
+  assert.equal(byType.reply_draft.ask, "Can I train twice tomorrow?");
+  assert.equal(byType.question.ask, undefined);
   assert.deepEqual(byType.reply_draft.actions, [
     "approve",
     "edit_send",

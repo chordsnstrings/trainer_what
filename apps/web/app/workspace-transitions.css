@@ -1,0 +1,83 @@
+/*
+ * Page-to-page motion and "Jump to" in the backend workspace
+ * (components/workspace-transitions.tsx; docs/features/motion.md, "Trainer
+ * workspace"). The page being left dims for --motion-instant, a 2px bar at
+ * the top runs while the next page loads, and the new page arrives from
+ * where it sits in the menu: --arrive-distance is positive (from below) for
+ * a place further down, negative (from above) for one further up. Loading
+ * shows soft blocks after a short pause, so a quick page never flashes
+ * them. Logical properties only.
+ */
+
+.route-bar { position: fixed; inset-block-start: 0; inset-inline: 0; z-index: 60; block-size: 2px; overflow: hidden; pointer-events: none; }
+.route-bar span { display: block; block-size: 100%; background: var(--ink); transform: scaleX(0.86); transform-origin: calc(50% - 50% * var(--inline-sign, 1)) 50%; }
+.route-bar[data-state="done"] span { transform: scaleX(1); opacity: 0; }
+:root[data-reduce-motion="on"] .route-bar { display: none; }
+
+.workspace.platform-ui .workspace-loading { display: grid; align-content: start; justify-content: stretch; gap: 14px; max-inline-size: 760px; min-block-size: 180px; }
+
+/* "Jump to" in the top bar, and its menu. */
+.workspace.platform-ui .jump-trigger {
+  display: inline-flex; align-items: center; gap: 8px; min-block-size: 36px; padding-block: 0; padding-inline: 12px 8px;
+  border: 1px solid var(--line); border-radius: 8px; background: #ffffff; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer;
+}
+.workspace.platform-ui .jump-trigger-key,
+.jump-field kbd { padding: 1px 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--mint); color: var(--muted); font: inherit; font-size: 11px; line-height: 16px; }
+@media (max-width: 900px) {
+  .workspace.platform-ui .jump-trigger { justify-content: center; min-inline-size: 44px; min-block-size: 44px; padding-inline: 0; }
+  .workspace.platform-ui .jump-trigger-label, .workspace.platform-ui .jump-trigger-key { display: none; }
+}
+.jump-menu {
+  inline-size: min(560px, calc(100vw - 32px)); max-block-size: min(480px, calc(100dvh - 96px));
+  margin-block: 12vh auto; margin-inline: auto; padding: 0; overflow: hidden;
+  border: 1px solid var(--line); border-radius: 14px; background: #ffffff; color: var(--ink);
+  box-shadow: 0 24px 64px -24px #18201b66;
+}
+.jump-menu[open] { display: flex; flex-direction: column; }
+.jump-menu::backdrop { background: #1719173d; }
+.jump-field { display: flex; align-items: center; gap: 10px; padding-inline: 16px; border-block-end: 1px solid var(--line); color: var(--muted); }
+.jump-field:focus-within { box-shadow: inset 0 -2px 0 var(--ink); }
+.jump-menu .jump-field input { flex: 1; min-inline-size: 0; block-size: 54px; padding: 0; border: 0; border-radius: 0; outline: none; background: transparent; color: var(--ink); font: inherit; font-size: 16px; }
+.jump-list { list-style: none; margin: 0; padding: 6px; overflow-y: auto; }
+.jump-list li { display: flex; align-items: center; gap: 10px; min-block-size: 42px; padding-inline: 12px; border-radius: 8px; cursor: pointer; }
+.jump-list li.is-active { background: var(--mint); }
+.jump-label { flex: 1; min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.jump-group { flex-shrink: 0; font-size: 12px; color: var(--muted); }
+.jump-enter { flex-shrink: 0; color: var(--muted); }
+.jump-empty { margin: 0; padding: 18px 16px; }
+
+@media (prefers-reduced-motion: no-preference) {
+  /* The bar keeps going across the workspace's remount (--route-elapsed). */
+  .route-bar[data-state="running"] span { animation: route-bar-run 2600ms var(--ease-out) var(--route-elapsed, 0ms) both; }
+  .route-bar[data-state="done"] span { transition: transform var(--motion-fast) var(--ease-out), opacity var(--motion-base) var(--ease-out) var(--motion-fast); }
+
+  /* Leaving: the page dims and lifts a little; the address has already changed. */
+  .workspace.platform-ui .content.is-leaving > :not(.workspace-loading) {
+    opacity: 0.5; transform: translateY(calc(var(--motion-distance-xs) * -1));
+    transition: opacity var(--motion-instant) var(--ease-in), transform var(--motion-instant) var(--ease-in);
+  }
+
+  /* Arriving: from below for a place further down the menu, from above for one further up. */
+  .workspace.platform-ui .content[data-arrive] { --arrive-distance: var(--motion-distance-sm); }
+  .workspace.platform-ui .content[data-arrive="forward"] { --arrive-distance: var(--motion-distance-md); }
+  .workspace.platform-ui .content[data-arrive="back"] { --arrive-distance: calc(var(--motion-distance-md) * -1); }
+  /* Today brings its own bands in (trainer-today.css); they read the same distance. */
+  .workspace.platform-ui .content[data-arrive] > :not(.oq-today) { animation: route-in var(--motion-emphasis) var(--ease-out) both; }
+  .workspace.platform-ui .content[data-arrive] > :nth-child(2) { animation-delay: 30ms; }
+  .workspace.platform-ui .workspace-loading { animation: motion-fade-in var(--motion-base) var(--ease-out) 160ms both; }
+
+  .jump-menu[open] { animation: motion-dialog-in var(--motion-base) var(--ease-out); }
+  .jump-menu[open]::backdrop { animation: motion-fade-in var(--motion-base) var(--ease-out); }
+  .jump-list li { transition: background-color var(--motion-instant) var(--ease-out); }
+  .jump-list li.is-active .jump-enter { animation: motion-fade-in var(--motion-fast) var(--ease-out); }
+  .workspace.platform-ui .jump-trigger { transition: border-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }
+}
+@media (hover: hover) {
+  .workspace.platform-ui .jump-trigger:hover { border-color: #c4c9bf; color: var(--ink); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .route-bar { display: none; }
+}
+
+@keyframes route-bar-run { from { transform: scaleX(0.06); } 50% { transform: scaleX(0.55); } to { transform: scaleX(0.86); } }
+@keyframes route-in { from { opacity: 0; transform: translateY(var(--arrive-distance, var(--motion-distance-sm))); } }

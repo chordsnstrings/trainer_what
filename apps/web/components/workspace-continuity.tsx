@@ -22,6 +22,11 @@ export function flushWorkspaceEdits(): Promise<boolean> {
   return leaving;
 }
 
+/** True while a page holds changes that are saved before leaving. */
+export function workspaceHasEdits(): boolean {
+  return [...guards].some((guard) => guard.dirty());
+}
+
 export function useSaveBeforeLeave(dirty: boolean | (() => boolean), save: () => Promise<boolean>) {
   const current = useRef({ dirty, save });
   current.current = { dirty, save };

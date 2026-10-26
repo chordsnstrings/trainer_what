@@ -8,8 +8,8 @@ microanimations that actually makes it feel more interactive."
 This page is the plan and the contract. It covers the member app, the coach
 website, joining and sign-in pages (the phone-first surfaces in
 `docs/features/phone-first.md`). The marketing site keeps its own motion and
-text (`docs/features/marketing-site.md`); the trainer workspace is unchanged
-except where it shares a primitive (a bottom sheet, a stepper).
+text (`docs/features/marketing-site.md`). The trainer workspace has its own
+section below ("Trainer workspace", 26 October 2026).
 
 The shared onboarding/My Brain conversation has a separate, explicit owner-requested motion contract (9 October 2026; `features/onboarding-chat.md`). Its clearer message pops may start below this document's 0.97 scale floor and settle within 420 ms. It follows reduced-motion preferences by default. **Conversation options → Message animations → On** is a deliberate local opt-in that animates only that conversation even when the device or global app preference reduces motion; Off always keeps it still. It neither changes those underlying preferences nor enables motion on other screens.
 
@@ -337,3 +337,35 @@ page's pinned scroll scenes still follow the choice. Setting the switch to
   tint, no scale); card-sized targets use a 5 % tint.
 - **Consent bar** fades where it is after an answer (no slide across the
   page); the workout notice replays only when its words change.
+
+## Trainer workspace (26 October 2026)
+
+Owner, on the approved "One queue" design: "there's not enough micro
+animation, smooth animations from page to page. I quite like the side bar,
+but make it smooth and always on motion. the dashboard should feel alive."
+Then: "approved." The trainer workspace uses the same tokens, curves,
+distances and rules as above, with two deliberate differences the owner
+asked for: pages animate in on every visit (principle 5 keeps member entry
+animations to the first view), and live states loop on the rail and on
+Today while they are true.
+
+| Where | What moves | Code |
+|---|---|---|
+| Rail | Opens over the page on hover after 120 ms (no delay on keyboard focus), folds after 200 ms; labels stagger in 12 ms apart; the ink pill glides to the current page, a light pill follows the pointer; the Inbox count pops and haloes when an item arrives; the Today ring eases to its value | `app/trainer-rail.css`, `components/workspace-navigation.tsx` |
+| Rail, live | Typing dots on My Brain while a plan is written, else a breathing dot on Clients while someone trains (one loop at a time); the ticker line changes every 5 s | `components/workspace-rail.tsx` |
+| Page to page | The page being left dims and lifts 4 px (`--motion-instant`); a 2 px bar runs at the top while the next page loads and carries on across the workspace's remount; the new page rises 16 px from below (a place further down the menu), drops 16 px from above (further up) or rises 8 px (anything else); loading blocks fade in after 160 ms | `app/workspace-transitions.css`, `components/workspace-transitions.tsx` |
+| Today | Bands rise in 30 ms apart; a finished card lifts away (`--motion-instant`, up 8 px, scale 0.97) and the next rises in (`--motion-base`); rows that arrive slide in and glow once; the done ring, workout bars and the 8-week bars ease to their values; a row lifts 1 px under the pointer and its arrow leans forward | `app/trainer-today.css`, `components/trainer-today.tsx` |
+| Jump to | The menu rises in like a dialog; the backdrop fades | `app/workspace-transitions.css` |
+
+- Every animation and transition sits inside
+  `@media (prefers-reduced-motion: no-preference)`; the device setting and
+  `data-reduce-motion="on"` stop all of it, and the route bar is hidden.
+- "Pause live motion" at the foot of the rail (`motion-paused` on the
+  workspace) stops every loop on the rail and on Today; the choice is kept on
+  this device. Under reduced motion the control says motion is off.
+- Only transform, opacity and SVG stroke offsets animate (the rail's open
+  panel is revealed with clip-path, which does not move layout).
+- `tests/trainer-today.test.ts` checks that every animation and transition
+  in the three trainer stylesheets is inside the no-preference block and that
+  loops are live states with a pause.
+

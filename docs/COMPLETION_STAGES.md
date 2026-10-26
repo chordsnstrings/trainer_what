@@ -11,7 +11,28 @@ Owner, 26 October 2026: "the HTML design should be taken off. our previous marke
 - The records (#96's design doc, the stage entries, the handoff) are kept. The memory rule now records the revert.
 - The revert also undoes #96's other changes: GSAP, the self-hosted Inter, the extra JSON-LD and robots directives, the meta description trim and the footer "Analytics preferences" control on the HTML home. They can be re-added on the multipage site if wanted.
 
-Checks: see the PR. The live time will be added after it deploys.
+Checks: PR #99 was green on all 8 jobs.
+
+**Live since 06:10:47 UTC on 26 October 2026**, as `main` HEAD `f5565b1`. That commit is #99 plus #100 (below); the watcher read the release header from `/api/v1/ready`. At 06:16 UTC each of `/`, `/how-it-works`, `/pricing`, `/features` and `/earnings-calculator`:
+- answered 200;
+- carried `data-mk-motion="always"`;
+- had no `.tyh` markup;
+- served CSS containing `mk-sweep`;
+- linked `/brand/favicon.ico` and `/brand/favicon.svg`.
+
+## Stage 2026-10-26 — trainer workspace keeps the trainsyou favicon (PR #100, `f5565b1`)
+
+Owner: "change the favicon back to what it was. currently it's KS".
+
+- **Cause.** Signed in, `MemberAppManifest` (`apps/web/components/member-app-install.tsx`) swapped the tab and home-screen icons for the workspace's install icon. With no logo uploaded, the API draws that icon from the coach's initials.
+- **Fix.** Only members (`subscriber`) get the coach's tab and home-screen icons. The trainer workspace keeps the trainsyou mark.
+- **Checks.**
+  - `tests/brand.test.ts` 12/12, with a new assertion.
+  - Web `tsc` was clean.
+  - PR CI was green.
+  - Live since 06:10:47 UTC with #99.
+- **Not checked live.** The signed-in tab icon. That needs a signed-in browser, and no cloud browser is used.
+- **Not changed.** An installed trainer workspace on Android still takes its icon from the coach manifest.
 
 ## Stage 2026-10-25 — home page as the owner's HTML design (PR #96 approved and merged as `af457bd`; live 25 October 22:47 UTC as `3142b59` with the PR #97 WHOOP check fix)
 
