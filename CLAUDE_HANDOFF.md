@@ -2,7 +2,7 @@
 
 ## Work in progress
 
-### Status at 04:58 UTC on 26 October 2026 (Claude)
+### Status at 05:05 UTC on 26 October 2026 (Claude)
 
 **1. HTML home design taken off; multipage marketing design restored.**
 - Owner: "the HTML design should be taken off. our previous marketing design is multipage one. let's get that back".
@@ -18,13 +18,18 @@
 - Not changed: an installed trainer workspace on Android still takes its icon from the coach manifest, which uses the same initials icon.
 - **Next:** merge when green, then check the signed-in trainer tab icon.
 
-**3. Trainer dashboard redesign: three concepts, all on the canvas.**
-- Canvas: https://claude.ai/artifact/XcN33J2FAHKNzieBDdBH2r (private to the owner).
-- All three are interactive, grid-based, use trainsyou's colours, Inter and motion tokens, and follow reduce motion.
-  - **A, "Guided Today":** setup happens on Today. A six-step rail shows minutes left; the current step runs inline (the "Would you reply like this?" quiz, the price, going live). "Needs you" has inline actions with undo. The sidebar setup meter and the active pill slide. The groups open as an accordion.
-  - **B, "One queue":** one ordered queue mixes client items and setup steps: safety first, then oldest. An "Up next" focus card holds one decision at a time, with a "done today" ring. The icon rail expands on hover and can be pinned. A Ctrl K command palette is included. Page changes are directional.
-  - **C, "Day board":** a timeline of the day with a now-line, free gaps you can click and session details. Tiles count up. "Needs you" rows expand to show their actions. A launch checklist has a progress ring. Coach, Brand and Business are separate sidebar spaces, switched by a sliding segmented control.
-- **Waiting on the owner:** pick a concept, or a mix, before any implementation.
+**3. Trainer dashboard redesign: the owner chose B, "One queue".**
+- Canvas: https://claude.ai/artifact/XcN33J2FAHKNzieBDdBH2r (private to the owner). All three concepts are on it.
+- Owner (26 Oct): "one queue is good. but there's not enough micro animation, smooth animations from page to page. I quite like the side bar, but make it smooth and always on motion. the dashboard should feel alive."
+- **In progress:** a motion pass on B.
+  - First, a workflow grounds the work in the repo's motion rules (`motion.css`, `docs/features/motion.md`) and produces two independent motion specs: one for the sidebar, one for pages and micro-animations.
+  - Then B is rewritten with:
+    - page exit and enter choreography;
+    - an always-moving sidebar that reflects live state;
+    - live arrivals in the queue;
+    - completion choreography on the focus card;
+    - a pause-motion control that meets WCAG 2.2.2.
+- **Next:** publish the revised B artboard and show the owner. Implementation in the app waits for the owner's go-ahead on the mockup.
 
 ### Home page as the owner's HTML design: live since 22:47 UTC on 25 October 2026 (Claude, checked 04:10 UTC on 26 Oct)
 
