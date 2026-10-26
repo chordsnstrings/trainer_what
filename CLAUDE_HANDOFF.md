@@ -2,19 +2,20 @@
 
 ## Work in progress
 
-### Status at 11:15 UTC on 26 October 2026 (Claude)
+### Status at 12:08 UTC on 26 October 2026 (Claude)
 
-**Owner asked "is it live?" No. The site still serves `f5565b1`.** Neither #101 (Today, "One queue") nor #102 (phone menu) is live yet.
-- #101 (`d497572`) never deployed. Its `main` run (40301256607) had homepage-call cancelled at the 40-minute limit while apt downloaded ffmpeg at about 40 KB/s.
-- #102 on `2bf87f1` carries the phone menu, the four review fixes and `scripts/ci-apt-mirror.sh`.
-  - CI is 7/8 green. homepage-call passed in 5 minutes and postgres-and-container in 11; both were stuck in apt on the previous head.
-  - The application job is on its last browser journeys, after `npm run check` and browser-check passed.
-- **Next:**
-  - When application passes, mark #102 ready and squash-merge it. The head will be this handoff-only commit, whose code is identical to `2bf87f1`.
-  - Then `main`'s check run (about 35 minutes) and the deploy (about 10 minutes): expected live around 12:05 UTC.
-  - Then verify `/trainer`, the marketing pages and the phone menu live, and record the live time.
-- Earlier details: the 11:00 status in git history, and the 26 October stage entries in `docs/COMPLETION_STAGES.md`.
-- Waiting on the owner: nothing. The note stands: delete the stray `/oq-daily.log`.
+**Live since 12:04 UTC: Today "One queue" (#101) and the phone menu (#102), as `main` HEAD `f1fbf8e`.**
+- `main` run 40314343561 passed all 8 jobs (homepage-call in 5 minutes with `scripts/ci-apt-mirror.sh`).
+- The watcher read `f1fbf8e` at 12:04:12 UTC.
+- Checked live:
+  - the five marketing pages answer 200 with the new menu markup;
+  - the served CSS carries the menu's exit and the four review fixes;
+  - `/trainer` answers 200, and its JavaScript carries the One queue strings ("Up next", "Jump to", "Your AI right now", "Pause live motion" and others), none of which were in `f5565b1`.
+- Recorded in `docs/COMPLETION_STAGES.md` (both 26 October entries) through records PR #103.
+- **Next:** merge #103 (Markdown only). Then nothing is open from these requests.
+- Waiting on the owner:
+  - a look at the new Today and the phone menu on a phone;
+  - deleting the stray `/oq-daily.log` (a safety check stopped Claude from removing it).
 
 ### Home page as the owner's HTML design: live since 22:47 UTC on 25 October 2026 (Claude, checked 04:10 UTC on 26 Oct)
 
