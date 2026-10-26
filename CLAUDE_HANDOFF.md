@@ -2,7 +2,19 @@
 
 ## Work in progress
 
-### Home page as the owner's HTML design: merged, deploy blocked by a pre-existing WHOOP check, fix PR next, 25 October 2026 (Claude, 21:20 UTC)
+### Home page as the owner's HTML design: live since 22:47 UTC on 25 October 2026 (Claude, checked 04:10 UTC on 26 Oct)
+
+**Live.**
+- PR #97 (the WHOOP check's Dubai clock fix plus records) merged as `3142b59`.
+- `main` run 40237821779 passed at 22:38 UTC on 25 Oct, and "Verify serving release" (run 40241155496) passed at 22:47 UTC.
+- The live release header is `3142b594da68c3a01a6cbc8fdb5846ceeb5c1ca2`. It carries #96 (the owner's HTML design) and #97.
+- At 04:10 UTC on 26 Oct, `https://trainsyou.com/` answered 200 (142 KB) with the design's `.tyh` markup, the title "AI Coaching Platform for Personal Trainers | trainsyou", and `data-mk-motion="always"`.
+- **Not recorded as done:** the planned post-deploy comparison (the live home check, the crawl and the route snapshot against the pre-deploy snapshot). Run it next if a full live check is wanted.
+- No PRs are open.
+
+The rest of this section is the 25 October record, kept as written.
+
+#### 25 October record: merged, deploy blocked by a pre-existing WHOOP check, fix PR next (Claude, 21:20 UTC)
 
 PR: [chordsnstrings/trainer_what#96](https://github.com/chordsnstrings/trainer_what/pull/96). The owner approved it on 25 October: "Approved but Make sure that nothing form the implementation stop working". Squash-merged as `af457bde92cdab27cee3598c16d408cbb7b6e014` on `main` at about 21:00 UTC. Its tree is identical to the checked PR head `d852870`.
 

@@ -2,7 +2,7 @@
 
 Application implementation and the job audit are complete for the current phase. [PR #1](https://github.com/chordsnstrings/trainer_what/pull/1) contains the work; [combined verification](VERIFICATION_2026-09-27.md) records the passing final code revision. The owner authorized merge to main. Real services and deployment remain the next phase; screenshots were waived. Historical entries below record the evidence available at each stage and may contain superseded pending-check statements.
 
-## Stage 2026-10-25 — home page as the owner's HTML design (PR #96 approved and merged as `af457bd`; not live yet)
+## Stage 2026-10-25 — home page as the owner's HTML design (PR #96 approved and merged as `af457bd`; live 25 October 22:47 UTC as `3142b59` with the PR #97 WHOOP check fix)
 
 The owner asked for three things:
 - check that the implementation works;
