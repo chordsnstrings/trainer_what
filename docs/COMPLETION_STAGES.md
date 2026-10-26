@@ -2,6 +2,17 @@
 
 Application implementation and the job audit are complete for the current phase. [PR #1](https://github.com/chordsnstrings/trainer_what/pull/1) contains the work; [combined verification](VERIFICATION_2026-09-27.md) records the passing final code revision. The owner authorized merge to main. Real services and deployment remain the next phase; screenshots were waived. Historical entries below record the evidence available at each stage and may contain superseded pending-check statements.
 
+## Stage 2026-10-26 — HTML home design taken off; the multipage marketing design is back
+
+Owner, 26 October 2026: "the HTML design should be taken off. our previous marketing design is multipage one. let's get that back".
+- The squash merge of PR #96 (`af457bd`) is reverted.
+- Every application, package, script and test file is now byte-identical to `e4e2f8c`: the multipage marketing site with the always-on motion and the hero "trains" sweep, which was live on 23 October and passed full CI.
+- The one exception is #97's WHOOP check fix (`scripts/whoop-training-check.mjs`, the browser's Dubai clock), which is kept.
+- The records (#96's design doc, the stage entries, the handoff) are kept. The memory rule now records the revert.
+- The revert also undoes #96's other changes: GSAP, the self-hosted Inter, the extra JSON-LD and robots directives, the meta description trim and the footer "Analytics preferences" control on the HTML home. They can be re-added on the multipage site if wanted.
+
+Checks: see the PR. The live time will be added after it deploys.
+
 ## Stage 2026-10-25 — home page as the owner's HTML design (PR #96 approved and merged as `af457bd`; live 25 October 22:47 UTC as `3142b59` with the PR #97 WHOOP check fix)
 
 The owner asked for three things:

@@ -58,8 +58,6 @@ export const BRAND_ASSETS = {
   icon192: BASE + "app-icon-192.png",
   icon512: BASE + "app-icon-512.png",
   shareImage: BASE + "social-share-1200x630.png",
-  /** The home design's lockup: the symbol on a Pace square (480 × 95, 25 October 2026). */
-  lockupPace: BASE + "trainsyou-lockup-pace.webp",
 } as const;
 /** The words on the supplied share card, for its alternative text. */
 export const BRAND_SHARE_IMAGE_ALT = `${BRAND_NAME}: ${BRAND_COPY.line} Teach your AI. Grow your coaching business.`;

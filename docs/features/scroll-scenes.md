@@ -1,7 +1,5 @@
 # Scroll scenes (home page)
 
-**Dormant since 25 October 2026.** The scenes ran only on the previous home page. The owner's home design replaced it ([HOME_DESIGN_2026-10-25.md](../HOME_DESIGN_2026-10-25.md)), so no page has a `[data-scene]` element now. The head script still adds `scenes-on` on `/`, which is inert. A separate cleanup can remove the engine once the owner approves the new page.
-
 On the home page (`/`), scrolling plays some sections. Each frame depends only on the scroll position, so a scene plays the same forwards and backwards. When a scene reaches its end, the section looks exactly as it did before scenes existed. The design (colours, fonts, spacing, copy and layout) is unchanged. Scenes use native scrolling and CSS transforms only; there is no animation library.
 
 ## What is on the home page

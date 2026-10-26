@@ -29,7 +29,7 @@ The downloadable `trainsyou-ux-ui-audit-2026-10-19.html` was refreshed and saved
   - To switch back, set `MARKETING_MOTION` in `apps/web/components/marketing/motion-mode.ts` to `"device"`; it is one constant.
   - Short marketing motion plays even for visitors with reduce motion. The pinned scroll scenes and every member, trainer and coach-site surface still follow reduce motion.
   - Keep the marketing widgets and the trainer sign-up path as they are. New motion must be short, play once, and run off its own visibility trigger.
-- The home page is the owner's own HTML design, copied exactly (owner, 25 October 2026: "Exact copy of the HTML"; record in `docs/HOME_DESIGN_2026-10-25.md`).
+- The marketing site is the multipage design (home, how-it-works, pricing, features, earnings calculator) with its motion work and the hero "trains" sweep. On 26 October 2026 the owner said: "the HTML design should be taken off. our previous marketing design is multipage one. let's get that back". The 25 October HTML home (#96) was reverted; its record stays in `docs/HOME_DESIGN_2026-10-25.md`.
   - It lives in `components/marketing/home-design.tsx`, `home-design-runtime.tsx` and `app/home-design.css` (generated from the file: `tyh-` prefix, scoped under `.tyh`).
   - Its GSAP scroll-scrubbed 3D and magnetic buttons override the "short, play once" rule above, for the home page only. Its motion follows the device's reduced-motion setting, as the design does.
   - The owner chose no additions: no social proof, no card-fee line, links that open new tabs as in the file. Change its look only from a new owner design.

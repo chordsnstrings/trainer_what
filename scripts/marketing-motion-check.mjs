@@ -26,13 +26,13 @@
 // auto-plays and moves nothing even after Play;
 // without JavaScript every step shows and no dead controls do; no layout
 // shift while chapters change (and through one full, sped-up pass that ends
-// on Replay); stage text passes WCAG AA contrast and
+// on Replay; on the home band too); stage text passes WCAG AA contrast and
 // is at least 11px in every chapter, in either mode (with "always": each
 // chapter as played, once its beats have finished, and its complete
 // picture, both sides on phones); right to left mirrors. With the
 // sitewide microanimations (components/marketing/motion.tsx): the section
-// reveal runs on the page but never marks the player, and the laptop bar's
-// mark never pulses (no double motion).
+// reveal runs on the page but never marks the player, and the hero relay's
+// ring never pulses on the journey's copy of the mark (no double motion).
 import { createRequire } from "node:module";
 import { existsSync } from "node:fs";
 
@@ -209,7 +209,7 @@ const overflow = (page) =>
 /**
  * The sitewide motion around the player: whether the reveal ran on the page
  * (.mk-motion), how many reveal marks sit on or in the player's section or
- * band, and the ring animation on the laptop bar's mark.
+ * band, and the ring animation on the laptop bar's mark and the hero relay's.
  */
 const interplay = (page) =>
   page.evaluate(() => {
@@ -228,6 +228,7 @@ const interplay = (page) =>
         (holder?.closest(marks) ? 1 : 0) +
         (holder?.querySelectorAll(marks).length ?? 0),
       barRing: ring(".mk-walk .w-bar .mk-relay-mark"),
+      heroRing: ring(".mk-relay .mk-relay-mark"),
     };
   });
 async function waitFor(page, fn, arg, timeout = 8000) {
@@ -390,8 +391,7 @@ const stub = globalThis.__motionPlatform;
 if (stub) {
   stub.set("closed");
   const ctx = await context(VIEWPORTS[2]);
-  // The home page's band went with its redesign (25 October 2026).
-  for (const path of ["/how-it-works"]) {
+  for (const path of ["/", "/how-it-works"]) {
     const { page } = await open(ctx, path);
     const players = await page.locator(".mk-walk").count();
     check(
@@ -802,6 +802,102 @@ for (const vp of VIEWPORTS) {
       JSON.stringify(around),
     );
     check(`${tag} no page errors`, errors.length === 0, errors.join(" | "));
+    await page.close();
+  }
+  // The home band: compact, starts only in view.
+  {
+    const { page, errors } = await open(ctx, "/");
+    await walk(page).waitFor();
+    await page.waitForSelector(".mk-walk[data-ready]");
+    const atLoad = await ratio(page);
+    await page.waitForTimeout(1200);
+    const s0 = await state(page);
+    check(
+      `${tag} home: auto-play at load follows visibility`,
+      atLoad >= 0.5 ? s0 === "playing" : s0 === "idle",
+      `stage ${Math.round(atLoad * 100)}% visible, state ${s0}`,
+    );
+    await center(page);
+    const started = await waitFor(
+      page,
+      () => document.querySelector(".mk-walk")?.dataset.state === "playing",
+    );
+    check(
+      `${tag} home: plays once in view`,
+      started,
+      `state ${await state(page)}`,
+    );
+    const text = await page.evaluate(() =>
+      document.querySelector(".mk-walk-stage").textContent.trim(),
+    );
+    // Real words in the sample screens (owner, 6 October 2026).
+    check(
+      `${tag} home: the stage shows the sample screens' words`,
+      text.includes("Your page") && text.includes("Layla Strength"),
+      JSON.stringify(text.slice(0, 60)),
+    );
+    const caption = await page.locator(".mk-walk-caption").textContent();
+    check(
+      `${tag} home: caption is the active step`,
+      caption === TITLES[(await chapter(page)) - 1],
+      caption,
+    );
+    // What the step means for the subscriber, under the title; changing
+    // chapters moves nothing.
+    await watchShifts(page);
+    const homeBefore = await boxes(page);
+    await page.locator(".mk-walk [aria-current]").focus();
+    await page.keyboard.press("Home");
+    const lines = new Set();
+    for (let i = 0; i < 8; i++) {
+      if (i) await page.keyboard.press("ArrowRight");
+      await page.waitForTimeout(120);
+      lines.add(
+        await page.evaluate(
+          () => document.querySelector(".mk-walk-then")?.textContent ?? "",
+        ),
+      );
+    }
+    const homeAfter = await boxes(page);
+    const homeShift = await shifts(page);
+    check(
+      `${tag} home: each step's subscriber line`,
+      lines.size === 8 &&
+        [...lines].every((l) => l.startsWith("Your subscriber: ")),
+      JSON.stringify([...lines].slice(0, 3)),
+    );
+    check(
+      `${tag} home: no layout shift while chapters change`,
+      homeShift.total < 0.001 && homeBefore.join("|") === homeAfter.join("|"),
+      `CLS ${homeShift.total.toFixed(4)}; ${homeBefore.join(" | ")} -> ${homeAfter.join(" | ")}`,
+    );
+    const homeText = await frameText(page);
+    check(
+      `${tag} home: mock text follows the frames`,
+      homeText.every((t) => t.ok),
+      JSON.stringify(homeText),
+    );
+    check(
+      `${tag} home: no horizontal overflow`,
+      (await overflow(page)) <= 0,
+      `${await overflow(page)}px`,
+    );
+    const around = await interplay(page);
+    check(
+      `${tag} home: sitewide reveal leaves the band alone`,
+      around.motion && around.holder && around.marked === 0,
+      JSON.stringify(around),
+    );
+    check(
+      `${tag} home: the hero relay keeps its ring`,
+      around.heroRing === "mk-ring",
+      JSON.stringify(around),
+    );
+    check(
+      `${tag} home: no page errors`,
+      errors.length === 0,
+      errors.join(" | "),
+    );
     await page.close();
   }
   await ctx.close();
