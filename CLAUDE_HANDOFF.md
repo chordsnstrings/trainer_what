@@ -29,6 +29,11 @@
     - live arrivals in the queue;
     - completion choreography on the focus card;
     - a pause-motion control that meets WCAG 2.2.2.
+- Owner, later on 26 Oct: "the next session isn't necessarily our moat. our moat is the AI training, not personal one on one training." B is being refocused:
+  - The queue holds the Brain's plans and replies that wait for the coach, safety hand-offs, and rules suggested from the coach's edits.
+  - Live panels show clients training with the AI now, the Brain's activity, and "Getting better".
+  - The sidebar's always-on motion shows the Brain drafting, clients training now and new items.
+  - Sessions become secondary. Recorded in `docs/PROJECT_MEMORY.md`.
 - **Next:** publish the revised B artboard and show the owner. Implementation in the app waits for the owner's go-ahead on the mockup.
 
 ### Home page as the owner's HTML design: live since 22:47 UTC on 25 October 2026 (Claude, checked 04:10 UTC on 26 Oct)
