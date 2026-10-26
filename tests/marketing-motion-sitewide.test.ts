@@ -439,7 +439,7 @@ test("hover effects only where the pointer hovers; in \"device\" mode reduced mo
   // The motion plays outside any no-preference query (the switch decides
   // who sees it): the relay, the header shadow, the demo and the phone menu.
   assert.doesNotMatch(css, /prefers-reduced-motion: no-preference/);
-  for (const name of ["mk-draw", "mk-ring", "mk-tick", "mk-header-shadow", "mk-drop", "mk-rise", "mk-pop", "mk-stamp"])
+  for (const name of ["mk-draw", "mk-ring", "mk-tick", "mk-header-shadow", "mk-drop", "mk-rise", "mk-pop", "mk-stamp", "mk-menu-out", "mk-fade", "mk-fade-out"])
     assert.ok(
       rules.some((r) => r.declarations.some((d) => /^animation(-name)?$/.test(d.property) && d.value.split(/[\s,]+/).includes(name))),
       `${name} is still used`,
@@ -884,3 +884,29 @@ test('the Pace sweep behind "trains": once at load, from the left, scale only, a
     for (const d of rule.declarations)
       if (/^(transition|animation)/.test(d.property)) assert.doesNotMatch(d.value, /color|background/, `${rule.selector} ${d.property}`);
 });
+
+test("the phone menu: a native details that animates in and out and closes on Escape, a tap outside or a link", async () => {
+  const frame = await readFile(web("components/marketing/frame.tsx"), "utf8");
+  const menu = await readFile(web("components/marketing/mobile-menu.tsx"), "utf8");
+  const css = await readFile(web("app/marketing.css"), "utf8");
+  // Without JavaScript it is still a <details> with a "Menu" summary.
+  assert.match(menu, /^"use client";/);
+  assert.match(menu, /<details className="mk-mobile-menu" ref=\{ref\}>/);
+  assert.match(frame, /<MobileMenu>\s*<summary>\s*<span>Menu<\/span>/);
+  // Every row carries its own stagger, buttons last; the rows rise in.
+  assert.match(frame, /className="mk-mobile-actions mk-mobile-row" style=\{rise\(\)\}/);
+  assert.match(css, /\.mk-mobile-menu\[open\] \.mk-mobile-row \{\s*animation: mk-rise-short var\(--mk-dur-base\) var\(--mk-ease-out\) var\(--mk-stagger, 0ms\) both;/);
+  // The exit runs on --mk-dur-fast; the script keeps the menu open at least that long.
+  assert.match(css, /\.mk-mobile-menu\[data-closing\] > \.mk-mobile-panel \{\s*animation: mk-menu-out var\(--mk-dur-fast\)/);
+  const fast = Number(TOKENS["--mk-dur-fast"].replace("ms", ""));
+  const exit = Number(menu.match(/const EXIT_MS = (\d+);/)?.[1]);
+  assert.ok(exit >= fast && exit <= fast + 40, `EXIT_MS ${exit} follows --mk-dur-fast ${fast}`);
+  // Escape, a tap outside and a link close it; reduced motion (outside
+  // "always") closes at once; the page behind stops scrolling while open.
+  assert.match(menu, /event\.key === "Escape"/);
+  assert.match(menu, /\.mk-mobile-panel a/);
+  assert.match(menu, /prefers-reduced-motion: reduce/);
+  assert.match(menu, /data-mk-motion="always"/);
+  assert.match(css, /html\.mk-menu-open \{\s*overflow: hidden;/);
+});
+

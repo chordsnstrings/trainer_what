@@ -249,47 +249,192 @@ a.mk-nav-top {
   display: none;
   margin-inline-start: auto;
 }
+/* "Menu": a pill whose lines turn into a cross while the menu is open; the
+   open state fills with Pace under the label. */
 .mk-mobile-menu > summary {
+  position: relative;
+  isolation: isolate;
   list-style: none;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
+  gap: 10px;
   min-block-size: 44px;
+  padding-block: 0;
+  padding-inline: 16px 14px;
   border: 1px solid var(--field-border);
-  border-radius: 6px;
-  padding: 9px 16px;
+  border-radius: 999px;
+  background: var(--mk-canvas);
+  color: var(--ink);
   font-size: 14px;
+  font-weight: 600;
 }
 .mk-mobile-menu > summary::-webkit-details-marker {
   display: none;
 }
+.mk-header .mk-mobile-menu > summary::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--lime);
+  opacity: 0;
+}
+.mk-header .mk-mobile-menu[open]:not([data-closing]) > summary::before {
+  opacity: 1;
+}
+.mk-mobile-menu[open]:not([data-closing]) > summary {
+  border-color: var(--ink);
+}
+.mk-burger {
+  position: relative;
+  display: inline-block;
+  inline-size: 16px;
+  block-size: 12px;
+}
+.mk-burger i {
+  position: absolute;
+  inset-inline: 0;
+  block-size: 2px;
+  border-radius: 1px;
+  background: currentColor;
+}
+.mk-burger i:first-child {
+  inset-block-start: 2px;
+}
+.mk-burger i:last-child {
+  inset-block-end: 2px;
+}
+.mk-mobile-menu[open]:not([data-closing]) .mk-burger i:first-child {
+  translate: 0 3px;
+  rotate: 45deg;
+}
+.mk-mobile-menu[open]:not([data-closing]) .mk-burger i:last-child {
+  translate: 0 -3px;
+  rotate: -45deg;
+}
+/* The panel hangs from the header with rounded lower corners; the page
+   behind dims from the header down (mobile-menu.tsx measures where the
+   header ends) and stops scrolling. */
 .mk-mobile-panel {
   position: absolute;
   inset-inline: 0;
   inset-block-start: 100%;
+  display: grid;
+  gap: 4px;
+  max-block-size: calc(100dvh - var(--mk-menu-top, 72px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-block: 6px 0;
+  padding-inline: 12px;
   background: var(--mk-canvas);
   border-block-end: 1px solid var(--mk-line);
-  box-shadow: var(--mk-shadow);
-  padding: 16px 16px 24px;
-  display: grid;
-  gap: 14px;
-  max-block-size: calc(100vh - 72px);
-  overflow-y: auto;
+  border-end-start-radius: 20px;
+  border-end-end-radius: 20px;
+  box-shadow: 0 28px 48px -28px rgb(23 25 23 / 35%);
 }
-.mk-mobile-panel ul {
+.mk-header .mk-mobile-menu[open]::before {
+  content: "";
+  position: fixed;
+  inset-inline: 0;
+  inset-block-end: 0;
+  inset-block-start: var(--mk-menu-top, 0px);
+  background: rgb(23 25 23 / 22%);
+}
+html.mk-menu-open {
+  overflow: hidden;
+}
+.mk-mobile-nav {
+  display: grid;
+}
+.mk-mobile-section {
+  display: grid;
+  padding-block: 8px;
+  border-block-end: 1px solid var(--mk-line);
+}
+.mk-mobile-section ul {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 8px;
 }
 .mk-mobile-panel .eyebrow {
-  margin-block-end: 6px;
+  margin: 0;
+  padding-block: 8px 4px;
+  padding-inline: 12px;
 }
-.mk-mobile-panel a[aria-current="page"] {
-  font-weight: 600;
-  text-decoration: underline;
-  text-underline-offset: 4px;
+/* Rows: 48px tall, a soft fill under the press (or the pointer), the arrow
+   leans forward; the current page keeps a Pace tint. */
+.mk-mobile-link {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-block-size: 48px;
+  padding-inline: 12px;
+  border-radius: 12px;
+  color: var(--ink);
+  font-size: 17px;
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.mk-header .mk-mobile-link::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--mint);
+  opacity: 0;
+}
+.mk-header .mk-mobile-link:active::before {
+  opacity: 1;
+}
+.mk-mobile-go {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.mk-mobile-link[aria-current="page"] {
+  font-weight: 650;
+}
+.mk-header .mk-mobile-link[aria-current="page"]::before {
+  opacity: 1;
+  background: color-mix(in srgb, var(--lime) 34%, var(--mk-canvas));
+}
+.mk-mobile-link[aria-current="page"] .mk-mobile-go {
+  color: var(--ink);
+}
+/* The buttons stay in reach at the panel's foot while the list scrolls. */
+.mk-mobile-actions {
+  position: sticky;
+  inset-block-end: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: 10px;
+  margin-inline: -12px;
+  padding-block: 12px calc(14px + env(safe-area-inset-bottom, 0px));
+  padding-inline: 16px;
+  background: var(--mk-canvas);
+  border-block-start: 1px solid var(--mk-line);
+}
+.mk-mobile-section:last-child {
+  border-block-end: 0;
+}
+.mk-mobile-actions .button {
+  justify-content: center;
+  min-block-size: 48px;
+}
+@media (hover: hover) {
+  .mk-header .mk-mobile-link:hover::before {
+    opacity: 1;
+  }
+  .mk-mobile-link:hover .mk-mobile-go {
+    translate: calc(var(--mk-dist-nudge) * var(--inline-sign, 1)) 0;
+    color: var(--ink);
+  }
 }
 
 /* Page scaffolding */
@@ -2726,31 +2871,63 @@ a.mk-nav-top {
 .mk-early-done {
   animation: mk-rise var(--mk-dur-slow) var(--mk-ease-out);
 }
-/* The phone menu drops in and its items rise 30ms apart; it closes at
-   once. */
+/* The phone menu: the panel drops in and its rows rise 18ms apart (each
+   row carries its own --mk-stagger), the page behind dims in, "Menu" fills
+   and its lines turn into a cross. Closing plays the panel's exit first
+   (mobile-menu.tsx keeps the menu open until it ends); rows answer a press
+   and the pointer. */
 .mk-mobile-menu[open] > .mk-mobile-panel {
-  animation: mk-drop var(--mk-dur-base) var(--mk-ease-out);
+  animation: mk-drop var(--mk-dur-slow) var(--mk-ease-out);
 }
-.mk-mobile-menu[open] > .mk-mobile-panel > * {
-  animation: mk-rise-short var(--mk-dur-fast) var(--mk-ease-out) both;
+.mk-mobile-menu[open] .mk-mobile-row {
+  animation: mk-rise-short var(--mk-dur-base) var(--mk-ease-out) var(--mk-stagger, 0ms) both;
 }
-.mk-mobile-menu[open] > .mk-mobile-panel > :nth-child(2) {
-  animation-delay: 30ms;
+.mk-mobile-menu[data-closing] > .mk-mobile-panel {
+  animation: mk-menu-out var(--mk-dur-fast) var(--mk-ease-in) both;
 }
-.mk-mobile-menu[open] > .mk-mobile-panel > :nth-child(3) {
-  animation-delay: 60ms;
+.mk-header .mk-mobile-menu[open]::before {
+  animation: mk-fade var(--mk-dur-slow) var(--mk-ease-out);
 }
-.mk-mobile-menu[open] > .mk-mobile-panel > :nth-child(4) {
-  animation-delay: 90ms;
+.mk-header .mk-mobile-menu[data-closing]::before {
+  animation: mk-fade-out var(--mk-dur-fast) var(--mk-ease-in) both;
 }
-.mk-mobile-menu[open] > .mk-mobile-panel > :nth-child(5) {
-  animation-delay: 120ms;
+.mk-header .mk-mobile-menu > summary::before {
+  transition: opacity var(--mk-dur-base) var(--mk-ease-out);
 }
-.mk-mobile-menu[open] > .mk-mobile-panel > :nth-child(6) {
-  animation-delay: 150ms;
+.mk-burger i {
+  transition:
+    translate var(--mk-dur-base) var(--mk-ease-out),
+    rotate var(--mk-dur-base) var(--mk-ease-out);
 }
-.mk-mobile-menu[open] > .mk-mobile-panel > :nth-child(n + 7) {
-  animation-delay: 180ms;
+.mk-header .mk-mobile-link::before {
+  transition: opacity var(--mk-dur-fast) var(--mk-ease-out);
+}
+.mk-mobile-go {
+  transition: translate var(--mk-dur-base) var(--mk-ease-out);
+}
+.mk-mobile-link {
+  transition: scale var(--mk-dur-fast) var(--mk-ease-out);
+}
+.mk-mobile-link:active {
+  scale: 0.98;
+  transition-duration: var(--mk-dur-press);
+  transition-timing-function: var(--mk-ease-in);
+}
+@keyframes mk-menu-out {
+  to {
+    opacity: 0;
+    translate: 0 -8px;
+  }
+}
+@keyframes mk-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes mk-fade-out {
+  to {
+    opacity: 0;
+  }
 }
 
 /* Reduced motion, kept for the motion switch's "device" mode and for the
@@ -2774,7 +2951,7 @@ a.mk-nav-top {
     transition: none !important;
     animation: none !important;
   }
-  :is(.mk, .mk-header, .mk-footer):not(:where([data-mk-motion="always"], [data-mk-motion="always"] *)) :is(.button, .mk-tile, .mk-icon-tile, .mk-included a, .mk-icon-square svg, .lucide-arrow-right, summary, .mk-footer-prefs, .mk-walk-btn) {
+  :is(.mk, .mk-header, .mk-footer):not(:where([data-mk-motion="always"], [data-mk-motion="always"] *)) :is(.button, .mk-tile, .mk-icon-tile, .mk-included a, .mk-icon-square svg, .lucide-arrow-right, summary, .mk-footer-prefs, .mk-walk-btn, .mk-mobile-link, .mk-mobile-go) {
     translate: 0 0 !important;
     scale: none !important;
   }

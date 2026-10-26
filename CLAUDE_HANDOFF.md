@@ -2,79 +2,36 @@
 
 ## Work in progress
 
-### Status at 08:46 UTC on 26 October 2026 (Claude)
+### Status at 10:05 UTC on 26 October 2026 (Claude)
 
-**1. Live: multipage marketing design (#99) and the trainer favicon fix (#100).**
-- `main` HEAD `f5565b1` has been live since 06:10:47 UTC.
-- At 06:16 UTC, `/`, `/how-it-works`, `/pricing`, `/features` and `/earnings-calculator` all:
-  - answered 200;
-  - carried `data-mk-motion="always"`;
-  - had no `.tyh` markup;
-  - served `mk-sweep` in their CSS;
-  - linked the trainsyou favicon.
-- Not checked live: the signed-in trainer tab icon (no cloud browser is used).
-- Recorded in `docs/COMPLETION_STAGES.md` (2026-10-26).
+**1. Today, "One queue" (#101): merged as `d497572` at about 09:35 UTC. Not live yet.**
+- Final PR CI: 7/8 green, including application (full `npm test` and browser-check), daily-workflows, ux-spacing and postgres-and-container.
+- homepage-call was cancelled by an infrastructure stall: `playwright install --with-deps` hung on an apt font download for 40 minutes. No test ran.
+  - It passed on `3b3df13`, and nothing after that commit touches the home page.
+  - Jobs cannot be re-run from the session (403). A note is on the PR.
+- `main`'s push run repeats every job before deploy.
+- `scripts/watch-release.sh d497572 90` is watching. At 10:01 UTC the site still served `f5565b1`.
+- **Next:** verify `/trainer` and the marketing pages when it goes live, then record the live time in `docs/COMPLETION_STAGES.md`.
 
-**2. Today, "One queue": the owner approved it at 05:20 UTC ("approved."). It is built, and a fix round is pushed to draft PR #101. It is not merged.**
-- First push `7d06f13`: all 8 CI jobs were green, including "application" (full `npm test` plus browser-check).
-- An independent review found real bugs:
-  - Up next could swap cards while the coach typed.
-  - The done count drifted, and the rail and Today could disagree.
-  - Rail highlights layered or went stale.
-  - Focus was lost after acting on a card.
-  - A route-bar timer race.
-- A research workflow (5 investigators plus a critic) confirmed these and added more:
-  - Chat replies recorded no event.
-  - Jump to could leave the Website Studio without its pending autosave.
-  - Contrast on the open rail.
-  - An Arabic message's direction was set by the English label.
-  - Long-URL overflow.
-  - Whole-workspace re-renders on every poll.
-- **Fix round (this push):**
-  - **Server done count.** `GET /trainer/inbox?since=` now returns `done.count` and `counts.rules`.
-    - A new `chat.replied` event is written when a coach answers a waiting chat.
-    - `support.replied` records `answered`.
-    - A dismissed suggestion records its target.
-  - **One shared store.** The inbox store gets `finish()` with tombstones. The rail, ticker, tab bar and Today read it.
-  - **Today state.** A pinned Up next card. An arrival chip for safety or more urgent items. The page is ready only when every source has answered. Cached loads. Focus moves to "Up next". One announcement per finish.
-  - **Rail.**
-    - Escape folds it.
-    - It opens on keyboard focus only, not on a mouse click.
-    - The pill follows layout changes.
-    - Group links sit above the pill.
-    - The note contrast is fixed.
-    - The folded "Finish setup" is fixed.
-    - Focus rings are not clipped.
-  - **Transitions.** Moves have ids. A bubble-phase listener. Cmd+K on a Mac and Ctrl+K elsewhere, with layout-safe K. Combobox fixes. The Studio registers save-before-leave.
-  - **Layout.** Long text wraps. Labels use `dir="ltr"`. Tap targets are at least 44px on phones.
-  - **Performance.** Leaf subscriptions. Stores publish only on change. Live polling is on only where it is visible. Only events are refreshed after an action.
-- **Checks on the fix round so far:**
-  - Root and web `tsc` clean.
-  - `npm run build` passed.
-  - 98/98 across these test files: trainer-today (8), trainer-inbox (7, including the new done-count test), trainer-workspace-web, setup-wizard-web, logical-css, motion-css, member-motion, brand, brain-learning-loop, support-preview, bookings-completion, site-builder-editor-model and site-builder-integration.
-- **Fix round `3b3df13`:**
-  - Backend-ui (15/15) and daily-workflows (6/6) browser checks passed locally on its build.
-  - PR CI was 8/8 green, including "application" (full `npm test` plus browser-check) and ux-spacing.
-- A container restart at about 08:05 UTC lost the first fix-review run and a local ux-spacing run. CI covered ux-spacing.
-- **Second fix-review workflow (3 lenses, 1 skeptic each): 11 confirmed findings, all fixed in the next push.**
-  - Finished items were double counted for up to 30 s: finishes and loads are now ordered by a counter, not the clock.
-  - Chat cover now uses every open exception and hold, the same rule as `chatAwaitingReply`. The safety-report skip still depends only on hold cards on screen.
-  - Today reads suggestions again when the server's rule count changes.
-  - Focus moves only when it was lost.
-  - The "N new" pill moves focus only on keyboard use.
-  - The announcement is accurate.
-  - Studio:
-    - canvas links no longer trigger the leave guard (high);
-    - a failed save (not a conflict) offers "Leave without saving?".
-  - Rail Escape: focus moves from a group link to its heading; the pointer coming back reopens the rail.
-- **Checks on the review fixes:** root and web `tsc` clean. 55/55 across trainer-today, trainer-inbox, trainer-workspace-web, setup-wizard-web, logical-css, site-builder-editor-model, site-builder-integration and support-preview.
-- **Next:** CI green on the new head, then merge, deploy watch, verify, record.
-- **Environment note:** a fresh container has Node 24 via `nvm install 24` (`/opt/nvm/versions/node/v24.22.1/bin`); `/opt/node24` may be gone.
-- **Known and accepted:**
-  - Inquiries and follow-ups behind "Review" leave the queue without a countable event.
-  - The per-user API rate limit is unchanged (120/min).
-
-Deployment stays with Claude under the standing "always deploy" instruction for merged work.
+**2. Phone menu on the marketing site: built and pushed for a new PR.**
+- Owner, 26 Oct (screenshot of the trainsyou.com phone menu): "The menu system should look better and more animated and more aesthetically pleasing with micro animations for the user with smooth animations."
+- Built on `claude/repository-overview-osejlw`:
+  - "Menu" is a pill. Its two lines turn into a cross, and it fills with Pace while the menu is open.
+  - The panel hangs from the header with rounded lower corners. It drops in, and its rows rise 18 ms apart.
+  - The page behind dims and stops scrolling.
+  - Rows are 48 px, with a soft fill on press and an arrow that leans forward.
+  - The current page keeps a Pace tint.
+  - "Sign in" and the call to action are pinned at the panel's foot.
+  - Closing plays a 150 ms exit. "Menu", Escape (focus returns to "Menu"), a tap outside and a link all close it.
+  - Without JavaScript it is still a `<details>`.
+  - Files: `components/marketing/mobile-menu.tsx` (new), `frame.tsx`, `app/marketing.css`.
+- **Checks:**
+  - web `tsc` clean;
+  - `npm run build` passed;
+  - marketing-motion-sitewide, marketing-site, marketing-journey and logical-css: 49/49, including a new phone-menu test;
+  - a local browser check at 390 and 360 px: open, cross, dim, scroll lock, Escape and focus, tap outside, "Menu" again, link to /pricing, no sideways overflow, buttons visible.
+- Running: the sitewide marketing motion browser check.
+- **Next:** open a draft PR. Merge only after `d497572` is live, because the host deploys only `main`'s head.
 
 ### Home page as the owner's HTML design: live since 22:47 UTC on 25 October 2026 (Claude, checked 04:10 UTC on 26 Oct)
 
