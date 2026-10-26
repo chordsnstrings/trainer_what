@@ -29,6 +29,9 @@ The downloadable `trainsyou-ux-ui-audit-2026-10-19.html` was refreshed and saved
   - To switch back, set `MARKETING_MOTION` in `apps/web/components/marketing/motion-mode.ts` to `"device"`; it is one constant.
   - Short marketing motion plays even for visitors with reduce motion. The pinned scroll scenes and every member, trainer and coach-site surface still follow reduce motion.
   - Keep the marketing widgets and the trainer sign-up path as they are. New motion must be short, play once, and run off its own visibility trigger.
+- Marketing revamp, 26 October 2026: three concepts for every page, published at https://claude.ai/artifact/Lcwi51DwtZdU35hirwprFF. The research, playbook and prototype sources are in `docs/marketing-revamp-2026-10-26/`.
+  - Waiting for the owner's choice. The recommendation is A, "Live Brain", with B's pricing and calculators and C's Never list, source badges and founder letter.
+  - Product fact the copy must respect: trainers can sign up, but publishing is blocked by the `payments` launch gate (`apps/api/src/onboarding.ts`), so subscriber payments and payouts are not live.
 - The marketing site is the multipage design (home, how-it-works, pricing, features, earnings calculator) with its motion work and the hero "trains" sweep. On 26 October 2026 the owner said: "the HTML design should be taken off. our previous marketing design is multipage one. let's get that back". The 25 October HTML home (#96) was reverted; its record stays in `docs/HOME_DESIGN_2026-10-25.md`.
   - It lives in `components/marketing/home-design.tsx`, `home-design-runtime.tsx` and `app/home-design.css` (generated from the file: `tyh-` prefix, scoped under `.tyh`).
   - Its GSAP scroll-scrubbed 3D and magnetic buttons override the "short, play once" rule above, for the home page only. Its motion follows the device's reduced-motion setting, as the design does.

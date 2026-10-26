@@ -2,29 +2,25 @@
 
 ## Work in progress
 
-### Status at 12:20 UTC on 26 October 2026 (Claude)
+### Status at 17:20 UTC on 26 October 2026 (Claude)
 
-**New request: a conversion-led marketing revamp, with three concepts for every page.**
-- Owner, 26 Oct: "ok now let's do the same for the marketing site. first understand what converts the most, research, and then let's revamp the marketing site which will have the best conversion along with a beautiful aesthetic design with smooth animation. give 3 different concepts, for all pages".
-- Running: research workflow `wf_aa03c418-771`. It covers:
-  - an audit of the current site from the code;
-  - sourced conversion evidence;
-  - a competitor teardown (Trainerize, TrueCoach, Everfit, Kahunas and AI-coach products);
-  - UAE trainer buyer research.
-  - Then a synthesis into a playbook, a page-by-page blueprint and three concept directions, an adversarial critique, and a revision.
-- **Next:**
-  - Build three clickable multipage prototypes covering every page template, with real content and no invented proof.
-  - Publish them as one artifact with the research findings.
-  - The owner then picks a concept. Implementation happens only after that.
-- **Constraints carried in:**
-  - multipage;
-  - AI coaching as the headline;
-  - "frontier model";
-  - always-on but smooth motion;
-  - AED, UAE and Arabic RTL;
-  - honest labels.
-- **Earlier today:** #101 (Today "One queue") and #102 (phone menu) have been live since 12:04 UTC as `f1fbf8e`; records are in #103.
-- Waiting on the owner: nothing yet. Delete the stray `/oq-daily.log` when convenient.
+**Marketing revamp: research done; three concepts published and waiting for the owner's choice.**
+- **Gallery:** https://claude.ai/artifact/Lcwi51DwtZdU35hirwprFF (private). It holds the research summary, the three concepts and the full playbook.
+  - **A, "Live Brain" (product-led):** recommended.
+  - **B, "Beyond Your Hours" (outcome-led).**
+  - **C, "The Method" (trust-led editorial).**
+  - Each is a clickable 42-page prototype with page-to-page transitions and a dev panel for live states.
+- **Records:**
+  - `docs/marketing-revamp-2026-10-26/` holds `README.md`, `PLAYBOOK.md`, `research/`, and the prototype generators in `prototypes/`, which rebuild with `node .../concept-x/src/build.mjs`;
+  - a stage entry in `docs/COMPLETION_STAGES.md`;
+  - a pointer in `docs/PROJECT_MEMORY.md`.
+- **Checks:** every page of every concept was crawled at 360, 390 and 1366: no console errors, no overflow and no broken links. The calculators match the repo's maths. Only Google Fonts load.
+- **Waiting on the owner:**
+  - pick a concept, or the recommended merge;
+  - answer the decisions in playbook E. The main ones are the "Not on yet" wording, the founder name, photo and note, the card-processing rate, the copy set including sign-up, and C's or B's fonts.
+- **Next:** port the chosen concept into `apps/web` on a new PR, with tests and docs. trainsyou.com is unchanged.
+- **Earlier today:** #101 and #102 have been live since 12:04 UTC as `f1fbf8e`.
+- Delete the stray `/oq-daily.log` when convenient.
 
 ### Home page as the owner's HTML design: live since 22:47 UTC on 25 October 2026 (Claude, checked 04:10 UTC on 26 Oct)
 

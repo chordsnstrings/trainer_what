@@ -2,6 +2,42 @@
 
 Application implementation and the job audit are complete for the current phase. [PR #1](https://github.com/chordsnstrings/trainer_what/pull/1) contains the work; [combined verification](VERIFICATION_2026-09-27.md) records the passing final code revision. The owner authorized merge to main. Real services and deployment remain the next phase; screenshots were waived. Historical entries below record the evidence available at each stage and may contain superseded pending-check statements.
 
+## Stage 2026-10-26 — marketing revamp: conversion research and three concepts for every page (published; waiting for the owner's choice)
+
+Owner, 26 October 2026: "first understand what converts the most, research, and then let's revamp the marketing site which will have the best conversion along with a beautiful aesthetic design with smooth animation. give 3 different concepts, for all pages".
+
+**Research** (workflow `wf_aa03c418-771`, 7 agents):
+- an audit of the current site from the code;
+- sourced conversion evidence, each source labelled by weight (measured, survey, vendor data, vendor claim, expert);
+- a teardown of 12 competitor and adjacent sites;
+- UAE trainer buyer research;
+- a synthesis into 15 ranked principles, a funnel, a blueprint for every page and three concepts, then an adversarial critique (48 required fixes) and a revision.
+- Saved in `docs/marketing-revamp-2026-10-26/` (`PLAYBOOK.md`, `research/`).
+
+**Concepts:**
+- **A, "Live Brain" (product-led):** a decision-console hero. Recommended.
+- **B, "Beyond Your Hours" (outcome-led):** the offer page plus a "Your price, our share" tile.
+- **C, "The Method" (trust-led editorial):** a confirmed rule card, a Never list and source badges.
+
+Each concept is a clickable 42-page prototype (the 38 registered pages plus signup, login, coaches and the 404), built by a workflow of 7 agents (`wf_32d8c50d-9f2`, `wf_6618dd06-2fc`, `wf_740a8f2e-002`): a foundation, four page-group builders, a QA crawl with fixes, and an adversarial review with fixes. The prototypes show:
+- page-to-page View Transitions;
+- reveals that happen only below the first screen;
+- a dev panel that toggles the live states (payments, registration, publishing, frontier, voice).
+
+The generator sources are in `docs/marketing-revamp-2026-10-26/prototypes/`; all three rebuilt 42 pages from there.
+
+Checks:
+- QA crawls at 360, 390 and 1366 px for every page of every concept: no console errors, no sideways scroll, every internal link resolves, one H1 per page.
+- Calculator figures match the repo's calculator maths: 398 / 2,985 / 23,084; 22,885 kept on 150 × AED 199.
+- Nothing loads except Google Fonts.
+- The gallery page at 1366 (light) and 390 (dark): no errors, no overflow, all 19 links resolve.
+
+**Published** as a private artifact: https://claude.ai/artifact/Lcwi51DwtZdU35hirwprFF (the gallery, three prototypes and the playbook).
+
+**Not done:** implementation in the app, pending the owner's choice of concept and approval of the copy changes (playbook E, decisions 1 to 19). trainsyou.com is unchanged.
+
+**Next action:** the owner picks a concept (or a merge, as recommended) and answers the decisions. Then port it into `apps/web` on a new PR, with tests and docs updated.
+
 ## Stage 2026-10-26 — marketing phone menu, and CI picks a fast Ubuntu mirror (PR #102, merged as `f1fbf8e`; live since 12:04 UTC on 26 October 2026)
 
 Owner, 26 October 2026, with a screenshot of the trainsyou.com phone menu: "The menu system should look better and more animated and more aesthetically pleasing with micro animations for the user with smooth animations".
