@@ -145,6 +145,15 @@ test("the platform manifest, favicons and install icons use the trainsyou icons"
   }
   assert.match(await source("app/fonts/Inter-OFL.txt"), /SIL Open Font License, Version 1\.1/);
   assert.match(await source("app/manifest.ts"), /platformManifest\(name\)/);
+  // Signed in, only members swap in their coach's tab and home-screen icons;
+  // the trainer workspace keeps the trainsyou mark (owner, 26 October 2026).
+  const install = await source("components/member-app-install.tsx");
+  assert.match(
+    install,
+    /if \(role === "subscriber"\)\s+undo\.push\(\s+swapLinks\(\s+'link\[rel="apple-touch-icon"\]'[\s\S]*?swapLinks\('link\[rel="icon"\]'/,
+  );
+  assert.equal(install.match(/swapLinks\('link\[rel="icon"\]'/g)?.length, 1);
+  assert.equal(install.match(/'link\[rel="apple-touch-icon"\]'/g)?.length, 1);
   // The brand assets are static files, outside the routing proxy.
   assert.match(await source("proxy.ts"), /\|brand\/\)/);
 });
