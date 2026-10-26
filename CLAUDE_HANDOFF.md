@@ -2,29 +2,79 @@
 
 ## Work in progress
 
-### Status at 04:58 UTC on 26 October 2026 (Claude)
+### Status at 08:46 UTC on 26 October 2026 (Claude)
 
-**1. HTML home design taken off; multipage marketing design restored.**
-- Owner: "the HTML design should be taken off. our previous marketing design is multipage one. let's get that back".
-- PR #99 was green on all 8 jobs. It was squash-merged as `2493e5eefda0ff3279e5478768be8b0194716456`. Its code is byte-identical to `e4e2f8c`: the multipage site, its motion work and the "trains" sweep. #97's WHOOP check fix is kept.
-- Running: the `main` CI run, then the deploy. `scripts/watch-release.sh` is polling for `2493e5e`.
-- **Next:** verify live on `/`, `/how-it-works`, `/pricing`, `/features` and `/earnings-calculator`, including that `mk-sweep` is served. Then record the live time here and in the 2026-10-26 entry of `docs/COMPLETION_STAGES.md`.
+**1. Live: multipage marketing design (#99) and the trainer favicon fix (#100).**
+- `main` HEAD `f5565b1` has been live since 06:10:47 UTC.
+- At 06:16 UTC, `/`, `/how-it-works`, `/pricing`, `/features` and `/earnings-calculator` all:
+  - answered 200;
+  - carried `data-mk-motion="always"`;
+  - had no `.tyh` markup;
+  - served `mk-sweep` in their CSS;
+  - linked the trainsyou favicon.
+- Not checked live: the signed-in trainer tab icon (no cloud browser is used).
+- Recorded in `docs/COMPLETION_STAGES.md` (2026-10-26).
 
-**2. Trainer workspace favicon back to the trainsyou Y. Draft PR #100.**
-- Owner: "change the favicon back to what it was. currently it's KS".
-- Cause: signed in, `MemberAppManifest` (`apps/web/components/member-app-install.tsx`) swapped the tab and apple-touch icons for the workspace install icon. The API draws that icon from the coach's initials when no logo is uploaded, hence "KS".
-- Fix: only members (`subscriber`) get the coach's tab and home-screen icons. The trainer workspace keeps `/brand/favicon.svg` and `/brand/favicon.ico`. The member app and coach websites are unchanged.
-- Checks: `tests/brand.test.ts` 12/12, with a new assertion; web `tsc` clean. PR CI is running.
-- Not changed: an installed trainer workspace on Android still takes its icon from the coach manifest, which uses the same initials icon.
-- **Next:** merge when green, then check the signed-in trainer tab icon.
+**2. Today, "One queue": the owner approved it at 05:20 UTC ("approved."). It is built, and a fix round is pushed to draft PR #101. It is not merged.**
+- First push `7d06f13`: all 8 CI jobs were green, including "application" (full `npm test` plus browser-check).
+- An independent review found real bugs:
+  - Up next could swap cards while the coach typed.
+  - The done count drifted, and the rail and Today could disagree.
+  - Rail highlights layered or went stale.
+  - Focus was lost after acting on a card.
+  - A route-bar timer race.
+- A research workflow (5 investigators plus a critic) confirmed these and added more:
+  - Chat replies recorded no event.
+  - Jump to could leave the Website Studio without its pending autosave.
+  - Contrast on the open rail.
+  - An Arabic message's direction was set by the English label.
+  - Long-URL overflow.
+  - Whole-workspace re-renders on every poll.
+- **Fix round (this push):**
+  - **Server done count.** `GET /trainer/inbox?since=` now returns `done.count` and `counts.rules`.
+    - A new `chat.replied` event is written when a coach answers a waiting chat.
+    - `support.replied` records `answered`.
+    - A dismissed suggestion records its target.
+  - **One shared store.** The inbox store gets `finish()` with tombstones. The rail, ticker, tab bar and Today read it.
+  - **Today state.** A pinned Up next card. An arrival chip for safety or more urgent items. The page is ready only when every source has answered. Cached loads. Focus moves to "Up next". One announcement per finish.
+  - **Rail.**
+    - Escape folds it.
+    - It opens on keyboard focus only, not on a mouse click.
+    - The pill follows layout changes.
+    - Group links sit above the pill.
+    - The note contrast is fixed.
+    - The folded "Finish setup" is fixed.
+    - Focus rings are not clipped.
+  - **Transitions.** Moves have ids. A bubble-phase listener. Cmd+K on a Mac and Ctrl+K elsewhere, with layout-safe K. Combobox fixes. The Studio registers save-before-leave.
+  - **Layout.** Long text wraps. Labels use `dir="ltr"`. Tap targets are at least 44px on phones.
+  - **Performance.** Leaf subscriptions. Stores publish only on change. Live polling is on only where it is visible. Only events are refreshed after an action.
+- **Checks on the fix round so far:**
+  - Root and web `tsc` clean.
+  - `npm run build` passed.
+  - 98/98 across these test files: trainer-today (8), trainer-inbox (7, including the new done-count test), trainer-workspace-web, setup-wizard-web, logical-css, motion-css, member-motion, brand, brain-learning-loop, support-preview, bookings-completion, site-builder-editor-model and site-builder-integration.
+- **Fix round `3b3df13`:**
+  - Backend-ui (15/15) and daily-workflows (6/6) browser checks passed locally on its build.
+  - PR CI was 8/8 green, including "application" (full `npm test` plus browser-check) and ux-spacing.
+- A container restart at about 08:05 UTC lost the first fix-review run and a local ux-spacing run. CI covered ux-spacing.
+- **Second fix-review workflow (3 lenses, 1 skeptic each): 11 confirmed findings, all fixed in the next push.**
+  - Finished items were double counted for up to 30 s: finishes and loads are now ordered by a counter, not the clock.
+  - Chat cover now uses every open exception and hold, the same rule as `chatAwaitingReply`. The safety-report skip still depends only on hold cards on screen.
+  - Today reads suggestions again when the server's rule count changes.
+  - Focus moves only when it was lost.
+  - The "N new" pill moves focus only on keyboard use.
+  - The announcement is accurate.
+  - Studio:
+    - canvas links no longer trigger the leave guard (high);
+    - a failed save (not a conflict) offers "Leave without saving?".
+  - Rail Escape: focus moves from a group link to its heading; the pointer coming back reopens the rail.
+- **Checks on the review fixes:** root and web `tsc` clean. 55/55 across trainer-today, trainer-inbox, trainer-workspace-web, setup-wizard-web, logical-css, site-builder-editor-model, site-builder-integration and support-preview.
+- **Next:** CI green on the new head, then merge, deploy watch, verify, record.
+- **Environment note:** a fresh container has Node 24 via `nvm install 24` (`/opt/nvm/versions/node/v24.22.1/bin`); `/opt/node24` may be gone.
+- **Known and accepted:**
+  - Inquiries and follow-ups behind "Review" leave the queue without a countable event.
+  - The per-user API rate limit is unchanged (120/min).
 
-**3. Trainer dashboard redesign: three concepts, all on the canvas.**
-- Canvas: https://claude.ai/artifact/XcN33J2FAHKNzieBDdBH2r (private to the owner).
-- All three are interactive, grid-based, use trainsyou's colours, Inter and motion tokens, and follow reduce motion.
-  - **A, "Guided Today":** setup happens on Today. A six-step rail shows minutes left; the current step runs inline (the "Would you reply like this?" quiz, the price, going live). "Needs you" has inline actions with undo. The sidebar setup meter and the active pill slide. The groups open as an accordion.
-  - **B, "One queue":** one ordered queue mixes client items and setup steps: safety first, then oldest. An "Up next" focus card holds one decision at a time, with a "done today" ring. The icon rail expands on hover and can be pinned. A Ctrl K command palette is included. Page changes are directional.
-  - **C, "Day board":** a timeline of the day with a now-line, free gaps you can click and session details. Tiles count up. "Needs you" rows expand to show their actions. A launch checklist has a progress ring. Coach, Brand and Business are separate sidebar spaces, switched by a sliding segmented control.
-- **Waiting on the owner:** pick a concept, or a mix, before any implementation.
+Deployment stays with Claude under the standing "always deploy" instruction for merged work.
 
 ### Home page as the owner's HTML design: live since 22:47 UTC on 25 October 2026 (Claude, checked 04:10 UTC on 26 Oct)
 

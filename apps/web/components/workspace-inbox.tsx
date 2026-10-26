@@ -18,7 +18,7 @@ import {
 import { formatWhen } from "../lib/format";
 import { api, Badge, Card, Empty, type State } from "./workspace-ui";
 import { coachSetupOpen } from "./superadmin-access";
-import { INBOX_CHANGED, SETUP_HREF } from "./workspace-nav";
+import { SETUP_HREF } from "./workspace-nav";
 import { CoachingMessages } from "./training-workspace";
 
 /**
@@ -48,6 +48,8 @@ export type InboxItem = {
   title: string;
   preview: string;
   draft: string | null;
+  /** The client's message a reply draft answers. */
+  ask?: string | null;
   createdAt: string;
   actions: string[];
   href: string;
@@ -61,7 +63,7 @@ export type ChatSummary = {
   awaitingReply: boolean;
 };
 
-const KIND_LABEL: Record<InboxType, string> = {
+export const KIND_LABEL: Record<InboxType, string> = {
   safety: "Safety",
   reply_draft: "Reply draft",
   question: "Question",
@@ -115,12 +117,15 @@ type Mode = null | "edit" | "reply" | "reject";
 /** One card. Approve and the booking buttons act at once; the others open a
  * short form under the card. A note is asked for only when closing an item
  * without sending anything. */
-function InboxCard({
+export function InboxCard({
   item,
   onDone,
+  variant,
 }: {
   item: InboxItem;
   onDone: (id: string, message: string) => void;
+  /** "focus": Today's Up next card, one decision at a time. */
+  variant?: "focus";
 }) {
   const [mode, setMode, clearMode] = useWorkspaceValue<Mode>(`inbox:${item.id}:mode`, null),
     [drafts, setDrafts, clearText] = useWorkspaceValue<Record<string, string>>(`inbox:${item.id}:reply`, {}, true),
@@ -191,7 +196,7 @@ function InboxCard({
       status === "attended" ? "Marked as attended" : "Marked as a no-show",
     );
   return (
-    <li className={"inbox-card inbox-" + item.type}>
+    <li className={"inbox-card inbox-" + item.type + (variant === "focus" ? " is-focus" : "")}>
       <div className="inbox-card-head">
         <Badge tone={KIND_TONE[item.type] ?? ""}>
           {KIND_ICON[item.type]} {KIND_LABEL[item.type]}
@@ -215,9 +220,15 @@ function InboxCard({
           {item.preview}
         </p>
       )}
+      {item.ask && (
+        <p className="inbox-ask" dir="auto">
+          <small dir="ltr">{item.clientName ? `${item.clientName.split(" ")[0]} asked` : "Your client asked"}</small>
+          {item.ask}
+        </p>
+      )}
       {item.draft && mode !== "edit" && (
         <blockquote className="inbox-draft" dir="auto">
-          <small>Reply draft</small>
+          <small dir="ltr">Reply draft</small>
           {item.draft}
         </blockquote>
       )}
@@ -456,14 +467,14 @@ export function ChatList({
 }
 
 export function Inbox({ state, compact = false }: { state: State; compact?: boolean }) {
-  const { items, error, load, setItems } = useSharedInbox(useContext(WorkspaceScope));
+  const { items, error, load, finish } = useSharedInbox(useContext(WorkspaceScope));
   const chats = useChats(!compact);
   const [done, setDone] = useState(""),
     [view, setView] = useWorkspaceQuery("view", "todo");
   const onDone = (id: string, message: string) => {
-    setItems((list) => list?.filter((i) => i.id !== id) ?? list);
+    // Leaves the list and counts as done everywhere (the rail, Today).
+    finish({ id });
     setDone(message);
-    window.dispatchEvent(new Event(INBOX_CHANGED));
     void chats.load();
   };
   const unread = chats.chats?.filter((c) => c.awaitingReply).length ?? 0;

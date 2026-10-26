@@ -45,7 +45,7 @@
   block-size: 100dvh;
   gap: 0;
 }
-.workspace.platform-ui .sidebar > :not(nav) { flex-shrink: 0; }
+.workspace.platform-ui :is(.sidebar, .sidebar-panel) > :not(nav, .sidebar-panel) { flex-shrink: 0; }
 .workspace.platform-ui .sidebar .wordmark { margin-block-end: 24px; padding-inline: 8px; }
 .workspace.platform-ui .workspace-label { margin: 0 0 16px; padding: 0 8px; border: 0; gap: 10px; }
 .workspace.platform-ui .workspace-label strong { font-size: 13px; overflow-wrap: anywhere; }

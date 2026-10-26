@@ -264,6 +264,9 @@ test("the inbox merges every queue, most urgent first, without duplicates", asyn
   assert.equal(byType.safety.clientName, "Hana Held");
   assert.deepEqual(byType.safety.actions, ["review", "open_chat"]);
   assert.equal(byType.reply_draft.draft, "Keep to one session tomorrow and rest well.");
+  // The client's message the draft answers, so Today can show both sides.
+  assert.equal(byType.reply_draft.ask, "Can I train twice tomorrow?");
+  assert.equal(byType.question.ask, undefined);
   assert.deepEqual(byType.reply_draft.actions, [
     "approve",
     "edit_send",
@@ -432,4 +435,79 @@ test("client task filters search the server's full authorized collection", async
     assert.ok(!response.json().items.some((item: any) => item.id === foreign.userId));
   }
   assert.equal((await call(owner, "/workspace/pages/members?filter=untrusted")).statusCode, 400);
+});
+
+test("today's done count counts every finished decision once, chats and support included", async () => {
+  const s = await seeded();
+  const staff = await person(s.owner.tenantId, "staff", "Staff coach");
+  const done = async (who: Actor = s.owner, since = "") => {
+    const r = await call(who, "/trainer/inbox" + (since ? `?since=${since}` : ""));
+    assert.equal(r.statusCode, 200, r.body);
+    return r.json() as { done: { count: number; since: string }; counts: { rules: number } };
+  };
+  assert.equal((await done()).done.count, 0);
+  // A missing or odd ?since= never fails: it falls back to the last 24 hours.
+  for (const odd of ["abc", "-5", "1", String(Date.now() + 3_600_000)]) {
+    const r = await done(s.owner, encodeURIComponent(odd));
+    assert.ok(Date.now() - Date.parse(r.done.since) >= 23 * 3_600_000, odd);
+  }
+
+  // Approving a reply draft: one.
+  const approved = await call(s.owner, `/exceptions/${s.draft.id}/resolve`, "POST", { approveDecision: true });
+  assert.equal(approved.statusCode, 200, approved.body);
+  assert.equal((await done()).done.count, 1);
+  // Resolving it again (the route answers idempotently) counts nothing more.
+  await call(s.owner, `/exceptions/${s.draft.id}/resolve`, "POST", { approveDecision: true });
+  assert.equal((await done()).done.count, 1);
+
+  // A chat the inbox shows as waiting: the first reply finishes it, a second does not.
+  const reply = (to: Actor, text: string) =>
+    call(s.owner, "/messages", "POST", { subscriberId: to.userId, text });
+  assert.equal((await reply(s.clients.chatty, "Love it. Let us plan it.")).statusCode, 200);
+  assert.equal((await done()).done.count, 2);
+  assert.equal((await reply(s.clients.chatty, "One more thing.")).statusCode, 200);
+  assert.equal((await done()).done.count, 2);
+  // A chat message to a client whose open question covers them is not a finish.
+  assert.equal((await reply(s.clients.asking, "Looking at it now.")).statusCode, 200);
+  assert.equal((await done()).done.count, 2);
+
+  // Support: answering the member counts once; a follow-up does not.
+  const support = (text: string) => call(s.owner, `/support/${s.support.id}/reply`, "POST", { message: text });
+  assert.equal((await support("You are charged on the 1st.")).statusCode, 200);
+  assert.equal((await done()).done.count, 3);
+  assert.equal((await support("Also, receipts are in Membership.")).statusCode, 200);
+  assert.equal((await done()).done.count, 3);
+
+  // Attendance for a session that ended: one.
+  const outcome = await call(s.owner, `/bookings/${s.booking}/outcome`, "POST", { status: "attended" });
+  assert.equal(outcome.statusCode, 200, outcome.body);
+  assert.equal((await done()).done.count, 4);
+
+  // Rule suggestions wait for the owner only; a decided one counts once.
+  // A nutrition suggestion is not part of Today's count.
+  const [rule, nutrition] = await db.tenant(s.owner, async (tx) => [
+    await putRecord(tx, s.owner, "brain_suggestion", { target: "rule", rule: { title: "Shorter rests" }, why: "Edited 4 times" }, { status: "suggested" }),
+    await putRecord(tx, s.owner, "brain_suggestion", { target: "nutrition", rule: { title: "More fibre" }, why: "Edited 3 times" }, { status: "suggested" }),
+  ]);
+  assert.equal((await done()).counts.rules, 1);
+  assert.equal((await done(staff)).counts.rules, 0);
+  const dismissed = await call(s.owner, `/brain/suggestions/${rule.id}/dismiss`, "POST", { version: rule.version });
+  assert.equal(dismissed.statusCode, 200, dismissed.body);
+  assert.equal((await call(s.owner, `/brain/suggestions/${nutrition.id}/dismiss`, "POST", { version: nutrition.version })).statusCode, 200);
+  const afterRules = await done();
+  assert.equal(afterRules.counts.rules, 0);
+  assert.equal(afterRules.done.count, 5);
+
+  // Many later events by others never push the coach's finishes out.
+  await db.tenant(s.owner, async (tx) => {
+    for (let i = 0; i < 150; i++)
+      await tx.query(
+        "INSERT INTO events(id,tenant_id,actor_id,name,subject_id,data) VALUES($1,$2,$3,'workout.completed',$4,'{}')",
+        [randomUUID(), s.owner.tenantId, s.clients.chatty.userId, randomUUID()],
+      );
+  });
+  assert.equal((await done()).done.count, 5);
+  // Only this coach's own finishes, and only since the start of their day.
+  assert.equal((await done(staff)).done.count, 0);
+  assert.equal((await done(s.owner, String(Date.now()))).done.count, 0);
 });

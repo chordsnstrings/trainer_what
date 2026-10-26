@@ -34,6 +34,9 @@ The downloadable `trainsyou-ux-ui-audit-2026-10-19.html` was refreshed and saved
   - Its GSAP scroll-scrubbed 3D and magnetic buttons override the "short, play once" rule above, for the home page only. Its motion follows the device's reduced-motion setting, as the design does.
   - The owner chose no additions: no social proof, no card-fee line, links that open new tabs as in the file. Change its look only from a new owner design.
   - The previous home's components (hero relay, journey compact band, scroll scenes) are dormant. Remove them in a separate cleanup once the owner approves the page.
+- The moat is the AI training, not personal one-to-one training. Owner, 26 October 2026: "the next session isn't necessarily our moat. our moat is the AI training, not personal one on one training."
+  - Trainer surfaces lead with what the coach's AI is doing and learning: plans and replies it writes, what waits for the coach, what it delivered on its own, and rules it learned from the coach's edits.
+  - Bookings and 1:1 sessions stay available but secondary. Never make a session countdown the headline.
 - Run long browser suites in parallel on the production build (`RTL_WEB_MODE=start`, each runner on its own ports and database). Never run them one after another on `next dev`, and never repeat timed comparisons; the owner flags slow agents as stalled.
 - Deploys run only after `main`'s `check.yml` push run succeeds (`approved_head` in `infra/digitalocean/common.py`). A job cancelled by its time limit blocks the release even when every test passed. Claude cannot re-run jobs (403): either the owner clicks "Re-run failed jobs", or a new commit on `main` starts a fresh run. Slow `apt-get` mirrors (22 October 2026) were the cause so far, so check step timings before blaming the code.
 

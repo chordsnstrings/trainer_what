@@ -55,7 +55,7 @@ import {
   evaluateBrainReplies,
   HELD_OUT_SCENARIO_LIMIT,
 } from "./brain-replies-check.ts";
-import { registerTrainerInbox } from "./trainer-inbox.ts";
+import { chatAwaitingReply, registerTrainerInbox } from "./trainer-inbox.ts";
 import {
   registerCoachingFeedback,
   revokeCoachingFeedbackLearning,
@@ -1821,6 +1821,10 @@ export async function buildApp(
         [a.tenantId, target],
       );
       if (!m) throw fail(404, "NOT_FOUND", "Subscriber unavailable");
+      // A coach reply to a chat the inbox shows as waiting finishes that
+      // item; Today counts it (chat.replied, trainer-inbox.ts doneToday).
+      const answering =
+        a.role !== "subscriber" && (await chatAwaitingReply(tx, target));
       // Code floor plus the published policy's tightening terms.
       const screen =
         a.role === "subscriber" ? await screenForSafety(tx, b.text) : null;
@@ -1840,6 +1844,8 @@ export async function buildApp(
         { ownerId: target, status: "sent" },
       );
       await bindChatAttachments(tx, a, target, message.id, b.attachmentIds);
+      if (answering)
+        await event(tx, a, "chat.replied", target, { messageId: message.id });
       const notice = {
         category: "coaching" as const,
         dedupeKey: `message:${message.id}`,

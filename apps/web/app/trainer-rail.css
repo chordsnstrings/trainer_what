@@ -1,0 +1,168 @@
+/*
+ * The trainer rail (docs/features/trainer-workspace.md, "Rail"): above
+ * 900px the coaching workspace's navigation is a 72px column of icons that
+ * opens over the page to 248px on hover or keyboard focus, or stays open when
+ * pinned. Escape folds it again until the pointer or focus comes back
+ * (data-dismissed, WCAG 1.4.13); a mouse click alone never keeps it open. The open panel is revealed with clip-path (it also keeps the folded
+ * part from catching the pointer); everything else moves by transform and
+ * opacity. Live instruments sit on the icons: the Today ring, the Inbox
+ * count, the Brain's writing dots and the clients-training beat. At 900px and
+ * below the drawer and the phone tab bar stay as they were. Logical
+ * properties throughout; horizontal movement follows --inline-sign.
+ */
+
+/* The inner panel is transparent to layout everywhere except the rail. */
+.workspace.platform-ui .sidebar-panel { display: contents; }
+.rail-mark, .rail-pill, .rail-hover { display: none; }
+.workspace.platform-ui .sidebar .nav-icon { position: relative; display: inline-flex; flex-shrink: 0; }
+.workspace.platform-ui .sidebar .nav-label { flex: 1; min-inline-size: 0; }
+.workspace.platform-ui .sidebar .nav-note { font-size: 11px; font-weight: 500; color: var(--muted); white-space: nowrap; }
+.workspace.platform-ui .sidebar nav a.nav-setup { flex-direction: row-reverse; justify-content: flex-end; }
+.workspace.platform-ui .sidebar-bottom .text-button { display: flex; align-items: center; gap: 10px; inline-size: 100%; }
+.workspace.platform-ui .sidebar-bottom .rail-control { color: var(--muted); }
+.workspace.platform-ui .sidebar-bottom .rail-control[data-on] { color: var(--ink); }
+.workspace.platform-ui .rail-pin { display: none; }
+
+/* Live instruments. */
+.workspace.platform-ui .nav-ring { position: absolute; inset-block-start: -7px; inset-inline-start: -7px; inline-size: 32px; block-size: 32px; pointer-events: none; }
+.workspace.platform-ui .nav-ring circle { fill: none; stroke: var(--line); stroke-width: 2; }
+.workspace.platform-ui .nav-ring .nav-ring-value { stroke: currentColor; stroke-linecap: round; stroke-dasharray: 88; transform: rotate(-90deg); transform-origin: 16px 16px; }
+.workspace.platform-ui .sidebar .nav-icon .nav-count { position: absolute; inset-block-start: -9px; inset-inline-start: 10px; min-inline-size: 18px; block-size: 18px; padding-inline: 5px; border-radius: 9px; border: 1.5px solid #ffffff; font-size: 10px; line-height: 15px; font-weight: 700; text-align: center; }
+.workspace.platform-ui .sidebar .nav-count.is-safety { background: var(--error); color: #ffffff; }
+.workspace.platform-ui .nav-beat { position: absolute; inset-block-end: -4px; inset-inline-end: -5px; inline-size: 9px; block-size: 9px; border-radius: 50%; border: 1.5px solid #ffffff; background: var(--success); }
+.workspace.platform-ui .nav-beat::after { content: ""; position: absolute; inset: -5px; border-radius: 50%; border: 2px solid var(--success); opacity: 0; }
+.workspace.platform-ui .nav-dots { position: absolute; inset-block-end: -8px; inset-inline-start: 2px; display: inline-flex; gap: 2px; }
+.workspace.platform-ui .nav-dots i { inline-size: 4px; block-size: 4px; border-radius: 50%; background: currentColor; opacity: .55; }
+.workspace.platform-ui .rail-ticker { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; padding: 9px 10px; border-radius: 10px; background: var(--mint); font-size: 12px; line-height: 1.35; color: var(--ink); overflow: hidden; }
+.workspace.platform-ui .rail-ticker-dot { flex-shrink: 0; inline-size: 6px; block-size: 6px; border-radius: 50%; background: var(--success); }
+.workspace.platform-ui .rail-ticker-line { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (width > 900px) {
+  .workspace.platform-ui.is-rail { --workspace-rail: 72px; --rail-open: 248px; --rail-fold: 176px; }
+  .workspace.platform-ui.is-rail.is-pinned { --workspace-rail: var(--rail-open); }
+  .workspace.platform-ui.is-rail .sidebar { padding: 0; border: 0; overflow: hidden; }
+  .workspace.platform-ui.is-rail .sidebar-panel {
+    position: fixed; inset-block: 0; inset-inline-start: 0; z-index: 31;
+    display: flex; flex-direction: column; inline-size: var(--rail-open);
+    padding: 18px 12px 12px; background: #ffffff;
+    clip-path: inset(0 calc(var(--rail-fold) * (1 + var(--inline-sign, 1)) / 2) 0 calc(var(--rail-fold) * (1 - var(--inline-sign, 1)) / 2));
+  }
+  /* The rail's edge, at 72px folded and 248px open. */
+  .workspace.platform-ui.is-rail .sidebar-panel::after {
+    content: ""; position: absolute; inset-block: 0; inset-inline-start: calc(var(--workspace-rail) - 1px);
+    inline-size: 1px; background: var(--line); pointer-events: none;
+  }
+  .workspace.platform-ui.is-rail .sidebar-panel::before {
+    content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+    box-shadow: 0 0 56px -18px #18201b59; opacity: 0;
+  }
+  .workspace.platform-ui.is-rail .sidebar-panel > :not(nav) { flex-shrink: 0; }
+  .workspace.platform-ui.is-rail .sidebar .wordmark { position: relative; display: flex; align-items: center; min-block-size: 40px; margin-block-end: 18px; padding-inline: 12px; }
+  .workspace.platform-ui.is-rail .rail-mark { position: absolute; inset-inline-start: 11px; inset-block-start: 7px; display: inline-flex; align-items: center; justify-content: center; inline-size: 26px; block-size: 26px; border-radius: 6px; font-size: 11px; font-weight: 700; }
+  .workspace.platform-ui.is-rail .rail-mark img { inline-size: 26px; block-size: 26px; border-radius: 6px; }
+  .workspace.platform-ui.is-rail .workspace-label { padding-inline: 8px; }
+  /* 6px of room inside the scroller, so focus rings are never cut off. */
+  .workspace.platform-ui.is-rail .sidebar nav { position: relative; gap: 4px; padding: 6px; margin: -6px; }
+  .workspace.platform-ui.is-rail .sidebar nav > a,
+  .workspace.platform-ui.is-rail .workspace-nav-group summary { position: relative; z-index: 1; gap: 14px; min-block-size: 44px; padding-block: 10px; padding-inline: 15px 12px; border-radius: 10px; background: transparent; }
+  .workspace.platform-ui.is-rail .sidebar nav > a:hover,
+  .workspace.platform-ui.is-rail .workspace-nav-group summary:hover { background: transparent; color: var(--ink); }
+  .workspace.platform-ui.is-rail .sidebar nav > a.active,
+  .workspace.platform-ui.is-rail .workspace-nav-group[data-active] > summary { background: transparent; color: #ffffff; font-weight: 650; }
+  .workspace.platform-ui.is-rail .sidebar nav > a.nav-setup { background: #f0f6da; color: var(--ink); }
+  .workspace.platform-ui.is-rail .workspace-nav-group > div { padding-inline-start: 34px; }
+  /* Above the hover pill, which glides under them too. */
+  .workspace.platform-ui.is-rail .workspace-nav-group > div a { position: relative; z-index: 1; }
+  .workspace.platform-ui.is-rail .workspace-nav-group > div a:not(.active):hover { background: transparent; }
+  .workspace.platform-ui.is-rail .workspace-nav-group > div a.active { background: var(--mint); color: var(--ink); }
+  /* The note on the current item sits on the ink pill. */
+  .workspace.platform-ui.is-rail .sidebar nav > a.active .nav-note { color: color-mix(in srgb, #ffffff 80%, var(--ink)); }
+  .workspace.platform-ui.is-rail .sidebar .nav-workspace-link { gap: 14px; padding-inline: 15px 12px; }
+  .workspace.platform-ui.is-rail .rail-pill,
+  .workspace.platform-ui.is-rail .rail-hover {
+    display: block; position: absolute; inset-inline: 6px; inset-block-start: 0; block-size: 44px;
+    border-radius: 10px; pointer-events: none;
+    /* Folded, 48px from the inline start whatever the pill's width. */
+    clip-path: inset(0 calc((100% - 48px) * (1 + var(--inline-sign, 1)) / 2) 0 calc((100% - 48px) * (1 - var(--inline-sign, 1)) / 2) round 10px);
+  }
+  .workspace.platform-ui.is-rail .rail-pill { z-index: 0; background: var(--ink); opacity: 0; }
+  .workspace.platform-ui.is-rail .rail-hover { z-index: 0; background: var(--mint); opacity: 0; }
+  .workspace.platform-ui.is-rail .sidebar-bottom { margin-block-start: 10px; padding: 10px 0 0; }
+  .workspace.platform-ui.is-rail .sidebar-bottom .text-button { gap: 14px; min-block-size: 40px; padding-inline: 16px 8px; border-radius: 10px; }
+  .workspace.platform-ui.is-rail .rail-pin { display: flex; }
+
+  /* Folded: icons only. Open on hover, keyboard focus, or pinned. */
+  .workspace.platform-ui.is-rail:not(.is-pinned) .sidebar-panel:is([data-dismissed], :not(:hover, :has(:focus-visible), :has(select:focus))) :is(.nav-label, .nav-note, .workspace-label > div, .rail-ticker, .wordmark .brand-logo, .wordmark > span:not(.rail-mark), .workspace-switcher, .workspace-nav-group summary > svg:last-child) { opacity: 0; }
+  .workspace.platform-ui.is-rail:not(.is-pinned) .sidebar-panel:is([data-dismissed], :not(:hover, :has(:focus-visible), :has(select:focus))) .workspace-nav-group > div { display: none; }
+  .workspace.platform-ui.is-rail:not(.is-pinned) .sidebar-panel:is([data-dismissed], :not(:hover, :has(:focus-visible), :has(select:focus))) nav > a.nav-setup { font-size: 0; background: transparent; }
+  .workspace.platform-ui.is-rail:not(.is-pinned) .sidebar-panel:is([data-dismissed], :not(:hover, :has(:focus-visible), :has(select:focus))) .nav-label { transform: translateX(calc(-8px * var(--inline-sign, 1))); }
+  .workspace.platform-ui.is-rail:not(.is-pinned) .sidebar-panel:not([data-dismissed]):is(:hover, :has(:focus-visible), :has(select:focus)) .rail-mark,
+  .workspace.platform-ui.is-rail.is-pinned .rail-mark { opacity: 0; }
+  .workspace.platform-ui.is-rail:not(.is-pinned) .sidebar-panel:not([data-dismissed]):is(:hover, :has(:focus-visible), :has(select:focus)) {
+    clip-path: inset(0 calc(-64px * (1 + var(--inline-sign, 1)) / 2) 0 calc(-64px * (1 - var(--inline-sign, 1)) / 2));
+  }
+  .workspace.platform-ui.is-rail:not(.is-pinned) .sidebar-panel:not([data-dismissed]):is(:hover, :has(:focus-visible), :has(select:focus))::before { opacity: 1; }
+  .workspace.platform-ui.is-rail:not(.is-pinned) .sidebar-panel:not([data-dismissed]):is(:hover, :has(:focus-visible), :has(select:focus))::after,
+  .workspace.platform-ui.is-rail.is-pinned .sidebar-panel::after { transform: translateX(calc(var(--rail-fold) * var(--inline-sign, 1))); }
+  .workspace.platform-ui.is-rail.is-pinned .sidebar-panel::after { transform: none; }
+  .workspace.platform-ui.is-rail.is-pinned .sidebar-panel { clip-path: inset(0); }
+  .workspace.platform-ui.is-rail:not(.is-pinned) .sidebar-panel:not([data-dismissed]):is(:hover, :has(:focus-visible), :has(select:focus)) :is(.rail-pill, .rail-hover),
+  .workspace.platform-ui.is-rail.is-pinned :is(.rail-pill, .rail-hover) { clip-path: inset(0 round 10px); }
+}
+
+@media (prefers-reduced-motion: no-preference) and (width > 900px) {
+  /* Folding waits 200ms (a grace period), so crossing to the page never flickers. */
+  .workspace.platform-ui.is-rail .sidebar-panel { transition: clip-path var(--motion-fast) var(--ease-in) 200ms; }
+  .workspace.platform-ui.is-rail .sidebar-panel::before { transition: opacity var(--motion-fast) var(--ease-in) 200ms; }
+  .workspace.platform-ui.is-rail .sidebar-panel::after { transition: transform var(--motion-fast) var(--ease-in) 200ms; }
+  .workspace.platform-ui.is-rail .sidebar-panel :is(.nav-label, .nav-note, .workspace-label > div, .rail-ticker, .wordmark .brand-logo, .rail-mark, .workspace-switcher) { transition: opacity var(--motion-instant) var(--ease-in) 200ms, transform var(--motion-instant) var(--ease-in) 200ms; }
+  .workspace.platform-ui.is-rail .rail-pill, .workspace.platform-ui.is-rail .rail-hover { transition: clip-path var(--motion-fast) var(--ease-in) 200ms, opacity var(--motion-fast) var(--ease-out); }
+  .workspace.platform-ui.is-rail .rail-pill.is-gliding { transition: clip-path var(--motion-fast) var(--ease-in) 200ms, transform var(--motion-emphasis) var(--ease-in-out), block-size var(--motion-emphasis) var(--ease-in-out); }
+  .workspace.platform-ui.is-rail .rail-hover { transition: clip-path var(--motion-fast) var(--ease-in) 200ms, transform var(--motion-fast) var(--ease-in-out), block-size var(--motion-fast) var(--ease-in-out), opacity var(--motion-fast) var(--ease-out); }
+  /* Group links appear with the panel, not before it: the icons below never
+     jump while the pointer only passes over the rail. */
+  .workspace.platform-ui.is-rail .workspace-nav-group > div { transition: display 0s linear 200ms allow-discrete; }
+  .workspace.platform-ui.is-rail:not(.is-pinned) .sidebar-panel:not([data-dismissed]):hover .workspace-nav-group > div { transition-delay: 120ms; }
+  /* Opening waits 120ms (hover intent); labels follow the panel, 12ms apart. */
+  .workspace.platform-ui.is-rail:not(.is-pinned) .sidebar-panel:not([data-dismissed]):hover { transition: clip-path var(--motion-slow) var(--ease-out) 120ms; }
+  .workspace.platform-ui.is-rail:not(.is-pinned) .sidebar-panel:not([data-dismissed]):hover::before { transition: opacity var(--motion-slow) var(--ease-out) 120ms; }
+  .workspace.platform-ui.is-rail:not(.is-pinned) .sidebar-panel:not([data-dismissed]):hover::after { transition: transform var(--motion-slow) var(--ease-out) 120ms; }
+  .workspace.platform-ui.is-rail:not(.is-pinned) .sidebar-panel:not([data-dismissed]):hover :is(.rail-pill, .rail-hover) { transition-delay: 120ms, 0ms, 0ms, 0ms; }
+  .workspace.platform-ui.is-rail:not(.is-pinned) .sidebar-panel:not([data-dismissed]):hover :is(.nav-label, .nav-note, .workspace-label > div, .rail-ticker, .wordmark .brand-logo, .rail-mark, .workspace-switcher) { transition: opacity var(--motion-base) var(--ease-out) 168ms, transform var(--motion-base) var(--ease-out) 168ms; }
+  /* The first two nav children are the pills. */
+  .workspace.platform-ui.is-rail:not(.is-pinned) .sidebar-panel:not([data-dismissed]):hover nav > :nth-child(n+5) .nav-label { transition-delay: 180ms; }
+  .workspace.platform-ui.is-rail:not(.is-pinned) .sidebar-panel:not([data-dismissed]):hover nav > :nth-child(n+6) .nav-label { transition-delay: 192ms; }
+  .workspace.platform-ui.is-rail:not(.is-pinned) .sidebar-panel:not([data-dismissed]):hover nav > :nth-child(n+7) .nav-label { transition-delay: 204ms; }
+  /* Keyboard focus opens at once; Escape folds at once. */
+  .workspace.platform-ui.is-rail .sidebar-panel:has(:focus-visible),
+  .workspace.platform-ui.is-rail .sidebar-panel:has(:focus-visible)::before,
+  .workspace.platform-ui.is-rail .sidebar-panel:has(:focus-visible)::after,
+  .workspace.platform-ui.is-rail .sidebar-panel:has(:focus-visible) :is(.nav-label, .nav-note, .rail-pill, .rail-hover, .workspace-nav-group > div),
+  .workspace.platform-ui.is-rail .sidebar-panel[data-dismissed],
+  .workspace.platform-ui.is-rail .sidebar-panel[data-dismissed]::before,
+  .workspace.platform-ui.is-rail .sidebar-panel[data-dismissed]::after,
+  .workspace.platform-ui.is-rail .sidebar-panel[data-dismissed] :is(.nav-label, .nav-note, .rail-pill, .rail-hover, .workspace-nav-group > div) { transition-delay: 0ms; }
+  .workspace.platform-ui.is-rail .sidebar nav > a:active,
+  .workspace.platform-ui.is-rail .workspace-nav-group summary:active { transform: scale(.97); }
+  .workspace.platform-ui.is-rail .sidebar nav > a, .workspace.platform-ui.is-rail .workspace-nav-group summary { transition: transform var(--motion-instant) var(--ease-out); }
+  .workspace.platform-ui.is-rail .workspace-nav-group summary > svg:last-child { transition: transform var(--motion-fast) var(--ease-out), opacity var(--motion-instant) var(--ease-in) 200ms; }
+}
+
+/* Live instruments move only when their value changes, plus one live loop. */
+@media (prefers-reduced-motion: no-preference) {
+  .workspace.platform-ui .nav-ring .nav-ring-value { transition: stroke-dashoffset var(--motion-progress) var(--ease-out); }
+  .workspace.platform-ui .sidebar .nav-count.is-arrival { animation: rail-pop var(--motion-base) var(--ease-out); }
+  .workspace.platform-ui .sidebar .nav-count.is-arrival::after { content: ""; position: absolute; inset: -5px; border-radius: 12px; border: 1px solid currentColor; opacity: 0; animation: rail-halo 600ms var(--ease-out); }
+  .workspace.platform-ui .nav-beat.is-live::after { animation: motion-breathe var(--motion-loop-breathe) var(--ease-in-out) infinite; }
+  .workspace.platform-ui .nav-dots.is-live i { animation: motion-typing var(--motion-loop-typing) ease-in-out infinite; }
+  .workspace.platform-ui .nav-dots.is-live i:nth-child(2) { animation-delay: 150ms; }
+  .workspace.platform-ui .nav-dots.is-live i:nth-child(3) { animation-delay: 300ms; }
+  .workspace.platform-ui .rail-ticker-line { animation: rail-line var(--motion-fast) var(--ease-out); }
+  .workspace.platform-ui .rail-ticker-dot { animation: motion-breathe var(--motion-loop-breathe) var(--ease-in-out) infinite; }
+  .workspace.platform-ui.motion-paused .nav-beat::after,
+  .workspace.platform-ui.motion-paused .nav-dots i,
+  .workspace.platform-ui.motion-paused .rail-ticker-dot { animation: none !important; }
+}
+@keyframes rail-pop { from { transform: scale(.6); } }
+@keyframes rail-halo { 0% { opacity: .6; transform: scale(.7); } 100% { opacity: 0; transform: scale(1.35); } }
+@keyframes rail-line { from { opacity: 0; transform: translateY(6px); } }

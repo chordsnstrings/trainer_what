@@ -1,5 +1,4 @@
 "use client";
-import { useEffect, useState } from "react";
 import Link from "next/link";
 import { SETUP_PATH } from "./setup-wizard-model";
 import {
@@ -23,9 +22,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useSharedInbox } from "./workspace-inbox-store";
-import { type State } from "./workspace-ui";
 export { INBOX_CHANGED } from "./workspace-inbox-store";
-import { setAppBadge } from "./pwa";
 
 /**
  * The trainer workspace's navigation (docs/features/trainer-workspace.md):
@@ -273,27 +270,24 @@ export function trainerTitle(path: string, role: string): string {
   return "Your workspace";
 }
 
-/**
- * Open inbox items, refreshed every minute while the page is visible. The
- * same number shows on the Inbox tab and the installed app's icon.
- */
-export function useInboxCount(enabled: boolean, state?: State | null) {
-  const scope = state ? `${state.user.tenantId}:${state.user.userId}:${state.user.role}:${state.user.platformRole}` : "";
-  const { count } = useSharedInbox(scope, enabled);
-  useEffect(() => { if (enabled) setAppBadge(count); }, [enabled, count]);
-  return enabled ? count : 0;
-}
-
-/** The phone's bottom bar; hidden on wider screens by CSS. */
+/** The phone's bottom bar; hidden on wider screens by CSS. It reads the
+ * shared inbox (workspace-inbox-store.ts) itself for the Inbox count, so a
+ * poll re-renders the bar, never the page. */
 export function TrainerTabBar({
   role,
   path,
-  inboxCount,
+  inboxScope,
+  coach,
 }: {
   role: string;
   path: string;
-  inboxCount: number;
+  /** The shared inbox's scope (WorkspaceScope). */
+  inboxScope: string;
+  /** Owners and staff in the coaching workspace: they have an inbox. */
+  coach: boolean;
 }) {
+  const shared = useSharedInbox(inboxScope, coach);
+  const inboxCount = coach ? shared.count : 0;
   const active = sectionFor(path);
   return (
     <nav className="trainer-tabbar" aria-label="Sections">

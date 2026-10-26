@@ -9,8 +9,8 @@ import {
   TrainerMore,
   TrainerTabBar,
   trainerTitle,
-  useInboxCount,
 } from "./workspace-nav";
+import { LiveTicker, RailControls, inboxScope, useRailPrefs } from "./workspace-rail";
 import { TeamControls } from "./team-controls";
 import { CoachSwitcher } from "./joining";
 import { AdminComplimentaryAccess } from "./complimentary-access";
@@ -82,6 +82,7 @@ import { MemberNotFound, WorkspaceUnavailable } from "./member-states";
 import { isMemberRoute } from "./member-nav";
 import { TrainerTheme, CoachIdentity } from "./trainer-design";
 import {
+  BRAND_ASSETS,
   BRAND_COPY,
   DEFAULT_PLATFORM_NAME,
   appInitials,
@@ -124,9 +125,10 @@ import {
 import { usePathname } from "next/navigation";
 import { useRouter } from "./preview-navigation";
 import Link from "./preview-navigation";
-import { WorkspaceNavigation } from "./workspace-navigation";
+import { WorkspaceMenu } from "./workspace-navigation";
 import { WorkspaceScope, WorkspaceContinuity, clearWorkspaceViews, flushWorkspaceEdits } from "./workspace-continuity";
 import { WorkspaceFeedback, confirmWorkspace } from "./workspace-feedback";
+import { JumpMenu, RouteBar, useRouteArrival } from "./workspace-transitions";
 import {
   Check,
   ChevronRight,
@@ -266,6 +268,19 @@ function WorkspaceSwitcher({
     </label>
   );
 }
+/** A rail folded with Escape opens again once the pointer has left and focus
+ * is outside it, so the next hover or Tab works as usual. */
+function settleRail(event: React.SyntheticEvent<HTMLElement>) {
+  const panel = event.currentTarget;
+  requestAnimationFrame(() => {
+    if (!panel.matches(":hover") && !panel.contains(document.activeElement)) panel.removeAttribute("data-dismissed");
+  });
+}
+/** Focus moving to another rail item after Escape opens the rail again, so
+ * its labels and group links are there for the keyboard. */
+function reopenRail(event: React.FocusEvent<HTMLElement>) {
+  if (event.relatedTarget && event.currentTarget.contains(event.relatedTarget as Node)) event.currentTarget.removeAttribute("data-dismissed");
+}
 function PlainShell({
   children,
   className,
@@ -359,14 +374,18 @@ export default function Workspace({
   shownState.current = state;
   // This release's service worker; members choose when a new one reloads.
   const serviceWorker = useAppServiceWorker(!preview && path.startsWith("/app"));
-  // Open inbox items for the Inbox tab and the app icon (coaches only);
-  // refreshed with every workspace reload.
-  const inboxCount = useInboxCount(
+  // Owners and staff in the coaching workspace have an inbox (its count on
+  // the menu, the tab bar and the app icon) and, on the rail, the live
+  // picture. The menu, ticker and tab bar subscribe to those stores
+  // themselves, so a poll never re-renders the page here.
+  const coach =
     !!state &&
-      ["owner", "staff"].includes(state.user.role) &&
-      path.startsWith("/trainer"),
-    state,
-  );
+    ["owner", "staff"].includes(state.user.role) &&
+    path.startsWith("/trainer");
+  const coachLive = coach && !state?.platformWorkspace && !compactNav;
+  const railPrefs = useRailPrefs();
+  // How the page arrived, for the page-to-page motion (workspace-transitions.tsx).
+  const arrival = useRouteArrival(path, !loading && !!state);
   const shown = useMemo(
     () => (state ? mergePages(state, extra) : null),
     [state, extra],
@@ -547,6 +566,26 @@ export default function Workspace({
     document.addEventListener("keydown", keydown);
     return () => { document.removeEventListener("keydown", keydown); previous?.focus(); };
   }, [mobile]);
+  // WCAG 1.4.13: Escape folds the trainer rail that hover or keyboard focus
+  // opened over the page (app/trainer-rail.css [data-dismissed]). Wider than
+  // 900px only, never inside a dialog, never preventDefault: the drawer's
+  // Escape above, Jump to and page dialogs keep theirs.
+  useEffect(() => {
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
+      if ((event.target as Element | null)?.closest?.("dialog") || !matchMedia("(width > 900px)").matches) return;
+      const panel = document.querySelector<HTMLElement>(".workspace.is-rail:not(.is-pinned) .sidebar-panel");
+      if (!panel || panel.hasAttribute("data-dismissed")) return;
+      if (!panel.matches(":hover") && !panel.contains(document.activeElement)) return;
+      // A group's links fold away: focus moves to the group's heading first
+      // (before the attribute, or reopenRail would see that move and undo it).
+      const active = document.activeElement;
+      if (active?.closest(".workspace-nav-group > div")) active.closest("details")?.querySelector<HTMLElement>("summary")?.focus();
+      panel.setAttribute("data-dismissed", "");
+    };
+    document.addEventListener("keydown", keydown);
+    return () => document.removeEventListener("keydown", keydown);
+  }, []);
   // Enrolling an authenticator clears the Superadmin setup banner.
   useEffect(() => {
     const refresh = () => void load();
@@ -689,6 +728,9 @@ export default function Workspace({
   const setupOpen = coachSetupOpen(state);
   // The phone's bottom bar shows in the trainer workspace, not /admin.
   const trainerNav = !subscriber && path.startsWith("/trainer");
+  // The trainer rail (72px, opens over the page; app/trainer-rail.css). The
+  // platform administration keeps the full sidebar.
+  const rail = trainerNav && !state.platformWorkspace;
   const props = {
     state: view,
     records,
@@ -1225,14 +1267,25 @@ export default function Workspace({
     );
   return (
     <WorkspaceScope.Provider key={`${state.user.tenantId}:${state.user.userId}:${state.user.role}:${state.user.platformRole}`} value={`${state.user.tenantId}:${state.user.userId}:${state.user.role}:${state.user.platformRole}`}>
-    <PlainShell className={`workspace platform-ui${isSetupPath(path) ? " is-setup" : ""}${path.startsWith("/admin") || state.platformWorkspace ? " is-admin" : ""}`}>
+    <PlainShell className={`workspace platform-ui${isSetupPath(path) ? " is-setup" : ""}${path.startsWith("/admin") || state.platformWorkspace ? " is-admin" : ""}${rail ? " is-rail" : ""}${rail && railPrefs.pinned ? " is-pinned" : ""}${railPrefs.paused ? " motion-paused" : ""}`}>
       <WorkspaceContinuity scope={`${state.user.tenantId}:${state.user.userId}`} />
       <WorkspaceFeedback />
+      <RouteBar />
       <a href="#workspace-content" className="workspace-skip">Skip to content</a>
       <MemberLanguage member={`${state.user.tenantId}:${state.user.userId}`} />
       {!path.startsWith("/admin") && <MemberAppManifest tenantId={state.tenant.id} role={state.user.role} />}
       <aside className={"sidebar " + (mobile ? "is-open" : "")} inert={compactNav && !mobile} aria-label="Workspace navigation">
+        <div className="sidebar-panel" onPointerEnter={(event) => event.currentTarget.removeAttribute("data-dismissed")} onPointerLeave={settleRail} onBlur={settleRail} onFocus={reopenRail}>
         <Link href={path.startsWith("/admin") || state.platformWorkspace ? "/admin" : "/trainer"} className="wordmark">
+          {rail && (
+            <span className="rail-mark" aria-hidden="true">
+              {usesBrandIdentity(platformName) ? (
+                <img src={BRAND_ASSETS.symbolInk} alt="" width={26} height={26} />
+              ) : (
+                appInitials(platformName)
+              )}
+            </span>
+          )}
           {subscriber ? (
             <CoachIdentity
               name={state.tenant.name}
@@ -1263,11 +1316,14 @@ export default function Workspace({
           current={state.user.tenantId}
           userId={state.user.userId}
         />
-        <WorkspaceNavigation state={state} path={path} count={inboxCount} setupOpen={setupOpen} />
+        <WorkspaceMenu state={state} path={path} setupOpen={setupOpen} rail={rail} coach={coach} liveOn={coachLive} />
         <div className="sidebar-bottom">
+          {rail && <LiveTicker state={state} enabled={coachLive} paused={railPrefs.paused} />}
+          {rail && <RailControls {...railPrefs} />}
           <button className="text-button" onClick={() => void signOut()}>
-            <LogOut size={15} /> Sign out
+            <span className="nav-icon"><LogOut size={15} /></span><span className="nav-label">Sign out</span>
           </button>
+        </div>
         </div>
       </aside>
       <main className="main">
@@ -1285,6 +1341,7 @@ export default function Workspace({
             <strong>{topTitle}</strong>
           </div>
           <div className="topbar-right">
+            {!subscriber && <JumpMenu />}
             {subscriber && (
               <CoachSwitcher
                 current={state.user.tenantId}
@@ -1299,15 +1356,24 @@ export default function Workspace({
             <span className="avatar small">{firstName[0]}</span>
           </div>
         </header>
-        <div className="content" id="workspace-content" tabIndex={-1}>
+        <div className="content" id="workspace-content" tabIndex={-1} data-arrive={arrival ?? undefined}>
           {notices}
-          {loading ? <div className="workspace-loading" role="status"><span className="loading-indicator" aria-hidden="true" />Loading…</div> : page}
+          {loading ? (
+            <div className="workspace-loading" role="status" aria-busy="true">
+              <span className="sr-only">Loading…</span>
+              <span className="skeleton-line is-title" aria-hidden="true" />
+              <span className="skeleton-line is-short" aria-hidden="true" />
+              <span className="skeleton-line is-block" aria-hidden="true" />
+              <span className="skeleton-line is-block" aria-hidden="true" />
+            </div>
+          ) : page}
         </div>
         {trainerNav && (
           <TrainerTabBar
             role={state.user.role}
             path={path}
-            inboxCount={inboxCount}
+            inboxScope={inboxScope(state)}
+            coach={coach}
           />
         )}
         <footer className="workspace-footer">
