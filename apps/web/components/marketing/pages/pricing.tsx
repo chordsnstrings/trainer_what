@@ -72,6 +72,9 @@ function ledgerBands() {
   });
 }
 
+/** "150 × AED 199", kept on one line when a statement row wraps. */
+const times = (count: number, what: string) => `${whole(count)}\u00a0×\u00a0${what}`;
+
 /** "301–1,000" for a range of numbers in registry text ("301-1,000"). */
 const dashes = (text: string) => text.replace(/(\d)-(\d)/g, "$1–$2");
 
@@ -183,7 +186,7 @@ function Stairs() {
 /** The worked example as a statement: 150 at the lowest price, band by band. */
 function WorkedExample() {
   const e = workedExample();
-  const price = "AED " + whole(PRICING_EXAMPLE.priceAed);
+  const price = aed(PRICING_EXAMPLE.priceAed * 100);
   return (
     <div className="mk-pr-statement">
       <div className="mk-pr-statement-head">
@@ -196,14 +199,14 @@ function WorkedExample() {
         <SampleLabel text="Sample" />
       </div>
       <dl>
-        <StatementRow label={`${whole(PRICING_EXAMPLE.subscribers)} × ${price}`} value={aed(e.subscriptionMonthlyMinor)} />
+        <StatementRow label={times(PRICING_EXAMPLE.subscribers, price)} value={aed(e.subscriptionMonthlyMinor)} />
         {e.bands
           .filter((band) => band.subscribers > 0)
           .map((band) => (
             <StatementRow
               key={band.from}
               kind="sub"
-              label={`Our share: ${whole(band.subscribers)} × ${band.ratePct}%`}
+              label={"Our share: " + times(band.subscribers, band.ratePct + "%")}
               value={"−" + aed(band.commissionMinor)}
             />
           ))}
@@ -240,7 +243,7 @@ function SampleStatement({ payments, payouts }: { payments: boolean; payouts: bo
       </div>
       <dl>
         <StatementRow
-          label={`Subscriptions, ${whole(PRICING_EXAMPLE.subscribers)} × AED ${whole(PRICING_EXAMPLE.priceAed)}`}
+          label={"Subscriptions, " + times(PRICING_EXAMPLE.subscribers, aed(PRICING_EXAMPLE.priceAed * 100))}
           value={aed(e.subscriptionMonthlyMinor)}
         />
         <StatementRow label="Our share, by band" value={"−" + aed(e.commissionMinor)} />

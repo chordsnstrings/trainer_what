@@ -1,0 +1,252 @@
+/* A moment's receipt (receipt.js imports this sheet, so it loads with the
+   receipt): inline in the field's zoom, or a dialog or bottom sheet in the
+   overlay layer over a backdrop. Only opacity and transforms move. Ported
+   from the approved prototype's brain-anatomy.css, receipt part
+   (docs/marketing-revamp-2026-10-26/prototypes/shared/brain/), with
+   logical properties and the site's fonts. */
+
+html.sc-lock {
+  overflow: hidden;
+}
+[data-showcase] .ba-back {
+  position: fixed;
+  inset: 0;
+  background: rgb(10 11 10 / 60%);
+  opacity: 0;
+  transition: opacity 0.3s var(--sc-ease);
+}
+[data-showcase] .ba-back.is-in {
+  opacity: 1;
+}
+[data-showcase].ba-sheet {
+  position: fixed;
+  inset-inline-start: 50%;
+  top: 5vh;
+  width: min(760px, calc(100vw - 32px));
+  max-height: 90vh;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 20px 22px 24px;
+  box-shadow: 0 24px 80px rgb(0 0 0 / 45%);
+  opacity: 0;
+  transform: translateX(calc(-50% * var(--inline-sign, 1))) scale(0.94);
+  transition: opacity 0.3s var(--sc-ease), transform 0.42s var(--sc-ease);
+}
+[data-showcase].ba-sheet.is-in {
+  opacity: 1;
+  transform: translateX(calc(-50% * var(--inline-sign, 1)));
+}
+[data-showcase].ba-sheet[data-mode="sheet"] {
+  inset-inline: 0;
+  top: auto;
+  bottom: 0;
+  width: auto;
+  height: 85vh;
+  height: 85dvh;
+  max-height: none;
+  padding: 16px 16px calc(20px + env(safe-area-inset-bottom, 0px));
+  border-radius: 16px 16px 0 0;
+  transform: translateY(24px);
+}
+[data-showcase].ba-sheet[data-mode="sheet"].is-in {
+  transform: none;
+}
+[data-showcase].ba-sheet[data-mode="inline"] {
+  position: relative;
+  inset-inline-start: auto;
+  top: auto;
+  width: auto;
+  max-height: none;
+  box-shadow: none;
+  transform: none;
+}
+
+/* ---------- the nine plates burst for 600 ms, then lie flat as the receipt ---------- */
+[data-showcase] .ba-burst {
+  position: relative;
+  z-index: 2;
+  height: 0;
+  perspective: 1600px;
+  pointer-events: none;
+}
+[data-showcase] .ba-stack {
+  position: absolute;
+  inset-inline-start: 50%;
+  top: 150px;
+  width: 340px;
+  margin-inline-start: -170px;
+  transform-style: preserve-3d;
+  transition: transform 0.6s var(--sc-ease), opacity 0.3s var(--sc-ease);
+}
+[data-showcase] .ba-plate {
+  position: absolute;
+  inset-inline-start: 0;
+  top: 0;
+  width: 340px;
+  height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--sc-line);
+  border-radius: 2px;
+  background: var(--sc-node);
+  color: var(--sc-text);
+  font: 400 13px/1.4 var(--sc-font);
+  transition: transform 0.6s var(--sc-ease), opacity 0.3s var(--sc-ease);
+  transition-delay: calc(var(--i) * 18ms);
+}
+[data-showcase] .ba-plate[data-kind="ai"] {
+  background: color-mix(in srgb, var(--sc-pace) 14%, var(--sc-node));
+}
+[data-showcase] .ba-plate[data-state="skip"] {
+  color: var(--sc-muted);
+  border-style: dashed;
+}
+[data-showcase] .ba-plate[data-state="hit"] {
+  border-color: var(--sc-paused);
+  background: color-mix(in srgb, var(--sc-paused) 16%, var(--sc-node));
+}
+[data-showcase].is-boom .ba-stack {
+  transform: rotateX(56deg) rotateZ(-32deg);
+}
+[data-showcase].is-boom .ba-plate {
+  transform: translateZ(calc((4 - var(--i)) * 28px));
+}
+[data-showcase].is-flat .ba-stack {
+  opacity: 0;
+  transform: none;
+}
+[data-showcase].is-flat .ba-plate {
+  transform: translateY(calc((var(--i) - 4) * 52px));
+}
+[data-showcase] .ba-ph {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-inline-size: 0;
+}
+[data-showcase] .ba-ph b {
+  overflow: hidden;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+[data-showcase] .ba-ph .sc-lane {
+  min-block-size: 20px;
+  margin-inline-start: auto;
+  font-size: 11px;
+}
+[data-showcase] .ba-l {
+  color: var(--sc-muted);
+  font: italic 500 12px/1 var(--sc-font);
+}
+[data-showcase] .ba-receipt {
+  opacity: 0;
+  transition: opacity 0.32s var(--sc-ease) 0.08s;
+}
+[data-showcase].is-flat .ba-receipt {
+  opacity: 1;
+}
+
+/* ---------- the receipt ---------- */
+[data-showcase] .ba-rh {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-block-end: 10px;
+  padding-inline-end: 4px;
+}
+[data-showcase] .ba-rh > div {
+  display: grid;
+  margin-inline-end: auto;
+}
+[data-showcase] .ba-rh b {
+  font: 600 18px/1.25 var(--sc-font);
+  outline: none;
+}
+[data-showcase] .ba-rh > div span {
+  color: var(--sc-muted);
+  font-size: 12px;
+}
+[data-showcase] .ba-stop {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1.5px solid var(--sc-paused);
+  border-radius: 4px;
+  color: var(--sc-paused);
+  font: 800 12px/1.3 var(--sc-font);
+  letter-spacing: 0.05em;
+}
+[data-showcase] .ba-sec {
+  margin-block-start: 12px;
+  padding: 14px 0 4px;
+  border-top: 1px solid var(--sc-line);
+}
+[data-showcase] .ba-sec h3 {
+  margin: 0 0 8px;
+  color: var(--sc-muted);
+  font: 600 11px/1 var(--sc-font);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+[data-showcase] .ba-sec p {
+  margin: 0 0 6px;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+[data-showcase] .ba-sec .sc-rule .sc-k {
+  display: none;
+}
+[data-showcase] .ba-steps {
+  margin: 0;
+  padding: 0;
+}
+[data-showcase] .ba-steps > .sc-step:first-child {
+  border-top: 0;
+}
+[data-showcase] .ba-sec .sc-out {
+  position: relative;
+}
+/* streamed output keeps its final size: the full text holds the box, the live copy streams over it */
+[data-showcase] .ba-of {
+  visibility: hidden;
+}
+[data-showcase] .ba-ol {
+  position: absolute;
+  inset-block-start: 8px;
+  inset-inline: 10px;
+}
+[data-showcase] .ba-sec .ba-note {
+  color: var(--sc-muted);
+  font-size: 12.5px;
+}
+[data-showcase] .ba-msg {
+  display: block;
+  min-block-size: 0;
+  animation: none;
+}
+[data-showcase] .ba-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-block-start: 16px;
+  padding-block-start: 14px;
+  border-top: 1px solid var(--sc-line);
+}
+[data-showcase].ba-sheet .bp-btn:not(.bp-btn-p) {
+  border-color: var(--sc-control);
+  background: transparent;
+  color: var(--sc-text);
+}
+[data-showcase].ba-sheet .bp-btn-p {
+  border-color: var(--sc-ai-on);
+  background: var(--sc-ai-on);
+  color: var(--sc-on-ai);
+}
+[data-showcase].ba-sheet .sc-phone {
+  max-width: 340px;
+}
+@media (max-width: 760px) {
+  [data-showcase].ba-sheet {
+    padding: 16px;
+  }
+}

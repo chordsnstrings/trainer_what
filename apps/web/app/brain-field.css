@@ -1,3 +1,1594 @@
-/* The first frame of the field and the board (the home hero and the band
-   after it). Every rule sits under [data-showcase], and the showcase
-   contract applies (tests/marketing-showcase.test.ts). */
+/* The first frame of the field and the board (components/marketing/brain/
+   engine/field.render.js): the home hero and the band after it. Every rule
+   sits under [data-showcase], and the showcase contract applies
+   (tests/marketing-showcase.test.ts): only opacity and transforms move.
+   States the engine adds are styled by engine/field.run.css, which loads
+   with it. Ported from the approved prototype's a-brain.css
+   (docs/marketing-revamp-2026-10-26/prototypes/concept-a/site/assets/),
+   with logical properties, and reserved sizes so nothing the engine changes
+   moves in layout (docs/marketing-revamp-2026-10-26/phase1/PLAN.md WP2). */
+
+/* ---------- the field: root, header, status strip ---------- */
+[data-showcase="field"] {
+  display: grid;
+  gap: 8px;
+  padding: 12px 16px 10px;
+  min-inline-size: 0;
+  overflow: clip;
+}
+[data-showcase="field"] button {
+  font-family: inherit;
+}
+[data-showcase="field"] [hidden] {
+  display: none !important;
+}
+[data-showcase="field"] .mc-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-block-size: 26px;
+}
+[data-showcase="field"] .mc-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font: 600 11px/1 var(--sc-mono);
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+}
+[data-showcase="field"] .mc-eyebrow::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--sc-pace);
+}
+[data-showcase="field"] .mc-reading {
+  font: 500 11px/1 var(--sc-mono);
+  color: var(--sc-pace);
+  white-space: nowrap;
+}
+[data-showcase="field"] .mc-legend {
+  display: flex;
+  gap: 12px;
+  margin-inline-start: auto;
+  font-size: 11px;
+  color: var(--sc-muted);
+  white-space: nowrap;
+}
+[data-showcase="field"] .mc-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+[data-showcase="field"] .mc-lp,
+[data-showcase="field"] .mc-lq {
+  width: 16px;
+  height: 9px;
+  border: 1.5px solid var(--sc-text);
+  border-radius: 999px;
+}
+[data-showcase="field"] .mc-lq {
+  width: 9px;
+  border-radius: 2px;
+}
+[data-showcase="field"] .mc-lg {
+  width: 6px;
+  height: 6px;
+  margin-inline-start: 6px;
+  border-radius: 50%;
+  background: var(--sc-text);
+  opacity: 0.85;
+  box-shadow: calc(-7px * var(--inline-sign, 1)) 0 0 -1px rgb(243 244 240 / 30%);
+}
+/* Pause: both labels share one cell with a hidden sizer, so "Pause" and
+   "Play" (or "Play the field" under reduced motion) keep one width. */
+[data-showcase="field"] .mc-pause {
+  position: relative;
+  display: inline-grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  column-gap: 6px;
+  min-block-size: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--sc-control);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--sc-text);
+  font: 600 11.5px/1 var(--sc-font);
+  cursor: pointer;
+}
+[data-showcase="field"] .mc-pause::after {
+  content: "";
+  position: absolute;
+  inset: -9px -4px;
+}
+[data-showcase="field"] .mc-pause[disabled] {
+  opacity: 0.55;
+  cursor: default;
+}
+[data-showcase="field"] .mc-ip,
+[data-showcase="field"] .mc-ipl {
+  grid-area: 1 / 1;
+}
+[data-showcase="field"] .mc-pause [data-label],
+[data-showcase="field"] .mc-psz {
+  grid-area: 1 / 2;
+}
+[data-showcase="field"] .mc-pause[data-state="paused"] .mc-ip,
+[data-showcase="field"] .mc-pause:not([data-state="paused"]) .mc-ipl,
+[data-showcase="field"] .mc-psz2 {
+  display: none;
+}
+[data-showcase="field"] .mc-psz {
+  visibility: hidden;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-showcase="field"] .mc-psz2 {
+    display: block;
+  }
+}
+:root[data-reduce-motion="on"] [data-showcase="field"] .mc-psz2 {
+  display: block;
+}
+[data-showcase="field"] .mc-strip {
+  font-size: 11px;
+}
+
+/* ---------- the body: members, the Brain frame, lanes; one canvas over them ---------- */
+[data-showcase="field"] .mc-body {
+  position: relative;
+  display: grid;
+  grid-template-columns: 106px minmax(0, 1fr) 156px;
+  column-gap: 13px;
+  height: 458px;
+  transform-origin: 50% 40%;
+}
+[data-showcase="field"] .mc-cv {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  z-index: 0;
+  pointer-events: none;
+  contain: paint;
+}
+[data-showcase="field"] .mc-cv2 {
+  z-index: 2;
+}
+[data-showcase="field"] .mc-mem,
+[data-showcase="field"] .mc-lanes {
+  position: relative;
+  z-index: 1;
+  min-inline-size: 0;
+}
+[data-showcase="field"] .mc-mem {
+  display: grid;
+  grid-auto-rows: 38px;
+  gap: 3px;
+  align-content: start;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  contain: layout;
+}
+[data-showcase="field"] .mc-m {
+  position: relative;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 38px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--sc-text);
+  text-align: start;
+  cursor: pointer;
+}
+[data-showcase="field"] .mc-m[disabled] {
+  cursor: default;
+}
+[data-showcase="field"] .mc-m .sc-ic {
+  display: none;
+}
+[data-showcase="field"] .mc-m.is-on {
+  background: rgb(213 242 74 / 12%);
+}
+[data-showcase="field"] .mc-m.is-on .mc-av {
+  box-shadow: 0 0 0 1.5px var(--sc-pace);
+}
+[data-showcase] .mc-av {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--sc-tint);
+  color: var(--sc-text);
+  font: 600 10px/1 var(--sc-font);
+}
+[data-showcase="field"] .mc-mtx {
+  min-inline-size: 0;
+}
+[data-showcase="field"] .mc-mtx b {
+  display: block;
+  font: 600 12px/1.25 var(--sc-font);
+}
+[data-showcase="field"] .mc-mc {
+  display: block;
+  overflow: hidden;
+  color: var(--sc-muted);
+  font: 400 10.5px/1.35 var(--sc-font);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+@media (hover: hover) {
+  [data-showcase="field"] .mc-tile:hover,
+  [data-showcase="field"] .mc-m:not([disabled]):hover {
+    border-color: var(--sc-control);
+    background-color: #2a2e2a;
+  }
+}
+
+/* The Brain frame: incoming → checks first → Your Brain → checks after → learns → not on yet */
+[data-showcase="field"] .mc-frame {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 20px;
+  grid-template-rows: 50px 14px 44px 18px auto 18px 14px 50px 26px 26px;
+  column-gap: 10px;
+  row-gap: 4px;
+  align-content: start;
+  min-inline-size: 0;
+}
+[data-showcase="field"] .mc-frame > * {
+  grid-column: 1;
+}
+[data-showcase="field"] .mc-in {
+  position: relative;
+  grid-row: 1;
+}
+[data-showcase="field"] .mc-bl1 {
+  grid-row: 2;
+}
+[data-showcase="field"] .mc-first {
+  grid-row: 3;
+}
+[data-showcase="field"] .mc-shell {
+  grid-row: 5;
+}
+[data-showcase="field"] .mc-stamp {
+  grid-row: 5;
+  place-self: center;
+}
+[data-showcase="field"] .mc-bl2 {
+  grid-row: 7;
+}
+[data-showcase="field"] .mc-after {
+  grid-row: 8;
+}
+[data-showcase="field"] .mc-learn {
+  grid-row: 9;
+}
+[data-showcase="field"] .mc-shelf {
+  grid-row: 10;
+}
+[data-showcase="field"] .mc-spine {
+  grid-column: 2;
+  grid-row: 2 / 9;
+}
+[data-showcase="field"] .mc-msg {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border: 1px solid var(--sc-line);
+  border-radius: 10px;
+  background: var(--sc-node);
+}
+[data-showcase="field"] .mc-msg .mc-av {
+  font-size: 9.5px;
+}
+[data-showcase="field"] .mc-mt {
+  position: relative;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  font: 400 11.5px/1.35 var(--sc-mono);
+}
+[data-showcase="field"] .mc-mt b {
+  margin-inline-end: 6px;
+  font: 600 11.5px/1 var(--sc-font);
+}
+[data-showcase="field"] .mc-mt[dir="rtl"] {
+  font: 400 13px/1.3 var(--sc-font);
+}
+[data-showcase="field"] .mc-hl {
+  background: none;
+  color: inherit;
+}
+[data-showcase="field"] .mc-msg.is-hit .mc-hl {
+  color: var(--sc-paused);
+  font-weight: 600;
+  text-decoration: underline 1.5px;
+  text-underline-offset: 3px;
+}
+[data-showcase="field"] .mc-bl {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font: 600 9.5px/1 var(--sc-font);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--sc-muted);
+  white-space: nowrap;
+}
+[data-showcase="field"] .mc-br {
+  position: relative;
+  flex: 1;
+  display: flex;
+  justify-content: flex-end;
+  color: var(--sc-pace);
+  font: 500 10px/1 var(--sc-font);
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+[data-showcase="field"] .mc-br::before {
+  content: "";
+  position: absolute;
+  inset-inline: 2px 70px;
+  top: 50%;
+  height: 5px;
+  border: 1px solid rgb(213 242 74 / 45%);
+  border-bottom: 0;
+  border-radius: 3px 3px 0 0;
+}
+[data-showcase="field"] .mc-row {
+  display: grid;
+  gap: 8px;
+  min-inline-size: 0;
+}
+[data-showcase="field"] .mc-first {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+[data-showcase="field"] .mc-after {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+[data-showcase="field"] .mc-r3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  height: 38px;
+}
+[data-showcase="field"] .mc-r3b {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  height: 30px;
+  align-items: center;
+}
+[data-showcase="field"] .mc-cr {
+  font: 400 10px/1.2 var(--sc-mono);
+  color: var(--sc-muted);
+}
+
+/* ---------- nodes in the field ---------- */
+[data-showcase="field"] .mc-n {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: center;
+  gap: 2px 5px;
+  min-block-size: 0;
+  height: 100%;
+  padding: 0 8px;
+  font-size: 11.5px;
+  line-height: 1.15;
+}
+[data-showcase="field"] .mc-n > :not(.mc-bub) {
+  position: relative;
+}
+[data-showcase="field"] .mc-n .sc-ic {
+  display: none;
+}
+[data-showcase="field"] .mc-tiny .sc-ic {
+  display: block;
+  color: inherit;
+  opacity: 0.85;
+}
+[data-showcase="field"] .mc-n .sc-nm {
+  flex: 1 1 0;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+/* A node's result line; the check rows and the Set logger keep it reserved,
+   so a result moves nothing. */
+[data-showcase="field"] .mc-v {
+  flex-basis: 100%;
+  min-block-size: 12px;
+  overflow: hidden;
+  color: var(--sc-muted);
+  font: 500 9.5px/12px var(--sc-mono);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+[data-showcase="field"] .mc-v:empty {
+  display: none;
+}
+[data-showcase="field"] .mc-first .mc-v:empty,
+[data-showcase="field"] .mc-after .mc-v:empty,
+[data-showcase="field"] .mc-r3b .mc-v:empty {
+  display: block;
+}
+[data-showcase="field"] .mc-n[data-state="hit"] .mc-v {
+  color: var(--sc-paused);
+  font-weight: 700;
+}
+/* Desktop check rows: the name on its own line, then the matrix and the result. */
+@media (min-width: 761px) {
+  [data-showcase="field"] .mc-first .mc-n,
+  [data-showcase="field"] .mc-after .mc-n {
+    gap: 3px 5px;
+  }
+  [data-showcase="field"] .mc-first .sc-nm,
+  [data-showcase="field"] .mc-after .sc-nm {
+    order: -1;
+    flex: 1 0 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  [data-showcase="field"] .mc-first .mc-v,
+  [data-showcase="field"] .mc-after .mc-v {
+    flex: 1 1 0;
+    font: 600 10px/12px var(--sc-font);
+    letter-spacing: 0.01em;
+  }
+  [data-showcase="field"] .mc-after [data-sp="confidence"] .sc-mx {
+    display: none;
+  }
+  [data-showcase="field"] .mc-after [data-sp="confidence"] .mc-v {
+    font: 500 9.5px/12px var(--sc-mono);
+  }
+}
+[data-showcase="field"] .mc-n .sc-mx {
+  width: 16px;
+  height: 16px;
+}
+[data-showcase="field"] .mc-n[data-kind="ai"] {
+  padding-inline: 10px;
+}
+[data-showcase="field"] .mc-n:not([data-off]),
+[data-showcase="field"] .mc-n[data-state="lit"],
+[data-showcase="field"] .mc-n[data-state="work"][data-kind="ai"] {
+  background-color: rgb(32 35 32 / 78%);
+}
+[data-showcase="field"] .mc-n[data-state="idle"]:not([data-off]) {
+  color: var(--sc-muted);
+  border-color: rgb(58 63 57 / 85%);
+}
+[data-showcase="field"] .mc-tiny[data-state="idle"]:not([data-off]) {
+  color: var(--sc-text);
+}
+[data-showcase="field"] .mc-n .sc-badge {
+  padding: 0 5px;
+  font-size: 9px;
+}
+[data-showcase="field"] .mc-n .sc-offchip {
+  font-size: 9.5px;
+}
+/* A lit specialist: Pace on an overlay, so lighting up fades in opacity only. */
+[data-showcase="field"] .mc-n::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: var(--sc-ai-on);
+  box-shadow: 0 0 0 3px rgb(213 242 74 / 18%), 0 0 22px 4px rgb(213 242 74 / 38%);
+  opacity: 0;
+  transition: opacity 0.14s var(--sc-ease);
+  pointer-events: none;
+}
+[data-showcase="field"] .mc-n[data-state="lit"]::before,
+[data-showcase="field"] .mc-n[data-state="work"][data-kind="ai"]::before {
+  opacity: 1;
+}
+[data-showcase="field"] .mc-n[data-state="hit"] {
+  box-shadow: inset 0 0 0 1.5px var(--sc-paused), 0 0 26px 2px rgb(240 138 128 / 35%);
+}
+/* Whose moment lit this node: the member's initial (several lit = several members). */
+[data-showcase="field"] .mc-n[data-who]::after {
+  content: attr(data-who);
+  position: absolute;
+  top: -7px;
+  inset-inline-end: -5px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--sc-text);
+  color: var(--sc-on-ai);
+  font: 700 9px/16px var(--sc-font);
+  text-align: center;
+  box-shadow: 0 0 0 2px var(--sc-stage);
+  pointer-events: none;
+  animation: mc-pop 0.16s var(--sc-enter) 1 both;
+}
+[data-showcase="field"] .mc-n[data-who][data-state="hit"]::after {
+  background: var(--sc-paused);
+}
+[data-showcase="field"] .mc-gauge {
+  position: relative;
+  flex-basis: 100%;
+  height: 4px;
+  border-radius: 99px;
+  background: rgb(243 244 240 / 14%);
+}
+[data-showcase="field"] .mc-gauge i {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--sc-sent);
+  transform: scaleX(var(--v, 0));
+  transform-origin: calc(50% - 50% * var(--inline-sign, 1)) 50%;
+  transition: transform 0.42s var(--sc-ease);
+}
+[data-showcase="field"] .mc-gauge b {
+  position: absolute;
+  inset-block: -3px;
+  inset-inline-start: var(--bar, 80%);
+  width: 2px;
+  border-radius: 1px;
+  background: var(--sc-text);
+}
+@keyframes mc-pop {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* ---------- Your Brain, the stop stamp, learns from you, not on yet, the rulebook ---------- */
+[data-showcase="field"] .mc-shell {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 7px;
+  min-inline-size: 0;
+  padding: 5px 10px 9px;
+  border: 1px solid var(--sc-control);
+  border-radius: 16px;
+  background: radial-gradient(120% 90% at 50% 0%, rgb(213 242 74 / 7%), rgb(213 242 74 / 0%) 70%);
+}
+[data-showcase="field"] .mc-st {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-inline-size: 0;
+  height: 18px;
+  margin: 0;
+  font-size: 11.5px;
+}
+[data-showcase="field"] .mc-st b {
+  font-weight: 600;
+}
+[data-showcase="field"] .mc-mono,
+[data-showcase="field"] .mc-ls {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--sc-pace);
+  color: var(--sc-on-ai);
+  font: 700 8.5px/1 var(--sc-font);
+  letter-spacing: 0.02em;
+}
+[data-showcase="field"] .mc-cap {
+  min-inline-size: 0;
+  margin-inline-start: auto;
+  overflow: hidden;
+  color: var(--sc-muted);
+  font: 500 10px/1.2 var(--sc-mono);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+[data-showcase="field"] .mc-stamp {
+  position: relative;
+  z-index: 8;
+  margin: 0;
+  padding: 8px 14px;
+  border: 2px solid var(--sc-paused);
+  border-radius: 6px;
+  background: rgb(15 17 15 / 92%);
+  color: var(--sc-paused);
+  font: 700 15px/1 var(--sc-mono);
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  transform: rotate(-4deg);
+  pointer-events: none;
+  box-shadow: 0 0 40px rgb(240 138 128 / 30%);
+}
+[data-showcase="field"] .mc-learn,
+[data-showcase="field"] .mc-shelf {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-inline-size: 0;
+}
+[data-showcase] .mc-k {
+  flex: none;
+  font: 600 9px/1 var(--sc-font);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--sc-muted);
+  white-space: nowrap;
+}
+[data-showcase="field"] .mc-tiny {
+  flex: none;
+  flex-wrap: nowrap;
+  height: 24px;
+  padding: 0 7px;
+  gap: 4px;
+  font-size: 10px;
+  white-space: nowrap;
+}
+[data-showcase="field"] .mc-tiny .sc-nm {
+  flex: none;
+}
+[data-showcase="field"] .mc-tiny .mc-v,
+[data-showcase="field"] .mc-tiny .sc-mx,
+[data-showcase="field"] .mc-shelf .sc-offchip {
+  display: none;
+}
+[data-showcase="field"] .mc-learn .mc-tiny + .mc-tiny {
+  margin-inline-start: 6px;
+}
+[data-showcase="field"] .mc-learn .mc-tiny:not(:last-child):not([data-who])::after {
+  content: "→";
+  position: absolute;
+  inset-inline-end: -10px;
+  color: var(--sc-muted);
+  font-size: 10px;
+}
+[data-showcase="field"] .mc-shelf {
+  padding: 0 8px;
+  border: 1px dashed var(--sc-control);
+  border-radius: 10px;
+}
+[data-showcase="field"] .mc-spine {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 1px solid var(--sc-control);
+  border-radius: 6px;
+  background: var(--sc-tint);
+  overflow: hidden;
+}
+[data-showcase="field"] .mc-bk,
+[data-showcase="field"] .mc-bt2 {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font: 500 10px/1 var(--sc-font);
+  color: var(--sc-muted);
+  white-space: nowrap;
+}
+[data-showcase="field"] .mc-bt2 {
+  color: var(--sc-text);
+  font-weight: 600;
+}
+[data-showcase="field"] .mc-bn {
+  color: var(--sc-pace);
+  font: 700 10px/1 var(--sc-mono);
+}
+/* The new rule card, at the spine's foot. Its writing mode is vertical, so
+   it is placed with physical insets (equal at both sides, so it mirrors). */
+[data-showcase="field"] .mc-new {
+  position: absolute;
+  inset: auto 2px 6px 2px;
+  max-height: 46%;
+  overflow: hidden;
+  padding: 6px 0;
+  border-radius: 4px;
+  background: var(--sc-pace);
+  color: var(--sc-on-ai);
+  writing-mode: vertical-rl;
+  transform: rotate(180deg) translateY(-40px);
+  font: 600 8.5px/1 var(--sc-font);
+  text-align: center;
+  opacity: 0;
+}
+[data-showcase="field"] .mc-noy {
+  display: none;
+}
+
+/* ---------- lanes: reserved heights, fixed-width counts ---------- */
+[data-showcase="field"] .mc-lanes {
+  display: grid;
+  grid-template-rows: 12px 168px 162px minmax(0, 1fr);
+  gap: 6px;
+  contain: layout;
+}
+[data-showcase="field"] .mc-lcap {
+  margin: 0;
+  font: 600 9px/12px var(--sc-font);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--sc-muted);
+}
+[data-showcase="field"] .mc-lane {
+  --lc: var(--sc-sent);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-block-size: 0;
+  padding: 7px 7px 6px;
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--sc-tint);
+  box-shadow: inset 0 2px 0 var(--lc);
+}
+[data-showcase="field"] .mc-lane[data-lane="waits"] {
+  --lc: var(--sc-waits);
+}
+[data-showcase="field"] .mc-lane[data-lane="paused"] {
+  --lc: var(--sc-paused);
+}
+[data-showcase="field"] .mc-lh {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: "ls n c" "ls s c";
+  column-gap: 6px;
+  align-items: center;
+  margin: 0;
+}
+[data-showcase="field"] .mc-lh .mc-ls {
+  grid-area: ls;
+  width: 20px;
+  height: 20px;
+  font-size: 8px;
+}
+[data-showcase="field"] .mc-ln {
+  grid-area: n;
+  font: 600 11.5px/1.2 var(--sc-font);
+}
+[data-showcase="field"] .mc-lsub {
+  grid-area: s;
+  font-size: 9.5px;
+  line-height: 1.2;
+  color: var(--sc-muted);
+}
+[data-showcase="field"] .mc-c {
+  grid-area: c;
+  min-inline-size: 2ch;
+  color: var(--lc);
+  font: 700 17px/1 var(--sc-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+}
+/* .mc-pre and .mc-fin: the same count or name before and after the moment
+   the engine plays; the final one shows unless the engine may still play. */
+[data-showcase] .mc-pre,
+html.sc-motion:not(.sc-late) [data-showcase][data-sc="pre"] .mc-fin {
+  display: none;
+}
+html.sc-motion:not(.sc-late) [data-showcase][data-sc="pre"] .mc-pre {
+  display: inline;
+}
+html.sc-motion:not(.sc-late) [data-showcase][data-sc="pre"] .mc-hitres .mc-hl {
+  color: inherit;
+  font-weight: 400;
+  text-decoration: none;
+}
+html.sc-motion:not(.sc-late) [data-showcase][data-sc="pre"] .sc-node.mc-hitres {
+  border-color: rgb(58 63 57 / 85%);
+  color: var(--sc-muted);
+  box-shadow: none;
+  animation: none;
+}
+html.sc-motion:not(.sc-late) [data-showcase][data-sc="pre"] .mc-hitres::after {
+  opacity: 0;
+}
+[data-showcase="field"] .mc-tl {
+  display: grid;
+  gap: 4px;
+  margin: 7px 0 0;
+  padding: 0;
+  list-style: none;
+}
+[data-showcase="field"] .mc-tile {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1px 6px;
+  width: 100%;
+  min-block-size: 24px;
+  padding: 4px 7px;
+  border: 1px solid var(--sc-line);
+  border-radius: 6px;
+  background: var(--sc-node);
+  color: var(--sc-text);
+  font: 500 11px/1.2 var(--sc-font);
+  text-align: start;
+  cursor: pointer;
+}
+[data-showcase="field"] .mc-tag {
+  padding: 0 5px;
+  border-radius: 3px;
+  background: rgb(213 242 74 / 14%);
+  color: var(--sc-pace);
+  font: 500 9px/1.5 var(--sc-font);
+  white-space: nowrap;
+}
+[data-showcase="field"] .mc-sub2 {
+  flex-basis: 100%;
+  color: var(--sc-waits);
+  font: 500 9.5px/1.3 var(--sc-mono);
+}
+[data-showcase="field"] .mc-sub2:empty,
+[data-showcase="field"] .mc-bin,
+[data-showcase="field"] .mc-last,
+[data-showcase] .mc-lvnow {
+  display: none;
+}
+[data-showcase="field"] .mc-more {
+  color: var(--sc-muted);
+  font: 500 10px/1 var(--sc-mono);
+}
+[data-showcase="field"] .mc-chk2 {
+  margin: auto 0 0;
+  padding-block-start: 6px;
+  border-top: 1px dashed var(--sc-line);
+  color: var(--sc-muted);
+  font: 500 9.5px/1.3 var(--sc-mono);
+}
+[data-showcase="field"] .mc-chk2 b {
+  color: var(--sc-text);
+}
+
+/* ---------- the subtitle (two layers crossfade; it never changes size) ---------- */
+[data-showcase="field"] .mc-sub {
+  position: relative;
+  height: 36px;
+  margin: 0;
+  overflow: hidden;
+  font: 400 12.5px/18px var(--sc-mono);
+  contain: strict;
+}
+[data-showcase="field"] .mc-sub > span {
+  position: absolute;
+  inset: 0;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  opacity: 0;
+  transition: opacity 0.16s;
+}
+[data-showcase="field"] .mc-sub > .is-on {
+  opacity: 1;
+}
+[data-showcase="field"] .mc-sub b {
+  font-weight: 600;
+}
+[data-showcase="field"] .mc-sub i {
+  font-style: normal;
+  color: var(--sc-pace);
+}
+[data-showcase="field"] .mc-red {
+  font-style: normal;
+  color: var(--sc-paused);
+  text-decoration: underline 1px;
+  text-underline-offset: 3px;
+}
+
+/* ---------- controls (the field's, the board's and the phone sheet's) ---------- */
+[data-showcase="field"] .mc-ctrl {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  grid-template-areas: "lv lv bar" "chk lock sw";
+  align-items: center;
+  justify-items: start;
+  gap: 6px 10px;
+  padding-block-start: 8px;
+  border-top: 1px solid var(--sc-line);
+}
+[data-showcase="field"] .mc-ctrl .mc-lv {
+  grid-area: lv;
+}
+[data-showcase="field"] .mc-ctrl .mc-chk {
+  grid-area: chk;
+}
+[data-showcase="field"] .mc-ctrl .mc-lock {
+  grid-area: lock;
+}
+[data-showcase="field"] .mc-ctrl .mc-bar {
+  grid-area: bar;
+}
+[data-showcase="field"] .mc-ctrl .mc-sw {
+  grid-area: sw;
+}
+[data-showcase="field"] .mc-sheet {
+  display: contents;
+}
+[data-showcase] .mc-sheet-h,
+[data-showcase="field"] .mc-moreb {
+  display: none;
+}
+[data-showcase] .mc-lv {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--sc-control);
+  border-radius: 999px;
+}
+[data-showcase] .mc-lv .mc-k {
+  padding-inline: 8px 6px;
+  font-size: 9.5px;
+}
+[data-showcase] .mc-lv button {
+  position: relative;
+  min-block-size: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--sc-text);
+  font: 500 11px/1 var(--sc-font);
+  white-space: nowrap;
+  cursor: pointer;
+}
+[data-showcase] .mc-lv button b {
+  margin-inline-end: 3px;
+  color: var(--sc-muted);
+  font: 700 11px/1 var(--sc-mono);
+}
+[data-showcase] .mc-lv button[aria-checked="true"],
+[data-showcase] .mc-lv button[aria-checked="true"] b {
+  background: var(--sc-text);
+  color: var(--sc-on-ai);
+}
+[data-showcase] .mc-demo {
+  position: absolute;
+  z-index: 3;
+  inset-inline-start: var(--x, 50%);
+  bottom: calc(100% + 6px);
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--sc-pace);
+  color: var(--sc-on-ai);
+  font: 700 10px/1.5 var(--sc-font);
+  transform: translateX(calc(-50% * var(--inline-sign, 1)));
+  opacity: 0;
+  transition: opacity 0.2s;
+  pointer-events: none;
+}
+[data-showcase] .mc-chk,
+[data-showcase] .mc-lock {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-block-size: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--sc-control);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--sc-text);
+  font: 500 11px/1 var(--sc-font);
+  white-space: nowrap;
+  cursor: help;
+}
+[data-showcase] .mc-chk .sc-ic {
+  color: var(--sc-sent);
+}
+[data-showcase] .mc-lock {
+  border-color: rgb(240 138 128 / 70%);
+  cursor: pointer;
+}
+[data-showcase] .mc-lock .sc-ic {
+  color: var(--sc-paused);
+}
+[data-showcase] .mc-tip {
+  position: absolute;
+  z-index: 12;
+  bottom: calc(100% + 8px);
+  inset-inline-start: 0;
+  width: max-content;
+  max-width: 240px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--sc-text);
+  color: var(--sc-on-ai);
+  font: 500 11.5px/1.4 var(--sc-font);
+  white-space: normal;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 40%);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.14s;
+  pointer-events: none;
+}
+[data-showcase] .mc-chk:hover .mc-tip,
+[data-showcase] .mc-chk:focus-visible .mc-tip,
+[data-showcase] .mc-lock:focus-visible .mc-tip {
+  opacity: 1;
+  visibility: visible;
+}
+[data-showcase] .mc-bar,
+[data-showcase] .mc-bari {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+[data-showcase] .mc-bar {
+  color: var(--sc-muted);
+  font-size: 11px;
+}
+[data-showcase] .mc-bar span:first-child {
+  max-width: 150px;
+  line-height: 1.2;
+}
+[data-showcase] .mc-bar output {
+  min-inline-size: 3.2ch;
+  color: var(--sc-text);
+  font: 700 12px/1 var(--sc-mono);
+}
+[data-showcase] .mc-bar input[type="range"] {
+  width: 110px;
+  height: 20px;
+  margin: 0;
+  background: transparent;
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+}
+[data-showcase] .mc-bar input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 99px;
+  background: linear-gradient(calc(90deg * var(--inline-sign, 1)), var(--sc-pace) var(--fill, 61%), rgb(243 244 240 / 22%) var(--fill, 61%));
+}
+[data-showcase] .mc-bar input[type="range"]::-moz-range-track {
+  height: 4px;
+  border-radius: 99px;
+  background: linear-gradient(calc(90deg * var(--inline-sign, 1)), var(--sc-pace) var(--fill, 61%), rgb(243 244 240 / 22%) var(--fill, 61%));
+}
+[data-showcase] .mc-bar input[type="range"]::-webkit-slider-thumb {
+  width: 16px;
+  height: 16px;
+  margin-top: -6px;
+  border: 2px solid var(--sc-stage);
+  border-radius: 50%;
+  background: var(--sc-text);
+  -webkit-appearance: none;
+}
+[data-showcase] .mc-bar input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--sc-stage);
+  border-radius: 50%;
+  background: var(--sc-text);
+}
+[data-showcase] .mc-sw {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-block-size: 30px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--sc-text);
+  text-align: start;
+  cursor: pointer;
+}
+[data-showcase] .mc-sw b {
+  display: block;
+  font: 500 11px/1.2 var(--sc-font);
+}
+[data-showcase] .mc-sw small {
+  display: block;
+  color: var(--sc-muted);
+  font-size: 9.5px;
+}
+[data-showcase] .mc-swk {
+  position: relative;
+  flex: none;
+  width: 28px;
+  height: 16px;
+  border-radius: 99px;
+  background: var(--sc-control);
+}
+[data-showcase] .mc-swk::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  inset-inline-start: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--sc-stage);
+  transition: transform 0.14s var(--sc-ease);
+}
+[data-showcase] .mc-sw[aria-checked="true"] .mc-swk {
+  background: var(--sc-pace);
+}
+[data-showcase] .mc-sw[aria-checked="true"] .mc-swk::after {
+  transform: translateX(calc(12px * var(--inline-sign, 1)));
+}
+[data-showcase="field"] .mc-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  color: var(--sc-muted);
+  font-size: 10.5px;
+}
+[data-showcase="field"] .mc-foot .sc-sample {
+  min-block-size: 18px;
+  font-size: 10.5px;
+}
+[data-showcase="field"] .mc-how {
+  min-block-size: 24px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--sc-text);
+  font: 500 10.5px/1 var(--sc-font);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+[data-showcase="field"] .mc-howp {
+  flex-basis: 100%;
+  margin: 4px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--sc-tint);
+  color: var(--sc-text);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+/* ---------- phones: the vertical field (SHOWCASE_DESIGN.md §2 "Layout at 390") ----------
+   The bottom rows keep a 76 px gutter at their inline end, clear of
+   Kamran's button (52 px, 16 px from the edge, an 8 px gap). */
+@media (max-width: 760px) {
+  [data-showcase="field"] {
+    gap: 6px;
+    padding: 8px 10px;
+  }
+  [data-showcase="field"] .mc-legend,
+  [data-showcase="field"] .mc-reading,
+  [data-showcase="field"] .mc-spine,
+  [data-showcase="field"] .mc-learn,
+  [data-showcase="field"] .mc-shelf,
+  [data-showcase="field"] .mc-first .sc-mx,
+  [data-showcase="field"] .mc-after .sc-mx,
+  [data-showcase="field"] .mc-gauge,
+  [data-showcase="field"] .mc-lh .mc-ls,
+  [data-showcase="field"] .mc-lsub,
+  [data-showcase="field"] .mc-lnx,
+  [data-showcase="field"] .mc-tl,
+  [data-showcase="field"] .mc-chk2,
+  [data-showcase="field"] .mc-lv .mc-k,
+  [data-showcase="field"] .mc-sheet {
+    display: none;
+  }
+  [data-showcase="field"] .mc-strip {
+    order: 20;
+    font-size: 10px;
+  }
+  [data-showcase="field"] .mc-eyebrow {
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+  }
+  [data-showcase="field"] .mc-pause {
+    margin-inline-start: auto;
+  }
+  [data-showcase="field"] .mc-body {
+    display: block;
+    height: auto;
+  }
+  [data-showcase="field"] .mc-mem {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  [data-showcase="field"] .mc-mem:focus-within {
+    z-index: 30;
+    inset: 0 0 auto;
+    width: auto;
+    height: auto;
+    padding: 8px;
+    clip-path: none;
+    border-radius: 10px;
+    background: #0f110f;
+    box-shadow: 0 12px 36px rgb(0 0 0 / 55%);
+  }
+  [data-showcase="field"] .mc-frame {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 46px 12px 34px 10px auto 10px 12px 34px;
+    row-gap: 3px;
+  }
+  /* the code-rule readout reserves its two lines */
+  [data-showcase="field"] .mc-cr {
+    display: -webkit-box;
+    height: 24px;
+    overflow: hidden;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    font-size: 9.5px;
+    line-height: 12px;
+  }
+  [data-showcase="field"] .mc-mt {
+    font-size: 12.5px;
+    line-height: 1.33;
+  }
+  [data-showcase="field"] .mc-first,
+  [data-showcase="field"] .mc-after {
+    gap: 5px;
+  }
+  [data-showcase="field"] .mc-r3 {
+    height: 30px;
+    gap: 6px;
+  }
+  [data-showcase="field"] .mc-r3b {
+    height: 24px;
+  }
+  [data-showcase="field"] .mc-n {
+    gap: 1px 4px;
+    padding: 0 6px;
+    font-size: 10.5px;
+  }
+  [data-showcase="field"] .mc-first .mc-n,
+  [data-showcase="field"] .mc-after .mc-n {
+    justify-content: center;
+    text-align: center;
+  }
+  [data-showcase="field"] .mc-n[data-kind="ai"] {
+    padding-inline: 8px;
+  }
+  [data-showcase="field"] .mc-v {
+    font-size: 9px;
+    line-height: 11px;
+  }
+  [data-showcase="field"] .mc-n[data-who]::after {
+    top: -6px;
+    inset-inline-end: -4px;
+    width: 14px;
+    height: 14px;
+    font-size: 8.5px;
+    line-height: 14px;
+  }
+  [data-showcase="field"] .mc-shell {
+    gap: 6px;
+    padding: 4px 8px 8px;
+  }
+  [data-showcase="field"] .mc-st {
+    height: 14px;
+    font-size: 11px;
+  }
+  [data-showcase="field"] .mc-cap {
+    font-size: 9.5px;
+  }
+  [data-showcase="field"] .mc-noy {
+    position: absolute;
+    z-index: 2;
+    inset-block-end: -9px;
+    inset-inline-start: 50%;
+    display: block;
+    margin: 0;
+    padding: 1px 6px;
+    border: 1px dashed var(--sc-control);
+    border-radius: 999px;
+    background: var(--sc-stage);
+    color: var(--sc-muted);
+    font: 500 9px/1.4 var(--sc-font);
+    transform: translateX(calc(-50% * var(--inline-sign, 1)));
+  }
+  [data-showcase="field"] .mc-stamp {
+    padding: 7px 12px;
+    font-size: 13px;
+  }
+  [data-showcase="field"] .mc-lanes {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-rows: auto;
+    margin-block-start: 8px;
+  }
+  [data-showcase="field"] .mc-lcap {
+    grid-column: 1 / -1;
+    margin-block-end: -2px;
+  }
+  [data-showcase="field"] .mc-lane {
+    min-block-size: 52px;
+    padding: 6px 8px 5px;
+  }
+  [data-showcase="field"] .mc-lh {
+    grid-template-areas: "n n c" "s s c";
+  }
+  [data-showcase="field"] .mc-ln {
+    font-size: 10.5px;
+  }
+  [data-showcase="field"] .mc-lnp {
+    display: inline-block;
+  }
+  [data-showcase="field"] .mc-lnp::first-letter {
+    text-transform: uppercase;
+  }
+  [data-showcase="field"] .mc-c {
+    font-size: 18px;
+  }
+  [data-showcase="field"] .mc-bin {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: flex-end;
+    padding: 0 8px 6px;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    text-align: start;
+    cursor: pointer;
+  }
+  [data-showcase="field"] .mc-bin:focus-visible {
+    outline-offset: -2px;
+  }
+  [data-showcase="field"] .mc-last {
+    display: block;
+    overflow: hidden;
+    color: var(--sc-text);
+    font: 500 10px/1.2 var(--sc-mono);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  [data-showcase="field"] .mc-sub {
+    height: 34px;
+  }
+  [data-showcase="field"] .mc-sub > span {
+    font-size: 11.5px;
+    line-height: 17px;
+  }
+  [data-showcase="field"] .mc-ctrl,
+  [data-showcase="field"] .mc-foot {
+    margin-inline-end: 66px;
+  }
+  [data-showcase="field"] .mc-ctrl {
+    display: flex;
+    gap: 6px;
+    padding-block-start: 7px;
+  }
+  /* the level segment: numbers, and the chosen level's name in its own slot */
+  [data-showcase="field"] .mc-lv button {
+    min-block-size: 32px;
+    padding: 0 9px;
+  }
+  [data-showcase="field"] .mc-lvn {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  [data-showcase="field"] .mc-lvnow {
+    display: block;
+    inline-size: 8.6em;
+    overflow: hidden;
+    padding-inline: 4px 6px;
+    color: var(--sc-text);
+    font: 500 11px/1 var(--sc-font);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  /* phones: the "Demo" chip sits on the pressed button's edge (above it, it covered the subtitle) */
+  [data-showcase="field"] .mc-demo {
+    bottom: calc(100% - 9px);
+  }
+  [data-showcase="field"] .mc-moreb {
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    width: 36px;
+    height: 36px;
+    margin-inline-start: auto;
+    padding: 0;
+    border: 1px solid var(--sc-control);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--sc-text);
+  }
+  [data-showcase="field"] .mc-mbl {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  [data-showcase="field"] .mc-foot {
+    gap: 2px 8px;
+    font-size: 10px;
+  }
+}
+
+/* ---------- the board (home band 2) ---------- */
+[data-showcase="board"] {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+[data-showcase="board"] .mb-ctrl {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+}
+[data-showcase="board"] .mb-note,
+[data-showcase="board"] .mb-diff {
+  min-block-size: 36px;
+  margin: 0;
+  color: var(--sc-muted);
+  font: 400 12px/1.5 var(--sc-mono);
+}
+[data-showcase="board"] .mb-diff {
+  min-block-size: 20px;
+  color: var(--sc-text);
+  font-size: 12.5px;
+}
+[data-showcase="board"] .mb-cols {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  align-items: start;
+}
+[data-showcase="board"] .mb-col {
+  display: grid;
+  gap: 8px;
+  min-inline-size: 0;
+  padding: 10px;
+  border-radius: 10px;
+  background: var(--sc-tint);
+}
+[data-showcase="board"] .mb-ch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin: 0;
+}
+[data-showcase="board"] .mb-ch .sc-lane {
+  min-block-size: 22px;
+  padding: 1px 8px;
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: normal;
+}
+[data-showcase="board"] .mb-n {
+  color: var(--sc-text);
+  font: 700 16px/1 var(--sc-mono);
+}
+[data-showcase="board"] .mb-list {
+  display: grid;
+  gap: 6px;
+  min-block-size: 44px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+[data-showcase="board"] .mb-b {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 8px 9px;
+  border: 1px solid var(--sc-line);
+  border-radius: 8px;
+  background: var(--sc-node);
+  color: var(--sc-text);
+  font: 400 12px/1.3 var(--sc-font);
+  text-align: start;
+  cursor: pointer;
+}
+@media (hover: hover) {
+  [data-showcase="board"] .mb-b:hover {
+    border-color: var(--sc-control);
+  }
+}
+[data-showcase="board"] .mb-h {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 6px;
+}
+[data-showcase="board"] .mb-h .mc-av {
+  width: 18px;
+  height: 18px;
+  font-size: 9px;
+}
+[data-showcase="board"] .mb-h b {
+  font-weight: 600;
+}
+[data-showcase="board"] .mb-h span:last-child {
+  flex-basis: 100%;
+  color: var(--sc-muted);
+  font-size: 11px;
+}
+[data-showcase="board"] .mb-by {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: 500 10.5px/1.2 var(--sc-mono);
+}
+[data-showcase="board"] .mb-by i {
+  flex: none;
+  width: 14px;
+  height: 8px;
+  border: 1.5px solid currentColor;
+  border-radius: 2px;
+}
+[data-showcase="board"] .mb-by[data-kind="ai"] i {
+  border-radius: 999px;
+  border-color: var(--sc-pace);
+  background: var(--sc-pace);
+}
+[data-showcase="board"] .mb-sure,
+[data-showcase="board"] .mb-why {
+  color: var(--sc-waits);
+  font: 600 10.5px/1.2 var(--sc-mono);
+}
+[data-showcase="board"] .mb-sure[data-ok="1"] {
+  color: var(--sc-sent);
+}
+[data-showcase="board"] .mb-why:empty {
+  display: none;
+}
+[data-showcase="board"] .mb-tot {
+  margin: 0;
+  color: var(--sc-pace);
+  font: 600 12.5px/1.4 var(--sc-mono);
+}
+[data-showcase="board"] .sc-strip {
+  font-size: 11.5px;
+}
+@media (max-width: 1000px) {
+  [data-showcase="board"] .mb-cols {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (max-width: 760px) {
+  [data-showcase="board"] {
+    padding: 12px;
+  }
+  [data-showcase="board"] .mb-note {
+    min-block-size: 72px;
+  }
+  [data-showcase="board"] .mb-cols {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  [data-showcase="board"] .mb-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  [data-showcase="board"] .mc-lv .mc-k {
+    display: none;
+  }
+  [data-showcase="board"] .mc-bar {
+    display: grid;
+    gap: 6px;
+  }
+  [data-showcase="board"] .mc-bar input[type="range"] {
+    width: min(220px, 60vw);
+    height: 30px;
+  }
+}

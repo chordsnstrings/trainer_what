@@ -630,7 +630,7 @@ test("home: one H1 that says what happens, a short hero, the relay and five sect
 // PLAN.md): each joins with its new registry entry. They also follow the C0
 // vocabulary (PLAYBOOK.md C0): plain words instead of the replaced terms,
 // "your AI" in headings and questions, and no prototype placeholder.
-const C0_PAGES: string[] = [];
+const C0_PAGES: string[] = ["/pricing"];
 
 // Copy limits for the home page, the pages in the header navigation and the
 // redesigned pages (docs/features/marketing-site.md "Copy limits"). The
@@ -680,7 +680,9 @@ test("copy limits: short headings, ledes, cards, bullets and answers on the head
   const pricing = marketingPage("/pricing")!;
   const hours = pricing.sections.find((s) => s.id === "hours")!;
   assert.deepEqual(hours.sources, ["heytrainer-dubai-2026", "embody-dubai-2025", "369mmafit-online-2026"]);
-  assert.match(decode(render(pricing)), /AED 70–350.*AED 200–700\+.*AED 400–2,000/);
+  // Concept B's two anchors (phase 1): one-to-one sessions and online coaching.
+  assert.match(decode(render(pricing)), /AED 70–350.*AED 400–2,000/);
+  assert.doesNotMatch(decode(render(pricing)), /AED 200–700\+/);
   const brain = marketingPage("/trainer-brain")!;
   assert.deepEqual(brain.sections.find((s) => s.id === "decides")!.cards!.map((c) => c.title), ["Confident", "Not sure", "Safety"]);
   assert.ok(brain.sections.some((s) => s.id === "control"));

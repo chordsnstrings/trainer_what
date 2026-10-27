@@ -250,7 +250,7 @@ test("the brand line is the closing heading on every marketing page; a renamed p
     assert.doesNotMatch(panel, /class="eyebrow"/, "the closing panel has no eyebrow");
   }
   assert.match(closing("/"), /href="\/how-it-works"/);
-  assert.match(closing("/pricing"), /href="\/follower-calculator"/);
+  assert.match(closing("/pricing"), /href="\/earnings-calculator"/);
   const acme = closing("/", "Acme Coaching");
   assert.match(acme, /<h2[^>]*>Ready to teach your AI\?<\/h2>/);
   assert.doesNotMatch(acme, /Beyond your hours/);

@@ -1,0 +1,684 @@
+/* The field and the board while the engine plays (field.js imports this
+   sheet, so it loads with the engine, never with the first frame): only
+   classes and states the engine adds. Only opacity and transforms move:
+   colour and shadow changes snap, and their fades run on overlays
+   (docs/marketing-revamp-2026-10-26/phase1/PLAN.md WP2). The first frame's
+   rules are in app/brain-field.css. */
+
+/* ---------- the engine draws the matrices; lists hold tiles by transforms ---------- */
+[data-showcase].sc-cv .sc-mx {
+  background: none;
+  opacity: 1;
+  clip-path: none;
+}
+[data-showcase] .mc-tl.is-stack {
+  position: relative;
+  display: block;
+  flex: 1 1 auto;
+  min-block-size: 0;
+}
+[data-showcase] .mc-tl.is-stack > li {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+}
+[data-showcase] .mc-tl.is-glide > li {
+  transition: transform 0.28s var(--sc-enter);
+}
+/* the stamp shows only during a stop once the engine plays */
+[data-showcase][data-sc="on"] .mc-frame:not(.is-stop):not(.is-still) .mc-stamp {
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+[data-showcase] .mc-frame.is-stop .mc-stamp {
+  animation: mc-stamp 0.18s var(--sc-ease) 1;
+}
+[data-showcase].sc-cv .mc-shell,
+[data-showcase].sc-cv .mc-after,
+[data-showcase].sc-cv .mc-bl2,
+[data-showcase].sc-cv .mc-learn,
+[data-showcase].sc-cv .mc-shelf,
+[data-showcase].sc-cv .mc-bt2 {
+  transition: opacity 0.3s var(--sc-ease);
+}
+[data-showcase] .mc-frame.is-dim .mc-shell,
+[data-showcase] .mc-frame.is-dim .mc-after,
+[data-showcase] .mc-frame.is-dim .mc-bl2,
+[data-showcase] .mc-frame.is-dim .mc-learn,
+[data-showcase] .mc-frame.is-dim .mc-shelf {
+  opacity: 0.35;
+  transition-duration: 0.12s;
+}
+/* a stop's alarm on the whole stage */
+[data-showcase].is-alarm::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 2px var(--sc-paused), inset 0 0 90px rgb(240 138 128 / 30%);
+  opacity: 0;
+  pointer-events: none;
+  animation: mc-fade 0.7s var(--sc-ease) 1;
+}
+
+/* ---------- messages and members ---------- */
+[data-showcase] .mc-msg.is-new {
+  animation: mc-fall 0.24s var(--sc-enter) 1 both;
+}
+[data-showcase] .mc-msg.is-new::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border: 1px solid var(--sc-pace);
+  border-radius: inherit;
+  opacity: 0;
+  pointer-events: none;
+  animation: mc-out 0.9s var(--sc-ease) 1;
+}
+[data-showcase] .mc-msg.is-out {
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.24s, transform 0.24s;
+}
+[data-showcase] .mc-msg.is-scan .mc-mt::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgb(213 242 74 / 24%);
+  transform-origin: calc(50% - 50% * var(--inline-sign, 1)) 50%;
+  animation: mc-scan 0.45s var(--sc-ease) 1 both;
+}
+[data-showcase] .mc-msg.is-scan .mc-mt[dir="rtl"]::after {
+  transform-origin: 100% 50%;
+}
+[data-showcase] .mc-msg.is-scan.is-hit .mc-mt::after {
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+[data-showcase] .mc-m[data-tag]::after,
+[data-showcase] .mc-msg[data-tag]::after {
+  content: attr(data-tag);
+  position: absolute;
+  z-index: 2;
+  top: -7px;
+  inset-inline-end: 4px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--sc-member);
+  color: var(--sc-on-ai);
+  font: 600 10px/1.5 var(--sc-font);
+  animation: mc-pop 0.2s var(--sc-enter) 1;
+}
+
+/* ---------- nodes at work ---------- */
+[data-showcase] .mc-n[data-state="pass"] .mc-v,
+[data-showcase] .mc-n[data-state="sent"] .mc-v {
+  color: var(--sc-pace);
+}
+[data-showcase] .mc-n[data-state="warn"] .mc-v,
+[data-showcase] .mc-n[data-state="waits"] .mc-v {
+  color: var(--sc-waits);
+}
+[data-showcase] .mc-n.is-below .mc-gauge i {
+  background: var(--sc-waits);
+}
+[data-showcase] .mc-n.is-bounce {
+  animation: mc-bounce 0.42s var(--sc-spring) 1;
+}
+[data-showcase] .mc-cap.is-flash {
+  color: var(--sc-pace);
+}
+
+/* ---------- bubbles: AI words on paper (streamed), code results outlined ---------- */
+[data-showcase] .mc-bub {
+  position: absolute;
+  z-index: 6;
+  inset-inline-start: 50%;
+  width: max-content;
+  max-width: calc(100% + 6px);
+  min-width: 96px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  background: var(--sc-text);
+  color: var(--sc-on-ai);
+  font: 500 11px/1.35 var(--sc-mono);
+  text-align: start;
+  white-space: normal;
+  pointer-events: none;
+  transform: translateX(calc(-50% * var(--inline-sign, 1)));
+  box-shadow: 0 8px 24px rgb(0 0 0 / 45%);
+  animation: mc-pop 0.16s var(--sc-enter) 1 both;
+}
+[data-showcase] .mc-bub[data-pos="down"] {
+  top: calc(100% + 7px);
+}
+[data-showcase] .mc-bub[data-pos="up"] {
+  bottom: calc(100% + 7px);
+}
+[data-showcase] .mc-first .mc-bub,
+[data-showcase] .mc-after .mc-bub,
+[data-showcase] .mc-r3b .mc-bub {
+  max-width: 210px;
+}
+[data-showcase] .mc-bub::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: calc(50% - 5px);
+  width: 10px;
+  height: 10px;
+  background: inherit;
+  transform: rotate(45deg);
+}
+[data-showcase] .mc-bub[data-pos="down"]::before {
+  top: -4px;
+}
+[data-showcase] .mc-bub[data-pos="up"]::before {
+  bottom: -4px;
+}
+[data-showcase] .mc-bub:not(.is-ai) {
+  background: #0f110f;
+  color: var(--sc-text);
+  box-shadow: inset 0 0 0 1px var(--sc-control), 0 8px 24px rgb(0 0 0 / 45%);
+}
+[data-showcase] .mc-bub:not(.is-ai)::before {
+  background: #0f110f;
+  box-shadow: inset 1px 1px 0 var(--sc-control);
+}
+[data-showcase] .mc-bub[data-pos="up"]:not(.is-ai)::before {
+  box-shadow: inset -1px -1px 0 var(--sc-control);
+}
+[data-showcase] .mc-first .mc-n:first-child .mc-bub,
+[data-showcase] .mc-r3 .mc-n:first-child .mc-bub,
+[data-showcase] .mc-after .mc-n:first-child .mc-bub {
+  inset-inline-start: 0;
+  transform: none;
+}
+[data-showcase] .mc-first .mc-n:first-child .mc-bub::before,
+[data-showcase] .mc-r3 .mc-n:first-child .mc-bub::before,
+[data-showcase] .mc-after .mc-n:first-child .mc-bub::before {
+  inset-inline-start: 22px;
+}
+[data-showcase] .mc-first .mc-n:last-child .mc-bub,
+[data-showcase] .mc-r3 .mc-n:last-child .mc-bub,
+[data-showcase] .mc-after .mc-n:last-child .mc-bub {
+  inset-inline: auto 0;
+  transform: none;
+}
+[data-showcase] .mc-first .mc-n:last-child .mc-bub::before,
+[data-showcase] .mc-r3 .mc-n:last-child .mc-bub::before,
+[data-showcase] .mc-after .mc-n:last-child .mc-bub::before {
+  inset-inline: auto 22px;
+}
+[data-showcase] .mc-bt {
+  position: relative;
+  display: block;
+}
+/* streamed words reserve their final size: the full text holds the box, the live copy streams over it */
+[data-showcase] .mc-sf {
+  visibility: hidden;
+}
+[data-showcase] .mc-sl {
+  position: absolute;
+  inset: 0;
+}
+[data-showcase] .mc-bub .sc-basis {
+  display: block;
+  width: max-content;
+  margin-block-start: 4px;
+  background: #e3e6df;
+  color: #4b4f4a;
+  font-size: 9.5px;
+}
+[data-showcase] .mc-bub .sc-basis[data-basis="illustrative"] {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px #8a8f87;
+}
+[data-showcase] .mc-bub .sc-caret {
+  background: var(--sc-on-ai);
+}
+[data-showcase] .mc-bub.is-out {
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+/* ---------- the rulebook and the lanes ---------- */
+[data-showcase] .mc-spine.is-cite::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--sc-pace);
+  border-radius: inherit;
+  box-shadow: inset 0 0 18px rgb(213 242 74 / 40%);
+  opacity: 0;
+  pointer-events: none;
+  animation: mc-fade 0.64s var(--sc-ease) 1;
+}
+[data-showcase] .mc-spine.is-new .mc-new {
+  opacity: 1;
+  transform: rotate(180deg);
+  transition: transform 0.42s var(--sc-spring), opacity 0.2s;
+}
+[data-showcase] .mc-spine.is-new .mc-bt2 {
+  opacity: 0;
+}
+[data-showcase] .mc-spine.is-kept .mc-new {
+  background: transparent;
+  color: var(--sc-pace);
+  box-shadow: inset 0 0 0 1px rgb(213 242 74 / 55%);
+}
+[data-showcase] .mc-lane.is-flash2::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 24px 30px -18px var(--lc);
+  opacity: 0;
+  pointer-events: none;
+  animation: mc-fade 0.6s var(--sc-ease) 1;
+}
+[data-showcase] .mc-lanes.is-reset .mc-tl,
+[data-showcase] .mc-lanes.is-reset .mc-c {
+  opacity: 0;
+  transition: opacity 0.4s;
+}
+[data-showcase] .mc-c.is-roll {
+  animation: mc-roll 0.28s var(--sc-enter) 1;
+}
+[data-showcase] .mc-li.is-land {
+  animation: mc-land 0.28s var(--sc-enter) 1;
+}
+[data-showcase] .mc-li.is-edit .mc-tile {
+  border-color: var(--sc-pace);
+  box-shadow: 0 0 0 2px rgb(213 242 74 / 22%);
+}
+[data-showcase] .mc-ls.is-pulse::after,
+[data-showcase] .mc-lv.is-nudge::after,
+[data-showcase] .is-ping::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 0 0 2px rgb(213 242 74 / 60%);
+  opacity: 0;
+  pointer-events: none;
+  animation: mc-ring2 0.9s var(--sc-ease) 2;
+}
+[data-showcase] .mc-lv.is-nudge::after {
+  --rx: 1.025;
+  --ry: 1.3;
+}
+[data-showcase] .is-ping {
+  position: relative;
+  --rx: 1.1;
+  --ry: 1.6;
+}
+
+/* ---------- the learning card: Zayed's tile in Your Today, opened ---------- */
+[data-showcase] .mc-learncard {
+  position: absolute;
+  z-index: 9;
+  inset-inline-end: 0;
+  width: 168px;
+  padding: 10px;
+  border: 1px solid var(--sc-pace);
+  border-radius: 12px;
+  background: #0f110f;
+  box-shadow: 0 12px 36px rgb(0 0 0 / 55%);
+  font: 400 10.5px/1.4 var(--sc-font);
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.24s, transform 0.24s var(--sc-enter);
+  pointer-events: none;
+  contain: layout;
+}
+[data-showcase] .mc-learncard.is-up {
+  opacity: 1;
+  transform: none;
+}
+[data-showcase] .mc-learncard p {
+  margin: 0;
+}
+[data-showcase] .mc-lc-h {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-block-end: 4px !important;
+  font: 600 11.5px/1.25 var(--sc-font);
+}
+[data-showcase] .mc-lc-d {
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--sc-text);
+  color: var(--sc-on-ai);
+  font: 500 10.5px/1.4 var(--sc-mono);
+}
+[data-showcase] .mc-lc-d s {
+  color: #8a3b33;
+}
+[data-showcase] .mc-lc-d ins {
+  text-decoration: none;
+  background: linear-gradient(transparent 55%, var(--sc-pace) 55%);
+}
+[data-showcase] .mc-lc-s {
+  display: none;
+  margin-block-start: 5px !important;
+  color: var(--sc-muted);
+}
+[data-showcase] .mc-lc-s.is-up {
+  display: block;
+  animation: mc-rise 0.22s var(--sc-enter) 1 both;
+}
+[data-showcase] .mc-lc-ai span {
+  color: var(--sc-text);
+}
+[data-showcase] .mc-q.is-ok,
+[data-showcase] .mc-lc-s b {
+  color: var(--sc-pace);
+  font-weight: 600;
+}
+
+/* ---------- the zoom into a receipt (desktop) ---------- */
+[data-showcase].sc-cv .mc-body {
+  transition: transform 0.42s var(--sc-ease), opacity 0.42s var(--sc-ease);
+}
+[data-showcase].is-zoom .mc-body {
+  transform: scale(2.2);
+  opacity: 0.15;
+  pointer-events: none;
+}
+[data-showcase].is-zoom .mc-sub,
+[data-showcase].is-zoom .mc-ctrl {
+  opacity: 0.15;
+  transition: opacity 0.42s;
+}
+[data-showcase].is-zoom .mc-legend {
+  display: none;
+}
+[data-showcase] .mc-rx {
+  position: absolute;
+  z-index: 20;
+  inset: 44px 12px 12px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border-radius: 12px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+[data-showcase].is-read .mc-rx {
+  opacity: 1;
+}
+[data-showcase] .mc-rx .ba-sheet {
+  min-block-size: 100%;
+}
+[data-showcase].is-rm .mc-body {
+  transition-duration: 0s;
+}
+[data-showcase].is-rm.is-zoom .mc-body {
+  transform: none;
+}
+
+/* ---------- controls at work ---------- */
+[data-showcase] .mc-lv button.is-press::after {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  border: 2px solid var(--sc-pace);
+  border-radius: 999px;
+  animation: mc-press 0.3s var(--sc-ease) 1 both;
+}
+[data-showcase] .mc-demo.is-shown {
+  opacity: 1;
+}
+[data-showcase] .mc-lock.is-shake {
+  animation: sc-shake 0.24s var(--sc-ease) 1;
+}
+[data-showcase] .mc-lock.is-tip .mc-tip {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* ---------- phones: the readout, the bins' lists, the settings sheet in the overlay layer ---------- */
+[data-showcase] .mc-binlist {
+  position: absolute;
+  z-index: 25;
+  inset-inline: 10px;
+  bottom: 90px;
+  padding: 10px;
+  border: 1px solid var(--sc-control);
+  border-radius: 12px;
+  background: #0f110f;
+  box-shadow: 0 12px 36px rgb(0 0 0 / 55%);
+}
+[data-showcase] .mc-binlist p {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+[data-showcase] .mc-binlist ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+[data-showcase] .mc-binlist .mc-tile {
+  min-block-size: 40px;
+  font-size: 13px;
+}
+[data-showcase="layer"] .mc-x,
+[data-showcase] .mc-binlist .mc-x {
+  min-block-size: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--sc-control);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--sc-text);
+  font: 600 12px/1 var(--sc-font);
+  cursor: pointer;
+}
+[data-showcase="layer"] .mc-sheetback {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 45%);
+  opacity: 0;
+  transition: opacity 0.28s;
+}
+[data-showcase="layer"] .mc-sheet {
+  position: fixed;
+  inset-inline: 0;
+  bottom: 0;
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  height: 45vh;
+  min-height: 300px;
+  padding: 14px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  border-radius: 16px 16px 0 0;
+  background: var(--sc-stage);
+  color: var(--sc-text);
+  font-family: var(--sc-font);
+  box-shadow: 0 -12px 40px rgb(0 0 0 / 45%);
+  transform: translateY(105%);
+  transition: transform 0.28s var(--sc-enter);
+}
+[data-showcase="layer"] .mc-sheet[hidden] {
+  display: none;
+}
+[data-showcase="layer"] .mc-sheet.is-open,
+[data-showcase="layer"] .mc-sheetback.is-open {
+  opacity: 1;
+  transform: none;
+}
+[data-showcase="layer"] .mc-sheet-h {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0;
+  font-size: 15px;
+  white-space: nowrap;
+}
+[data-showcase="layer"] .mc-sheet .mc-bar {
+  display: grid;
+  gap: 8px;
+  font-size: 12.5px;
+}
+[data-showcase="layer"] .mc-sheet .mc-bar span:first-child {
+  max-width: none;
+}
+[data-showcase="layer"] .mc-sheet .mc-bar input[type="range"] {
+  width: min(240px, 60vw);
+  height: 32px;
+}
+[data-showcase="layer"] .mc-sheet .mc-chk,
+[data-showcase="layer"] .mc-sheet .mc-lock {
+  justify-self: start;
+  min-block-size: 36px;
+}
+[data-showcase="layer"] .mc-sheet .mc-tip {
+  top: calc(100% + 6px);
+  bottom: auto;
+}
+@media (max-width: 760px) {
+  [data-showcase] .mc-bub,
+  [data-showcase] .mc-rx {
+    display: none !important;
+  }
+  [data-showcase] .mc-cr.is-read {
+    color: var(--sc-text);
+  }
+  [data-showcase] .mc-cr.is-read b {
+    color: var(--sc-muted);
+    font-weight: 600;
+  }
+  [data-showcase] .mc-cr.is-ai b {
+    color: var(--sc-pace);
+  }
+  [data-showcase] .mc-cr.is-read .sc-basis {
+    font-size: 9px;
+    line-height: 1.3;
+  }
+  [data-showcase] .mc-cr.is-read {
+    position: relative;
+  }
+  [data-showcase] .mc-crf {
+    visibility: hidden;
+  }
+  [data-showcase] .mc-crf .sc-basis {
+    visibility: visible;
+  }
+  [data-showcase] .mc-crl {
+    position: absolute;
+    inset: 0;
+  }
+  [data-showcase] .mc-learncard {
+    inset-inline: 8px;
+    width: auto;
+  }
+}
+
+@keyframes mc-fall {
+  from {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes mc-out {
+  0%,
+  30% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes mc-fade {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+@keyframes mc-scan {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+@keyframes mc-stamp {
+  from {
+    transform: rotate(-4deg) scale(1.12);
+    opacity: 0;
+  }
+  to {
+    transform: rotate(-4deg) scale(1);
+    opacity: 1;
+  }
+}
+@keyframes mc-land {
+  from {
+    opacity: 0;
+    transform: translateX(calc(-10px * var(--inline-sign, 1)));
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes mc-roll {
+  from {
+    transform: translateY(-6px);
+    opacity: 0.2;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+@keyframes mc-bounce {
+  from {
+    transform: translateY(-4px);
+  }
+  to {
+    transform: none;
+  }
+}
+@keyframes mc-press {
+  from {
+    transform: scale(0.8);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+@keyframes mc-ring2 {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: scale(var(--rx, 1.6), var(--ry, 1.6));
+  }
+}
+@keyframes mc-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}

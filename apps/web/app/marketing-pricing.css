@@ -46,10 +46,31 @@
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
   align-items: end;
+  isolation: isolate;
 }
 .mk-pr-stair {
   display: grid;
   gap: 6px;
+}
+.mk-pr-stair > b {
+  grid-area: 1 / 1;
+}
+.mk-pr-stair > i {
+  grid-area: 2 / 1;
+}
+.mk-pr-stair > span {
+  grid-area: 3 / 1;
+}
+/* Every new trainer starts in the first band: a Pace wash behind its rate
+   and step marks it. */
+.mk-pr-stair:first-child::before {
+  content: "";
+  grid-area: 1 / 1 / 3;
+  z-index: -1;
+  margin: -6px -5px -5px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--lime) 28%, var(--white));
+  box-shadow: inset 0 0 0 1.5px var(--ink);
 }
 .mk-pr-stair b {
   font-size: clamp(18px, 2vw, 24px);
@@ -66,13 +87,13 @@
   box-shadow: inset 0 0 0 1px var(--ink);
 }
 .mk-pr-stair:nth-child(1) i {
-  background: color-mix(in srgb, var(--ink) 38%, var(--white));
+  background: color-mix(in srgb, var(--ink) 50%, var(--white));
 }
 .mk-pr-stair:nth-child(2) i {
-  background: color-mix(in srgb, var(--ink) 25%, var(--white));
+  background: color-mix(in srgb, var(--ink) 34%, var(--white));
 }
 .mk-pr-stair:nth-child(3) i {
-  background: color-mix(in srgb, var(--ink) 12%, var(--white));
+  background: color-mix(in srgb, var(--ink) 18%, var(--white));
 }
 .mk-pr-stair span {
   color: var(--muted);
@@ -147,6 +168,7 @@
   display: grid;
   gap: 12px;
   align-content: start;
+  container-type: inline-size;
 }
 .mk-pr-glance h3 {
   margin: 0;
@@ -165,8 +187,10 @@
   background: color-mix(in srgb, var(--lime) 28%, var(--white));
   box-shadow: inset 0 0 0 1.5px var(--ink);
 }
-.mk-pr-glance .mk-pr-rates {
-  font-size: clamp(32px, 3.4vw, 46px);
+/* The four rates on one line, sized to the card (cqi). */
+.mk-pr-glance .mk-card .mk-pr-rates {
+  font-size: clamp(24px, 11.5cqi, 46px);
+  white-space: nowrap;
   font-weight: 600;
   letter-spacing: -0.03em;
   line-height: 1;
@@ -202,7 +226,10 @@
 .mk-pr-table td {
   padding: 13px 16px;
   border-block-end: 1px solid var(--line);
+  color: var(--ink);
+  letter-spacing: normal;
   text-align: start;
+  text-transform: none;
 }
 .mk-pr-table thead th {
   border-block-end-color: var(--ink);
@@ -211,6 +238,7 @@
   font-weight: 600;
 }
 .mk-pr-table tbody th {
+  font-size: 15px;
   font-weight: 600;
 }
 .mk-pr-table td {
@@ -329,6 +357,19 @@
 /* A readout that settles once input pauses (motion.tsx useSettle). */
 span.mk-pr-out {
   display: inline-block;
+}
+/* A figure inside a sentence ("Our share, 23.3% overall", "About 92
+   sessions"): one width for every value it can read, so the words around
+   it never move. A share needs 5ch, a session count up to 5,115 4.5ch. */
+.mk-pr-slot {
+  min-inline-size: 5ch;
+  color: var(--ink);
+  font-weight: 600;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.mk-pr-fine .mk-pr-slot {
+  min-inline-size: 4.5ch;
 }
 .mk-pr-jumps {
   display: flex;
@@ -658,6 +699,9 @@ span.mk-pr-out {
   gap: 12px;
   align-content: start;
   box-shadow: none;
+}
+.mk-pr-cards .mk-pf-chip {
+  justify-self: start;
 }
 .mk-pr-cards h2 {
   margin: 0;
