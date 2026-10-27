@@ -2,6 +2,79 @@
 
 Application implementation and the job audit are complete for the current phase. [PR #1](https://github.com/chordsnstrings/trainer_what/pull/1) contains the work; [combined verification](VERIFICATION_2026-09-27.md) records the passing final code revision. The owner authorized merge to main. Real services and deployment remain the next phase; screenshots were waived. Historical entries below record the evidence available at each stage and may contain superseded pending-check statements.
 
+## Stage 2026-10-27 — marketing concepts round 2: the multi-agent Brain showcase (published; waiting for the owner's choice)
+
+Owner feedback on round 1 (27 Oct 2026): "it doesn't actually show what the app does, usually for AI based websites they show the concept much better, with different aspects. We have got multiple agents sandwiched into a single agent, with multiple decisions that's happening. showcasing that should have an oomf factor, which isn't present either."
+
+**Why round 1 missed it:**
+- The research brief described one AI coach, and the playbook never mentions agents.
+- Motion was treated as a cost under the house motion rules.
+- The competitor set was trainer platforms, which are plain.
+
+**Design** (workflow `wf_46e6f2f0-be7`, 5 agents): an agent map from code, a study of AI-agent showcase sites, three showcases plus a playground, a critique and a revision.
+- The roster: 14 AI specialists, from the 12 model tasks in `packages/providers/src/model-request.ts`, and 11 code steps. These include the safety floor, the rule finder, the checker, confidence and the lane gate.
+- Accuracy rules:
+  - code picks the specialist;
+  - a safety stop calls no AI;
+  - chat replies have no confidence score;
+  - Meal planner and Recovery rule are shown "Not on yet", and the recovery trace is hidden by default.
+- Saved in `docs/marketing-revamp-2026-10-26/showcase/`.
+
+**Build** (workflow `wf_9df770c4-77f`, 10 agents):
+- **Shared engine** (`prototypes/shared/brain/`): traces, scheduler, one rAF loop with pausing and tiers, and the playground. `verify.mts` ran 4,418 checks against the real domain functions with 0 failures.
+- **A:** a "sample hour of your Brain" field as the home hero.
+- **B:** "24 hours of your Brain" under the home hero and on /how-it-works.
+- **C:** "Anatomy of one decision" under the home hero and on /trainer-brain.
+- **Every concept:** "Throw a moment at your Brain" on /trainer-brain and /demo.
+- Each concept then had a performance QA and a creative-director review with fixes.
+
+Checks:
+- The H1 is the LCP on every changed page. No console errors and no overflow.
+- Phones and the playground pages: p95 frame 16.7–16.8 ms at 4x CPU throttle.
+- **Desktop home pins: p95 33 ms at 4x throttle, so the 20 ms target is not met.** The cost is paint and commit in this sandbox, which has no GPU; showcase script stays within 4 ms per frame. Desktop smoothness must be checked on real hardware.
+- Long tasks over 50 ms under 4x throttle remain.
+- WebKit was not available, so it was not tested.
+
+**Published** as version 2 of https://claude.ai/artifact/Lcwi51DwtZdU35hirwprFF, with the showcase images, a round-2 section and the showcase design page. A gallery check in the published layout found no errors or overflow, and the showcases mount on every home and playground page.
+
+**Not done:** implementation in `apps/web`, which waits for the owner's choice and decisions (playbook E plus showcase design §8).
+
+## Stage 2026-10-26 — marketing revamp: conversion research and three concepts for every page (published; waiting for the owner's choice)
+
+Owner, 26 October 2026: "first understand what converts the most, research, and then let's revamp the marketing site which will have the best conversion along with a beautiful aesthetic design with smooth animation. give 3 different concepts, for all pages".
+
+**Research** (workflow `wf_aa03c418-771`, 7 agents):
+- an audit of the current site from the code;
+- sourced conversion evidence, each source labelled by weight (measured, survey, vendor data, vendor claim, expert);
+- a teardown of 12 competitor and adjacent sites;
+- UAE trainer buyer research;
+- a synthesis into 15 ranked principles, a funnel, a blueprint for every page and three concepts, then an adversarial critique (48 required fixes) and a revision.
+- Saved in `docs/marketing-revamp-2026-10-26/` (`PLAYBOOK.md`, `research/`).
+
+**Concepts:**
+- **A, "Live Brain" (product-led):** a decision-console hero. Recommended.
+- **B, "Beyond Your Hours" (outcome-led):** the offer page plus a "Your price, our share" tile.
+- **C, "The Method" (trust-led editorial):** a confirmed rule card, a Never list and source badges.
+
+Each concept is a clickable 42-page prototype (the 38 registered pages plus signup, login, coaches and the 404), built by a workflow of 7 agents (`wf_32d8c50d-9f2`, `wf_6618dd06-2fc`, `wf_740a8f2e-002`): a foundation, four page-group builders, a QA crawl with fixes, and an adversarial review with fixes. The prototypes show:
+- page-to-page View Transitions;
+- reveals that happen only below the first screen;
+- a dev panel that toggles the live states (payments, registration, publishing, frontier, voice).
+
+The generator sources are in `docs/marketing-revamp-2026-10-26/prototypes/`; all three rebuilt 42 pages from there.
+
+Checks:
+- QA crawls at 360, 390 and 1366 px for every page of every concept: no console errors, no sideways scroll, every internal link resolves, one H1 per page.
+- Calculator figures match the repo's calculator maths: 398 / 2,985 / 23,084; 22,885 kept on 150 × AED 199.
+- Nothing loads except Google Fonts.
+- The gallery page at 1366 (light) and 390 (dark): no errors, no overflow, all 19 links resolve.
+
+**Published** as a private artifact: https://claude.ai/artifact/Lcwi51DwtZdU35hirwprFF (the gallery, three prototypes and the playbook).
+
+**Not done:** implementation in the app, pending the owner's choice of concept and approval of the copy changes (playbook E, decisions 1 to 19). trainsyou.com is unchanged.
+
+**Next action:** the owner picks a concept (or a merge, as recommended) and answers the decisions. Then port it into `apps/web` on a new PR, with tests and docs updated.
+
 ## Stage 2026-10-26 — marketing phone menu, and CI picks a fast Ubuntu mirror (PR #102, merged as `f1fbf8e`; live since 12:04 UTC on 26 October 2026)
 
 Owner, 26 October 2026, with a screenshot of the trainsyou.com phone menu: "The menu system should look better and more animated and more aesthetically pleasing with micro animations for the user with smooth animations".

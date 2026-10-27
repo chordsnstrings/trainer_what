@@ -1,0 +1,85 @@
+{
+ "followerInputs": {
+  "followers": 7000,
+  "priceAed": 199,
+  "linkStoriesPerMonth": 8,
+  "ctaReelsPerMonth": 4,
+  "keywordDms": true,
+  "profileVisitsPerMonth": null,
+  "broadcastMembers": null,
+  "broadcastLinksPerMonth": 4,
+  "storyViews": null,
+  "engagementRatePct": null,
+  "yearlyCancelPct": 30
+ },
+ "earningsInputs": {
+  "subscribers": 60,
+  "billing": "monthly",
+  "workoutPriceAed": 199,
+  "programmeMonths": 3,
+  "nutritionSharePct": 30,
+  "nutritionPriceAed": 299,
+  "voiceSharePct": 0,
+  "voicePriceAed": 49,
+  "sessionsPerMonth": 0,
+  "sessionPriceAed": 250,
+  "yourSessionRateAed": 250
+ },
+ "follower": {
+  "cautious": {
+   "revenueMonth12Minor": 39800,
+   "activeMonth12": 1.852822099990024,
+   "signups12": 2.2382641322260652,
+   "month1New": 0.2889523956947988
+  },
+  "typical": {
+   "revenueMonth12Minor": 298500,
+   "activeMonth12": 14.53455511273867,
+   "signups12": 18.02260865046699,
+   "month1New": 3.484919491919545
+  },
+  "strong": {
+   "revenueMonth12Minor": 2308400,
+   "activeMonth12": 116.38130649150568,
+   "signups12": 143.2987722959149,
+   "month1New": 30.66308939229213
+  }
+ },
+ "full": {
+  "averageMonthlyMinor": 22900,
+  "subscriptionMonthlyMinor": 1374000,
+  "commissionMinor": 343500,
+  "beforeOtherCostsMinor": 1030500,
+  "equivalentSessions": 41,
+  "effectiveCommissionPct": 25
+ },
+ "compact": {
+  "averageMonthlyMinor": 19900,
+  "subscriptionMonthlyMinor": 1194000,
+  "commissionMinor": 298500,
+  "beforeOtherCostsMinor": 895500,
+  "equivalentSessions": 36,
+  "effectiveCommissionPct": 25
+ },
+ "worked": {
+  "averageMonthlyMinor": 19900,
+  "subscriptionMonthlyMinor": 2985000,
+  "commissionMinor": 696500,
+  "beforeOtherCostsMinor": 2288500,
+  "equivalentSessions": 92,
+  "effectiveCommissionPct": 23.33
+ },
+ "follower20k": {
+  "cautious": 39800,
+  "typical": 577100,
+  "strong": 3422800
+ },
+ "full150": {
+  "averageMonthlyMinor": 22900,
+  "subscriptionMonthlyMinor": 3435000,
+  "commissionMinor": 801500,
+  "beforeOtherCostsMinor": 2633500,
+  "equivalentSessions": 105,
+  "effectiveCommissionPct": 23.33
+ }
+}

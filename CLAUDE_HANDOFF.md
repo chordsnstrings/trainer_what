@@ -2,20 +2,29 @@
 
 ## Work in progress
 
-### Status at 12:08 UTC on 26 October 2026 (Claude)
+### Status on 27 October 2026, evening (Claude)
 
-**Live since 12:04 UTC: Today "One queue" (#101) and the phone menu (#102), as `main` HEAD `f1fbf8e`.**
-- `main` run 40314343561 passed all 8 jobs (homepage-call in 5 minutes with `scripts/ci-apt-mirror.sh`).
-- The watcher read `f1fbf8e` at 12:04:12 UTC.
-- Checked live:
-  - the five marketing pages answer 200 with the new menu markup;
-  - the served CSS carries the menu's exit and the four review fixes;
-  - `/trainer` answers 200, and its JavaScript carries the One queue strings ("Up next", "Jump to", "Your AI right now", "Pause live motion" and others), none of which were in `f5565b1`.
-- Recorded in `docs/COMPLETION_STAGES.md` (both 26 October entries) through records PR #103.
-- **Next:** merge #103 (Markdown only). Then nothing is open from these requests.
-- Waiting on the owner:
-  - a look at the new Today and the phone menu on a phone;
-  - deleting the stray `/oq-daily.log` (a safety check stopped Claude from removing it).
+**Marketing concepts round 2 is published, answering the owner's "doesn't show what the app does / no oomf" feedback.**
+- **Version 2 of** https://claude.ai/artifact/Lcwi51DwtZdU35hirwprFF. Each concept's home now shows the multi-agent Brain (14 AI specialists and 11 code steps, mapped from code):
+  - **A:** a live "sample hour of your Brain" hero;
+  - **B:** "24 hours of your Brain" under the hero;
+  - **C:** "Anatomy of one decision" under the hero.
+- **All three** have "Throw a moment at your Brain" on /trainer-brain and /demo.
+- **Records:**
+  - `docs/marketing-revamp-2026-10-26/`: `showcase/` (design, agent map), `prototypes/` (updated generators and the shared engine; they rebuild);
+  - a 2026-10-27 stage entry in `docs/COMPLETION_STAGES.md`.
+- **Known gaps:**
+  - desktop home pins reach p95 33 ms at 4x throttle in this GPU-less sandbox; check on real hardware;
+  - long tasks over 50 ms under throttle;
+  - WebKit untested;
+  - four trace wording items are marked "verify" in the design.
+- **Waiting on the owner:** the concept choice, plus decisions in playbook E and showcase design §8:
+  - the motion exception for showcases;
+  - the specialists' public names and whether to publish "14 + 11";
+  - live values of the WHOOP and nutrition flags;
+  - Arabic strings.
+- **Next:** port the chosen concept into `apps/web` on a new PR.
+- Delete the stray `/oq-daily.log` when convenient.
 
 ### Home page as the owner's HTML design: live since 22:47 UTC on 25 October 2026 (Claude, checked 04:10 UTC on 26 Oct)
 
