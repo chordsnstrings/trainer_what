@@ -160,3 +160,20 @@ Forms: `<form data-proto data-success="In-page message" data-event="signup_submi
 - Pricer buttons at a limit look disabled (`aria-disabled="true"`: paper fill, muted icon, no press; never opacity, so QA never reads it as hidden).
 - `calc_input` carries `price_bucket` (and `scenario` only when set), never `undefined` props.
 - The subscriber Today screen marks finished exercises with a check, not a strike-through.
+
+## 7. "24 hours of your Brain" (src/day): performance rules from the 27 Oct QA
+
+The day is scroll-driven on desktop (pin) and a timed player card on phones. These rules keep it inside the spec §1.6 budget; keep them when you change it.
+- Canvases: `cv0` holds the static layer only (drawn once per layout; the dot grid is drawn in two later tasks). Settled moments go into six strip canvases (`.dy-cvt`), redrawn at most two a frame. Only the narrow band at the playhead (`.dy-cv`, moved by `transform`) and the label column (`.dy-cvl`, redrawn only when a label changes) change per frame. The glance draws strips just ahead of a composited wipe. A tier step-down re-fits only the per-frame canvases.
+- DOM: every caption and every beat's panels are rendered once and stacked in one grid cell, so a beat change only swaps visibility and the stage never changes height (no layout shift). AI text is laid out once and revealed word by word with `color`. The Today cards are pre-rendered and toggled. Counts, panel stacks, the Today list and header are block boxes with `contain: strict` and explicit insets (Blink never treats a flex or grid item, or a percentage-height box, as a relayout boundary).
+- Pin: no CSS transitions inside the pinned stage (they ticked on the main thread and forced layouts on scroll). A fast scroll (> 0.12 of the day per second) holds the text panels; they catch up as soon as it slows. Off screen or in a hidden tab, scrolling draws nothing.
+- Mount: runs in short tasks (yields between data, model, DOM, layout). `will-change` layers exist only while the stage is on screen (`.dy-live`).
+- QA tools: `tools/sc-perf.cjs` (frame time, long tasks, LCP, CLS, JS gzip, pausing), `tools/sc-correct.cjs` (traces, labels, counts, t3, reduced motion, keyboard, RTL), `tools/sc-floor.cjs` (the same page with the showcase blocked: the machine's floor), `tools/sc-ab.sh` (interleaved before/after), `tools/quiet.sh` (waits until no other headless Chromium runs: other concepts' QA shares this VM and moves the numbers a lot).
+
+## 11. Showcase decisions from the CD review (27 Oct, round 2)
+
+- Home on phones (≤ 760 px): H1 → the day card → lede + CTA row + the price stage. The hero's lede, CTA row and stage are rendered a second time inside the day band (`.hero-ph`, phone only; the desktop copies are hidden on phones). The band head stays for screen readers only. The phone copy of the CTA row carries `data-hero-cta`; `site.js` shows the sticky CTA whenever that row is off screen (above or still below the card). Needs the owner's OK, like concept A's phone hero order (spec decision 5).
+- The day module draws no full-board canvas: the static layer lives in the label canvas and the six strips (software compositing copies every canvas on screen at each commit). The strips and the label canvas carry no `will-change`.
+- Phones: the board is 184 px tall; the shell shows one slot per specialist; the mini Brain names the specialists (`.dy-nn`) and lights each one as the glance sweep reaches its moments.
+- The subtitle and the stacked panels that are not shown are `aria-hidden` (the hour cards carry the captions for screen readers).
+- Known gap: the desktop pin (≥ 761 × 700) runs at p95 ≈ 33 ms frames at 4× CPU in the headless harness (unchanged from before the review); phones and the playground are at 16.8 ms.

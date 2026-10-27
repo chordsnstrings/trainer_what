@@ -202,3 +202,67 @@ Model and nutrition count as live. WHOOP, Zepp, Instagram and custom domains are
 - Z-index scale: sticky CTA 30, consent 35, menu sheet 39, header 40, dev 45-46, Kamran popover 47. Stay below 30 in page content.
 - Any `input[type=range]` needs `ty.rangeFill(input)` after you change its value from script (user input is handled).
 - Keep generated HTML free of external URLs. Google Fonts is the only allowed origin, and it is already in the head.
+
+## 12. Brain showcase (round 2, 27 Oct 2026)
+
+Spec: `../showcase-final.md` (§2 Mission control, §5 playground, §1.5 honesty labels, §1.6 performance). Engine: `../shared/brain/` (read its README).
+
+- **Engine copy:** `src/build.mjs` copies `shared/brain/*.js|*.css|traces.client.json` into `site/assets/brain/` on every build, then imports the page modules (they render engine markup in Node). Never edit `site/assets/brain/` by hand; change `shared/brain/` and rebuild.
+- **Concept A files (authored in `site/assets/`):** `a-field.js` (Mission control field + home band 2 board; `renderStatic`, `renderBoard`, `mount`), `a-brain.css` (field + board, home only), `a-echo.css` (roster, decides, feature vignettes, path band, playground skin). `src/brain-a.mjs` holds the Node renderers for the product pages (`playground`, `playBand`, `roster`, `decides`, `featureEchoes`, `pathBand`, `boot`, `rosterScript`, `CSS`).
+- **Mounting:** a showcase is `[data-showcase][data-sc-module="assets/…"]` with its static first frame inside; put `boot()` (the inlined `brain-boot.js`) last in `main`. One settings object per page (the field, board and receipts share it).
+- **Where:** home hero = the field (phones: between the H1 and the lede by CSS order); home band 2 = "Change a setting. Watch it re-sort."; `/demo` and `/trainer-brain` = the playground (`/trainer-brain` also has the roster with status chips and the corrected "How it decides"); `/features` = node vignettes; `/how-it-works` = "One path for every moment" (static).
+- **QA scripts (`qa/sc/`):** `serve.cjs <port>`, `shots.cjs` (timed sequence), `interact.cjs` (controls, zoom, keyboard, phone sheet), `pages.cjs` (overflow, LCP, errors), `rm.cjs` (reduced motion), `perf.cjs`/`perf2.cjs` (4× throttle), `stoptime.cjs` (first-screen timing), `geo.cjs` (phone geometry), `fallback.cjs` (Safari gaps). Add `?tier=full|lite|minimal`, `?motion=reduce`, `?recovery=on`.
+
+### 12.1 Performance and QA decisions (QA pass, 27 Oct 2026)
+
+Measured with `qa/sc/perf-all.cjs` (4x CPU via CDP, rAF-interval p95, long tasks, LCP, CLS, JS gzip), `qa/sc/correct.cjs`
+(traces, caps/reset, labels, keyboard, pausing, reduced motion, RTL, playground), `qa/sc/crawl42.cjs` (42 pages x 390/1366)
+and `qa/sc/idle2.cjs` (60/90 s idle pause, 75 s hour reset). Forensics: `trace4/trace6/mainframe/jsprof/inval/cls.cjs`.
+Do not undo these without re-measuring:
+
+- **Field layers.** Static rails are inline SVG drawn once per layout (an `<img>` became the LCP; a static canvas still
+  costs a full-size copy per frame where Canvas2D is not GPU-backed). Everything that moves (rail dashes, dots, ghosts,
+  rule lines, matrices) is ONE canvas above the nodes. Lines are cut at node/lane/message boxes in JS (`cut()`,
+  Liang-Barsky); a canvas clip or a destination-out erase costs a full-canvas mask every frame.
+- **Compositor-only CSS.** Field effects animate opacity/transform only; colour/border/shadow changes snap and their fades
+  run on pseudo-element overlays (`a-brain.css`, "compositor-only motion"). One-shot effects replay through WAAPI
+  (`replay()`), not `void el.offsetWidth`.
+- **Auto-demo.** Level changes from the demo run at the start of a frame (`pre`) and use an estimated FLIP from DOM order
+  (`flipEst`), so the frame has no forced layout. The board under the hero re-sorts only while on screen (catches up on
+  arrival) and its live-region diff speaks only for a visitor's own change.
+- **Tiers.** Minimal = DPR 1, 30 fps, no ghosts, no streaming, static rail dashes, ~6 fps redraw while nothing moves.
+  Canvases re-fit on a tier change. The shared watchdog also steps down when >= 5% of frames exceed 25 ms over 2 s.
+- **Phones.** The H1 is two fixed lines: inline `.h1-l` spans (`white-space: nowrap`) plus a phone-only
+  `<br class="h1-br">`, at `min(9.6vw, 40px)`, so a late Inter swap cannot re-wrap it and shift the field (it caused
+  CLS 0.21). Keep the spans inline: block spans made each line its own LCP candidate and the lede won LCP.
+  JetBrains Mono loads after first paint (`media="print"` swap in `layout.mjs`).
+- **Playground (shared):** "Change a setting" is `visibility: hidden` until the first run (`hidden` shifted layout).
+- **Bug fixed:** the voice moment's second leg never left `fg`, so after two voice moments the playlist stopped (phones
+  after the first). Field + sheet: Tab now cycles inside the phone settings sheet.
+
+### 12.2 Creative-director pass (27 Oct 2026, after the owner's "no oomph" feedback)
+
+Review scripts and shots: `../../cd-a/` (scratchpad). Decisions, do not undo without re-checking:
+
+- **Whose moment lit this node.** Every node a narrated moment touches carries the member's initial (`data-who`, set in
+  `setNode` from `WHO[owner]`; red on a STOP). Several lit specialists now read as several members, never one message
+  with several AI specialists. The badge has no z-index on purpose: above the canvas (z 2) it would be composited.
+- **Ghost energy (full and lite tiers).** Ghosts are 2.3 px at 85 % with a 70 ms tail; a node a ghost passes shows
+  busy in paper (AI: sparkle 620 ms; code: column sweep 300 ms) with a fading outline; each ghost lands with a ripple in
+  its lane colour. Pace stays reserved for the narrated moment. Legend item "Other members' moments" (desktop).
+- **First frame.** Omar's "Picked: back squat +2.5 kg" bubble is gone from the first frame (it covered "Your Brain" and
+  the Safety node during the stop); the lit Reply picker carries "O".
+- **Desktop check rows.** Name on its own line, then matrix + result in the sans face ("cites your rule" no longer
+  truncates, names no longer push the result out of the node). Confidence hides its matrix (the gauge is its activity).
+- **Members column** 106 px with short labels ("Knee popped", "Up in weight?") in the sans face.
+- **Learning card**: steps appear one by one (no reserved empty card); desktop it opens over the lanes (168 px), never
+  over the rulebook spine. **Spine**: the new-rule card uses physical insets (logical insets followed its vertical
+  writing mode and put it on top of "25 rules"); "Your method" hides while it shows.
+- **Phones**: Confidence reads "86% · bar 80%"; the level summary is not repeated in the 2-line readout; the readout
+  line is a cut box for moving lines; the Demo chip sits beside the segment.
+- **Zoom header**: the legend hides while reading, "Paused while you read" stays on one line.
+- **/how-it-works hero**: "How sure 86%" → "Confidence · plan 86% · your bar 80%" (it is a plan change).
+- **Performance (4x CPU, this sandbox, no GPU)**: field JS work p95 3.1–3.8 ms; phones p95 16.8 ms; playground pages
+  p95 16.8 ms; home at 1440 p95 33 ms with 5–9 % of frames over 20 ms, the same as before this pass (A/B against a
+  baseline build). The slow frames are paint + layerization + commit (~14 ms at 4x), not script; `isolation` on the
+  frame and clipping the message slot were tried and did not help.

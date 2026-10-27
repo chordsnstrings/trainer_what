@@ -18,6 +18,8 @@ import {
   statementLines, relatedLinks, href,
 } from "./components.mjs";
 
+import { CSS as BRAIN_CSS, boot as brainBoot, playground, playBand, roster, decides, featureEchoes, pathBand, rosterScript } from "./brain-a.mjs";
+
 const calc = createRequire(import.meta.url)("../site/assets/calc.js");
 
 /* ================================================================ shared */
@@ -253,7 +255,7 @@ function hwScreens() {
     [
       `${ui.h("Inbox", "Today")}
       <ul class="hw-inbox">
-        <li>${lanePill("Applied automatically", "applied")}<span class="mono">Squat 60 → 62.5 kg</span></li>
+        <li>${lanePill("Sent on its own", "applied")}<span class="mono">Squat 60 → 62.5 kg</span></li>
         <li>${lanePill("Rescheduled", "applied")}<span class="mono">Lower body B → Thu</span></li>
         <li>${lanePill("Handed to you", "toyou")}<span class="mono">Hotel gym, 2 weeks</span></li>
         <li>${lanePill("Paused, to you", "paused")}<span class="mono">Knee hurts</span></li>
@@ -364,9 +366,9 @@ function hwLoop() {
     <li class="loop-node loop-ai">
       <p class="loop-k">Your AI</p>
       <div class="loop-card">
-        <p class="loop-conf"><span>How sure</span><span class="mono">86%</span></p>
+        <p class="loop-conf"><span>Confidence · plan</span><span class="mono">86% · your bar 80%</span></p>
         <div class="conf-track"><span class="conf-fill" style="--c:.86"></span><span class="conf-mark" style="--t:.8" aria-hidden="true"></span></div>
-        ${lanePill("Checking your rule", "applied", { to: "Applied automatically" })}
+        ${lanePill("Checking your rule", "applied", { to: "Sent on its own" })}
       </div>
     </li>
     <li class="loop-node">
@@ -450,6 +452,7 @@ function howItWorks() {
         media: hwLoop(),
         secondary: ["/demo", "Try the demo"],
       }),
+      pathBand(),
       band(
         { tone: "paper", id: "steps", cls: "hw-band", label: "steps-h" },
         `${sectionHead({ kicker: "8 steps", title: tx(S(page, "steps").heading), id: "steps-h", layout: "split", lede: "Step through it. Each step shows the screen you’ll use and what your subscriber sees." })}
@@ -460,6 +463,7 @@ function howItWorks() {
       hwControl(),
       faqBand({ id: "hfaq", title: "Before you start", faqs, prefix: "hwq", related: ["/trainer-brain", "/demo", "/pricing"], tone: "paper" }),
     ].join("\n"),
+    css: ["brain/brain-base.css", "a-echo.css"],
     closing: { secondary: { label: "Try the demo", path: "/demo" } },
   };
 }
@@ -473,7 +477,7 @@ function tbLedger() {
     ["Missed session → next free day, never stack", "Quiz · Q4", chip("Confirmed", "applied")],
     ["No equipment match → hand to me", "Case 2", chip("Confirmed", "applied")],
     ["Deload every 4th week", "notes.pdf · reviewed", chip("Flagged · conflicts with case 3", "toyou")],
-    ["Pain, medical, red flags → pause, to you", "Safety rules", `<span class="chip chip-neutral">${icon("lock")}Can’t switch off</span>`],
+    ["Pain or red flags → training paused, to you", "Safety rules", `<span class="chip chip-neutral">${icon("lock")}Can’t switch off</span>`],
   ];
   return `<div class="tb-hero" data-ledger>
   ${stage(`<article class="rule-card" data-rule-card data-rc="pending" aria-labelledby="rc-h">
@@ -500,7 +504,7 @@ function tbLedger() {
 
 function tbWhat() {
   const chain = [
-    ["Decision", `Mon · Back squat <span class="mono">60 → 62.5 kg</span>`, lanePill("Applied automatically", "applied")],
+    ["Decision", `Mon · Back squat <span class="mono">60 → 62.5 kg</span>`, lanePill("Sent on its own, within your rules", "applied")],
     ["Your rule", `<code class="mono">2 easy sessions at 3+ RIR → +2.5 kg</code>`, ""],
     ["Source", `Interview · 12 Oct · “If two sessions move fast, I add a small jump.”`, ""],
     ["Release", `<span class="mono">v4</span> · checked against your test cases`, ""],
@@ -644,18 +648,23 @@ function trainerBrain() {
       hero({
         kicker: "Trainer Brain",
         h1: "Your AI, built from your judgment",
-        lede: tx(P("/trainer-brain").lede),
+        lede: "Built from your rules and corrections. Routine replies use your approved words. Anything else waits for you.",
         media: tbLedger(),
         secondary: ["/demo", "Try the demo"],
         cls: "tb-hero-band",
       }),
       tbWhat(),
+      roster(),
+      decides(),
+      playBand({ tone: "white" }),
       tbTeach(),
-      tbDecides(),
       tbBetter(),
       tbNeverMine(),
       faqBand({ id: "tfaq", title: "Questions about your AI", faqs, prefix: "tbq", related: ["/demo", "/features/safety", "/guides/writing-coaching-rules"] }),
+      brainBoot(),
+      rosterScript(),
     ].join("\n"),
+    css: BRAIN_CSS,
     closing: { secondary: { label: "Try the demo", path: "/demo" } },
   };
 }
@@ -1017,6 +1026,7 @@ function featuresIndex() {
         cls: "fx-hero",
       }),
       bento(),
+      featureEchoes(),
       subscriberCards(),
       productShots(),
       replacesBand(),
@@ -1024,6 +1034,7 @@ function featuresIndex() {
       capsBand(),
       faqBand({ id: "ffaq", title: "Feature questions", faqs, prefix: "fxq", related: ["/how-it-works", "/pricing"], tone: "paper" }),
     ].join("\n"),
+    css: ["brain/brain-base.css", "a-echo.css"],
     closing: { secondary: { label: "See the pricing", path: "/pricing" } },
   };
 }
@@ -1648,17 +1659,36 @@ function demoNext() {
   );
 }
 
+/* The playground is the demo (spec §5); the page H1 carries its title. */
+function demoPlayHero() {
+  return `<section class="band band-white hero a-demo-hero" data-hero aria-labelledby="hero-h">
+  <div class="wrap">
+    <div class="a-demo-top">
+      <div>
+        <p class="kicker">Interactive demo</p>
+        <h1 id="hero-h">${esc(budget("h1", "Throw a moment at your Brain"))}</h1>
+      </div>
+      <div>
+        <p class="lede">${esc(budget("lede", "Pick something a member might say. Watch each check and specialist work. Then change a setting and run it again."))}</p>
+        <div class="cta-row hero-ctas">${cta({ location: "hero", size: "lg" })}${button("/how-it-works", "See how it works", { location: "hero", size: "lg" })}</div>
+        ${ctaMicro()}
+      </div>
+    </div>
+    ${playground({ heading: false })}
+  </div>
+</section>`;
+}
+
 function demo() {
-  const page = P("/demo");
-  const f = (q) => page.faqs.find((x) => x.q === q);
   const faqs = [
     { id: "test", q: "Can I test my AI before launch?", a: "Yes. You write test cases with the answer you expect, and your AI is checked against them before a version can be published." },
-    { id: "real", q: "Is this a real AI response?", a: "No. These scripted examples show how decisions flow. Your real AI uses your own confirmed rules and a tested release." },
-    { id: "bar", q: "Who decides how sure it must be?", a: tx(f("Who decides the confidence threshold?").a) },
-    { id: "pain", ...f("What happens when a subscriber reports pain?") },
+    { id: "real", q: "Is this a real AI response?", a: "No. These are sample moments. Code steps use the app’s own limits on sample data. AI steps replay answers from test runs, or are marked illustrative. No AI model is called." },
+    { id: "bar", q: "Who decides how sure it must be?", a: "You do. Plans send on their own only when Confidence meets your bar. Chat replies have no score: they must cite your approved rule, at the Brain level you choose." },
+    { id: "pain", q: "What happens when a subscriber reports pain?", a: "Safety rules in code read every message first. Pain and red flags pause training before any AI runs, and you are alerted. Medical questions wait for your personal review. Nothing switches the safety rules off." },
   ];
   return {
-    main: [demoHero(), demoRule(), demoThreshold(), demoNext(), faqBand({ id: "dfaq", title: "Demo questions", faqs, prefix: "dmq", related: ["/trainer-brain", "/features/safety", "/how-it-works"] })].join("\n"),
+    main: [demoPlayHero(), demoNext(), faqBand({ id: "dfaq", title: "Demo questions", faqs, prefix: "dmq", related: ["/trainer-brain", "/features/safety", "/how-it-works"] }), brainBoot()].join("\n"),
+    css: BRAIN_CSS,
     closing: { secondary: { label: "See how it works", path: "/how-it-works" } },
   };
 }

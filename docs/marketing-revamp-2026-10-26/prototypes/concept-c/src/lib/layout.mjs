@@ -218,7 +218,7 @@ export function renderDocument(page, result) {
 <script src="assets/boot.js"></script>
 <script defer src="assets/site.js"></script>
 ${result.calc ? '<script defer src="assets/calc.js"></script>\n' : ""}<script defer src="assets/${group}.js"></script>
-</head>
+${(result.css || []).map((h) => `<link rel="stylesheet" href="${esc(h)}">\n`).join("")}</head>
 <body class="${cx("page-" + page.kind, "group-" + group, sticky && "has-sticky", result.bodyClass)}" data-path="${esc(page.path)}">
 <a class="skip" href="#main">Skip to content</a>
 ${header(page)}
@@ -233,6 +233,7 @@ ${kamran ? kamranPill({ inline: false, location: "float" }) : ""}
 ${kamranDialog()}
 ${consentBar()}
 ${devPanel(page)}
+${result.bodyEnd || ""}
 </body>
 </html>
 `;

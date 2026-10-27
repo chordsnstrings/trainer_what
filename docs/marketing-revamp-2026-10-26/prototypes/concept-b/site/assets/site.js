@@ -254,8 +254,11 @@
   $$("[data-open-consent]").forEach(function (b) { b.addEventListener("click", TY.openConsent); });
   if ((sticky || kFloat) && "IntersectionObserver" in w) {
     if (sticky) sticky.inert = true;
-    var heroEl = $("[data-hero] .cta-row") || $("[data-hero]") || $("main > :first-child");
-    if (heroEl) new IntersectionObserver(function (es) { es.forEach(function (e) { heroGone = !e.isIntersecting && e.boundingClientRect.top < 0; }); updateSticky(); }).observe(heroEl);
+    // the hero CTA row; home on phones renders it again under the Brain's day ([data-hero-cta]): the one that is laid out counts,
+    // and that row counts as gone when it is off screen either way (above or still below the day card)
+    var heroEls = [].slice.call(d.querySelectorAll("[data-hero] .cta-row, [data-hero-cta]"));
+    if (!heroEls.length) heroEls = [$("[data-hero]") || $("main > :first-child")].filter(Boolean);
+    if (heroEls.length) { var heroIo = new IntersectionObserver(function (es) { es.forEach(function (e) { if (heroEls.length < 2 || e.target.getClientRects().length) heroGone = !e.isIntersecting && (e.boundingClientRect.top < 0 || e.target.hasAttribute("data-hero-cta")); }); updateSticky(); }); heroEls.forEach(function (x) { heroIo.observe(x); }); }
     var ends = $$(".closing, .site-footer"), seen = new Set();
     var io2 = new IntersectionObserver(function (es) { es.forEach(function (e) { e.isIntersecting ? seen.add(e.target) : seen.delete(e.target); }); overEnd = seen.size > 0; updateSticky(); });
     ends.forEach(function (el) { io2.observe(el); });

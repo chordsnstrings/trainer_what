@@ -16,8 +16,9 @@ import { featureSpecs } from "./lib-product-features.mjs";
 const require = createRequire(import.meta.url);
 const calc = require(resolve(ROOT, "site/assets/calc.js"));
 const SPECS = featureSpecs({ calc });
+import { anatomy, playground, BOOT, CSS, PLAY_COPY, brainData, nodeChip } from "./lib-brain.mjs";
 
-const PAIN_A = "The workout pauses and you are alerted. Pain, medical issues and red flags come to you by rules enforced in code, outside the AI, so no prompt or setting can switch them off.";
+const PAIN_A = "Training pauses and you are alerted. Pain and red flags are caught by safety rules in code, before any AI runs, so no prompt or setting can switch them off. Medical questions wait for your review.";
 const DATA_A = "It is taught with your material: confirmed rules, cases, examples and corrections. Each version is checked against your test cases and can be rolled back. We don’t fine-tune a model on you, and your teaching stays private.";
 const DATA_ON = "It runs on a frontier model, taught with your confirmed rules, cases, examples and corrections. Each version is checked against your test cases and can be rolled back. We don’t fine-tune a model on you; your teaching stays private.";
 
@@ -29,7 +30,7 @@ function heroShell(h, { id, eyebrow, h1Html, chipsHtml = "", lede, actionsHtml, 
       <p class="eyebrow">${h.esc(eyebrow)}</p>
       <h1 class="display" id="${id}">${h1Html}</h1>
       ${chipsHtml}
-      ${lede ? `<p class="lede">${h.esc(lede)}</p>` : ""}
+      ${lede ? lede.split("\n").map((l, i) => `<p class="lede${i ? " lede-2" : ""}">${h.esc(l)}</p>`).join("") : ""}
       ${extraHtml}
       <div class="hero-actions">${actionsHtml}</div>
       ${h.microLine()}
@@ -75,7 +76,7 @@ function howItWorks({ page, content, href, h }) {
     <div class="pd-flow-step pd-flow-step--out">
       <p class="pd-flow-k"><span>iii</span>Daily coaching</p>
       <p class="pd-flow-row"><span>Monday · Back squat 4 × 6</span><b>${xv("60 kg", "62.5 kg")}</b></p>
-      <p class="pd-flow-meta">${inEl(`<span class="pd-flow-lane">${icon("check", { size: 13 })}Applied automatically</span>`, { tag: "span", delay: 980 })}<span>Unsure? It comes to you</span></p>
+      <p class="pd-flow-meta">${inEl(`<span class="pd-flow-lane">${icon("check", { size: 13 })}Sent on its own, within your rules</span>`, { tag: "span", delay: 980 })}<span>Anything else waits for you</span></p>
     </div>
   </div>
   ${figCap(h, 1, "Your method, at work", "", "hiw-fig1")}
@@ -84,7 +85,7 @@ function howItWorks({ page, content, href, h }) {
     id: "hiw-h1",
     eyebrow: "How it works",
     h1Html: `From your method to ${mark("daily coaching")}`,
-    lede: "Teach it your method, test it, then publish. It coaches every subscriber daily and hands you what it’s unsure about.",
+    lede: "Teach it your method, test it, then publish.\nIt coaches every subscriber daily.\nAnything outside your rules waits for you.",
     actionsHtml: cta({ location: "hero" }) + secondary("Try the demo", "/demo", { location: "hero" }),
     figHtml: flowFig,
     cls: "pd-hero--hiw",
@@ -133,7 +134,7 @@ function howItWorks({ page, content, href, h }) {
       t: "It coaches daily", time: "Every day", meta: "daily",
       body: "Each subscriber gets a dated plan. Replies wait for you unless you switch on automatic sending.",
       needs: "A published page", status: `<span class="pd-nl">After publishing</span>`,
-      win: win("Today · decisions", `<ul class="pd-log-list"><li><em class="pd-st pd-st--ok">Applied</em><span>Squat 60 → 62.5 kg · rule 07</span></li><li><em class="pd-st pd-st--you">To you</em><span>Hotel-gym plan · draft ready</span></li><li><em class="pd-st pd-st--pause">Paused</em><span>Knee pain · alert sent</span></li></ul>`),
+      win: win("Today · decisions", `<ul class="pd-log-list"><li><em class="pd-st pd-st--ok">Sent on its own</em><span>Squat 60 → 62.5 kg · rule 07</span></li><li><em class="pd-st pd-st--you">To you</em><span>Hotel-gym plan · draft ready</span></li><li><em class="pd-st pd-st--pause">Paused</em><span>Knee pain · alert sent</span></li></ul>`),
       phone: `${appTop()}<p class="app-h">Today</p><p class="app-sub">Monday · Week 3 · Lower body A</p><div class="app-card"><p class="app-row"><span>Back squat 4 × 6</span><b>62.5 kg</b></p><p class="app-row"><span>Romanian deadlift 3 × 8</span><b>50 kg</b></p><p class="app-row"><span>Walking lunge 3 × 10</span><b>16 kg</b></p></div><div class="app-btn">Start workout</div><p class="app-offline"><span class="app-badge">${icon("check", { size: 12 })}Saved offline</span></p><div class="app-note"><p class="app-note-k">Digital coach · Layla Strength</p><p>Squats felt easy last week, so today is 62.5 kg.</p></div>`,
     },
     {
@@ -204,10 +205,18 @@ function howItWorks({ page, content, href, h }) {
     <tbody>${each(lanesRows, (r) => `<tr>${each(r, (c, i) => `<td data-k="${esc(heads[i][0])}">${esc(c)}</td>`)}</tr>`)}</tbody>
   </table>
 </div>`;
+  // Echo of Concept C's showcase: Fig. 3 in brief, citing Fig. 3b (safety rules read first).
+  const bd = brainData(), tb = href("/trainer-brain");
+  const LAY = [["a", "The message", "msg"], ["b", "Safety rules", "hit"], ["c", "Your topics", "check"], ["d", "Memory", "check"], ["e", "Rule finder", "check"], ["f", "One specialist", "ai"], ["g", "Checks after", "check"], ["h", "The lane", "lane"], ["i", "What they read", "msg"]];
+  const brief = `<figure class="c-brief" data-reveal aria-labelledby="brief-cap">
+  <ol class="c-brief-l" aria-hidden="true">${each(LAY, ([k, t, kind]) => `<li data-kind="${kind}"><i>(${k})</i><span>${esc(t)}</span></li>`)}</ol>
+  <figcaption class="c-brief-cap" id="brief-cap"><span class="fig-n">Fig. 3, in brief</span>Every message meets your safety rules first (see <a href="${tb}#fig-3b">Fig. 3b</a>). Then code picks one specialist, and your rules check the result. ${linkArrow("The full anatomy", "/trainer-brain#decides")}</figcaption>
+</figure>`;
   const lanesBand = `<section class="band band--paper" id="who" aria-labelledby="who-h">
   <div class="wrap">
     ${sectionHead({ n: 2, title: "Who does what", id: "who-h" })}
     ${lanesTbl}
+    ${brief}
   </div>
 </section>`;
 
@@ -262,10 +271,11 @@ function howItWorks({ page, content, href, h }) {
   ];
   const questions = questionsBand(h, { n: 5, id: "hiw-faq", faqs, sideHtml: `<div class="mnote" role="note"><span class="mnote-k">More answers</span>${linkArrow("All questions", "/faq")}</div>` });
 
-  checkCopy(page.path, { h1: "From your method to daily coaching", h2: ["The manual, in eight chapters", "Who does what", "About fifteen minutes to start", "Control stays visible"], lede: "Teach it your method, test it, then publish. It coaches every subscriber daily and hands you what it’s unsure about.", faqs });
+  checkCopy(page.path, { h1: "From your method to daily coaching", h2: ["The manual, in eight chapters", "Who does what", "About fifteen minutes to start", "Control stays visible"], lede: "Teach it your method, test it, then publish. It coaches every subscriber daily. Anything outside your rules waits for you.", faqs });
   return {
     main: [hero, manualBand, lanesBand, timeBand, controlBand, questions].join("\n"),
     title: page.title,
+    css: CSS.anatomy,
     description: "Eight chapters from your address to monthly payouts: teach your AI your method, test it, publish your offer and let it coach every day.",
     closing: { label: "Try the demo", path: "/demo" },
   };
@@ -318,19 +328,19 @@ function trainerBrain({ page, href, h }) {
     id: "tb-h1",
     eyebrow: "Trainer Brain",
     h1Html: `Your AI, built from your ${mark("judgment")}`,
-    lede: "Your rules, cases and corrections in one private AI. It acts alone only when confident, and asks you when it isn’t.",
+    lede: "Your rules, cases and corrections in one private AI.\nRoutine replies use your approved words. Anything else waits for you.",
     actionsHtml: cta({ location: "hero" }) + secondary("Try the demo", "/demo", { location: "hero" }),
     figHtml: heroFig,
     cls: "pd-hero--tb",
   });
 
   // Contents strip (chapters) under the hero.
-  const chaptersList = [["what", "What it is"], ["teach", "What you teach"], ["decides", "How it decides"], ["improves", "How it improves"], ["never", "What it never does"], ["yours", "Whose method it is"]];
+  const chaptersList = [["what", "What it is"], ["teach", "What you teach"], ["decides", "How it decides"], ["play", "Try a moment"], ["improves", "How it improves"], ["never", "What it never does"], ["yours", "Whose method it is"]];
   const contents = `<nav class="pd-chapters" aria-label="Chapters on this page"><div class="wrap"><ol>${each(chaptersList, ([id, t], i) => `<li><a href="#${id}"><span class="toc-n">§${i + 1}</span>${esc(t)}</a></li>`)}</ol></div></nav>`;
 
   // §1 What it is + provenance figure.
   const prov = `<div class="pd-prov" role="img" aria-label="Sample: a squat change traces back to rule 07, which came from your interview on 12 October">
-  <div class="pd-prov-node"><p class="pd-sw-k">The change</p><p class="pd-prov-t">Monday · back squat <b class="tnum">60 → 62.5 kg</b></p><p class="pd-fine">Applied automatically · reason logged</p></div>
+  <div class="pd-prov-node"><p class="pd-sw-k">The change</p><p class="pd-prov-t">Monday · back squat <b class="tnum">60 → 62.5 kg</b></p><p class="pd-fine">Sent on its own, within your rules · reason logged</p></div>
   <div class="pd-prov-link" aria-hidden="true"><svg width="100%" height="100%" preserveAspectRatio="none"><line x1="0" y1="50%" x2="100%" y2="50%" pathLength="100"/></svg><span>because</span></div>
   <div class="pd-prov-node pd-prov-node--rule"><p class="pd-sw-k">Rule 07</p><p class="pd-prov-t pd-serif">After two sessions at 3+ reps in reserve, add 2.5 kg.</p><p class="pd-fine">Confirmed by you · 12 Oct</p></div>
   <div class="pd-prov-link" aria-hidden="true"><svg width="100%" height="100%" preserveAspectRatio="none"><line x1="0" y1="50%" x2="100%" y2="50%" pathLength="100"/></svg><span>taught in</span></div>
@@ -340,7 +350,7 @@ function trainerBrain({ page, href, h }) {
   <div class="wrap">
     ${sectionHead({ n: 1, title: "What it is", id: "what-h" })}
     ${msRow(`<p class="big-p">Your AI (we call it your Trainer Brain) is built from your rules, cases and corrections. Not a generic workout generator.</p>`, `<span class="mnote-k">In one line</span>Every change traces back to something you taught. Every version can be rolled back.`)}
-    ${figure({ n: 2, caption: "Every change has a source", bodyHtml: prov, className: "pd-prov-fig" })}
+    ${figure({ n: "2a", caption: "Every change has a source", bodyHtml: prov, className: "pd-prov-fig" })}
   </div>
 </section>`;
 
@@ -363,22 +373,19 @@ function trainerBrain({ page, href, h }) {
     ${sectionHead({ n: 2, title: "What you teach it", id: "teach-h" })}
     <div class="pd-teach">
       ${manualList(teachItems, { cls: "pd-mlist--teach" })}
-      ${figure({ n: 3, caption: "“Approve all” skips flagged rules", bodyHtml: queue, className: "pd-queue-fig" })}
+      ${figure({ n: "2b", caption: "“Approve all” skips flagged rules", bodyHtml: queue, className: "pd-queue-fig" })}
     </div>
   </div>
 </section>`;
 
-  // §3 How it decides: three paths.
-  const paths = [
-    ["applied", "check", "Confident", "Follows your confirmed rules, so it’s applied automatically and logged with its reason.", "Applied automatically"],
-    ["toyou", "user", "Not sure", "Outside what you taught, or below how sure it must be: a draft comes to you.", "Handed to you"],
-    ["paused", "pause", "Safety", "Pain, medical issues and red flags pause the workout and alert you. Enforced in code, outside the AI.", "Always to you"],
-  ];
-  const decides = `<section class="band" id="decides" aria-labelledby="decides-h">
+  // §3 How it decides: Concept C's "Anatomy of a decision" (spec §4), pinned.
+  const decides = anatomy({ n: 3, fig: 3, id: "decides" });
+
+  // §4 The shared playground, in C's worked-example skin (spec §5).
+  const play = `<section class="band band--paper c-playband" id="play" aria-labelledby="play-h">
   <div class="wrap">
-    ${sectionHead({ n: 3, title: "How it decides", id: "decides-h", lede: "It reads your rules with each subscriber’s goals, schedule, equipment and logged training. Then it takes one of three paths." })}
-    <div class="pd-paths" data-reveal data-stagger>${each(paths, ([k, ic, t, b, l]) => `<div class="pd-path pd-path--${k}"><p class="lane lane--${k} is-active">${icon(ic, { size: 16 })}<span>${esc(l)}</span><span class="lane-token" aria-hidden="true"></span></p><h3 class="pd-path-t">${esc(t)}</h3><p>${esc(b)}</p></div>`)}</div>
-    <p class="pd-after" data-reveal>${linkArrow("Watch it decide in the demo", "/demo")}</p>
+    ${sectionHead({ n: 4, title: PLAY_COPY.h2, id: "play-h", lede: PLAY_COPY.lede })}
+    <figure class="fig c-playfig">${playground({ id: "playground", labelledby: "play-h" })}<figcaption class="fig-cap"><span class="fig-n">Fig. 4</span><span class="fig-t">Twelve sample moments, each worked through</span>${h.sampleLabel()}</figcaption></figure>
   </div>
 </section>`;
 
@@ -415,15 +422,15 @@ function trainerBrain({ page, href, h }) {
   ];
   const improves = `<section class="band band--paper" id="improves" aria-labelledby="improves-h">
   <div class="wrap">
-    ${sectionHead({ n: 4, title: "How it gets better", id: "improves-h" })}
+    ${sectionHead({ n: 5, title: "How it gets better", id: "improves-h" })}
     <div class="pd-imp">
       <div class="pd-imp-text">
         ${manualList(learns.map((t) => ({ title: t })), { cls: "pd-mlist--compact" })}
         ${whenOn("frontier", `<p class="pd-frontier-line">A frontier model plus your corrections: it keeps getting better with time.</p>`, "div")}
       </div>
       <div class="pd-imp-figs">
-        ${figure({ n: 4, caption: "Releases, with rollback", bodyHtml: releases, className: "pd-rel-fig" })}
-        ${figure({ n: 5, caption: "Compare my replies", bodyHtml: compare, className: "pd-cmp-fig" })}
+        ${figure({ n: 5, caption: "Releases, with rollback", bodyHtml: releases, className: "pd-rel-fig" })}
+        ${figure({ n: 6, caption: "Compare my replies", bodyHtml: compare, className: "pd-cmp-fig" })}
       </div>
     </div>
   </div>
@@ -432,7 +439,7 @@ function trainerBrain({ page, href, h }) {
   // §5 What it never does: the signed Never sheet.
   const never = `<section class="band" id="never" aria-labelledby="never-h">
   <div class="wrap">
-    ${sectionHead({ n: 5, title: "What it never does", id: "never-h" })}
+    ${sectionHead({ n: 6, title: "What it never does", id: "never-h" })}
     <div class="ms pd-never">
       ${neverSheet({ titleHtml: "Four things your AI will <em>never</em> do" })}
       <div class="mnote" role="note" data-reveal><span class="mnote-k">Why it holds</span>Safety routing is part of the platform, not a setting. It applies to every trainer.${linkArrow("Safety rules in code", "/features/safety")}</div>
@@ -449,7 +456,7 @@ function trainerBrain({ page, href, h }) {
   ];
   const yours = `<section class="band band--paper" id="yours" aria-labelledby="yours-h">
   <div class="wrap">
-    ${sectionHead({ n: 6, title: "Your method stays yours", id: "yours-h" })}
+    ${sectionHead({ n: 7, title: "Your method stays yours", id: "yours-h" })}
     <div class="ms">
       <dl class="pd-deed" data-reveal data-stagger>${each(yoursItems, ([t, d]) => `<div><dt>${icon("lock", { size: 16 })}${esc(t)}</dt><dd>${esc(d)}</dd></div>`)}</dl>
       <div class="mnote" role="note" data-reveal><span class="mnote-k">The details</span>${linkArrow("Security and privacy", "/security-and-privacy")}${linkArrow("Voice coach", "/features/voice-coach")}</div>
@@ -464,12 +471,14 @@ function trainerBrain({ page, href, h }) {
     { q: "Can another trainer see or use my AI?", a: plain(page.faqs[2].a) },
     { q: "What if my AI gets something wrong?", a: "Correct it. The correction is recorded with its reason, becomes teaching, and is checked against your test cases before the next release. You can also roll back at any time." },
   ];
-  const questions = questionsBand(h, { n: 7, id: "tb-faq", faqs, sideHtml: `<div class="mnote" role="note"><span class="mnote-k">More answers</span>${linkArrow("All questions", "/faq")}${linkArrow("Writing coaching rules", "/guides/writing-coaching-rules")}</div>` });
+  const questions = questionsBand(h, { n: 8, id: "tb-faq", faqs, sideHtml: `<div class="mnote" role="note"><span class="mnote-k">More answers</span>${linkArrow("All questions", "/faq")}${linkArrow("Writing coaching rules", "/guides/writing-coaching-rules")}</div>` });
 
-  checkCopy(page.path, { h1: "Your AI, built from your judgment", h2: ["What it is", "What you teach it", "How it decides", "How it gets better", "What it never does", "Your method stays yours"], lede: "Your rules, cases and corrections in one private AI. It acts alone only when confident, and asks you when it isn’t.", faqs, cards: paths.map((p) => p[3]) });
+  checkCopy(page.path, { h1: "Your AI, built from your judgment", h2: ["What it is", "What you teach it", "Anatomy of one decision", PLAY_COPY.h2, "How it gets better", "What it never does", "Your method stays yours"], lede: "Your rules, cases and corrections in one private AI. Routine replies use your approved words. Anything else waits for you.", faqs });
   return {
-    main: [hero, contents, what, teach, decides, improves, never, yours, questions].join("\n"),
+    main: [hero, contents, what, teach, decides, play, improves, never, yours, questions].join("\n"),
     title: "Trainer Brain: an AI trainer built from your judgment",
+    css: CSS.play, // brain-base, brain-play, then c-anatomy (C's skin wins)
+    bodyEnd: BOOT,
     description: "Teach an AI trainer your coaching rules, cases and examples. It plans and adapts training for each subscriber, learns from your corrections and asks when unsure.",
     closing: { label: "Try the demo", path: "/demo" },
   };
@@ -502,7 +511,7 @@ function featuresIndex({ page, href, h, pageFor }) {
   const parts = [
     {
       t: "Your AI", p: "/trainer-brain", b: "We call it your Trainer Brain: teaching, testing, releases and handoffs. It learns from your corrections.",
-      fig: win("Inbox · Layla Strength", `<p class="pd-part-row"><em class="pd-st pd-st--ok">Applied</em><span>Squat 60 → 62.5 kg · rule 07</span></p><p class="pd-sw-k pd-part-k">Handed to you</p><p class="pd-part-q">“Hotel gym for two weeks”</p><p class="pd-part-a">→ Draft plan with dumbbells to 20 kg</p><p class="pd-btns"><span class="btn-ui btn-ui--ink">Approve</span><span class="btn-ui">Correct</span></p>`, { label: "Sample inbox: one change applied, and a hotel-gym draft plan to approve or correct" }),
+      fig: win("Inbox · Layla Strength", `<p class="pd-part-row"><em class="pd-st pd-st--ok">Sent on its own</em><span>Squat 60 → 62.5 kg · rule 07</span></p><p class="pd-sw-k pd-part-k">Handed to you</p><p class="pd-part-q">“Hotel gym for two weeks”</p><p class="pd-part-a">→ Draft plan with dumbbells to 20 kg</p><p class="pd-btns"><span class="btn-ui btn-ui--ink">Approve</span><span class="btn-ui">Correct</span></p>`, { label: "Sample inbox: one change applied, and a hotel-gym draft plan to approve or correct" }),
     },
     {
       t: "Subscriber experience", p: "/features/subscriber-app", b: "Day-by-day plans, guided workouts, nutrition, voice, chat, bookings and progress.",
@@ -524,7 +533,32 @@ function featuresIndex({ page, href, h, pageFor }) {
   </div>
 </section>`;
 
-  // §2 What your subscribers get: eight numbered items.
+  // §2 Where each feature sits: one "Fig." plate per feature, its layer of
+  // Concept C's anatomy (spec §4 "Where it lives"). Names, lines and status
+  // come from the shared trace data, so they match the showcase exactly.
+  const bd = brainData(), tbl = href("/trainer-brain");
+  const st = (id) => bd.labels.status[bd.sp[id].status];
+  const LAYERS = [
+    ["b", "/features/safety", "Safety", ["safety"], "Reads every message first. Pain or red flags pause training. No AI is called.", "STOP · No AI called"],
+    ["f", "/features/chat-and-digital-coach", "Chat and digital coach", ["reply_picker", "draft_writer"], "A rule fits: it picks your approved reply. None fits: it drafts one, and it waits for you.", "Chat replies have no score"],
+    ["g", "/features/ai-training-plans", "AI training plans", ["plan_writer", "confidence"], "Plans carry a score. Below your bar, the plan waits for you.", "86% · your bar 80%"],
+    ["f", "/features/nutrition", "Nutrition", ["meal_photo", "meal_planner"], "Estimates a meal from a photo. Nothing is saved until the member confirms.", "4 items · all unsure"],
+    ["f", "/features/voice-coach", "Voice coach", ["voice_lines", "set_logger"], "Opens with your safety line. “Too heavy” follows your rule. “Pain” stops the session.", "Your 10% rule → 54 kg"],
+    ["d", "/features/progress-and-client-twin", "Progress and client twin", ["memory"], bd.sp.memory.line, "Facts from your app only"],
+  ];
+  const layersBand = `<section class="band c-inkband" id="layers" aria-labelledby="layers-h">
+  <div class="wrap">
+    ${sectionHead({ n: 2, title: "Where each feature sits", id: "layers-h", lede: "Each feature is one layer of the same decision. Code picks one specialist per moment; your rules check every layer." })}
+    <ol class="c-fps" data-reveal data-stagger>${each(LAYERS, ([k, p, t, ids, line, tag]) => `<li class="c-fp"><a href="${href(p)}">
+      <span class="c-fp-fig">Fig. 3${k}</span><span class="c-fp-t">${esc(t)}</span>
+      <span class="c-fp-nodes">${ids.map((id) => nodeChip(bd, id)).join("")}</span>
+      <span class="c-fp-d">${esc(line)}</span>
+      <span class="c-fp-f"><span class="c-fp-tag${k == "b" ? " is-stop" : ""}">${esc(tag)}</span><span class="c-fp-s">${esc(st(ids[0]))}</span></span></a></li>`)}</ol>
+    <p class="c-fp-note">Sample values. Fig. 3 takes one decision apart, layer by layer. ${linkArrow("See Fig. 3", "/trainer-brain#decides")}</p>
+  </div>
+</section>`;
+
+  // §3 What your subscribers get: eight numbered items.
   const subsCards = page.sections.find((s) => s.id === "subscribers").cards;
   const extra = {
     "Your voice, optionally": chip("addon", "Add-on") + statusChip("voice", "Not on yet for subscribers", "Live"),
@@ -533,7 +567,7 @@ function featuresIndex({ page, href, h, pageFor }) {
   };
   const subsBand = `<section class="band band--paper" id="subscribers" aria-labelledby="subs-h">
   <div class="wrap">
-    ${sectionHead({ n: 2, title: "What your subscribers get", id: "subs-h", lede: "Once your page is live, under your name." })}
+    ${sectionHead({ n: 3, title: "What your subscribers get", id: "subs-h", lede: "Once your page is live, under your name." })}
     <ol class="pd-eight" data-reveal data-stagger>${each(subsCards, (c, i) => `<li><span class="pd-eight-n">${["i", "ii", "iii", "iv", "v", "vi", "vii", "viii"][i]}</span><div><h3 class="pd-eight-t">${esc(c.title)}</h3><p>${esc(plain(c.body).replace("An add-on where a voice in your own verified voice runs the session.", "An add-on: your own verified voice runs the session."))}</p>${extra[c.title] ? `<p class="chips">${extra[c.title]}</p>` : ""}</div></li>`)}</ol>
   </div>
 </section>`;
@@ -541,7 +575,7 @@ function featuresIndex({ page, href, h, pageFor }) {
   // §3 Inside the product: five screens, visitor-chosen tabs.
   const screen = (n, cap, figHtml, notes) => `<div class="pd-screen"><figure class="fig pd-screen-fig"><div class="fig-body">${figHtml}</div>${figCap(h, n, cap)}</figure><div class="mnote" role="note">${notes}</div></div>`;
   const screens = [
-    { id: "inbox", label: "Inbox", panelHtml: screen(3, "Your inbox", win("Inbox · Layla Strength", `<ul class="pd-log-list pd-log-list--lg"><li><em class="pd-st pd-st--ok">Applied</em><span>Squat 60 → 62.5 kg</span><small>rule 07 · reason logged</small></li><li><em class="pd-st pd-st--you">To you</em><span>Hotel gym for two weeks</span><small>draft: dumbbells to 20 kg</small></li><li><em class="pd-st pd-st--pause">Paused</em><span>Knee pain reported</span><small>workout paused · alert sent</small></li></ul>`, { label: "Sample inbox with applied, handed-to-you and paused items" }), `<span class="mnote-k">Your inbox</span>What it applied, what it handed to you, and what paused. Approve or correct in one tap.`) },
+    { id: "inbox", label: "Inbox", panelHtml: screen(3, "Your inbox", win("Inbox · Layla Strength", `<ul class="pd-log-list pd-log-list--lg"><li><em class="pd-st pd-st--ok">Sent on its own</em><span>Squat 60 → 62.5 kg</span><small>rule 07 · reason logged</small></li><li><em class="pd-st pd-st--you">To you</em><span>Hotel gym for two weeks</span><small>draft: dumbbells to 20 kg</small></li><li><em class="pd-st pd-st--pause">Paused</em><span>Knee pain reported</span><small>workout paused · alert sent</small></li></ul>`, { label: "Sample inbox with applied, handed-to-you and paused items" }), `<span class="mnote-k">Your inbox</span>What it applied, what it handed to you, and what paused. Approve or correct in one tap.`) },
     { id: "today", label: "Today", panelHtml: screen(3, "Their day, dated", ph(`${appTop()}<p class="app-h">Today</p><p class="app-sub">Monday · Week 3 · Lower body A</p><div class="app-card"><p class="app-row"><span>Back squat 4 × 6</span><b>62.5 kg</b></p><p class="app-row"><span>Romanian deadlift 3 × 8</span><b>50 kg</b></p><p class="app-row"><span>Walking lunge 3 × 10</span><b>16 kg</b></p></div><div class="app-btn">Start workout</div><p class="app-offline"><span class="app-badge">${icon("check", { size: 12 })}Saved offline</span></p>${tabbar("Plan")}`, { label: "Sample Today screen", cls: "pd-phone--md" }), `<span class="mnote-k">Today</span>A dated session, built from your rules. Works offline in the gym.`) },
     { id: "logger", label: "Logger", panelHtml: screen(3, "Logging a set", ph(`<p class="pd-sess-k">Guided session · 2 of 3</p><p class="app-h">Back squat</p><p class="app-sub">Set 2 of 4 · target 6 reps at 62.5 kg</p><div class="pd-log"><p><span>Reps</span><b>6</b></p><p><span>Load</span><b>62.5 kg</b></p><p><span>In reserve</span><b>3</b></p></div><div class="pd-rest"><svg viewBox="0 0 44 44" aria-hidden="true"><circle cx="22" cy="22" r="19"/><circle class="pd-rest-fill" cx="22" cy="22" r="19" pathLength="100"/></svg><p><b class="tnum">1:45</b><span>Rest</span></p></div><div class="app-btn">Log set</div><p class="pd-pain">Report pain</p>`, { label: "Sample set logger with rest timer", cls: "pd-phone--md" }), `<span class="mnote-k">Logger</span>Reps, load and effort per set, with a rest timer. Logged effort feeds the next decision.`) },
     { id: "statement", label: "Statement", panelHtml: screen(3, "A month, gross to net", `<div class="stmt" role="img" aria-label="Sample statement"><div class="stmt-head"><p class="stmt-t">Statement · October</p><div class="chips">${sampleLabel("Sample")}${statusChip("payments", "Not on yet", "Live")}</div></div><dl class="stmt-lines"><div><dt>150 subscribers × AED 199</dt><dd class="tnum">${calc.aedWhole(subs)}</dd></div><div><dt>Our share, by band</dt><dd class="tnum">−${calc.aedWhole(comm)}</dd></div><div><dt>Payment processing</dt><dd><span class="placeholder">itemised · decision 3</span></dd></div><div><dt>Before card processing</dt><dd class="tnum">${calc.aedWhole(subs - comm)}</dd></div></dl></div>`, `<span class="mnote-k">Statement</span>Every cost on one page. ${linkArrow("The commission maths", "/pricing")}`) },
@@ -549,7 +583,7 @@ function featuresIndex({ page, href, h, pageFor }) {
   ];
   const insideBand = `<section class="band" id="inside" aria-labelledby="inside-h">
   <div class="wrap">
-    ${sectionHead({ n: 3, title: "Inside the product", id: "inside-h", lede: "Five screens. Choose one; nothing changes on its own." })}
+    ${sectionHead({ n: 4, title: "Inside the product", id: "inside-h", lede: "Five screens. Choose one; nothing changes on its own." })}
     <div data-reveal>${tabs({ id: "screens", label: "Product screens", tabs: screens, className: "pd-screens" })}</div>
   </div>
 </section>`;
@@ -557,7 +591,7 @@ function featuresIndex({ page, href, h, pageFor }) {
   // §4 Tools it replaces (id="replaces", test-encoded).
   const replacesBand = `<section class="band band--paper" id="replaces" aria-labelledby="replaces-h">
   <div class="wrap">
-    ${sectionHead({ n: 4, title: "Tools it replaces", id: "replaces-h", lede: "Generic tool categories. Once your page is live, each becomes part of one workspace." })}
+    ${sectionHead({ n: 5, title: "Tools it replaces", id: "replaces-h", lede: "Generic tool categories. Once your page is live, each becomes part of one workspace." })}
     <div class="tbl-wrap" data-reveal><table class="tbl pd-rtab"><caption>Instead of separate subscriptions</caption>
       <thead><tr><th scope="col">Instead of</th><th scope="col">In trainsyou</th></tr></thead>
       <tbody>${each(REPLACES, ([t, d, f], i) => `<tr style="--i:${i}"><th scope="row"><span class="pd-struck">${esc(t)}<svg class="pd-strike" aria-hidden="true" width="100%" height="4" preserveAspectRatio="none"><line x1="0" y1="2" x2="100%" y2="2" pathLength="100"/></svg></span></th><td>${esc(d)}${f ? ` ${statusChip(f, "Not on yet", "Live today")}` : ""}</td></tr>`)}</tbody>
@@ -569,7 +603,7 @@ function featuresIndex({ page, href, h, pageFor }) {
   const guides = Object.keys(FEATURES).map((p) => ({ p, pg: pageFor(p), f: FEATURES[p] }));
   const guidesBand = `<section class="band" id="feature-guides" aria-labelledby="guides-h">
   <div class="wrap">
-    ${sectionHead({ n: 5, title: "Feature guides", id: "guides-h", lede: "Eleven short chapters, each with a worked figure." })}
+    ${sectionHead({ n: 6, title: "Feature guides", id: "guides-h", lede: "Eleven short chapters, each with a worked figure." })}
     <ol class="pd-guides" data-reveal data-stagger>${each(guides, ({ p, pg, f }, i) => `<li><a href="${href(p)}"><span class="pd-g-n tnum">${String(i + 1).padStart(2, "0")}</span><span class="pd-g-main"><span class="pd-g-t">${esc(pg.navLabel)}</span><span class="pd-g-d">${esc(f.line)}</span></span><span class="pd-g-chips">${featureChips(pg)}</span><span class="arr pd-g-arr" aria-hidden="true">→</span></a></li>`)}</ol>
   </div>
 </section>`;
@@ -577,7 +611,7 @@ function featuresIndex({ page, href, h, pageFor }) {
   // §6 All capabilities, as Appendix A (id="all-capabilities"), collapsed.
   const capBand = `<section class="band band--paper" id="all-capabilities" aria-labelledby="caps-h">
   <div class="wrap">
-    ${sectionHead({ n: 6, titleHtml: `All ${CAPABILITY_COUNT} capabilities`, id: "caps-h", lede: `Appendix A. One workspace, in ${MATRIX.length} areas. Open any area.` })}
+    ${sectionHead({ n: 7, titleHtml: `All ${CAPABILITY_COUNT} capabilities`, id: "caps-h", lede: `Appendix A. One workspace, in ${MATRIX.length} areas. Open any area.` })}
     <div class="pd-legend" data-reveal><span class="pd-legend-k">Key</span>${chip("included", "Live today")}${chip("noton", "Not on yet")}${chip("optional", "Optional tier")}${chip("addon", "Add-on")}</div>
     <div class="pd-caps" data-caps>${each(MATRIX, (g, i) => `<div class="pd-cap" id="cap-${g.id}" data-reveal style="--i:${Math.min(i, 5)}">
       <h3 class="pd-cap-h"><button class="pd-cap-q" type="button" aria-expanded="false" aria-controls="cap-${g.id}-list" id="cap-${g.id}-q"><span class="pd-cap-n">A${i + 1}</span><span class="pd-cap-t">${esc(g.title)}</span><span class="pd-cap-aud">${esc(g.audience)}</span><span class="pd-cap-c tnum">${g.items.length}</span><span class="faq-icon" aria-hidden="true"></span></button></h3>
@@ -594,11 +628,12 @@ function featuresIndex({ page, href, h, pageFor }) {
     { q: "Are all features available today?", a: "Most are. Subscriber payments, payouts, paid bookings and voice for subscribers are not on yet, and publishing your page waits for payments. Each item above shows its status." },
     { q: "Is the subscriber app a separate download?", a: page.faqs[1].a },
   ];
-  const questions = questionsBand(h, { n: 7, id: "feat-faq", faqs, sideHtml: `<div class="mnote" role="note"><span class="mnote-k">Next</span>${linkArrow("See the pricing", "/pricing")}${linkArrow("Try the demo", "/demo")}</div>` });
+  const questions = questionsBand(h, { n: 8, id: "feat-faq", faqs, sideHtml: `<div class="mnote" role="note"><span class="mnote-k">Next</span>${linkArrow("See the pricing", "/pricing")}${linkArrow("Try the demo", "/demo")}</div>` });
 
   checkCopy(page.path, { h1: "Everything you need, under your own name", h2: ["Four parts of one platform", "What your subscribers get", "Inside the product", "Tools it replaces", "Feature guides", `All ${CAPABILITY_COUNT} capabilities`], lede: "Your AI, a branded app and website, nutrition, bookings, payments and safety rules, in one workspace.", faqs, cards: [...parts.map((x) => x.b), ...subsCards.map((c) => plain(c.body))] });
   return {
-    main: [hero, partsBand, subsBand, insideBand, replacesBand, guidesBand, capBand, questions].join("\n"),
+    main: [hero, partsBand, layersBand, subsBand, insideBand, replacesBand, guidesBand, capBand, questions].join("\n"),
+    css: CSS.anatomy,
     title: page.title,
     closing: { label: "See the pricing", path: "/pricing" },
   };
@@ -696,180 +731,41 @@ function demo({ page, href, h }) {
   const { esc, each, cta, secondary, linkArrow, sectionHead, icon, mark, tabs, liveRegion, sampleLabel, chip, ruleCard } = h;
   const lanes3 = (active) => `<ol class="lanes pd-lanes" data-lanes>${each([["applied", "Applied automatically", "check"], ["toyou", "Unsure → to you", "user"], ["paused", "Pain → paused, to you", "pause"]], ([k, t, ic]) => `<li class="lane lane--${k}${k === active ? " is-active" : ""}" data-lane="${k}">${icon(ic, { size: 16 })}<span>${esc(t)}</span><span class="lane-token" aria-hidden="true"></span></li>`)}</ol>`;
 
-  // Hero: decision 1 read as a worked example (product content in the first
-  // screen, doubling as the reading key for the four examples below).
+  // Hero: one decision read as a worked example (the t1 fixture; chat replies have no score).
   const key = `<aside class="pd-key" aria-labelledby="key-k">
-  <p class="pd-key-k" id="key-k"><span>Decision 1, as a worked example</span>${sampleLabel()}</p>
+  <p class="pd-key-k" id="key-k"><span>One decision, as a worked example</span>${sampleLabel()}</p>
   <ol>
-    <li><span>1</span><b>The message</b><em>“Week three done and the squats felt easy.”</em></li>
-    <li><span>2</span><b>Your rule</b><em>Two easy sessions at 3+ reps in reserve → add 2.5 kg</em></li>
-    <li><span>3</span><b>How sure</b><em class="tnum">86%, above your 80% bar</em></li>
-    <li><span>4</span><b>The outcome</b><em class="tnum">Applied: back squat 60 → 62.5 kg</em></li>
+    <li><span>1</span><b>The message</b><em>“All four of my back squat sets were at RIR 2 last session. Can I go up in weight?”</em></li>
+    <li><span>2</span><b>Your rule</b><em>Barbell load progression: +2.5 kg, inside your 5% cap</em></li>
+    <li><span>3</span><b>How sure</b><em>Chat replies have no score. They must cite your rule.</em></li>
+    <li><span>4</span><b>The outcome</b><em class="tnum">Sent on its own, within your rules: 62.5 kg</em></li>
   </ol>
-  ${linkArrow("Try all four, then change the rule", "#decisions")}
+  ${linkArrow("Throw your own moment", "#play")}
 </aside>`;
   const hero = heroShell(h, {
     id: "demo-h1",
     eyebrow: "Interactive demo",
     h1Html: "See your AI make a coaching decision",
-    lede: "Pick a message. See the rule it follows, how sure it is, and where the decision goes. Then change the rule.",
+    lede: "Pick a message. Watch each check and the one specialist code picks, and see where it goes. Then change a setting.",
     extraHtml: `<p class="pd-scripted">${icon("check", { size: 15 })}Scripted examples. No AI model is called.</p>`,
     actionsHtml: cta({ location: "hero" }) + secondary("See how it works", "/how-it-works", { location: "hero" }),
     figHtml: key,
     cls: "pd-hero--demo",
   });
 
-  // §1 Four decisions, as worked examples.
-  const D = [
-    {
-      id: "easy", tab: "Squats felt easy",
-      msg: "Week three done and the squats felt easy.",
-      ruleHtml: `After two sessions with every set done and <span class="nowrap">${mark("3+ reps in reserve")}</span>, add 2.5 kg to the main lower-body lift.`,
-      sure: 86, lane: "applied", label: "Applied automatically",
-      outK: "Next Monday", outHtml: xv("Back squat 60 kg", "Back squat 60 → 62.5 kg"), outNote: "Reason recorded with the change.",
-      reply: "Nice work. Monday’s squat goes to 62.5 kg, because your last two sessions were easy.",
-      acts: [["confirm", "Confirm"], ["correct", "Correct"]],
-      fixes: ["Keep 60 kg", "Add 1.25 kg", "Add 5 kg"],
-    },
-    {
-      id: "missed", tab: "Missed yesterday",
-      msg: "I missed yesterday. Should I do two sessions today?",
-      ruleHtml: `<span class="nowrap">${mark("Never stack")}</span> two sessions in a day. Move a missed one to the next free day, with rest between hard sessions.`,
-      sure: 91, lane: "applied", label: "Rescheduled automatically",
-      outK: "This week", outHtml: xv("Missed: Wednesday", "Moved to Thursday · Friday rest"), outNote: "Rest day kept between hard sessions.",
-      reply: "Let’s not double up. Your session moves to Thursday, and Friday becomes a rest day.",
-      acts: [["confirm", "Confirm"], ["correct", "Correct"]],
-      fixes: ["Skip it this week", "Move it to Saturday", "Make Thursday lighter"],
-    },
-    {
-      id: "hotel", tab: "Hotel gym",
-      msg: "I’m travelling for two weeks with only a hotel gym. Can you rebuild my plan?",
-      ruleHtml: `<span class="nowrap">${mark("Nothing you taught")}</span> covers hotel-gym equipment, so it isn’t sure enough to act.`,
-      sure: 41, lane: "toyou", label: "Handed to you",
-      outK: "Draft for you", outHtml: xv("Plan: full gym", "Dumbbells to 20 kg · waits for you"), outNote: "The subscriber is told you’ll confirm.",
-      reply: "Good question. I’ve drafted a hotel-gym plan, and Layla will confirm it before you start.",
-      acts: [["confirm", "Approve draft"], ["correct", "Correct"]],
-      fixes: ["Bodyweight only", "Keep two sessions a week", "Add a run instead"],
-    },
-    {
-      id: "pain", tab: "Knee hurts",
-      msg: "My knee hurts when I squat today.",
-      ruleHtml: `Safety rule: <span class="nowrap">${mark("pain pauses")}</span> the workout. Enforced in code, outside the AI.`,
-      sure: null, lane: "paused", label: "Workout paused",
-      outK: "Right now", outHtml: xv("Workout in progress", "Workout paused · you’re alerted"), outNote: "Normal training waits for your review.",
-      reply: "Your workout is paused. Layla has been alerted and will review this with you. This is coaching, not medical advice.",
-      acts: [["resume", "Resume training"], ["keep", "Keep paused"]],
-      fixes: null,
-    },
-  ];
-  const panel = (d, i) => `<div class="pd-worked" data-decision="${d.id}" data-i="${i}">
-  <div class="pd-wk-phone">
-    ${ph(`${appTop("Coach chat")}
-<div class="pd-chat pd-wk-chat">
-  <p class="bubble bubble--out pd-wk-msg">${esc(d.msg)}</p>
-  <div class="pd-wk-reply"><p class="pd-typing" aria-hidden="true"><i></i><i></i><i></i></p><p class="pd-who">${d.id === "pain" ? "Safety notice" : "Digital coach · Layla Strength"}</p><p class="bubble bubble--in">${esc(d.reply)}</p></div>
-</div>
-${tabbar("Chat")}`, { label: `Subscriber chat: “${d.msg}” and the reply: “${d.reply}”`, cls: "pd-phone--demo" })}
-  </div>
-  <div class="pd-wk-sheet">
-    <div class="pd-wk-head"><p class="pd-wk-k">Worked example ${i + 1} of 4</p>${sampleLabel()}</div>
-    <dl class="pd-wk-lines">
-      <div><dt>Message</dt><dd class="pd-wk-quote">“${esc(d.msg)}”</dd></div>
-      <div><dt>Your rule</dt><dd class="pd-wk-rule">${d.ruleHtml}</dd></div>
-      <div><dt>How sure</dt><dd>${d.sure == null ? `<span class="pd-wk-na">Not scored. Safety rules don’t wait for a score.</span>` : `<span class="pd-wk-sure"><b class="tnum">${d.sure}%</b><span class="meter" style="--v:${d.sure / 100}"><i></i></span><small class="tnum">your bar: 80%</small></span>`}</dd></div>
-      <div><dt>Goes to</dt><dd>${lanes3(d.lane)}</dd></div>
-      <div class="pd-wk-out"><dt>${esc(d.outK)}</dt><dd><p class="pd-wk-res">${d.outHtml}</p><p class="fine">${esc(d.outNote)}</p></dd></div>
-    </dl>
-    <div class="pd-wk-acts" data-acts>
-      <div class="pd-wk-btns" role="group" aria-label="Your decision on example ${i + 1}">${each(d.acts, ([k, l], j) => `<button class="btn ${j ? "btn-secondary" : "btn-primary"} btn-sm" type="button" data-act="${k}"${k === "correct" ? ` aria-expanded="false" aria-controls="fix-${d.id}"` : ""}>${esc(l)}</button>`)}</div>
-      ${d.fixes ? `<fieldset class="pd-fix" id="fix-${d.id}" hidden><legend>What would you do instead?</legend><div class="pd-fix-opts">${each(d.fixes, (x, j) => `<label class="pd-fix-o"><input type="radio" name="fix-${d.id}" value="${esc(x)}"><span>${esc(x)}</span></label>`)}</div></fieldset>` : ""}
-      <p class="pd-wk-result" data-result hidden></p>
-    </div>
-    <span class="pd-stamp" aria-hidden="true"><span>Confirmed</span><b>26 Oct</b></span>
-  </div>
-</div>`;
-  const decisions = `<section class="band band--paper" id="decisions" aria-labelledby="dec-h">
+  // §1 The shared playground (spec §5), in C's worked-example skin.
+  const play = `<section class="band band--paper c-playband" id="play" aria-labelledby="play-h">
   <div class="wrap">
-    ${sectionHead({ n: 1, title: "Four decisions, worked through", id: "dec-h", lede: "Your AI (we call it your Trainer Brain) checks each message against your rules. Confirm the outcome, or correct it." })}
-    <div class="pd-dec" data-demo>
-      ${tabs({ id: "dec", label: "Four subscriber messages", className: "pd-dec-tabs", tabs: D.map((d, i) => ({ id: d.id, label: `<span class="pd-dec-n">${i + 1}</span>${esc(d.tab)}`, panelHtml: panel(d, i) })) })}
-      ${liveRegion("dec-live")}
-    </div>
-    <p class="fine pd-dec-note">${esc(page.sections[0].note)}</p>
-  </div>
-</section>`;
-
-  // §2 Change the rule (rule builder; deterministic).
-  const LOG = [["Mon 13 Oct", 2], ["Thu 16 Oct", 3], ["Mon 20 Oct", 3]];
-  const stepper = (id, label, value, { min, max, step, suffix = "", help }) => `<div class="pd-num">
-  <label class="pd-num-l" for="${id}">${esc(label)}</label>
-  <div class="pd-num-row">
-    <button class="pd-num-b" type="button" data-num="-1" aria-label="Less: ${esc(label)}" aria-controls="${id}">−</button>
-    <input class="input pd-num-i" id="${id}" type="number" inputmode="decimal" value="${value}" min="${min}" max="${max}" step="${step}" data-rule="${id.replace("rb-", "")}"${help ? ` aria-describedby="${id}-h"` : ""}>
-    ${suffix ? `<span class="pd-num-s" aria-hidden="true">${esc(suffix)}</span>` : ""}
-    <button class="pd-num-b" type="button" data-num="1" aria-label="More: ${esc(label)}" aria-controls="${id}">+</button>
-  </div>
-  ${help ? `<p class="pd-num-h" id="${id}-h">${esc(help)}</p>` : ""}
-</div>`;
-  const builder = `<section class="band" id="rule" aria-labelledby="rule-h">
-  <div class="wrap">
-    ${sectionHead({ n: 2, title: "Change the rule", id: "rule-h", lede: "Edit the numbers. The outcome recomputes from the same three logged sessions." })}
-    <div class="pd-rb" data-rule-builder>
-      <div class="pd-rb-in" data-reveal>
-        <p class="pd-rb-sent" aria-hidden="true">After <span class="pd-rb-v">${h.valueSlot("2", { key: "sessions", w: "1.2ch", align: "end" })}</span> sessions at <span class="pd-rb-v">${h.valueSlot("3", { key: "rir", w: "1.2ch", align: "end" })}+</span> reps in reserve, add <span class="pd-rb-v">${h.valueSlot("2.5", { key: "kg", w: "2.6ch", align: "end" })}&nbsp;kg</span>.</p>
-        <div class="pd-rb-fields">
-          ${stepper("rb-sessions", "Easy sessions in a row", 2, { min: 1, max: 6, step: 1 })}
-          ${stepper("rb-rir", "Reps in reserve, at least", 3, { min: 0, max: 5, step: 1 })}
-          ${stepper("rb-kg", "Load to add", 2.5, { min: 0.5, max: 10, step: 0.5, suffix: "kg" })}
-        </div>
-      </div>
-      <div class="pd-rb-out" data-reveal>
-        <table class="pd-rb-log"><caption>Logged back squat sessions · ${sampleLabel()}</caption>
-          <thead><tr><th scope="col">Session</th><th scope="col">All sets done</th><th scope="col">In reserve</th><th scope="col">Easy?</th></tr></thead>
-          <tbody>${each(LOG, ([d, r], i) => `<tr data-rir="${r}"><th scope="row">${d}</th><td>${icon("check", { size: 14 })}<span class="sr-only">Yes</span></td><td class="tnum">${r}</td><td>${h.valueSlot(r >= 3 ? "Easy" : "—", { key: `easy-${i}`, w: "5ch" })}</td></tr>`)}</tbody>
-        </table>
-        <div class="pd-rb-result">
-          <p class="pd-rb-k">Outcome for next Monday</p>
-          <p class="pd-rb-fig">${h.valueSlot("Applied: 60 → 62.5 kg", { key: "outcome", w: "100%" })}</p>
-          <p class="pd-rb-sub">${h.valueSlot("Two easy sessions in a row. Your rule needs two.", { key: "why", w: "100%" })}</p>
-          <p class="pd-rb-chip">${h.valueSlot("", { key: "rb-chip" }).replace("<span></span>", `<span>${chip("live", "Applied automatically")}</span>`)}</p>
-        </div>
-        ${liveRegion("rb-live")}
-      </div>
-    </div>
-  </div>
-</section>`;
-
-  // §3 How sure must it be? (threshold range vs the sample decision at 86%).
-  const thr = 80;
-  const threshold = `<section class="band band--paper" id="threshold" aria-labelledby="thr-h">
-  <div class="wrap">
-    ${sectionHead({ n: 3, title: "How sure must it be?", id: "thr-h", lede: "Set your bar. The squat decision is 86% sure. Below your bar, it comes to you." })}
-    <div class="pd-thr" data-threshold data-reveal>
-      <div class="pd-thr-top">
-        <p class="pd-thr-read"><span class="pd-rb-k">Your bar</span><b class="tnum">${h.valueSlot(`${thr}%`, { key: "thr", w: "3.2ch" })}</b></p>
-        <p class="pd-thr-read"><span class="pd-rb-k">This decision</span><b class="tnum">86%</b></p>
-      </div>
-      <div class="pd-thr-scale">
-        <span class="pd-thr-mark" style="--p:${(86 - 60) / 35}" aria-hidden="true"><span>86%</span></span>
-        <label class="sr-only" for="thr-range">How sure your AI must be before it acts on its own</label>
-        <input class="range pd-thr-range" id="thr-range" type="range" min="60" max="95" step="1" value="${thr}" style="--p:${((thr - 60) / 35) * 100}%" aria-valuetext="${thr}%: 86% clears it, applied automatically">
-        <p class="pd-thr-ends" aria-hidden="true"><span>60%</span><span>95%</span></p>
-      </div>
-      <div class="pd-thr-out">
-        <p class="pd-rb-fig">${h.valueSlot("Applied automatically", { key: "thr-out", w: "100%" })}</p>
-        <p class="pd-rb-sub">${h.valueSlot("86% clears your 80% bar.", { key: "thr-why", w: "100%" })}</p>
-        ${lanes3("applied").replace("data-lanes", 'data-lanes="thr"')}
-      </div>
-      ${liveRegion("thr-live")}
-    </div>
+    ${sectionHead({ n: 1, title: PLAY_COPY.h2, id: "play-h", lede: PLAY_COPY.lede })}
+    <figure class="fig c-playfig">${playground({ id: "playground", labelledby: "play-h" })}<figcaption class="fig-cap"><span class="fig-n">Fig. 1</span><span class="fig-t">Twelve sample moments, each worked through</span>${sampleLabel()}</figcaption></figure>
+    <p class="c-play-more">${linkArrow("See one decision taken apart", "/trainer-brain#decides")}</p>
   </div>
 </section>`;
 
   // §4 What happens next in your account.
   const next = `<section class="band" id="next" aria-labelledby="next-h">
   <div class="wrap">
-    ${sectionHead({ n: 4, title: "What happens in your account", id: "next-h" })}
+    ${sectionHead({ n: 2, title: "What happens in your account", id: "next-h" })}
     <div class="pd-next">
       <div class="pd-next-copy" data-reveal>
         <p class="big-p">You’ll teach your real rules in setup. Every reply waits for you until you choose otherwise.</p>
@@ -884,16 +780,18 @@ ${tabbar("Chat")}`, { label: `Subscriber chat: “${d.msg}” and the reply: “
   const faqs = [
     { q: "Can I test my own AI before launch?", a: "Yes. Write test cases with the answer you expect. Your AI is checked against them before a version can be published." },
     { q: "Is this a real AI response?", a: "No. These are scripted examples that show the decision flow. Your real AI uses your own confirmed rules and a tested release." },
-    { q: "Who decides how sure it must be?", a: "You do. You choose which routine changes may run automatically; everything else comes to you." },
+    { q: "Who decides what sends on its own?", a: "You do. Chat replies send on their own only at Brain level 2 or 3, using replies you approved. Plans use your bar: how sure it must be to send alone." },
     { q: "What happens when a subscriber reports pain?", a: PAIN_A },
   ];
-  const questions = questionsBand(h, { n: 5, id: "demo-faq", faqs, paper: true, sideHtml: `<div class="mnote" role="note"><span class="mnote-k">Read next</span>${linkArrow("How your AI decides", "/trainer-brain")}${linkArrow("Safety rules in code", "/features/safety")}</div>` });
+  const questions = questionsBand(h, { n: 3, id: "demo-faq", faqs, paper: false, sideHtml: `<div class="mnote" role="note"><span class="mnote-k">Read next</span>${linkArrow("How your AI decides", "/trainer-brain")}${linkArrow("Safety rules in code", "/features/safety")}</div>` });
 
-  checkCopy(page.path, { h1: "See your AI make a coaching decision", h2: ["Four decisions, worked through", "Change the rule", "How sure must it be?", "What happens in your account"], lede: "Pick a message. See the rule it follows, how sure it is, and where the decision goes. Then change the rule.", faqs });
+  checkCopy(page.path, { h1: "See your AI make a coaching decision", h2: [PLAY_COPY.h2, "What happens in your account"], lede: "Pick a message. Watch each check and the one specialist code picks, and see where it goes. Then change a setting.", faqs });
   return {
-    main: [hero, decisions, builder, threshold, next, questions].join("\n"),
+    main: [hero, play, next, questions].join("\n"),
     title: "See an AI coach decide: interactive demo",
-    description: "Four scripted examples of your AI making a coaching decision, plus a rule you can edit and a bar you can set. No AI model is called.",
+    description: "Twelve scripted sample moments: watch the checks and the one specialist code picks, then change a setting and run it again. No AI model is called.",
+    css: CSS.play,
+    bodyEnd: BOOT,
     closing: { label: "See how it works", path: "/how-it-works" },
   };
 }

@@ -7,6 +7,9 @@
 //
 // Page modules export `pages`: { "<path>": (ctx) => PageResult }.
 // See src/BUILDERS.md for the contract, helpers and class vocabulary.
+// The Brain showcase engine is copied from ../shared/brain into site/assets/brain/
+// on every build (lib-brain.mjs runs first; it never deletes other assets).
+import "./lib-brain.mjs";
 import { writeFileSync, readdirSync, unlinkSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { ROOT, content } from "./lib/content.mjs";

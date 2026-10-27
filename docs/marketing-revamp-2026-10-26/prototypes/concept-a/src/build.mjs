@@ -1,19 +1,29 @@
 // Concept A "Live Brain": static site generator.
 //   node concept-a/src/build.mjs   -> writes concept-a/site/*.html (42 pages)
-// Assets (site.css, site.js, calc.js, <module>.css/.js) live in site/assets and
-// are authored directly; this script only writes the HTML pages.
-import { writeFileSync, existsSync, mkdirSync } from "node:fs";
+// Assets (site.css, site.js, calc.js, <module>.css/.js, a-field.js, a-brain.css)
+// live in site/assets and are authored directly; this script writes the HTML
+// pages and, first, copies the shared Brain engine into site/assets/brain/
+// (spec showcase-final.md §1.6) so pages can render its static markup in Node.
+import { writeFileSync, existsSync, mkdirSync, readdirSync, copyFileSync } from "node:fs";
 import { join } from "node:path";
-import { PAGES, SITE, content, href } from "./registry.mjs";
-import { renderDocument } from "./layout.mjs";
-import { esc, textLink } from "./components.mjs";
-import { pages as core } from "./pages-core.mjs";
-import { pages as product } from "./pages-product.mjs";
-import { pages as audience } from "./pages-audience.mjs";
-import { pages as money } from "./pages-money.mjs";
-import { pages as contentPages } from "./pages-content.mjs";
+import { PAGES, SITE, ROOT, content, href } from "./registry.mjs";
 
-const MODULES = { core, product, audience, money, content: contentPages };
+const ENGINE_SRC = join(ROOT, "..", "shared", "brain");
+const ENGINE_DST = join(SITE, "assets", "brain");
+mkdirSync(ENGINE_DST, { recursive: true });
+const engine = readdirSync(ENGINE_SRC).filter((f) => /\.(js|css)$/.test(f) || f === "traces.client.json");
+for (const f of engine) copyFileSync(join(ENGINE_SRC, f), join(ENGINE_DST, f));
+
+// Page modules load after the copy: they import the engine's Node-safe renderers.
+const { renderDocument } = await import("./layout.mjs");
+const { esc, textLink } = await import("./components.mjs");
+const MODULES = {
+  core: (await import("./pages-core.mjs")).pages,
+  product: (await import("./pages-product.mjs")).pages,
+  audience: (await import("./pages-audience.mjs")).pages,
+  money: (await import("./pages-money.mjs")).pages,
+  content: (await import("./pages-content.mjs")).pages,
+};
 
 /** Visible placeholder for a page whose module has not built it yet. */
 function notBuilt(page) {
@@ -45,4 +55,4 @@ for (const page of PAGES) {
   }
   writeFileSync(join(SITE, page.file), renderDocument(page, result));
 }
-console.log(`Built ${PAGES.length} pages into ${SITE}${stubs.length ? `; ${stubs.length} not built yet: ${stubs.join(", ")}` : ""}`);
+console.log(`Copied ${engine.length} engine files to assets/brain/. Built ${PAGES.length} pages into ${SITE}${stubs.length ? `; ${stubs.length} not built yet: ${stubs.join(", ")}` : ""}`);

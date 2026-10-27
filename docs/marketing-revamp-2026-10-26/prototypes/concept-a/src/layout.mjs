@@ -5,7 +5,10 @@ import { content, href, PAGES, pageByPath } from "./registry.mjs";
 import { esc, cta, ctaMicro, button, icon, kamranPill, FLAGS } from "./components.mjs";
 
 
-const FONTS = "https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&family=JetBrains+Mono:wght@400;500&display=swap";
+const FONTS = "https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&display=swap";
+// The mono face (showcase trace lines, console text) loads without blocking first paint (spec showcase-final.md §1.3:
+// showcase fonts load after first paint and are never preloaded). Google Fonts serves it in unicode-range subsets.
+const FONTS_MONO = "https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap";
 
 /** C0 desktop nav: How it works · Trainer Brain · Features · Demo · Pricing · For trainers ▾ · Guides. */
 const NAV = [
@@ -203,6 +206,7 @@ ${page.noindex ? '<meta name="robots" content="noindex">\n' : ""}<meta name="col
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="${FONTS}">
+<link rel="stylesheet" href="${FONTS_MONO}" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="${FONTS_MONO}"></noscript>
 ${css.map((f) => `<link rel="stylesheet" href="assets/${f}">`).join("\n")}
 <script>(function(h){h.classList.add("js");try{var f=JSON.parse(localStorage.getItem("tyA.flags")||"{}");for(var k in f)if(/^(payments|registration|frontier|voice|publish|motion)$/.test(k))h.setAttribute("data-"+k,String(f[k]))}catch(e){}})(document.documentElement)</script>
 </head>

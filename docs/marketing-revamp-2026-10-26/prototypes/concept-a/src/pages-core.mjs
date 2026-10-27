@@ -1,7 +1,10 @@
 // Core pages built by the foundation: "/" (home) and "/pricing".
 // They set the visual and motion bar; copy follows blueprint C1 and C15.
 import { createRequire } from "node:module";
+import { readFileSync } from "node:fs";
 import { content } from "./registry.mjs";
+import { index as brainIndex } from "../site/assets/brain/brain-core.js";
+import { renderStatic as fieldStatic, renderBoard } from "../site/assets/a-field.js";
 import {
   esc, icon, cta, ctaMicro, button, textLink, band, sectionHead, h1WithMark, chip, flagChip, notOnYet, sourceBadge,
   estimateLabel, sampleLabel, pendingTag, constraintList, founderNote, statusPanel, faqList, vx, decisionConsole,
@@ -13,34 +16,41 @@ const calc = createRequire(import.meta.url)("../site/assets/calc.js");
 const page = (p) => content.pages.find((x) => x.path === p);
 const faqFrom = (p, q) => page(p).faqs.find((f) => f.q === q);
 
+// The shared Brain engine's sample data and bootstrap (spec showcase-final.md §1.4, §1.6).
+const BRAIN = brainIndex(JSON.parse(readFileSync(new URL("../site/assets/brain/traces.client.json", import.meta.url), "utf8")));
+const BOOT = readFileSync(new URL("../site/assets/brain/brain-boot.js", import.meta.url), "utf8").replace(/^\/\*[\s\S]*?\*\/\s*/, "");
+export const brainBoot = () => `<script>${BOOT}</script>`;
+
 /* =============================================================== HOME */
 
+/* Hero: Mission control (spec §2). On phones the field sits between the H1 and
+   the lede (CSS order, DOM order unchanged); the H1 stays the LCP element. */
 function homeHero() {
-  return `<section class="band band-white hero" data-hero aria-labelledby="hero-h">
+  return `<section class="band band-white hero mc-hero" data-hero aria-labelledby="hero-h">
   <div class="wrap hero-grid">
     <div class="hero-copy">
       <p class="kicker">For UAE personal trainers</p>
-      ${h1WithMark("Teach your AI. It trains your subscribers.", "trains", { id: "hero-h" })}
-      <p class="lede">Share your rules. Your AI coaches every subscriber day by day, your way.</p>
+      ${/* two fixed lines on phones (CSS .h1-l + .h1-br, inline so the H1 stays one LCP text block): the field sits right
+           under the H1, so a late font swap must not re-wrap it */
+        h1WithMark("Teach your AI. It trains your subscribers.", "trains", { id: "hero-h" }).replace(">Teach your AI. It ", '><span class="h1-l">Teach your AI. It ').replace("</span> your subscribers.</h1>", '</span></span><br class="h1-br"> <span class="h1-l">your subscribers.</span></h1>')}
+      <p class="lede">Specialists inside your AI handle every message. Code checks every step. You decide what goes out.</p>
       <div class="cta-row hero-ctas">${cta({ location: "hero", size: "lg" })}${button("/demo", "Try the demo", { location: "hero", size: "lg" })}</div>
       ${ctaMicro()}
     </div>
-    <div class="hero-media">${decisionConsole({ id: "hero-console" })}</div>
+    <div class="hero-media">
+      <section class="mc sc-stage" data-showcase="field" data-sc-module="assets/a-field.js" data-cta="signup.html" aria-label="A sample hour of your Brain">${fieldStatic(BRAIN)}</section>
+    </div>
   </div>
 </section>`;
 }
 
-function homeChangeRule() {
+/* Band 2 (spec §6 A): every sample moment at once; one settings object with the hero. */
+function homeResort() {
   return band(
-    { tone: "paper", cls: "rule-band", label: "rule-h" },
-    `<div class="split">
-  <div class="s-copy" data-reveal>
-    <h2 id="rule-h">Change the rule yourself</h2>
-    <p class="sec-lede mt-s">Edit the sample rule. Watch the decision change.</p>
-    <p class="mt-m">${textLink("/demo", "Open the full demo", { location: "inline" })}</p>
-  </div>
-  <div class="s-media rule-media" data-reveal>${ruleBuilder({ id: "home-rule" })}${sampleLabel("Sample trainer · scripted · no AI model called")}</div>
-</div>`,
+    { tone: "paper", cls: "resort-band", label: "resort-h" },
+    `${sectionHead({ title: "Change a setting. Watch it re-sort.", id: "resort-h", layout: "split", lede: "Your settings apply to every moment at once. Make it stricter and more waits for you. Safety rules never switch off." })}
+<div class="mb sc-stage" data-showcase="board" data-sc-module="assets/a-field.js" aria-label="Every sample moment, sorted by your settings">${renderBoard(BRAIN)}</div>
+<p class="mt-m">${textLink("/demo", "Throw a moment at your Brain", { location: "inline" })}</p>`,
   );
 }
 
@@ -48,7 +58,7 @@ function homeHow() {
   const steps = [
     { n: "01", t: "You teach", b: "Rules, cases and an 8-answer quiz shape your AI (we call it your Trainer Brain)." },
     { n: "02", t: "It coaches", b: "A dated plan daily, guided workouts, adjusted as they train." },
-    { n: "03", t: "You decide", b: "Confident → applied. Unsure → to you. Pain → paused." },
+    { n: "03", t: "You decide", b: "Your approved reply fits → sent on its own. Anything else waits for you. Pain → paused." },
   ];
   const chapters = page("/how-it-works").sections.find((s) => s.id === "steps").steps.map((s) => ({
     title: s.title,
@@ -114,14 +124,14 @@ function homeSubscribers() {
 
 function homeControl() {
   const lanes = [
-    { tone: "applied", label: "Applied automatically", ex: "Squats felt easy → +2.5 kg", on: true },
-    { tone: "toyou", label: "Unsure → to you", ex: "Hotel gym for two weeks" },
-    { tone: "paused", label: "Pain → paused, to you", ex: "“My knee hurts when I squat”" },
+    { tone: "applied", label: "Sent on its own, within your rules", ex: "Omar → your approved reply, +2.5 kg", on: true },
+    { tone: "toyou", label: "Waits for you", ex: "Yousef: “Can I skip the deload?”" },
+    { tone: "paused", label: "Training paused", ex: "Noura: “a pop in my knee”" },
   ];
   const flow = windowFrame(
     `<div class="flow">
-  <p class="flow-msg"><span class="cp-label">Subscriber</span><span class="bubble bubble-out">Week three done. Squats felt easy.</span></p>
-  <div class="flow-rule"><div class="rule-chip"><span class="rule-src">Your rule</span><code class="rule-text mono">two easy sessions → add 2.5 kg</code></div><span class="flow-conf mono">86% sure</span></div>
+  <p class="flow-msg"><span class="cp-label">Omar</span><span class="bubble bubble-out">All four of my back squat sets were at RIR 2 last session. Can I go up in weight?</span></p>
+  <div class="flow-rule"><div class="rule-chip"><span class="rule-src">Your rule</span><code class="rule-text mono">Barbell load progression · +2.5 kg within your 5% cap</code></div><span class="flow-conf mono">Chat replies have no score. They must cite your rule.</span></div>
   <ul class="flow-lanes">${lanes
     .map((l) => `<li class="flow-lane${l.on ? " is-on" : ""}">${lanePill(l.label, l.tone)}<span class="mono flow-ex">${esc(l.ex)}</span>${l.on ? `<span class="flow-here">${icon("check")}This one</span>` : ""}</li>`)
     .join("")}</ul>
@@ -258,7 +268,8 @@ function homeFaq() {
 function home() {
   return {
     title: "trainsyou · Teach your AI. It trains your subscribers.",
-    main: [homeHero(), homeChangeRule(), homeHow(), homeSubscribers(), homeControl(), homeEconomics(), homeFollowers(), homeProof(), homeFaq()].join("\n"),
+    main: [homeHero(), homeResort(), homeHow(), homeSubscribers(), homeControl(), homeEconomics(), homeFollowers(), homeProof(), homeFaq(), brainBoot()].join("\n"),
+    css: ["brain/brain-base.css", "a-brain.css"],
     js: ["calc.js"],
     closing: { secondary: { label: "Try the demo", path: "/demo" } },
   };

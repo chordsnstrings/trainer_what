@@ -2,6 +2,43 @@
 
 Application implementation and the job audit are complete for the current phase. [PR #1](https://github.com/chordsnstrings/trainer_what/pull/1) contains the work; [combined verification](VERIFICATION_2026-09-27.md) records the passing final code revision. The owner authorized merge to main. Real services and deployment remain the next phase; screenshots were waived. Historical entries below record the evidence available at each stage and may contain superseded pending-check statements.
 
+## Stage 2026-10-27 — marketing concepts round 2: the multi-agent Brain showcase (published; waiting for the owner's choice)
+
+Owner feedback on round 1 (27 Oct 2026): "it doesn't actually show what the app does, usually for AI based websites they show the concept much better, with different aspects. We have got multiple agents sandwiched into a single agent, with multiple decisions that's happening. showcasing that should have an oomf factor, which isn't present either."
+
+**Why round 1 missed it:**
+- The research brief described one AI coach, and the playbook never mentions agents.
+- Motion was treated as a cost under the house motion rules.
+- The competitor set was trainer platforms, which are plain.
+
+**Design** (workflow `wf_46e6f2f0-be7`, 5 agents): an agent map from code, a study of AI-agent showcase sites, three showcases plus a playground, a critique and a revision.
+- The roster: 14 AI specialists, from the 12 model tasks in `packages/providers/src/model-request.ts`, and 11 code steps. These include the safety floor, the rule finder, the checker, confidence and the lane gate.
+- Accuracy rules:
+  - code picks the specialist;
+  - a safety stop calls no AI;
+  - chat replies have no confidence score;
+  - Meal planner and Recovery rule are shown "Not on yet", and the recovery trace is hidden by default.
+- Saved in `docs/marketing-revamp-2026-10-26/showcase/`.
+
+**Build** (workflow `wf_9df770c4-77f`, 10 agents):
+- **Shared engine** (`prototypes/shared/brain/`): traces, scheduler, one rAF loop with pausing and tiers, and the playground. `verify.mts` ran 4,418 checks against the real domain functions with 0 failures.
+- **A:** a "sample hour of your Brain" field as the home hero.
+- **B:** "24 hours of your Brain" under the home hero and on /how-it-works.
+- **C:** "Anatomy of one decision" under the home hero and on /trainer-brain.
+- **Every concept:** "Throw a moment at your Brain" on /trainer-brain and /demo.
+- Each concept then had a performance QA and a creative-director review with fixes.
+
+Checks:
+- The H1 is the LCP on every changed page. No console errors and no overflow.
+- Phones and the playground pages: p95 frame 16.7–16.8 ms at 4x CPU throttle.
+- **Desktop home pins: p95 33 ms at 4x throttle, so the 20 ms target is not met.** The cost is paint and commit in this sandbox, which has no GPU; showcase script stays within 4 ms per frame. Desktop smoothness must be checked on real hardware.
+- Long tasks over 50 ms under 4x throttle remain.
+- WebKit was not available, so it was not tested.
+
+**Published** as version 2 of https://claude.ai/artifact/Lcwi51DwtZdU35hirwprFF, with the showcase images, a round-2 section and the showcase design page. A gallery check in the published layout found no errors or overflow, and the showcases mount on every home and playground page.
+
+**Not done:** implementation in `apps/web`, which waits for the owner's choice and decisions (playbook E plus showcase design §8).
+
 ## Stage 2026-10-26 — marketing revamp: conversion research and three concepts for every page (published; waiting for the owner's choice)
 
 Owner, 26 October 2026: "first understand what converts the most, research, and then let's revamp the marketing site which will have the best conversion along with a beautiful aesthetic design with smooth animation. give 3 different concepts, for all pages".

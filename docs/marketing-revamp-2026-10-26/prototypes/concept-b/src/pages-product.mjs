@@ -9,6 +9,7 @@ import {
   paymentsNote, statusStrip, val, aed, faq, phone, windowFrame, offerScreen, todayScreen, constraintList,
   statement, takeHomeTile, table, crumbs, ext,
 } from "./components.mjs";
+import { dayBand, dayAssets, playground, playAssets, merge, hourTag } from "./brain-showcase.mjs";
 
 /* ===================================================================== */
 /* Copy helpers: grade-6 vocabulary (C0) and word budgets                 */
@@ -422,8 +423,9 @@ function howItWorks(ctx) {
   });
 
   return {
-    main: [heroHtml, walkthrough, who, time, control, faqBand(items, "hq")].join("\n"),
+    main: [heroHtml, dayBand({ eyebrow: "A sample day" }), walkthrough, who, time, control, faqBand(items, "hq")].join("\n"),
     closing: { secondary: { label: "Try the demo", href: "/demo" } },
+    ...dayAssets,
   };
 }
 
@@ -462,7 +464,7 @@ function trainerBrain(ctx) {
 
   const heroHtml = hero({
     eyebrow: "Trainer Brain", h1: "Your AI, built from your judgment", mark: "judgment",
-    lede: "Your rules, cases and corrections in one private AI. It acts alone only when confident and asks you when it isn’t.",
+    lede: "Your rules and corrections in one private AI. Routine replies use your words. The rest waits for you.",
     secondary: { label: "Try the demo", href: "/demo" },
     visual: stage(`${ruleCard()}<p class="rc-hint">${icon("info")}Try it: confirm, edit or reject this rule.</p>`, { cls: "p-stage--rule" }),
   });
@@ -488,17 +490,17 @@ function trainerBrain(ctx) {
 
   const decides = band({
     id: "decides", labelledby: "decides-h",
-    inner: `${head({ eyebrow: "How it decides", title: "Three paths, every time", id: "decides-h", lede: "It reads your rules and each subscriber’s goals, schedule, equipment and training. Then it takes one of three paths." })}
+    inner: `${head({ eyebrow: "How it decides", title: "Three paths, every time", id: "decides-h", lede: "Code checks first, code picks one specialist, code checks after. Then every moment takes one of three paths." })}
 <div class="cols-3 tb-paths reveal" data-stagger>
   ${[
-    ["Confident", "ok", "Applied automatically", "It follows your confirmed rules, so it’s applied and logged with its reason.", 0.86, "86%"],
-    ["Not sure", "off", "Handed to you", "Outside what you taught, or not sure enough. Your correction becomes teaching.", 0.54, "54%"],
-    ["Safety", "err", "Always to you", "Pain, medical issues and red flags pause the workout. Enforced in code, outside the AI.", 0, "Rule"],
+    ["Within your rules", "ok", "Sent on its own", "A reply sends only when your approved reply fits. A plan sends only above your bar.", 0.86, "Plan · 86% · your bar 80%"],
+    ["Anything unsure", "off", "Waits for you", "No approved reply, below your bar, or a topic you answer yourself. Medical questions too.", 0.78, "Plan · 78% · your bar 80%"],
+    ["Red flags", "err", "Training paused", "Pain and red flags stop it in code. No AI is called. You review it first.", 0, "Rule"],
   ].map(([t, k, l, b, v, f]) => { budget("card", b, 18); return `<div class="card tb-path tb-path--${k}"><div class="tb-path-top"><h3>${t}</h3><span class="chip chip--${k}">${l}</span></div>
-    ${k === "err" ? `<div class="tb-safe"><span>Pain reported</span>${icon("arrow")}<b>Workout paused</b></div>` : `<div class="tb-sure"><span>How sure it is</span><b class="fig">${f}</b></div><div class="tb-mwrap" aria-hidden="true"><div class="meter" style="--v:${v}"><i></i></div><span class="tb-th"></span></div>`}
+    ${k === "err" ? `<div class="tb-safe"><span>Pain reported</span>${icon("arrow")}<b>Training paused</b></div>` : `<div class="tb-sure"><span>${f.split(" · ")[0]}</span><b class="fig">${f.split(" · ").slice(1).join(" · ")}</b></div><div class="tb-mwrap" aria-hidden="true"><div class="meter" style="--v:${v}"><i></i></div><span class="tb-th"></span></div>`}
     <p class="muted">${esc(b)}</p></div>`; }).join("")}
 </div>
-<p class="fine tb-th-note reveal">The line on each meter is how sure it must be. You set it.</p>`,
+<p class="fine tb-th-note reveal">Chat replies have no score. They must cite your rule. The line on each meter is your bar for plans. You set it.</p>`,
   });
 
   const versions = [["v1", "29 Sep"], ["v2", "6 Oct"], ["v3", "13 Oct"], ["v4", "20 Oct"]];
@@ -567,8 +569,9 @@ function trainerBrain(ctx) {
   });
 
   return {
-    main: [heroHtml, what, decides, better, yours, hours, faqBand(items, "bq")].join("\n"),
+    main: [heroHtml, what, decides, playground({ tone: "paper", eyebrow: "Try it on your Brain" }), better, yours, hours, faqBand(items, "bq")].join("\n"),
     closing: { secondary: { label: "Try the demo", href: "/demo" } },
+    ...playAssets,
   };
 }
 
@@ -605,7 +608,7 @@ function relatedTiles(paths) {
 /** Feature guide tile with corrected chips (core availability, C0). */
 function guideTile(path) {
   const p = pageFor(path);
-  return `<a class="gtile" href="${href(path)}"><span class="gtile-k">${esc(p.navLabel)}</span><b>${esc(FEATURE_H1[path][0])}</b><span class="chip-row">${featureChips(p)}</span><span class="gtile-go">${icon("arrow")}</span></a>`;
+  return `<a class="gtile" href="${href(path)}"><span class="gtile-k">${esc(p.navLabel)}${hourTag(path) ? " " + hourTag(path) : ""}</span><b>${esc(FEATURE_H1[path][0])}</b><span class="chip-row">${featureChips(p)}</span><span class="gtile-go">${icon("arrow")}</span></a>`;
 }
 
 /* ===================================================================== */
@@ -691,7 +694,7 @@ function features(ctx) {
   });
 
   const SCREENS = [
-    ["Inbox", win("Inbox · Sample", `<div class="ib-item ib-item--off"><span class="chip chip--off">Handed to you</span><b>Hotel gym for two weeks</b><span>Draft: dumbbells to 20 kg</span></div><div class="ib-item ib-item--err"><span class="chip chip--err">Paused</span><b>Knee hurts when I squat</b><span>Workout paused · you were alerted</span></div><div class="ib-item"><span class="chip chip--ok">Applied</span><b>Squats felt easy</b><span>60 → 62.5 kg · reason logged</span></div>`), ["Everything that needs you, in one queue.", "Approve or correct; corrections become teaching.", "Safety pauses always arrive here first."], "/trainer-brain", "How your AI decides"],
+    ["Inbox", win("Inbox · Sample", `<div class="ib-item ib-item--off"><span class="chip chip--off">Handed to you</span><b>Hotel gym for two weeks</b><span>Draft: dumbbells to 20 kg</span></div><div class="ib-item ib-item--err"><span class="chip chip--err">Paused</span><b>Knee hurts when I squat</b><span>Workout paused · you were alerted</span></div><div class="ib-item"><span class="chip chip--ok">Sent on its own</span><b>Squats felt easy</b><span>Your approved reply · +2.5 kg · cites your rule</span></div>`), ["Everything that needs you, in one queue.", "Approve or correct; corrections become teaching.", "Safety pauses always arrive here first."], "/trainer-brain", "How your AI decides"],
     ["Today", phone({ body: todayScreen(), small: true, label: false, ariaLabel: "Sample subscriber app, Today screen" }), ["Today’s session first, then the week ahead.", "Works offline in the gym.", "Your name and icon on their home screen."], "/features/subscriber-app", "The subscriber app"],
     ["Logger", phone({ body: `<div class="lg"><p class="mp-k">Back squat · set 2 of 4</p><p class="lg-t"><span class="fig">62.5 kg × 6</span><small>target</small></p><div class="lg-in"><span><small>Reps</small><b class="fig">6</b></span><span><small>kg</small><b class="fig">62.5</b></span><span><small>In reserve</small><b class="fig">3</b></span></div><div class="po-cta">Log set</div><div class="lg-rest"><span>Rest</span><b class="fig">2:00</b></div><span class="chip chip--ok mp-chip">Saved offline</span></div>`, small: true, label: false, ariaLabel: "Sample set logger" }), ["Reps, load, effort and a note for every set.", "A rest timer between sets.", "Saved on the phone, synced later."], "/features/ai-training-plans", "AI training plans"],
     ["Statement", `<div class="sc-stmt">${statement({ title: "Monthly statement", period: "Layla Strength · October", rows: [{ label: "Subscriptions, 150 × AED 199", value: C.aed(ex.subscriptionMonthlyMinor) }, { label: "Our share, by band", value: "−" + C.aed(ex.commissionMinor), sub: true }, { label: "Card processing", value: "[rate]", sub: true }], total: { label: "You keep, before card processing", value: C.aed(ex.beforeOtherCostsMinor) } })}${paymentsNote()}</div>`, ["From gross revenue to net, every cost itemised.", "Our share by band: 25%, 20%, 15%, 10%.", "A ledger CSV export."], "/features/payments-and-payouts", "Payments and payouts"],
@@ -725,7 +728,7 @@ ${REPL.map(([t, i, k]) => `<tr><th scope="row"><span class="strike">${esc(t)}</s
 
   const guides = band({
     id: "feature-guides", tone: "paper", labelledby: "guides-h",
-    inner: `${head({ eyebrow: "Feature guides", title: "How each feature works", id: "guides-h", lede: "Eleven short guides, each with the screens your subscribers and you will see." })}
+    inner: `${head({ eyebrow: "Feature guides", title: "How each feature works", id: "guides-h", lede: "Eleven short guides, each with the screens your subscribers and you will see. Times show where each runs in our sample day." })}
 <div class="gtiles reveal" data-stagger>${FEATURE_PATHS.map(guideTile).join("")}<a class="gtile gtile--all" href="#all-capabilities"><span class="gtile-k">The full list</span><b>All ${CAPABILITY_COUNT} capabilities, with their status</b><span class="fig gtile-big">${CAPABILITY_COUNT}</span><span class="gtile-go">${icon("arrow")}</span></a></div>`,
   });
 
@@ -746,7 +749,7 @@ ${REPL.map(([t, i, k]) => `<tr><th scope="row"><span class="strike">${esc(t)}</s
   ];
 
   return {
-    main: [heroHtml, bento, getBand, screens, replaces, guides, caps, faqBand(items, "fq")].join("\n"),
+    main: [heroHtml, bento, getBand, screens, replaces, guides.replace(/<\/div>\s*<\/section>\s*$/, `<p class="fine day-link"><a class="link" href="how-it-works.html#day">See the whole sample day${icon("arrow")}</a></p></div>\n</section>`), caps, faqBand(items, "fq")].join("\n"),
     closing: { secondary: { label: "See the pricing", href: "/pricing" } },
   };
 }
@@ -1079,19 +1082,19 @@ function ruleBuilder() {
   <div class="tile-head"><p class="eyebrow">Your rule</p>${sampleLabel("Sample")}</div>
   <p class="rb-sentence">After ${stepper("n", "Sessions in a row", "2", "", "sessions in a row")} sessions at ${stepper("r", "Reps in reserve", "3", "", "reps in reserve")} or more reps in reserve, add ${stepper("kg", "Kilograms to add", "2.5", "", "kilograms to add")} kg to the squat.</p>
   <div class="rb-log"><p class="rb-log-k">Subscriber A’s last three sessions</p><ul>${[["Thu", 4], ["Mon", 3], ["Thu, last week", 1]].map(([d, r], i) => `<li class="rb-s${i < 2 ? " is-ok" : ""}" data-rb-s="${i}" data-rir="${r}"><span>${d}</span><b class="fig">${r}</b><small>in reserve</small><span class="rb-ok">${icon("check")}</span></li>`).join("")}</ul></div>
-  <div class="rb-out flash" data-rb-out><span class="rb-out-k">Monday’s back squat</span>${val("60 kg → 62.5 kg", { cls: "fig rb-res", attrs: "data-rb-res" })}<span class="rb-chip">${val("Applied automatically", { attrs: "data-rb-lane" })}</span></div>
+  <div class="rb-out flash" data-rb-out><span class="rb-out-k">Monday’s back squat</span>${val("60 kg → 62.5 kg", { cls: "fig rb-res", attrs: "data-rb-res" })}<span class="rb-chip">${val("Sent on its own, within your rules", { attrs: "data-rb-lane" })}</span></div>
   <p class="sr-only" aria-live="polite" data-live></p>
 </div>`;
 }
 
 function thresholdTool() {
   return `<div class="th card card--raised" data-th>
-  <div class="tile-head"><p class="eyebrow">Squats felt easy</p>${sampleLabel("Sample")}</div>
-  <div class="range"><div class="range-top"><label for="th-range">How sure must it be?</label>${val("80%", { cls: "fig", w: "4ch", align: "end", attrs: "data-th-v" })}</div>
-    <input id="th-range" type="range" min="60" max="95" step="1" value="80" style="--fill:57.14%" aria-valuetext="80%: sure enough, applied automatically" data-th-in><div class="range-ends" aria-hidden="true"><span>60%</span><span>95%</span></div></div>
+  <div class="tile-head"><p class="eyebrow">Fatima’s first plan</p>${sampleLabel("Sample")}</div>
+  <div class="range"><div class="range-top"><label for="th-range">How sure it must be to send alone (%)</label>${val("80%", { cls: "fig", w: "4ch", align: "end", attrs: "data-th-v" })}</div>
+    <input id="th-range" type="range" min="60" max="95" step="1" value="80" style="--fill:57.14%" aria-valuetext="80%: clears your bar, sent on its own" data-th-in><div class="range-ends" aria-hidden="true"><span>60%</span><span>95%</span></div></div>
   <div class="th-viz" aria-hidden="true"><div class="th-bar"><i style="--v:.72"></i></div><span class="th-mark" style="--t:.6"><b>Must be 80%</b></span><span class="th-dec"><b>It is 86%</b></span><span class="th-axis"><span>50%</span><span>100%</span></span></div>
-  <div class="lanes th-lanes" style="--lane:0" data-lane="0"><span class="dm-ind" aria-hidden="true"><i></i><i></i></span><div class="lane is-active"><span>Applied automatically</span></div><div class="lane lane--off"><span>Unsure → to you</span></div></div>
-  <p class="th-res">${val("86% is sure enough. The change is applied and logged.", { attrs: "data-th-res" })}</p>
+  <div class="lanes th-lanes" style="--lane:0" data-lane="0"><span class="dm-ind" aria-hidden="true"><i></i><i></i></span><div class="lane is-active"><span>Sent on its own</span></div><div class="lane lane--off"><span>Waits for you</span></div></div>
+  <p class="th-res">${val("86% clears your bar. The plan is sent on its own.", { attrs: "data-th-res" })}</p>
   <p class="sr-only" aria-live="polite" data-live></p>
 </div>`;
 }
@@ -1102,7 +1105,7 @@ function demo(ctx) {
     eyebrow: "Interactive demo", h1: "See your AI make a coaching decision", mark: "decision",
     lede: "Pick a message, change the rule, then set how sure it must be. Scripted examples. No AI model is called.",
     secondary: { label: "See how it works", href: "/how-it-works" }, cls: "dm-hero",
-    visual: `<ol class="dm-steps" aria-label="Three things to try">${[["#decisions", "Pick a message", "Four scripted decisions"], ["#rule", "Change the rule", "Sessions, reserve, kilograms"], ["#sure", "Set how sure", "From 60% to 95%"]].map(([h, t, s], i) => `<li><a href="${h}"><span class="fig">${String(i + 1).padStart(2, "0")}</span><span><b>${t}</b><small>${s}</small></span>${icon("arrow")}</a></li>`).join("")}</ol>`,
+    visual: `<ol class="dm-steps" aria-label="Three things to try">${[["#playground", "Throw a moment", "12 sample moments"], ["#rule", "Change the rule", "Sessions, reserve, kilograms"], ["#sure", "Set your bar for plans", "From 60% to 95%"]].map(([h, t, s], i) => `<li><a href="${h}"><span class="fig">${String(i + 1).padStart(2, "0")}</span><span><b>${t}</b><small>${s}</small></span>${icon("arrow")}</a></li>`).join("")}</ol>`,
   });
   const decisions = band({
     id: "decisions", tone: "paper", labelledby: "dec-h", cls: "dm-band",
@@ -1121,8 +1124,8 @@ ${demoConsole()}
   const sure = band({
     id: "sure", tone: "paper", labelledby: "sure-h",
     inner: `<div class="split split--center dm-split">
-  <div class="reveal">${eyebrow("Your threshold")}<h2 id="sure-h">How sure must it be?</h2><p class="lede">You choose. Above your line, routine changes run automatically. Below it, they come to you.</p>
-    <p class="fine">The sample decision is 86% sure. Move the line past it to see the change go to you.</p></div>
+  <div class="reveal">${eyebrow("Your bar for plans")}<h2 id="sure-h">How sure must a plan be?</h2><p class="lede">Plans carry a confidence score. Above your bar, a plan sends on its own. Below it, it waits for you.</p>
+    <p class="fine">The sample plan is 86% sure. Move your bar past it to see the plan wait for you. Chat replies have no score. They must cite your rule.</p></div>
   <div class="reveal">${thresholdTool()}</div>
 </div>`,
   });
@@ -1141,8 +1144,9 @@ ${demoConsole()}
     return f;
   });
   return {
-    main: [heroHtml, decisions, rule, sure, next, faqBand(items, "dq")].join("\n"),
+    main: [heroHtml, playground({ tone: "paper", eyebrow: "12 sample moments" }), rule, sure, next, faqBand(items, "dq")].join("\n"),
     closing: { secondary: { label: "See how it works", href: "/how-it-works" } },
+    ...playAssets,
   };
 }
 

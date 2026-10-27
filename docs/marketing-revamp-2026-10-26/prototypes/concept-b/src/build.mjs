@@ -1,8 +1,10 @@
 // Concept B · static site generator.
 //   node src/build.mjs  ->  writes site/*.html (42 flat pages)
 // Foundation-owned dispatcher: builders add renderers in pages-*.mjs only.
+import "./brain-sync.mjs"; // first: copies the shared Brain engine into site/assets/brain
 import { writeFileSync, readdirSync, unlinkSync, existsSync } from "node:fs";
 import { join } from "node:path";
+
 import { content, registry, SITE, href, esc, pageFor, C, LIVE } from "./core.mjs";
 import * as h from "./components.mjs";
 import { renderPage } from "./layout.mjs";

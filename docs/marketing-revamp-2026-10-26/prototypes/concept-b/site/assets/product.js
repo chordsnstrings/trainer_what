@@ -189,14 +189,14 @@
       var text = ok ? "60 kg → " + kg(60 + st.kg) + " kg" : "Not yet: " + (need === 1 ? "one more easy session" : need + " more easy sessions");
       out.classList.toggle("is-wait", !ok);
       TY.setValue($("[data-rb-res]", rb), text);
-      TY.setValue($("[data-rb-lane]", rb), ok ? "Applied automatically" : "Waits for the next session");
+      TY.setValue($("[data-rb-lane]", rb), ok ? "Sent on its own, within your rules" : "Waits for the next session");
       $$("[data-rb-step]", rb).forEach(function (b) {
         var k = b.getAttribute("data-rb-step");
         b.setAttribute("aria-disabled", +b.getAttribute("data-d") < 0 ? st[k] <= LIM[k][0] : st[k] >= LIM[k][1]);
       });
       if (user) {
         TY.flash(out);
-        TY.announce($("[data-live]", rb), (ok ? "Applied automatically. Back squat " + text.replace("→", "to") : text) + ". Rule: after " + st.n + " sessions at " + st.r + " or more reps in reserve, add " + kg(st.kg) + " kilograms.");
+        TY.announce($("[data-live]", rb), (ok ? "Sent on its own, within your rules. Back squat " + text.replace("→", "to") : text) + ". Rule: after " + st.n + " sessions at " + st.r + " or more reps in reserve, add " + kg(st.kg) + " kilograms.");
       }
     }
     on(rb, "click", function (e) {
@@ -216,18 +216,18 @@
     var input = $("[data-th-in]", th);
     function upd(user) {
       var t = +input.value, ok = t <= 86;
-      var txt = ok ? "86% is sure enough. The change is applied and logged." : "86% is below your line. The change comes to you as a draft.";
+      var txt = ok ? "86% clears your bar. The plan is sent on its own." : "86% is below your bar. The plan waits for you.";
       TY.setValue($("[data-th-v]", th), t + "%");
       $(".th-mark b", th).textContent = "Must be " + t + "%";
       $(".th-mark", th).style.setProperty("--t", (t - 50) / 50);
       input.style.setProperty("--fill", ((t - 60) / 35) * 100 + "%");
-      input.setAttribute("aria-valuetext", t + "%: " + (ok ? "sure enough, applied automatically" : "unsure, goes to you"));
+      input.setAttribute("aria-valuetext", t + "%: " + (ok ? "clears your bar, sent on its own" : "below your bar, waits for you"));
       lane($(".th-lanes", th), ok ? 0 : 1);
       TY.setValue($("[data-th-res]", th), txt);
       if (user) TY.announce($("[data-live]", th), t + "%. " + txt);
     }
     on(input, "input", function () { upd(true); });
-    on(input, "change", function () { TY.track("demo_threshold", { scenario: "squats_easy", value: +input.value }); });
+    on(input, "change", function () { TY.track("demo_threshold", { scenario: "first_plan", value: +input.value }); });
     upd(false);
   });
 })();

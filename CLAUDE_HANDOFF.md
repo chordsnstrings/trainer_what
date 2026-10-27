@@ -2,32 +2,29 @@
 
 ## Work in progress
 
-### Status on 27 October 2026 (Claude)
+### Status on 27 October 2026, evening (Claude)
 
-**Owner feedback on the three marketing concepts (27 Oct):** "it doesn't actually show what the app does, usually for AI based websites they show the concept much better, with different aspects. We have got multiple agents sandwiched into a single agent, with multiple decisions that's happening. showcasing that should have an oomf factor, which isn't present either."
-
-**Why round one missed it:**
-- The research brief described one AI coach, and the playbook never mentions agents.
-- The evidence and the house motion rules made motion a cost, and "show the product" became one small scripted decision.
-
-**Now running:** workflow `wf_46e6f2f0-be7`. It:
-- maps the Brain's specialists from code: the 12 model tasks in `packages/providers/src/model-request.ts`, the code safety floor, confidence lanes, learning, WHOOP, voice and nutrition;
-- studies how leading AI-agent sites showcase multi-agent systems;
-- designs three showcases: A "mission control" decision field, B "24 hours of your Brain", C "anatomy of a decision";
-- designs a "throw a moment at your Brain" playground;
-- then critiques and revises.
-
-**For the showcases, the owner's request overrides** the old "short, play once, no pinned scenes" rule. Kept: text first (LCP), 60fps on phones, labelled sample data, and only real, live-or-labelled capabilities.
-
-**Design done** (`wf_46e6f2f0-be7`), saved in `docs/marketing-revamp-2026-10-26/showcase/` (`SHOWCASE_DESIGN.md`, `agent-map.md`, `ai-showcase-patterns.md`, `critique.md`):
-- **Roster:** 14 AI specialists and 11 code steps under 25 public names.
-- **Accuracy rules:** code picks the specialist; a safety stop calls no AI; chat replies have no confidence score; Meal planner and Recovery rule are on a "Not on yet" shelf.
-
-**Now running:** the build `wf_9df770c4-77f`. Each concept's home carries its own showcase: A the mission-control field as the hero, B the 24-hour day under the hero, C the anatomy under the hero. Every concept's /trainer-brain and /demo get the "Throw a moment at your Brain" playground. Then a performance QA (p95 frame time 20 ms or less at 4x throttle, the H1 as LCP) and a creative-director review with fixes.
-
-**Next (after the build):** rebuild the showcase pages in each concept (home, /trainer-brain, /how-it-works, /demo, /features), run the browser QA, republish the same artifact (https://claude.ai/artifact/Lcwi51DwtZdU35hirwprFF) and update the records.
-
-**Still waiting on the owner:** the concept choice and the playbook E decisions. Delete the stray `/oq-daily.log` when convenient.
+**Marketing concepts round 2 is published, answering the owner's "doesn't show what the app does / no oomf" feedback.**
+- **Version 2 of** https://claude.ai/artifact/Lcwi51DwtZdU35hirwprFF. Each concept's home now shows the multi-agent Brain (14 AI specialists and 11 code steps, mapped from code):
+  - **A:** a live "sample hour of your Brain" hero;
+  - **B:** "24 hours of your Brain" under the hero;
+  - **C:** "Anatomy of one decision" under the hero.
+- **All three** have "Throw a moment at your Brain" on /trainer-brain and /demo.
+- **Records:**
+  - `docs/marketing-revamp-2026-10-26/`: `showcase/` (design, agent map), `prototypes/` (updated generators and the shared engine; they rebuild);
+  - a 2026-10-27 stage entry in `docs/COMPLETION_STAGES.md`.
+- **Known gaps:**
+  - desktop home pins reach p95 33 ms at 4x throttle in this GPU-less sandbox; check on real hardware;
+  - long tasks over 50 ms under throttle;
+  - WebKit untested;
+  - four trace wording items are marked "verify" in the design.
+- **Waiting on the owner:** the concept choice, plus decisions in playbook E and showcase design §8:
+  - the motion exception for showcases;
+  - the specialists' public names and whether to publish "14 + 11";
+  - live values of the WHOOP and nutrition flags;
+  - Arabic strings.
+- **Next:** port the chosen concept into `apps/web` on a new PR.
+- Delete the stray `/oq-daily.log` when convenient.
 
 ### Home page as the owner's HTML design: live since 22:47 UTC on 25 October 2026 (Claude, checked 04:10 UTC on 26 Oct)
 

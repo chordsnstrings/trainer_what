@@ -2,7 +2,7 @@
 
 Owner, 26 October 2026: "first understand what converts the most, research, and then let's revamp the marketing site which will have the best conversion along with a beautiful aesthetic design with smooth animation. give 3 different concepts, for all pages".
 
-**Status: concepts published; waiting for the owner to choose.** Nothing on trainsyou.com has changed. Implementation starts only after the owner picks a concept and approves the copy changes (playbook section E, decision 18).
+**Status: round 2 published (27 Oct, the multi-agent Brain showcase); waiting for the owner to choose.** Nothing on trainsyou.com has changed. Implementation starts only after the owner picks a concept and approves the copy changes (playbook section E, decision 18).
 
 **Gallery** (private artifact; the owner can share it): https://claude.ai/artifact/Lcwi51DwtZdU35hirwprFF
 - The gallery page summarises the research and links each concept.
@@ -17,6 +17,7 @@ Owner, 26 October 2026: "first understand what converts the most, research, and 
 |---|---|
 | `PLAYBOOK.md` | The revised playbook, the main reference:<br>A. 15 ranked conversion principles with sources and evidence labels<br>B. Funnel and events<br>C. The page-by-page blueprint shared by all concepts<br>D. The three concepts: tokens, motion and per-page treatment<br>E. Recommendation, test plan and the 19 owner decisions |
 | `research/` | The four research reports (current-site audit, conversion evidence, competitor teardown, UAE trainer buyers) and the adversarial critique that the playbook answers |
+| `showcase/` | Round 2: `SHOWCASE_DESIGN.md` (the Brain showcase spec), `agent-map.md` (the specialists, from code), `ai-showcase-patterns.md`, `critique.md` |
 | `prototypes/` | The prototype generators |
 
 `prototypes/` holds, for each concept:
@@ -24,6 +25,7 @@ Owner, 26 October 2026: "first understand what converts the most, research, and 
 - `concept-*/site/assets/`, the hand-written CSS and JS.
 
 It also holds:
+- `shared/brain/`, the shared Brain showcase engine (traces, scheduler, playground, anatomy) with its README and verification tools;
 - `content.json`, the marketing content snapshot the generators read;
 - `export-content.ts`, which re-exports it from `packages/contracts`;
 - `thumbs.cjs`, which captures the gallery screenshots.

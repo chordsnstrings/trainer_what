@@ -5,6 +5,7 @@
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { ROOT } from "./lib/content.mjs";
+import { anatomy, BOOT, CSS } from "./lib-brain.mjs";
 
 const require = createRequire(import.meta.url);
 const calc = require(resolve(ROOT, "site/assets/calc.js"));
@@ -20,33 +21,30 @@ function home({ page, href, h }) {
     liveRegion, icon, valueSlot,
   } = h;
 
-  // 1. Hero: a rule card being confirmed, margin notes visible at first paint.
-  const hero = `<section class="hero hero-home" data-hero aria-labelledby="home-h1">
+  // 1. Hero: compact, so "Anatomy of a decision" (the band right under it)
+  // starts inside the first screen. The H1 stays the LCP element.
+  const hero = `<section class="hero hero-home hero-c2" data-hero aria-labelledby="home-h1">
   <div class="wrap hero-grid">
     <div class="hero-copy">
       <p class="eyebrow">For UAE personal trainers</p>
       <h1 class="display" id="home-h1">Taught by you. It ${mark("trains")} every subscriber.</h1>
-      <p class="lede">Your AI learns how you coach, then coaches under your name. When unsure, it asks you first.</p>
+    </div>
+    <div class="hero-side">
+      <p class="lede">Your AI learns how you coach, then coaches under your name.</p>
+      <p class="lede lede-2">Routine replies use your approved words. Anything else waits for you.</p>
       <div class="hero-actions">${cta({ location: "hero" })}${secondary("Try the demo", "/demo", { location: "hero" })}</div>
       ${microLine()}
     </div>
-    <figure class="hero-fig" aria-labelledby="fig1-cap">
-      <div class="hero-fig-body">
-        ${ruleCard({ pins: true, id: "hero-rule" })}
-        <div class="hero-notes">
-          ${marginNote("Source: your interview", { pin: "a" })}
-          ${marginNote("Waits for you until you choose", { pin: "b" })}
-        </div>
-      </div>
-      <figcaption class="fig-cap" id="fig1-cap"><span class="fig-n">Fig. 1</span>${sampleLabel()}</figcaption>
-    </figure>
   </div>
 </section>`;
+
+  // §1 Anatomy of a decision (spec §4): burst on view, then pinned scroll steps.
+  const decides = anatomy({ n: 1, fig: 1, id: "decides" });
 
   // §1 What you teach it (replaces step 1 of the how-it-works band).
   const teach = `<section class="band" id="teach" aria-labelledby="teach-h">
   <div class="wrap">
-    ${sectionHead({ n: 1, title: "What you teach it", id: "teach-h" })}
+    ${sectionHead({ n: 2, title: "What you teach it", id: "teach-h" })}
     <div class="teach">
       <div class="teach-copy" data-reveal>
         <p class="teach-intro">Your AI (we call it your Trainer Brain) learns three things from you.</p>
@@ -68,19 +66,19 @@ function home({ page, href, h }) {
     bodyHtml: windowFrame({
       title: "Inbox · Layla Strength",
       bodyHtml: `<div class="cf">
-  <div class="cf-row"><span class="cf-k">Subscriber</span><p class="bubble bubble--in">Week three done. Squats felt easy.</p></div>
-  <div class="cf-row"><span class="cf-k">Your rule</span><p class="cf-rule">Two easy sessions → add 2.5 kg</p></div>
-  <div class="cf-row"><span class="cf-k">How sure</span><div class="cf-sure"><span class="tnum">86%</span><span class="meter" style="--v:.86"><i></i></span></div></div>
+  <div class="cf-row"><span class="cf-k">Subscriber</span><p class="bubble bubble--in">All four of my back squat sets were at RIR 2 last session. Can I go up in weight?</p></div>
+  <div class="cf-row"><span class="cf-k">Your rule</span><p class="cf-rule">Barbell load progression: +2.5 kg, inside your 5% cap</p></div>
+  <div class="cf-row"><span class="cf-k">How sure</span><p class="cf-nos">Chat replies have no score. They must cite your rule. This one does.</p></div>
   <div class="cf-row cf-row--lanes"><span class="cf-k">Goes to</span>${lanes({ active: "applied" })}</div>
 </div>`,
     }),
   });
   const charge = `<section class="band band--charge" id="charge" aria-labelledby="charge-h">
   <div class="wrap">
-    ${sectionHead({ n: 2, title: "You stay in charge", id: "charge-h" })}
+    ${sectionHead({ n: 3, title: "You stay in charge", id: "charge-h" })}
     <div class="charge">
       <div class="charge-a">
-        <p class="charge-p" data-reveal>Every reply waits for you until you switch on automatic sending. That needs 20 cases and passing checks.</p>
+        <p class="charge-p" data-reveal>Every reply waits for you until you choose otherwise. Level 2 needs a passing check of 20+ of your own cases.</p>
         ${controlFig}
         <p data-reveal>${linkArrow("How your AI decides", "/trainer-brain")}</p>
       </div>
@@ -120,11 +118,11 @@ function home({ page, href, h }) {
   ];
   const how = `<section class="band band--paper" id="how" aria-labelledby="how-h">
   <div class="wrap">
-    ${sectionHead({ n: 3, titleHtml: "Then it coaches. <em>You decide.</em>", id: "how-h" })}
+    ${sectionHead({ n: 4, titleHtml: "Then it coaches. <em>You decide.</em>", id: "how-h" })}
     <ol class="how-steps" data-reveal data-stagger>
       <li><span class="hs-n">1</span><div><h3 class="hs-t">You teach</h3><p><a href="#teach-h">As in §1</a>.</p></div></li>
       <li><span class="hs-n">2</span><div><h3 class="hs-t">It coaches</h3><p>A dated plan every day, guided workouts, and changes as they train.</p></div></li>
-      <li><span class="hs-n">3</span><div><h3 class="hs-t">You decide</h3><p>Confident: applied. Unsure: to you. Pain: paused, to you.</p></div></li>
+      <li><span class="hs-n">3</span><div><h3 class="hs-t">You decide</h3><p>Routine: sent within your rules. Anything else: waits for you. Red flags: paused.</p></div></li>
     </ol>
     <div class="how-stepper" data-reveal>
       ${stepper({ id: "chapters", label: "Setup, chapter by chapter", steps: chapters })}
@@ -150,7 +148,7 @@ function home({ page, href, h }) {
 </div>`;
   const subscribers = `<section class="band" id="subscribers" aria-labelledby="subs-h">
   <div class="wrap">
-    ${sectionHead({ n: 4, title: "What subscribers get, under your name", id: "subs-h" })}
+    ${sectionHead({ n: 5, title: "What subscribers get, under your name", id: "subs-h" })}
     <div class="subs">
       <div class="subs-copy" data-reveal>
         <ul class="subs-list">
@@ -176,7 +174,7 @@ function home({ page, href, h }) {
   ];
   const price = `<section class="band" id="price" aria-labelledby="price-h">
   <div class="wrap">
-    ${sectionHead({ n: 5, title: "Free to start. Your price.", id: "price-h" })}
+    ${sectionHead({ n: 6, title: "Free to start. Your price.", id: "price-h" })}
     <div class="price">
       ${statusPanel({ id: "status", compact: true })}
       <div class="price-facts" data-reveal>
@@ -221,7 +219,7 @@ function home({ page, href, h }) {
 </div>`;
   const followers = `<section class="band band--paper" id="followers" aria-labelledby="followers-h" data-calc-block>
   <div class="wrap">
-    ${sectionHead({ n: 6, title: "What are your followers worth?", id: "followers-h" })}
+    ${sectionHead({ n: 7, title: "What are your followers worth?", id: "followers-h" })}
     <div class="calc" data-follower-calc>
       <form class="calc-in" aria-label="Your numbers" data-reveal>
         ${field({ id: "fc-followers", label: "Instagram followers", type: "number", value: D.followers, attrsObj: { inputmode: "numeric", min: 0, max: 10000000, "data-k": "followers" } })}
@@ -246,7 +244,7 @@ function home({ page, href, h }) {
   // §7 Founder letter + honest proof links.
   const letter = `<section class="band" id="letter" aria-labelledby="letter-h">
   <div class="wrap">
-    ${sectionHead({ n: 7, title: "A letter, not testimonials", id: "letter-h" })}
+    ${sectionHead({ n: 8, title: "A letter, not testimonials", id: "letter-h" })}
     <div class="proof">
       ${founderLetter()}
       <div class="proof-side" data-reveal>
@@ -273,7 +271,7 @@ function home({ page, href, h }) {
   ];
   const questions = `<section class="band band--paper" id="questions" aria-labelledby="faq-h">
   <div class="wrap">
-    ${sectionHead({ n: 8, title: "Before you start", id: "faq-h" })}
+    ${sectionHead({ n: 9, title: "Before you start", id: "faq-h" })}
     <div class="ms">
       ${faq(faqs, { id: "home-faq" })}
       <div class="faq-side"><div class="mnote" role="note">${linkArrow("All questions", "/faq")}</div>${kamranPill({ inline: true, location: "faq" })}</div>
@@ -282,9 +280,11 @@ function home({ page, href, h }) {
 </section>`;
 
   return {
-    main: [hero, teach, charge, how, subscribers, price, followers, letter, questions].join("\n"),
+    main: [hero, decides, teach, charge, how, subscribers, price, followers, letter, questions].join("\n"),
     title: "Free-to-join AI trainer platform for UAE coaches",
     calc: true,
+    css: CSS.anatomy,
+    bodyEnd: BOOT,
     closing: { label: "Try the demo", path: "/demo" },
   };
 }

@@ -8,6 +8,7 @@ import {
   phone, offerScreen, todayScreen, controlFlow, constraintList, statement, stairs, bandMeter, rateAxis,
   sessionMarks, takeHomeTile, walk, kamranPill, table,
 } from "./components.mjs";
+import { dayBand, dayAssets } from "./brain-showcase.mjs";
 
 /* ===================================================================== */
 /* HOME                                                                   */
@@ -32,16 +33,11 @@ function home(ctx) {
     { q: "Do I need technical skills?", a: page.faqs.find((f) => /technical/.test(f.q)).a },
   ];
 
-  /* 1. Hero: offer screen + "Your price, our share" tile. No earnings figure. */
-  const hero = `<section class="hero" data-hero aria-labelledby="h1">
-<div class="container hero-grid">
-  <div class="hero-copy">
-    ${eyebrow("For UAE personal trainers")}
-    <h1 id="h1" class="sweep">${hl("Your AI trains subscribers beyond your hours.", "trains")}</h1>
-    <p class="lede">Teach it your method. It coaches every subscriber daily, under your name, at your price.</p>
-    ${ctaRow({ location: "hero", secondary: { label: "Try the demo", href: "/demo" } })}
-  </div>
-  <div class="hero-stage" data-wc-skip>
+  /* 1. Hero: offer screen + "Your price, our share" tile. No earnings figure.
+     Phones (CD review 27 Oct): the Brain's day sits right under the H1, so the first screen shows it working;
+     the lede, CTA row and this stage follow the day card (rendered again there, phone-only; see dayBand({ home })). */
+  const heroLede = `<p class="lede">Teach it your method. It coaches every subscriber daily, under your name, at your price.</p>`;
+  const heroStage = (copy) => `  <div class="hero-stage" data-wc-skip>
     <div class="stage">
       <div class="stage-phone">${phone({ body: offerScreen(199), url: "layla-strength.trainsyou.com", label: false, ariaLabel: "Sample offer page for Layla Strength, a sample trainer" })}</div>
       <div class="price-tile tile" data-vt="price-tile" data-vt-to="earnings-calculator.html">
@@ -60,7 +56,18 @@ function home(ctx) {
       <div class="stage-label">${sampleLabel()}</div>
     </div>
   </div>
-</div>
+`.replace(copy ? / data-vt="price-tile" data-vt-to="earnings-calculator.html"/ : /^$/, "")
+    // the phone copy is never in the first screen, so the hero's one-time "your first 100" highlight is drawn in its final state
+    .replace(copy ? '<div class="stair" style="--i:0">' : /^$/, '<div class="stair is-here" style="--i:0">');
+  const hero = `<section class="hero hero--day" data-hero aria-labelledby="h1">
+<div class="container hero-grid">
+  <div class="hero-copy">
+    ${eyebrow("For UAE personal trainers")}
+    <h1 id="h1" class="sweep">${hl("Your AI trains subscribers beyond your hours.", "trains")}</h1>
+    <div class="hero-more">${heroLede}
+    ${ctaRow({ location: "hero", secondary: { label: "Try the demo", href: "/demo" } })}</div>
+  </div>
+${heroStage(false)}</div>
 </section>`;
 
   /* 2. The mechanism, second. */
@@ -70,7 +77,7 @@ function home(ctx) {
 <ol class="steps3 reveal" data-stagger>
   <li class="step3"><span class="fig step3-n">1</span><h3>You teach</h3><p>Rules, cases and an 8-answer quiz.</p><div class="step3-ui" data-wc-skip><span class="chip chip--ink">Your rule</span><span>Add 2.5 kg after two easy sessions.</span></div></li>
   <li class="step3"><span class="fig step3-n">2</span><h3>It coaches</h3><p>A dated plan every day, guided workouts, and changes as they train.</p><div class="step3-ui step3-ui--plan" data-wc-skip><span class="fig">TUE 14</span><span>Lower body A · 45 min</span>${icon("check")}</div></li>
-  <li class="step3"><span class="fig step3-n">3</span><h3>You decide</h3><ul class="step3-lanes"><li><span class="chip chip--ok">Confident</span>applied</li><li><span class="chip chip--off">Unsure</span>to you</li><li><span class="chip chip--err">Pain</span>paused, to you</li></ul></li>
+  <li class="step3"><span class="fig step3-n">3</span><h3>You decide</h3><ul class="step3-lanes"><li><span class="chip chip--ok">Sent on its own</span>within your rules</li><li><span class="chip chip--off">Waits for you</span>anything unsure</li><li><span class="chip chip--err">Training paused</span>red flags, no AI</li></ul></li>
 </ol>
 <div class="walk-wrap reveal">${walk(walkSteps, { id: "hw", label: "The 8-step walkthrough" })}<p class="walk-more">${secondaryLink({ label: "See how it works", href: "/how-it-works" })}</p></div>`,
   });
@@ -214,9 +221,10 @@ function home(ctx) {
   });
 
   return {
-    main: [hero, mechanism, hour, economics, followers, control, subscribers, proof, faqBand].join("\n"),
+    main: [hero, dayBand({ home: true, after: `<div class="hero-ph">${heroLede}${ctaRow({ location: "hero", secondary: { label: "Try the demo", href: "/demo" } }).replace('<div class="cta-row', '<div data-hero-cta class="cta-row')}${heroStage(true)}</div>` }), mechanism, hour, economics, followers, control, subscribers, proof, faqBand].join("\n"),
     closing: { secondary: { label: "Try the demo", href: "/demo" } },
     kamran: true,
+    ...dayAssets,
   };
 }
 

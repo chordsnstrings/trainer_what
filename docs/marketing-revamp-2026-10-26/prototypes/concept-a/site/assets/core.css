@@ -59,7 +59,7 @@
 .control-split { align-items: center; }
 .waits { margin-top: var(--s5); font-size: 17px; line-height: 1.5; color: var(--ink-2); max-width: 30em; }
 .waits strong { color: var(--ink); font-weight: 600; }
-.flow { display: grid; gap: 14px; }
+.flow { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
 .flow-msg { display: grid; gap: 6px; justify-items: start; }
 .flow-msg .bubble { max-width: 100%; }
 .flow-rule { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }

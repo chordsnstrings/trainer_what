@@ -98,12 +98,22 @@
 
   /* ---------- Header: scrolled hairline ---------- */
   var header = $("[data-header]");
-  var ticking = false;
-  function onScroll() {
-    if (ticking) return; ticking = true;
-    requestAnimationFrame(function () { ticking = false; if (header) header.classList.toggle("is-scrolled", scrollY > 4); });
+  /* A 1 px sentinel 5 px down the page: no scrollY read per frame (reading it inside a rAF forced a
+     style recalc of whatever the showcases had just written, every frame, QA 27 Oct). */
+  if (header && "IntersectionObserver" in window) {
+    var sentinel = document.createElement("div");
+    sentinel.setAttribute("aria-hidden", "true");
+    sentinel.style.cssText = "position:absolute;top:5px;left:0;width:1px;height:1px;pointer-events:none;visibility:hidden";
+    document.body.prepend(sentinel);
+    new IntersectionObserver(function (en) { header.classList.toggle("is-scrolled", !en[en.length - 1].isIntersecting); }).observe(sentinel);
+  } else if (header) {
+    var ticking = false;
+    var onScroll = function () {
+      if (ticking) return; ticking = true;
+      requestAnimationFrame(function () { ticking = false; header.classList.toggle("is-scrolled", scrollY > 4); });
+    };
+    addEventListener("scroll", onScroll, { passive: true }); onScroll();
   }
-  addEventListener("scroll", onScroll, { passive: true }); onScroll();
 
   /* Open/close with an exit animation: hidden attr + .is-open class. */
   function openEl(el) { el.hidden = false; void el.offsetWidth; el.classList.add("is-open"); }
@@ -156,10 +166,12 @@
 
   /* ---------- Sticky mobile CTA ---------- */
   var sticky = $("[data-sticky]");
-  var heroGone = false, overEnd = false;
+  var heroGone = false, overEnd = false, pinVis = [];
   function updateSticky() {
     if (!sticky) return;
-    var show = mqPhone.matches && heroGone && !overEnd && d.getAttribute("data-consent") !== "unset" && !d.classList.contains("consent-open") && !d.classList.contains("menu-open");
+    // phones: hidden while a pinned showcase stage fills the screen (it covered the stage's honesty strip)
+    var overPin = pinVis.some(function (x) { return !x.hasAttribute("data-flat"); });
+    var show = mqPhone.matches && heroGone && !overEnd && !overPin && d.getAttribute("data-consent") !== "unset" && !d.classList.contains("consent-open") && !d.classList.contains("menu-open");
     sticky.classList.toggle("is-shown", show);
     sticky.setAttribute("aria-hidden", String(!show));
     if (show) sticky.removeAttribute("inert"); else sticky.setAttribute("inert", "");
@@ -175,6 +187,11 @@
       overEnd = vis.size > 0; d.classList.toggle("at-end", overEnd); updateSticky();
     });
     $$("[data-closing], .site-footer").forEach(function (e) { endIo.observe(e); });
+    var pinIo = new IntersectionObserver(function (en) {
+      en.forEach(function (x) { pinVis = pinVis.filter(function (y) { return y !== x.target; }); if (x.isIntersecting) pinVis.push(x.target); });
+      updateSticky();
+    }, { rootMargin: "-64px 0px -45% 0px" });
+    $$("[data-showcase=\"anatomy\"]").forEach(function (e) { pinIo.observe(e); });
     mqPhone.addEventListener("change", updateSticky);
     updateSticky();
   }

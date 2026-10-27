@@ -353,9 +353,9 @@ export function windowFrame({ title, bodyHtml, chipHtml = "", className = "" } =
 /** Decision lanes. active: "applied" | "toyou" | "paused". */
 export function lanes({ active = "applied" } = {}) {
   const L = [
-    ["applied", "Applied automatically", "check"],
-    ["toyou", "Unsure → to you", "user"],
-    ["paused", "Pain → paused, to you", "pause"],
+    ["applied", "Sent on its own, within your rules", "check"],
+    ["toyou", "Waits for you", "user"],
+    ["paused", "Training paused", "pause"],
   ];
   return `<ol class="lanes">${each(
     L,

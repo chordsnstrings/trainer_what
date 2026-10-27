@@ -253,15 +253,14 @@ export function controlFlow(o = {}) {
   return windowFrame({
     title: o.title || "Inbox · Sample",
     cls: "control-flow",
-    body: `<p class="bubble-meta">Subscriber · week 3</p>
-<p class="bubble">Week three done. Squats felt easy.</p>
-<div class="cf-rule"><span class="chip chip--ink">Your rule</span><span>Two easy sessions → add 2.5 kg</span></div>
-<div class="cf-sure"><span>How sure it is</span><b class="fig">86%</b></div>
-<div class="meter" style="--v:.86" aria-hidden="true"><i></i></div>
+    body: `<p class="bubble-meta">Omar · chat</p>
+<p class="bubble">All four of my back squat sets were at RIR 2 last session. Can I go up in weight?</p>
+<div class="cf-rule"><span class="chip chip--ink">Your approved reply</span><span>Back squat +2.5 kg</span></div>
+<p class="cf-sure"><span>Chat replies have no score. They must cite your rule.</span></p>
 <div class="lanes" role="list">
-  <div class="lane is-active" role="listitem"><span>Applied automatically</span>${icon("check").replace("<svg", '<svg width="20" height="20"')}</div>
-  <div class="lane lane--off" role="listitem"><span>Unsure → to you</span></div>
-  <div class="lane lane--err" role="listitem"><span>Pain → paused, to you</span></div>
+  <div class="lane is-active" role="listitem"><span>Sent on its own, within your rules</span>${icon("check").replace("<svg", '<svg width="20" height="20"')}</div>
+  <div class="lane lane--off" role="listitem"><span>Unsure → waits for you</span></div>
+  <div class="lane lane--err" role="listitem"><span>Red flags → training paused</span></div>
 </div>
 <div class="cf-out"><span>Back squat</span><span class="fig"><s>60 kg</s> → 62.5 kg</span></div>`,
   });
