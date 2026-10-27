@@ -30,7 +30,15 @@
   - WP0 (foundations) and WP1 (Brain core: traces test 14/14, showcase test 15/15, build and probe passing) were done, uncommitted. Their reports are in the scratchpad as `report-wp0.md` and `report-wp1.md`.
   - A tree backup is in the scratchpad: `backup/phase1-tracked.patch` and `backup/phase1-untracked.tgz`.
   - WP6 (pricing) was interrupted while verifying.
-- **Now running:** `wf_83e62d78-b94`: WP6 resumes and WP2 (the home field engine) runs alongside it.
+- **A second restart came at about 23:55 UTC.** WP6 (pricing) had finished:
+  - `tests/marketing-pricing.test.ts` 8/8;
+  - the calculators match `estimateEarnings` exactly;
+  - CLS 0, no overflow, build passing;
+  - report in `report-wp6.md`.
+  - **Follow-up for WP4:** the "Can subscribers pay me today?" answer must follow the registration flag, because "Today you can join" is untrue while sign-ups are closed.
+- **Autosave:** `scratchpad/autosave.sh` commits and pushes the tree every 8 minutes as `WIP autosave … [skip ci]`. Restart it after any container restart.
+- **Now running:** `wf_e889164e-24d`: WP2 field (resumed), WP3a anatomy and WP3b playground, two at a time, with no Next builds.
+- **Superseded:** `wf_83e62d78-b94`: WP6 resumes and WP2 (the home field engine) runs alongside it.
   - Then WP3a (anatomy) and WP3b (playground).
   - Each round is committed and pushed after it is checked.
 - **Superseded:** build part 1, `wf_dd1f463e-103`: WP0 (foundations, no rendered change) → WP1 (Brain core, data and tests) → WP6 (pricing) → WP2 field, WP3a anatomy and WP3b playground engines, without Next builds.
