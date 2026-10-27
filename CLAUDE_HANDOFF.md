@@ -26,7 +26,14 @@
   - **Off switch:** `MARKETING_SHOWCASE=static`.
   - **Robots:** they get the still frame; the override is `?sc=on`.
 - **Draft PR #105** is open on this branch.
-- **Running:** build part 1, `wf_dd1f463e-103`: WP0 (foundations, no rendered change) → WP1 (Brain core, data and tests) → WP6 (pricing) → WP2 field, WP3a anatomy and WP3b playground engines, without Next builds.
+- **The container restarted at about 23:00 UTC on 27 Oct.** The working tree survived.
+  - WP0 (foundations) and WP1 (Brain core: traces test 14/14, showcase test 15/15, build and probe passing) were done, uncommitted. Their reports are in the scratchpad as `report-wp0.md` and `report-wp1.md`.
+  - A tree backup is in the scratchpad: `backup/phase1-tracked.patch` and `backup/phase1-untracked.tgz`.
+  - WP6 (pricing) was interrupted while verifying.
+- **Now running:** `wf_83e62d78-b94`: WP6 resumes and WP2 (the home field engine) runs alongside it.
+  - Then WP3a (anatomy) and WP3b (playground).
+  - Each round is committed and pushed after it is checked.
+- **Superseded:** build part 1, `wf_dd1f463e-103`: WP0 (foundations, no rendered change) → WP1 (Brain core, data and tests) → WP6 (pricing) → WP2 field, WP3a anatomy and WP3b playground engines, without Next builds.
   - The four page registry entries are prepared as patches in the session scratchpad (`phase1-entries/`).
 - **Next:** part 2 (WP4 home, WP5 Trainer Brain and Demo, WP7a clean-up, WP7b browser checks and the CI step), then milestone verification, review, PR to green, merge, deploy, live check and records.
 - Delete the stray `/oq-daily.log` when convenient.
