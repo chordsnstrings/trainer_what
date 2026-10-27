@@ -19,7 +19,13 @@
 
 **For the showcases, the owner's request overrides** the old "short, play once, no pinned scenes" rule. Kept: text first (LCP), 60fps on phones, labelled sample data, and only real, live-or-labelled capabilities.
 
-**Next:** rebuild the showcase pages in each concept (home, /trainer-brain, /how-it-works, /demo, /features), run the browser QA, republish the same artifact (https://claude.ai/artifact/Lcwi51DwtZdU35hirwprFF) and update the records.
+**Design done** (`wf_46e6f2f0-be7`), saved in `docs/marketing-revamp-2026-10-26/showcase/` (`SHOWCASE_DESIGN.md`, `agent-map.md`, `ai-showcase-patterns.md`, `critique.md`):
+- **Roster:** 14 AI specialists and 11 code steps under 25 public names.
+- **Accuracy rules:** code picks the specialist; a safety stop calls no AI; chat replies have no confidence score; Meal planner and Recovery rule are on a "Not on yet" shelf.
+
+**Now running:** the build `wf_9df770c4-77f`. Each concept's home carries its own showcase: A the mission-control field as the hero, B the 24-hour day under the hero, C the anatomy under the hero. Every concept's /trainer-brain and /demo get the "Throw a moment at your Brain" playground. Then a performance QA (p95 frame time 20 ms or less at 4x throttle, the H1 as LCP) and a creative-director review with fixes.
+
+**Next (after the build):** rebuild the showcase pages in each concept (home, /trainer-brain, /how-it-works, /demo, /features), run the browser QA, republish the same artifact (https://claude.ai/artifact/Lcwi51DwtZdU35hirwprFF) and update the records.
 
 **Still waiting on the owner:** the concept choice and the playbook E decisions. Delete the stray `/oq-daily.log` when convenient.
 
