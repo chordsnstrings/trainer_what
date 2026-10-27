@@ -2,28 +2,24 @@
 
 ## Work in progress
 
-### Status on 27 October 2026, evening (Claude)
+### Status on 27 October 2026, late evening (Claude)
 
-**Marketing concepts round 2 is published, answering the owner's "doesn't show what the app does / no oomf" feedback.**
-- **Version 2 of** https://claude.ai/artifact/Lcwi51DwtZdU35hirwprFF. Each concept's home now shows the multi-agent Brain (14 AI specialists and 11 code steps, mapped from code):
-  - **A:** a live "sample hour of your Brain" hero;
-  - **B:** "24 hours of your Brain" under the hero;
-  - **C:** "Anatomy of one decision" under the hero.
-- **All three** have "Throw a moment at your Brain" on /trainer-brain and /demo.
-- **Records:**
-  - `docs/marketing-revamp-2026-10-26/`: `showcase/` (design, agent map), `prototypes/` (updated generators and the shared engine; they rebuild);
-  - a 2026-10-27 stage entry in `docs/COMPLETION_STAGES.md`.
-- **Known gaps:**
-  - desktop home pins reach p95 33 ms at 4x throttle in this GPU-less sandbox; check on real hardware;
-  - long tasks over 50 ms under throttle;
-  - WebKit untested;
-  - four trace wording items are marked "verify" in the design.
-- **Waiting on the owner:** the concept choice, plus decisions in playbook E and showcase design §8:
-  - the motion exception for showcases;
-  - the specialists' public names and whether to publish "14 + 11";
-  - live values of the WHOOP and nutrition flags;
-  - Arabic strings.
-- **Next:** port the chosen concept into `apps/web` on a new PR.
+**The owner chose the recommendation: "Go with your recommendation".**
+- **What gets built:** Concept A "Live Brain", plus C's "Anatomy of one decision" on /trainer-brain, C's Never list and source badges, and B's pricing page and calculators.
+- **Defaults accepted:**
+  - publish "14 AI specialists and 11 code steps" with "How we count";
+  - the specialist names as designed;
+  - Recovery rule and Meal planner shown "Not on yet";
+  - no founder note and no card-processing rate yet;
+  - the proposed copy for these pages;
+  - the showcase motion exception: continuous canvas motion inside `[data-showcase]`, which follows reduced motion.
+- **Rollout:**
+  - phase 1: home, /trainer-brain, /demo, /pricing, as their own PR, checked and deployed;
+  - phase 2: every other page;
+  - phase 3: Arabic, tracking and an A/B test.
+- **Done:** records PR #104 merged as `4f35e5c`. The branch was restarted from it for phase 1.
+- **Running:** workflow `wf_cb04287e-c71`. It maps the live renderer and home, the content and calculators, every test and CI check, and the prototypes to port, then writes a file-by-file plan with an adversarial review.
+- **Next:** implement the plan's work packages, verify (typecheck, tests, build, the browser checks including homepage-call and a showcase frame budget), open the PR, get CI green, merge, deploy, verify live and record.
 - Delete the stray `/oq-daily.log` when convenient.
 
 ### Home page as the owner's HTML design: live since 22:47 UTC on 25 October 2026 (Claude, checked 04:10 UTC on 26 Oct)
