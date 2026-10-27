@@ -2,25 +2,26 @@
 
 ## Work in progress
 
-### Status at 17:20 UTC on 26 October 2026 (Claude)
+### Status on 27 October 2026 (Claude)
 
-**Marketing revamp: research done; three concepts published and waiting for the owner's choice.**
-- **Gallery:** https://claude.ai/artifact/Lcwi51DwtZdU35hirwprFF (private). It holds the research summary, the three concepts and the full playbook.
-  - **A, "Live Brain" (product-led):** recommended.
-  - **B, "Beyond Your Hours" (outcome-led).**
-  - **C, "The Method" (trust-led editorial).**
-  - Each is a clickable 42-page prototype with page-to-page transitions and a dev panel for live states.
-- **Records:**
-  - `docs/marketing-revamp-2026-10-26/` holds `README.md`, `PLAYBOOK.md`, `research/`, and the prototype generators in `prototypes/`, which rebuild with `node .../concept-x/src/build.mjs`;
-  - a stage entry in `docs/COMPLETION_STAGES.md`;
-  - a pointer in `docs/PROJECT_MEMORY.md`.
-- **Checks:** every page of every concept was crawled at 360, 390 and 1366: no console errors, no overflow and no broken links. The calculators match the repo's maths. Only Google Fonts load.
-- **Waiting on the owner:**
-  - pick a concept, or the recommended merge;
-  - answer the decisions in playbook E. The main ones are the "Not on yet" wording, the founder name, photo and note, the card-processing rate, the copy set including sign-up, and C's or B's fonts.
-- **Next:** port the chosen concept into `apps/web` on a new PR, with tests and docs. trainsyou.com is unchanged.
-- **Earlier today:** #101 and #102 have been live since 12:04 UTC as `f1fbf8e`.
-- Delete the stray `/oq-daily.log` when convenient.
+**Owner feedback on the three marketing concepts (27 Oct):** "it doesn't actually show what the app does, usually for AI based websites they show the concept much better, with different aspects. We have got multiple agents sandwiched into a single agent, with multiple decisions that's happening. showcasing that should have an oomf factor, which isn't present either."
+
+**Why round one missed it:**
+- The research brief described one AI coach, and the playbook never mentions agents.
+- The evidence and the house motion rules made motion a cost, and "show the product" became one small scripted decision.
+
+**Now running:** workflow `wf_46e6f2f0-be7`. It:
+- maps the Brain's specialists from code: the 12 model tasks in `packages/providers/src/model-request.ts`, the code safety floor, confidence lanes, learning, WHOOP, voice and nutrition;
+- studies how leading AI-agent sites showcase multi-agent systems;
+- designs three showcases: A "mission control" decision field, B "24 hours of your Brain", C "anatomy of a decision";
+- designs a "throw a moment at your Brain" playground;
+- then critiques and revises.
+
+**For the showcases, the owner's request overrides** the old "short, play once, no pinned scenes" rule. Kept: text first (LCP), 60fps on phones, labelled sample data, and only real, live-or-labelled capabilities.
+
+**Next:** rebuild the showcase pages in each concept (home, /trainer-brain, /how-it-works, /demo, /features), run the browser QA, republish the same artifact (https://claude.ai/artifact/Lcwi51DwtZdU35hirwprFF) and update the records.
+
+**Still waiting on the owner:** the concept choice and the playbook E decisions. Delete the stray `/oq-daily.log` when convenient.
 
 ### Home page as the owner's HTML design: live since 22:47 UTC on 25 October 2026 (Claude, checked 04:10 UTC on 26 Oct)
 
