@@ -18,8 +18,17 @@
   - phase 2: every other page;
   - phase 3: Arabic, tracking and an A/B test.
 - **Done:** records PR #104 merged as `4f35e5c`. The branch was restarted from it for phase 1.
-- **Running:** workflow `wf_cb04287e-c71`. It maps the live renderer and home, the content and calculators, every test and CI check, and the prototypes to port, then writes a file-by-file plan with an adversarial review.
-- **Next:** implement the plan's work packages, verify (typecheck, tests, build, the browser checks including homepage-call and a showcase frame budget), open the PR, get CI green, merge, deploy, verify live and record.
+- **Plan done** (`wf_cb04287e-c71`, 7 agents) and saved: `docs/marketing-revamp-2026-10-26/phase1/PLAN.md`, with the maps and the plan review.
+  - **Engine:** the verified prototype engine ported as `.js` modules with `.d.ts` files under `apps/web/components/marketing/brain/`.
+  - **Rendering:** the server renders the first frame; a client island loads the motion after `load`, idle and nearness.
+  - **Honesty:** the traces are tested against the real domain functions in `npm test`.
+  - **Call to action:** "Teach your AI — free" on the four pages only.
+  - **Off switch:** `MARKETING_SHOWCASE=static`.
+  - **Robots:** they get the still frame; the override is `?sc=on`.
+- **Draft PR #105** is open on this branch.
+- **Running:** build part 1, `wf_dd1f463e-103`: WP0 (foundations, no rendered change) → WP1 (Brain core, data and tests) → WP6 (pricing) → WP2 field, WP3a anatomy and WP3b playground engines, without Next builds.
+  - The four page registry entries are prepared as patches in the session scratchpad (`phase1-entries/`).
+- **Next:** part 2 (WP4 home, WP5 Trainer Brain and Demo, WP7a clean-up, WP7b browser checks and the CI step), then milestone verification, review, PR to green, merge, deploy, live check and records.
 - Delete the stray `/oq-daily.log` when convenient.
 
 ### Home page as the owner's HTML design: live since 22:47 UTC on 25 October 2026 (Claude, checked 04:10 UTC on 26 Oct)
