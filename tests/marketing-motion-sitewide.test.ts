@@ -41,92 +41,16 @@ import {
   MARKETING_MOTION_ATTRIBUTE,
   MOTION_ALWAYS_EXCLUDED,
 } from "../apps/web/components/marketing/motion-mode.ts";
+import { cssRules, splitTop, type Rule } from "./marketing-helpers.ts";
 
 const web = (path: string) => new URL("../apps/web/" + path, import.meta.url);
+/**
+ * The phase 1 page sheets (app/layout.tsx): the same contract as
+ * marketing.css, with its tokens (they define none of their own).
+ */
+const PAGE_SHEETS = ["marketing-proof.css", "marketing-home.css", "marketing-brain-pages.css", "marketing-pricing.css"];
 
-type Declaration = { property: string; value: string; important: boolean };
-type Rule = {
-  selector: string;
-  selectors: string[];
-  declarations: Declaration[];
-  /** Enclosing at-rule preludes, outermost first. */
-  context: string[];
-  line: number;
-};
-
-/** Splits on a separator at the top level (outside parentheses, brackets and strings). */
-function splitTop(text: string, separator: string): string[] {
-  const out: string[] = [];
-  let depth = 0,
-    quote = "",
-    current = "";
-  for (const ch of text) {
-    if (quote) {
-      if (ch === quote) quote = "";
-      current += ch;
-      continue;
-    }
-    if (ch === '"' || ch === "'") quote = ch;
-    else if (ch === "(" || ch === "[") depth++;
-    else if (ch === ")" || ch === "]") depth--;
-    if (ch === separator && depth === 0) {
-      out.push(current);
-      current = "";
-    } else current += ch;
-  }
-  out.push(current);
-  return out.map((s) => s.trim()).filter(Boolean);
-}
 const tokens = (value: string) => splitTop(value.replace(/\s+/g, " "), " ");
-
-/** Every rule of a stylesheet with its at-rule context (no CSS nesting). */
-export function cssRules(source: string): Rule[] {
-  // Blank comments, keeping line numbers.
-  const text = source.replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, " "));
-  const rules: Rule[] = [];
-  const lineAt = (offset: number) => text.slice(0, offset).split("\n").length;
-  const walk = (start: number, end: number, context: string[]) => {
-    let i = start;
-    while (i < end) {
-      const open = text.indexOf("{", i);
-      if (open < 0 || open >= end) break;
-      const prelude = text.slice(i, open).trim();
-      // The matching brace.
-      let depth = 1,
-        j = open + 1;
-      for (; j < end && depth; j++) {
-        if (text[j] === "{") depth++;
-        else if (text[j] === "}") depth--;
-      }
-      const close = j - 1;
-      const body = text.slice(open + 1, close);
-      if (prelude.startsWith("@") && !/^@(font-face|page|property)\b/.test(prelude)) {
-        walk(open + 1, close, [...context, prelude.replace(/\s+/g, " ")]);
-      } else {
-        const declarations = splitTop(body, ";").map((raw) => {
-          const colon = raw.indexOf(":");
-          const value = raw.slice(colon + 1).trim();
-          return {
-            property: raw.slice(0, colon).trim().toLowerCase(),
-            value: value.replace(/\s*!important$/, "").replace(/\s+/g, " "),
-            important: /!important$/.test(value),
-          };
-        });
-        const selector = prelude.replace(/\s+/g, " ");
-        rules.push({
-          selector,
-          selectors: splitTop(selector, ","),
-          declarations,
-          context,
-          line: lineAt(i + (text.slice(i, open).length - text.slice(i, open).trimStart().length)),
-        });
-      }
-      i = close + 1;
-    }
-  };
-  walk(0, text.length, []);
-  return rules;
-}
 
 const TOKENS: Record<string, string> = {
   "--mk-dur-press": "80ms",
@@ -300,7 +224,8 @@ test("the CSS reader keeps at-rule context, selectors and !important", () => {
 
 test("marketing motion uses the tokens, moves only transform, opacity and disclosure rows, and never loops", async () => {
   const css = await readFile(web("app/marketing.css"), "utf8");
-  const rules = cssRules(css);
+  const pageCss = await Promise.all(PAGE_SHEETS.map((sheet) => readFile(web("app/" + sheet), "utf8")));
+  const rules = [css, ...pageCss].flatMap((source) => cssRules(source));
   // The tokens: defined once, on the marketing roots, with the agreed values.
   for (const [token, value] of Object.entries(TOKENS)) {
     const defined = rules.flatMap((r) =>
@@ -334,7 +259,8 @@ test("marketing motion uses the tokens, moves only transform, opacity and disclo
     for (const p of motionProblems(rule, keyframes)) problems.push(`line ${rule.line} ${rule.selector}: ${p}`);
   }
   assert.deepEqual(problems, []);
-  assert.doesNotMatch(css, /\binfinite\b/, "no marketing animation repeats forever");
+  for (const source of [css, ...pageCss])
+    assert.doesNotMatch(source, /\binfinite\b/, "no marketing animation repeats forever");
   // The spring is for success states only.
   const springs = rules.filter((r) =>
     r.declarations.some((d) => !d.property.startsWith("--") && d.value.includes("--mk-ease-spring")),
@@ -370,7 +296,10 @@ test("hover effects only where the pointer hovers; in \"device\" mode reduced mo
   const css = await readFile(web("app/marketing.css"), "utf8");
   const globals = await readFile(web("app/globals.css"), "utf8");
   const rules = cssRules(css);
-  for (const rule of rules)
+  const pageRules = (await Promise.all(PAGE_SHEETS.map((sheet) => readFile(web("app/" + sheet), "utf8")))).flatMap(
+    (source) => cssRules(source),
+  );
+  for (const rule of [...rules, ...pageRules])
     for (const selector of rule.selectors) {
       if (!selector.includes(":hover")) continue;
       if (HOVER_ALLOWED.some((a) => a.selector === selector)) continue;
@@ -490,7 +419,8 @@ test("the marketing motion switch: one constant, on the marketing root and the a
   assert.deepEqual(cookie.selectors, ["", "::before", "::after", "::backdrop"].map((p) => `:root[data-reduce-motion="on"] *${G}${p}`));
   // Marketing stylesheets: every rule under reduced motion, and every rule
   // keyed on the member's choice, carries the exclusion on every selector.
-  const sheets = ["marketing.css", "marketing-assistant.css", "marketing-journey.css"];
+  // A sheet that moves nothing (a still page sheet) needs no such rules.
+  const sheets = ["marketing.css", "marketing-assistant.css", "marketing-journey.css", ...PAGE_SHEETS];
   let scoped = 0;
   for (const sheet of sheets) {
     const sheetRules = cssRules(await readFile(web("app/" + sheet), "utf8"));
@@ -499,7 +429,7 @@ test("the marketing motion switch: one constant, on the marketing root and the a
         !r.context.some((c) => c.startsWith("@keyframes")) &&
         (r.context.some((c) => c.includes("prefers-reduced-motion: reduce")) || r.selector.includes("data-reduce-motion")),
     );
-    assert.ok(reduceRules.length, `${sheet} keeps its reduced-motion rules for "device" mode`);
+    if (sheetRules.some(moves)) assert.ok(reduceRules.length, `${sheet} keeps its reduced-motion rules for "device" mode`);
     for (const rule of reduceRules)
       for (const selector of rule.selectors) {
         scoped++;
@@ -656,9 +586,10 @@ test("the script's motion values are the CSS tokens, and no animation library is
   assert.ok(staggers.length >= 9, `${staggers.length} item staggers`);
   assert.equal(Math.max(...staggers), MAX_STAGGER);
   // Marketing components import React, Next's link/router, the icon set, the
-  // workspace packages and each other: no animation library.
+  // workspace packages and each other: no animation library. Subfolders (the
+  // Brain engine, with its plain .js modules) included.
   const dir = new URL("../apps/web/components/marketing/", import.meta.url);
-  for (const file of (await readdir(dir)).filter((f) => /\.tsx?$/.test(f))) {
+  for (const file of (await readdir(dir, { recursive: true })).filter((f) => /\.(tsx?|js)$/.test(f))) {
     const source = await readFile(new URL(file, dir), "utf8");
     for (const [, from] of source.matchAll(/(?:^|\n)\s*(?:import|export)[^;]*?from\s+"([^"]+)"/g))
       assert.ok(

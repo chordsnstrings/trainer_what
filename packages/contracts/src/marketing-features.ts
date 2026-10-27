@@ -202,13 +202,18 @@ export const FEATURE_MATRIX: CapabilityGroup[] = [
   },
 ];
 
-/** Generic tool categories one workspace replaces. Never a competitor's name. */
-export const REPLACES: Array<{ tool: string; instead: string }> = [
+/**
+ * Generic tool categories one workspace replaces. Never a competitor's name.
+ * `availability`: the providers a row needs before it holds for a trainer
+ * (the home page marks the row "Not on yet" until they are on; /features
+ * lists every row as the full inventory).
+ */
+export const REPLACES: Array<{ tool: string; instead: string; availability?: AvailabilityKey[] }> = [
   { tool: "A website builder", instead: "A desktop drag-and-drop builder with multiple pages, section templates, galleries, videos and private previews." },
-  { tool: "A booking tool", instead: "Session slots, paid bookings, cancellation rules and calendar export." },
-  { tool: "A payment set-up and invoicing", instead: "Card checkout in AED, trials, promotions, refunds, statements and payouts." },
+  { tool: "A booking tool", instead: "Session slots, paid bookings, cancellation rules and calendar export.", availability: ["payments"] },
+  { tool: "A payment set-up and invoicing", instead: "Card checkout in AED, trials, promotions, refunds, statements and payouts.", availability: ["payments"] },
   { tool: "A client training app", instead: "A branded app with day-by-day plans, set logging, rest timers and offline mode." },
-  { tool: "A meal-planning app", instead: "The optional nutrition tier: meal plans, recipes, grocery lists and a food diary." },
+  { tool: "A meal-planning app", instead: "The optional nutrition tier: meal plans, recipes, grocery lists and a food diary.", availability: ["nutrition"] },
   { tool: "A client messaging app", instead: "Private chat, attachments, scheduled follow-ups and a labelled digital coach." },
   { tool: "Programme spreadsheets", instead: "Templates, an exercise library, automatic scheduling and progress tracking." },
 ];

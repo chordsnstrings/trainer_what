@@ -18,19 +18,14 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import {
-  BRAND_COPY,
   OFFERED_DIRECTORY_SPECIALTIES,
   MARKETING_PAGES,
   MARKETING_SOURCES,
   SETUP_CHECKLIST,
-  brandText,
   jsonLdScript,
-  marketingBreadcrumbs,
   marketingJsonLd,
   marketingPageFor,
   marketingPage,
-  sourceById,
-  usesBrandIdentity,
   type MarketingPage,
   type MarketingSection,
 } from "@trainer/contracts";
@@ -59,6 +54,25 @@ import { HeroFlow } from "./hero-flow";
 import { Journey, JourneyBand, journeyAvailable } from "./journey";
 import { MarketingMotion } from "./motion";
 import { MARKETING_MOTION } from "./motion-mode";
+import {
+  Breadcrumbs,
+  Closing,
+  Faqs,
+  HOW_IT_WORKS,
+  Highlighted,
+  InShort,
+  PageHead,
+  Related,
+  Section,
+  UpdatedLine,
+  closingLink,
+  dateLabel,
+  pageText,
+  primaryCta,
+  secondaryCta,
+  type Ctx,
+} from "./page-parts";
+import { PricingPage } from "./pages/pricing";
 import { ScrollScenes } from "./scene-mount";
 import type { PublicPlatform } from "./platform";
 import {
@@ -67,268 +81,17 @@ import {
   ProductScreens,
   Replaces,
 } from "./showcase";
-export { availabilityChip };
-
-type Ctx = { page: MarketingPage; platform: PublicPlatform; origin: string };
-const dateLabel = (iso: string) =>
-  new Intl.DateTimeFormat("en-GB", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    timeZone: "Asia/Dubai",
-  }).format(new Date(iso + "T12:00:00Z"));
-
-/** The CTA a page shows, following whether registration is open. */
-function primaryCta(page: MarketingPage, platform: PublicPlatform): Cta {
-  const claim = claimCta(platform.registrationOpen);
-  if (!page.cta || page.cta.href === "/signup")
-    return page.cta && platform.registrationOpen ? page.cta : claim;
-  return page.cta;
-}
-function secondaryCta(page: MarketingPage): Cta {
-  return page.path === "/follower-calculator"
-    ? { label: "Estimate my earnings", href: "/earnings-calculator" }
-    : { label: "Estimate what your followers are worth", href: "/follower-calculator" };
-}
-
-function SourceNote({ ids }: { ids?: string[] }) {
-  const sources = (ids ?? []).map(sourceById).filter((s) => !!s);
-  if (!sources.length) return null;
-  return (
-    <p className="mk-sources fine-print">
-      Sources:{" "}
-      {sources.map((s, i) => (
-        <span key={s!.id}>
-          {i > 0 && " · "}
-          <a href={s!.url} rel="noopener" target="_blank">
-            {s!.publisher}
-            {s!.published ? `, ${s!.published}` : ""}
-          </a>{" "}
-          (<Link href={"/methodology#" + s!.id}>how we use it</Link>)
-        </span>
-      ))}
-    </p>
-  );
-}
-
-export function Section({
-  section,
-  t,
-  headingLevel = 2,
-}: {
-  section: MarketingSection;
-  t: (s: string) => string;
-  headingLevel?: 2 | 3;
-}) {
-  const H = headingLevel === 2 ? "h2" : "h3";
-  return (
-    <section className="mk-section" id={section.id} aria-labelledby={section.id + "-h"}>
-      <H id={section.id + "-h"}>{t(section.heading)}</H>
-      {section.body?.map((p) => (
-        <p key={p} className="mk-body">
-          {t(p)}
-        </p>
-      ))}
-      {!!section.bullets?.length && (
-        <ul className="mk-list">
-          {section.bullets.map((b) => (
-            <li key={b}>
-              <Check size={16} aria-hidden="true" />
-              <span>{t(b)}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-      {!!section.cards?.length && (
-        <div className="mk-cards">
-          {section.cards.map((c) => (
-            <article className="mk-card" key={c.title}>
-              {c.label && <span className="badge">{t(c.label)}</span>}
-              <h3>{t(c.title)}</h3>
-              <p>{t(c.body)}</p>
-            </article>
-          ))}
-        </div>
-      )}
-      {!!section.steps?.length && (
-        <ol className="mk-steps">
-          {section.steps.map((s, i) => (
-            <li key={s.title}>
-              <span className="mk-step-number" aria-hidden="true">
-                {String(i + 1).padStart(2, "0")}
-              </span>
-              <div>
-                <h3>{t(s.title)}</h3>
-                <p>{t(s.body)}</p>
-              </div>
-            </li>
-          ))}
-        </ol>
-      )}
-      {section.table && (
-        <div className="mk-table-wrap">
-          <table className="mk-table">
-            <caption>{t(section.table.caption)}</caption>
-            <thead>
-              <tr>
-                {section.table.columns.map((c) => (
-                  <th scope="col" key={c}>
-                    {t(c)}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {section.table.rows.map((row) => (
-                <tr key={row.join("|")}>
-                  {row.map((cell, i) => (
-                    <td key={i}>{t(cell)}</td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-      {section.note && <p className="fine-print muted">{t(section.note)}</p>}
-      <SourceNote ids={section.sources} />
-    </section>
-  );
-}
-
-function Faqs({
-  page,
-  t,
-  heading = "Frequently asked questions",
-}: {
-  page: MarketingPage;
-  t: (s: string) => string;
-  heading?: string;
-}) {
-  if (!page.faqs.length) return null;
-  return (
-    <section className="mk-section mk-faqs" id="faq" aria-labelledby="faq-h">
-      <h2 id="faq-h">{heading}</h2>
-      {page.faqs.map((f) => (
-        <details key={f.q} className="mk-faq">
-          <summary>{t(f.q)}</summary>
-          <p>{t(f.a)}</p>
-        </details>
-      ))}
-    </section>
-  );
-}
-
-function Related({ page, t }: { page: MarketingPage; t: (s: string) => string }) {
-  const links = page.related
-    .map((path) =>
-      path === "/coaches"
-        ? { path, label: "Find a coach" }
-        : marketingPage(path)
-          ? { path, label: marketingPage(path)!.navLabel }
-          : null,
-    )
-    .filter((l) => !!l);
-  if (!links.length) return null;
-  return (
-    <nav className="mk-related" aria-label="Related pages">
-      <p className="eyebrow">RELATED</p>
-      <ul>
-        {links.map((l) => (
-          <li key={l!.path}>
-            <Link href={l!.path}>
-              {t(l!.label)} <ArrowRight size={14} aria-hidden="true" />
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </nav>
-  );
-}
-
-function Breadcrumbs({ page, t }: { page: MarketingPage; t: (s: string) => string }) {
-  const crumbs = marketingBreadcrumbs(page);
-  return (
-    <nav className="mk-breadcrumbs" aria-label="Breadcrumb">
-      <ol>
-        {crumbs.map((c, i) => (
-          <li key={c.path}>
-            {i === crumbs.length - 1 ? (
-              <span aria-current="page">{t(c.label)}</span>
-            ) : (
-              <Link href={c.path}>{t(c.label)}</Link>
-            )}
-          </li>
-        ))}
-      </ol>
-    </nav>
-  );
-}
+// Still importable from here: Section moved to page-parts.tsx, and the
+// journey tests import it from this file.
+export { availabilityChip, Section };
 
 /**
- * The closing panel on every marketing page: a contained Pace panel with ink
- * text and an ink button. The brand line is its heading on the trainsyou
- * platform; a renamed platform asks the call to action instead.
+ * Pages with a renderer of their own (components/marketing/pages/), by
+ * path; every other page is the home or the standard page.
  */
-function Closing({
-  cta,
-  platform,
-  secondary,
-  scene = false,
-}: {
-  cta: Cta;
-  platform: PublicPlatform;
-  secondary: Cta;
-  /** Home only: the panel rises into place as it enters (scroll scenes). */
-  scene?: boolean;
-}) {
-  return (
-    <div className="mk-container mk-closing-wrap">
-      <section
-        className="mk-closing"
-        aria-labelledby="mk-closing-h"
-        {...(scene ? { "data-scene": "reveal", "data-span": ".45" } : {})}
-      >
-        <h2 id="mk-closing-h">
-          {usesBrandIdentity(platform.name) ? BRAND_COPY.line : "Ready to teach your AI?"}
-        </h2>
-        <p>Guided setup. Nothing goes live until you publish.</p>
-        <div className="button-row">
-          <Link className="button large mk-closing-cta" href={cta.href}>
-            {cta.label} <ArrowRight size={17} aria-hidden="true" />
-          </Link>
-          <Link className="text-link mk-link" href={secondary.href}>
-            {secondary.label} <ArrowRight size={15} aria-hidden="true" />
-          </Link>
-        </div>
-      </section>
-    </div>
-  );
-}
-const HOW_IT_WORKS: Cta = { label: "See how it works", href: "/how-it-works" };
-/** The closing panel's second link: the follower estimate, or how it works. */
-function closingLink(path: string): Cta {
-  return path === "/" || path === "/follower-calculator"
-    ? HOW_IT_WORKS
-    : { label: "What are my followers worth?", href: "/follower-calculator" };
-}
-
-/**
- * The Pace highlight on part of a heading; the text itself is unchanged. A
- * span, not <mark>: the emphasis is decorative, and screen readers can
- * announce <mark> as "highlight" in the middle of the H1.
- */
-function Highlighted({ text, mark }: { text: string; mark?: string }) {
-  const at = mark ? text.indexOf(mark) : -1;
-  if (!mark || at < 0) return <>{text}</>;
-  return (
-    <>
-      {text.slice(0, at)}
-      <span className="mk-mark">{mark}</span>
-      {text.slice(at + mark.length)}
-    </>
-  );
-}
+const BESPOKE: Partial<Record<string, (c: Ctx) => ReactNode>> = {
+  "/pricing": (c) => <PricingPage {...c} />,
+};
 
 /**
  * The commission bands as short labels, from the ledger's own bands. The
@@ -1112,33 +875,20 @@ function AfterSection({
 }
 
 function StandardPage({ page, platform, origin }: Ctx) {
-  const t = (s: string) => brandText(s, platform.name, platform.followerModel);
-  const cta = primaryCta(page, platform),
-    second = secondaryCta(page);
-  const chip = availabilityChip(page, platform.availability);
+  const t = pageText(platform);
+  const cta = primaryCta(page, platform);
   const demo = page.path === "/demo";
   return (
     <>
       <div className="mk-container mk-page">
         <Breadcrumbs page={page} t={t} />
-        <header className="mk-page-head">
-          <p className="eyebrow">{t(page.eyebrow)}</p>
-          <h1>{t(page.h1)}</h1>
-          {chip && <Chip chip={chip} />}
-          {/* One short statement above the fold: the lede, or the
-              answer-first introduction on pages without one. */}
-          <p className={page.lede ? "mk-lede" : "mk-answer"}>{t(page.lede ?? page.intro)}</p>
-          <div className="button-row">
-            <Link className="button large mk-cta" href={cta.href}>
-              {cta.label} <ArrowRight size={17} aria-hidden="true" />
-            </Link>
-            {!page.path.endsWith("-calculator") && (
-              <Link className="text-link mk-link" href={second.href}>
-                {second.label} <ArrowRight size={15} aria-hidden="true" />
-              </Link>
-            )}
-          </div>
-        </header>
+        <PageHead
+          page={page}
+          platform={platform}
+          t={t}
+          cta={cta}
+          secondary={page.path.endsWith("-calculator") ? null : secondaryCta(page)}
+        />
         <CustomBlock page={page} platform={platform} origin={origin} t={t} />
         {page.sections.map((section) =>
           demo && section.id === "scenarios" ? (
@@ -1188,22 +938,12 @@ function StandardPage({ page, platform, origin }: Ctx) {
           </section>
         )}
         {page.path === "/methodology" && <Methodology platform={platform} />}
-        {/* A page with a lede keeps its answer-first introduction (the text
-            in JSON-LD and llms-full.txt) as a short summary before the FAQs,
-            instead of repeating the lede straight under it. */}
-        {page.lede && (
-          <section className="mk-section mk-in-short" id="in-short" aria-labelledby="in-short-h">
-            <h2 id="in-short-h">In short</h2>
-            <p className="mk-body">{t(page.intro)}</p>
-          </section>
-        )}
+        <InShort page={page} t={t} />
         <Faqs page={page} t={t} />
         <Related page={page} t={t} />
-        <p className="mk-updated muted">
-          Last updated <time dateTime={page.lastUpdated}>{dateLabel(page.lastUpdated)}</time>
-        </p>
+        <UpdatedLine page={page} />
       </div>
-      <Closing cta={cta} platform={platform} secondary={closingLink(page.path)} />
+      <Closing cta={cta} platform={platform} secondary={closingLink(page)} />
     </>
   );
 }
@@ -1439,7 +1179,7 @@ function EconomicsVisual({ platform }: { platform: PublicPlatform }) {
 }
 
 function Home({ page, platform }: Ctx) {
-  const t = (s: string) => brandText(s, platform.name, platform.followerModel);
+  const t = pageText(platform);
   const cta = primaryCta(page, platform);
   // The follower estimate keeps its own block (the calculator is owned by
   // the calculator package; only its container is styled here).
@@ -1532,7 +1272,7 @@ function Home({ page, platform }: Ctx) {
           <Faqs page={page} t={t} heading="Questions trainers ask" />
         </div>
       </div>
-      <Closing cta={cta} platform={platform} secondary={closingLink(page.path)} />
+      <Closing cta={cta} platform={platform} secondary={closingLink(page)} />
       {/* Drives the scenes above (renders nothing; off unless the head
           script turned scenes on: docs/features/scroll-scenes.md). */}
       <ScrollScenes />
@@ -1541,12 +1281,13 @@ function Home({ page, platform }: Ctx) {
 }
 
 /** A complete marketing page: header, content, footer and JSON-LD. */
-export function MarketingSite({ page: registered, platform, origin }: Ctx) {
+export function MarketingSite({ page: registered, platform, origin, showcase = "live" }: Ctx) {
   // Lines gated on availability (the "frontier model" wording) appear only
   // while their flag is on: the same filter as the FAQ structured data and
   // llms-full.txt.
   const page = marketingPageFor(registered, platform.availability);
   const cta = primaryCta(page, platform);
+  const bespoke = BESPOKE[page.path];
   const jsonLd = marketingJsonLd(page, {
     origin,
     appName: platform.name,
@@ -1567,7 +1308,9 @@ export function MarketingSite({ page: registered, platform, origin }: Ctx) {
         path={page.path}
       />
       <main id="main" className="mk-main">
-        {page.kind === "home" ? (
+        {bespoke ? (
+          bespoke({ page, platform, origin, showcase })
+        ) : page.kind === "home" ? (
           <Home page={page} platform={platform} origin={origin} />
         ) : (
           <StandardPage page={page} platform={platform} origin={origin} />

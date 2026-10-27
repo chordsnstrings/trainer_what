@@ -51,8 +51,12 @@ const UNITS = [
   ".mk-page > div:not([class]) > *",
   ".mk-closing",
 ].join(", ");
-/** What never waits for a reveal: the first screen's showpieces and the journey. */
-const NEVER = ".mk-hero, .mk-page-head, .mk-relay, .mk-walk-section, .mk-walk-band";
+/**
+ * What never waits for a reveal: the first screen's showpieces, the journey
+ * and the Brain showcases (components/marketing/brain/: their engine
+ * measures its own boxes, so a band holding one carries .mk-sc-band).
+ */
+const NEVER = ".mk-hero, .mk-page-head, .mk-relay, .mk-walk-section, .mk-walk-band, [data-showcase], .mk-sc-band, .sc-host";
 /** While scroll scenes are on (scene-mount.tsx), scroll moves their sections instead. */
 const SCENES = "[data-scene]";
 /** The longest item stagger in app/marketing.css (--mk-stagger: six

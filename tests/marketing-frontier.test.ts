@@ -23,13 +23,15 @@ import { DEFAULT_FOLLOWER_MODEL } from "../packages/domain/src/marketing-calcula
 
 const ORIGIN = "https://trainsyou.example";
 const APP = "trainsyou";
-const availability = (frontier: boolean) => ({
+// Payments on unless a test says otherwise: other lines (the paid answer to
+// "Can subscribers pay me today?") follow that flag.
+const availability = (frontier: boolean, payments = true) => ({
   model: true,
   nutrition: false,
   voice: false,
   customDomains: false,
-  payments: true,
-  payouts: true,
+  payments,
+  payouts: payments,
   whoop: false,
   zepp: false,
   instagram: false,
@@ -63,7 +65,7 @@ test("flag off: 'frontier model' appears nowhere, including llms files and struc
     // Raw HTML includes the JSON-LD script with the FAQ structured data.
     assert.doesNotMatch(html(page, false), FRONTIER, page.path);
     assert.doesNotMatch(JSON.stringify(marketingJsonLd(page, ctx(false))), FRONTIER, page.path);
-    assert.equal(marketingPageFor(page, availability(false)), page, "unchanged");
+    assert.equal(marketingPageFor(page, availability(false, false)), page, "unchanged");
   }
   assert.doesNotMatch(llmsTxt(ctx(false)), FRONTIER);
   assert.doesNotMatch(llmsFullTxt(ctx(false)), FRONTIER);
@@ -111,9 +113,10 @@ test("frontier lines: idempotent filter, copy limits, never 'only gets better'",
     const once = marketingPageFor(page, availability(true));
     assert.deepEqual(marketingPageFor(once, availability(true)), once, page.path);
   }
-  // The copy limits of docs/features/marketing-site.md for each gated line.
+  // The copy limits of docs/features/marketing-site.md for each gated line,
+  // the frontier wording and the lines that follow subscriber payments.
   for (const line of AVAILABILITY_LINES) {
-    assert.equal(line.when, "frontier");
+    assert.ok(["frontier", "payments"].includes(line.when), line.when);
     assert.doesNotMatch(JSON.stringify(line), /only gets better|always better|guarantee/i);
     if (line.bullet) {
       assert.ok(words(line.bullet.text) <= 12, line.bullet.text);

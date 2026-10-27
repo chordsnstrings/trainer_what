@@ -54,6 +54,13 @@ export function AssistantButton({
       setMinimized(false);
     }
   }, [allowed]);
+  // While a call is open, the Brain showcases pause (engine/core.js).
+  useEffect(() => {
+    if (!open) return;
+    const html = document.documentElement;
+    html.setAttribute("data-mk-call", "");
+    return () => html.removeAttribute("data-mk-call");
+  }, [open]);
   if (hidden || !enabled || !allowed || (path !== "/" && !open)) return null;
   async function toggle() {
     if (!Panel) {

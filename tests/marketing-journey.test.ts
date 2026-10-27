@@ -367,6 +367,8 @@ test("the mocks: no AI costs, fees, model names or amounts; only the listed new 
       "../apps/web/components/marketing/hero-flow.tsx",
       "../apps/web/components/marketing/islands.tsx",
       "../apps/web/components/marketing/frame.tsx",
+      "../apps/web/components/marketing/page-parts.tsx",
+      "../apps/web/components/marketing/proof.tsx",
     ].map((f) => readFile(new URL(f, import.meta.url), "utf8")),
   );
   const known = sources.join("\n").toLowerCase();

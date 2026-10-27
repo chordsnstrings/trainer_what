@@ -134,6 +134,11 @@ export type MarketingPage = {
   faqs: MarketingFaq[];
   /** Primary call to action; defaults to claiming a coaching address. */
   cta?: { label: string; href: string };
+  /**
+   * The link beside the primary call to action, in the page head and the
+   * closing panel; without it the renderer chooses one by path.
+   */
+  secondaryCta?: { label: string; href: string };
   related: string[];
   /** ISO date of the last content review. */
   lastUpdated: string;

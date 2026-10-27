@@ -11,6 +11,7 @@ import { publicPlatform } from "../components/marketing/platform";
 import { requestOrigin } from "../components/discovery-server";
 import { AssistantButton } from "../components/marketing/assistant-button";
 import { SCENES_HEAD_SCRIPT } from "../components/marketing/scenes-head";
+import { SHOWCASE_HEAD_SCRIPT } from "../components/marketing/brain/head";
 import {
   BRAND_COLORS,
   BRAND_COPY,
@@ -48,6 +49,17 @@ import "./appearance.css";
 import "./member-screens.css";
 import "./marketing.css";
 import "./marketing-journey.css";
+// The phase 1 marketing pages: the proof atoms and the page sheets, then
+// the first frame of the Brain showcases (their runtime styles load with
+// the engine; docs/marketing-revamp-2026-10-26/phase1/PLAN.md §1.4).
+import "./marketing-proof.css";
+import "./marketing-home.css";
+import "./marketing-brain-pages.css";
+import "./marketing-pricing.css";
+import "./brain-stage.css";
+import "./brain-field.css";
+import "./brain-play.css";
+import "./brain-anatomy.css";
 // Scroll scenes (home page only; docs/features/scroll-scenes.md).
 import "./scroll-scenes.css";
 import "./analytics-consent.css";
@@ -180,6 +192,8 @@ export default async function Layout({
         <script dangerouslySetInnerHTML={{ __html: LAUNCH_COLOUR_SCRIPT }} />
         {/* Scroll scenes: on before the first paint, or never. */}
         <script dangerouslySetInnerHTML={{ __html: SCENES_HEAD_SCRIPT }} />
+        {/* Brain showcases: motion and the pin decided before the first paint. */}
+        {SHOWCASE_HEAD_SCRIPT && <script dangerouslySetInnerHTML={{ __html: SHOWCASE_HEAD_SCRIPT }} />}
       </head>
       <body>
         {/* Subscriber text follows <html lang> (lib/i18n/react.tsx). */}

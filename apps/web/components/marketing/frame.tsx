@@ -28,6 +28,19 @@ export function claimCta(registrationOpen: boolean): Cta {
     : { label: "Join early access", href: "/get-started#early-access" };
 }
 
+/**
+ * The phase 1 call to action, "Teach your AI — free" (the brand's primary
+ * action), or early access while registration is closed. Only the pages in
+ * TEACH_CTA_PATHS (page-parts.tsx) and their showcases use it; every other
+ * surface keeps claimCta until the rest of the site follows.
+ */
+export const TEACH_AI = BRAND_COPY.primaryAction + " — free";
+export function teachCta(registrationOpen: boolean): Cta {
+  return registrationOpen
+    ? { label: TEACH_AI, href: "/signup" }
+    : { label: "Join early access — free", href: "/get-started#early-access" };
+}
+
 /** The platform identity linking home (the trainsyou lockup or the name). */
 export function Wordmark({ appName }: BrandProps) {
   return (

@@ -1,0 +1,731 @@
+/* The pricing page (components/marketing/pages/pricing.tsx): concept B's
+   layout in the house tokens, with its two calculators
+   (components/marketing/pricing-islands.tsx). Every rule sits under the
+   .mk-pr- prefix, and the marketing motion contract applies
+   (tests/marketing-motion-sitewide.test.ts). Every surface stays light (the
+   brand check): the stairs are tints of ink, and only meters thinner than
+   12px are ink. Figures use tabular numerals, and the readouts of the
+   calculators sit in fixed-width slots, so a changing value never moves the
+   layout. Only the share marker and the meter fills move, on the motion
+   tokens. */
+
+/* Hero: the page head beside the stairs card. */
+.mk-pr-hero {
+  padding-block: 28px 72px;
+}
+.mk-pr-hero-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  gap: clamp(32px, 5vw, 80px);
+  align-items: center;
+}
+.mk-pr-hero .mk-page-head {
+  margin: 0;
+  padding-block: 16px 0;
+  border: 0;
+}
+.mk-pr-hero .mk-pf-strip {
+  max-inline-size: 34em;
+  margin-block-start: 28px;
+}
+.mk-pr-stairs-card {
+  display: grid;
+  gap: 18px;
+  margin: 0;
+  padding: clamp(20px, 2.4vw, 32px);
+  border: 1px solid var(--mk-line);
+  border-radius: var(--radius);
+  background: var(--white);
+  box-shadow: var(--mk-shadow);
+}
+.mk-pr-stairs-card .eyebrow {
+  margin: 0;
+}
+.mk-pr-stairs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  align-items: end;
+}
+.mk-pr-stair {
+  display: grid;
+  gap: 6px;
+}
+.mk-pr-stair b {
+  font-size: clamp(18px, 2vw, 24px);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.mk-pr-stair i {
+  display: block;
+  block-size: calc(var(--pr-h) * 1.3px);
+  border-radius: 4px 4px 2px 2px;
+  background: var(--paper);
+  box-shadow: inset 0 0 0 1px var(--ink);
+}
+.mk-pr-stair:nth-child(1) i {
+  background: color-mix(in srgb, var(--ink) 38%, var(--white));
+}
+.mk-pr-stair:nth-child(2) i {
+  background: color-mix(in srgb, var(--ink) 25%, var(--white));
+}
+.mk-pr-stair:nth-child(3) i {
+  background: color-mix(in srgb, var(--ink) 12%, var(--white));
+}
+.mk-pr-stair span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+/* Bands: the Pace wash and the rule under the hero. */
+.mk-pr-wash {
+  background: color-mix(in srgb, var(--lime) 28%, var(--white));
+}
+.mk-pr-rule {
+  border-block-start: 1px solid var(--mk-line);
+}
+.mk-pr-head .eyebrow {
+  margin-block-end: 14px;
+}
+.mk-pr-head h2 {
+  max-inline-size: 18em;
+  margin: 0;
+  font-size: clamp(28px, 3.2vw, 44px);
+  font-weight: 540;
+  line-height: 1.12;
+  letter-spacing: -0.04em;
+}
+.mk-pr-lede {
+  max-inline-size: 56ch;
+  margin-block: 16px 0;
+  color: var(--muted);
+  font-size: 17px;
+  line-height: 1.6;
+}
+.mk-pr-head-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px 32px;
+}
+.mk-pr-split {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: clamp(32px, 5vw, 80px);
+  align-items: start;
+}
+.mk-pr-center {
+  align-items: center;
+}
+.mk-pr-stack {
+  display: grid;
+  gap: 24px;
+  align-content: start;
+}
+.mk-pr-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.mk-pr-fine {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+
+/* At a glance: three cards; what we take is the highlighted one. */
+.mk-pr-glance {
+  margin: 0;
+}
+.mk-pr-glance .mk-card {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+.mk-pr-glance h3 {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 650;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.mk-pr-glance .mk-card p {
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 1.55;
+}
+.mk-pr-glance .mk-pr-take {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--lime) 28%, var(--white));
+  box-shadow: inset 0 0 0 1.5px var(--ink);
+}
+.mk-pr-glance .mk-pr-rates {
+  font-size: clamp(32px, 3.4vw, 46px);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.mk-pr-glance-line {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+/* How our share falls: the bands table beside the share slider. */
+.mk-pr-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--mk-line);
+  border-radius: var(--radius);
+  background: var(--white);
+}
+.mk-pr-table {
+  inline-size: 100%;
+  border-collapse: collapse;
+  font-size: 15px;
+}
+.mk-pr-table caption {
+  padding: 14px 16px 2px;
+  caption-side: top;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: start;
+}
+.mk-pr-table th,
+.mk-pr-table td {
+  padding: 13px 16px;
+  border-block-end: 1px solid var(--line);
+  text-align: start;
+}
+.mk-pr-table thead th {
+  border-block-end-color: var(--ink);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+.mk-pr-table tbody th {
+  font-weight: 600;
+}
+.mk-pr-table td {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.mk-pr-table tbody tr:last-child > * {
+  border-block-end: 0;
+}
+
+/* The calculators' cards. */
+.mk-pr-tool {
+  display: grid;
+  gap: 18px;
+  padding: clamp(20px, 2.6vw, 32px);
+  border: 1px solid var(--mk-line);
+  border-radius: var(--radius);
+  background: var(--white);
+  box-shadow: var(--mk-shadow);
+}
+.mk-pr-tool .eyebrow {
+  margin: 0;
+}
+.mk-pr-tool-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+.mk-pr-calc {
+  display: grid;
+  gap: 16px;
+}
+.mk-pr-inputs {
+  display: grid;
+  gap: 18px;
+  padding-block-end: 20px;
+  border-block-end: 1px solid var(--line);
+}
+.mk-pr-range {
+  display: grid;
+  gap: 4px;
+}
+.mk-pr-range-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.mk-pr-range label {
+  font-size: 14px;
+  font-weight: 600;
+}
+/* The slider: an ink track up to the value (mirrored right to left). */
+.mk-pr-range input {
+  -webkit-appearance: none;
+  appearance: none;
+  inline-size: 100%;
+  block-size: 44px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.mk-pr-range input::-webkit-slider-runnable-track {
+  block-size: 6px;
+  border-radius: 999px;
+  background: linear-gradient(calc(90deg * var(--inline-sign, 1)), var(--ink) var(--pr-fill), var(--line) var(--pr-fill));
+}
+.mk-pr-range input::-moz-range-track {
+  block-size: 6px;
+  border-radius: 999px;
+  background: var(--line);
+}
+.mk-pr-range input::-moz-range-progress {
+  block-size: 6px;
+  border-radius: 999px;
+  background: var(--ink);
+}
+.mk-pr-range input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  inline-size: 26px;
+  block-size: 26px;
+  margin-block-start: -10px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--white);
+  box-shadow: 0 0 0 2px var(--ink), 0 2px 8px rgb(23 25 23 / 22%);
+}
+.mk-pr-range input::-moz-range-thumb {
+  inline-size: 26px;
+  block-size: 26px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--white);
+  box-shadow: 0 0 0 2px var(--ink), 0 2px 8px rgb(23 25 23 / 22%);
+}
+.mk-pr-ends {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.mk-pr-figure {
+  min-inline-size: 8ch;
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  text-align: end;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+/* A readout that settles once input pauses (motion.tsx useSettle). */
+span.mk-pr-out {
+  display: inline-block;
+}
+.mk-pr-jumps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.mk-pr-jumps button {
+  min-block-size: 44px;
+  padding-inline: 14px;
+  border: 1px solid var(--mk-line);
+  border-radius: 999px;
+  background: var(--white);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+@media (hover: hover) {
+  .mk-pr-jumps button:hover {
+    border-color: var(--ink);
+  }
+}
+.mk-pr-read {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+/* Our share overall, from the first band's rate (start) to the last's
+   (end): the marker moves along the axis (cqi: the axis's own width). */
+.mk-pr-axis {
+  position: relative;
+  block-size: 50px;
+  container-type: inline-size;
+}
+.mk-pr-axis-line {
+  position: absolute;
+  inset-inline: 0;
+  inset-block-start: 34px;
+  block-size: 6px;
+  border-radius: 999px;
+  background: linear-gradient(calc(90deg * var(--inline-sign, 1)), var(--ink) calc(var(--pr-pos) * 1%), var(--line) 0);
+}
+.mk-pr-marker {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  translate: calc(var(--pr-pos) * 1cqi * var(--inline-sign, 1)) 0;
+  transition: translate var(--mk-dur-fast) var(--mk-ease-out);
+}
+.mk-pr-marker b {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  padding: 3px 8px;
+  border-radius: var(--ty-radius-control);
+  background: var(--lime);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.2;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  translate: calc(var(--pr-pos) * -1% * var(--inline-sign, 1)) 0;
+  transition: translate var(--mk-dur-fast) var(--mk-ease-out);
+}
+.mk-pr-marker i {
+  position: absolute;
+  inset-block-start: 28px;
+  inset-inline-start: 0;
+  inline-size: 18px;
+  block-size: 18px;
+  border-radius: 50%;
+  background: var(--white);
+  box-shadow: 0 0 0 2px var(--ink);
+  translate: calc(-50% * var(--inline-sign, 1)) 0;
+}
+/* The four bands, each filling as subscribers reach it. */
+.mk-pr-meter {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mk-pr-meter li {
+  display: grid;
+  gap: 2px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.3;
+}
+.mk-pr-meter b {
+  margin-block-start: 6px;
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.mk-pr-meter-track {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  block-size: 8px;
+  border-radius: 999px;
+  background: var(--paper);
+  box-shadow: inset 0 0 0 1px var(--mk-line);
+}
+.mk-pr-meter-track span {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--ink);
+  transform-origin: calc(50% - 50% * var(--inline-sign, 1)) 50%;
+  scale: var(--pr-fill) 1;
+  transition: scale var(--mk-dur-slow) var(--mk-ease-out);
+}
+/* The take-home rows and what you keep. */
+.mk-pr-rows {
+  display: grid;
+  margin: 0;
+}
+.mk-pr-rows > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 12px;
+  padding-block: 12px;
+  border-block-end: 1px solid var(--line);
+  font-size: 15px;
+}
+.mk-pr-rows dd {
+  min-inline-size: 13ch;
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  text-align: end;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.mk-pr-rows > div + div dd {
+  color: var(--muted);
+}
+.mk-pr-keep {
+  display: grid;
+  gap: 6px;
+}
+.mk-pr-keep p {
+  margin: 0;
+}
+.mk-pr-keep p:first-child {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 2px 12px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.mk-pr-keep p:first-child span + span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+.mk-pr-keep-figure {
+  color: var(--success);
+  font-size: clamp(34px, 9vw, 72px);
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  line-height: 1;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+/* While subscriber payments are off, under every amount you keep. */
+.mk-pr-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--warning-bg);
+  color: var(--warning);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+.mk-pr-note svg {
+  flex: none;
+  margin-block-start: 1px;
+}
+
+/* The worked example and the sample monthly statement. */
+.mk-pr-statement {
+  padding: clamp(20px, 2.6vw, 32px);
+  border: 1px solid var(--mk-line);
+  border-radius: var(--radius);
+  background: var(--white);
+  box-shadow: var(--mk-shadow);
+}
+.mk-pr-statement-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-block-end: 4px;
+  padding-block-end: 16px;
+  border-block-end: 1px dashed var(--muted);
+}
+.mk-pr-statement-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+.mk-pr-statement dl {
+  margin-block: 0 12px;
+}
+.mk-pr-statement dl > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 16px;
+  padding-block: 11px;
+  border-block-end: 1px solid var(--line);
+  font-size: 15px;
+}
+.mk-pr-statement dd {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.mk-pr-statement .mk-pr-st-sub {
+  color: var(--muted);
+  font-size: 14px;
+}
+.mk-pr-st-sub dd {
+  color: var(--ink);
+  font-size: 17px;
+}
+.mk-pr-statement .mk-pr-st-total {
+  padding-block-start: 16px;
+  border-block-end: 0;
+  font-weight: 600;
+}
+.mk-pr-st-total dd {
+  color: var(--success);
+  font-size: clamp(28px, 3.2vw, 40px);
+}
+
+/* An hour sells only once: the two published price anchors. */
+.mk-pr-anchors {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+}
+.mk-pr-anchor {
+  display: grid;
+  gap: 8px;
+  padding: clamp(20px, 2.4vw, 28px);
+  border: 1px solid var(--mk-line);
+  border-radius: var(--radius);
+  background: var(--white);
+  box-shadow: var(--mk-shadow);
+}
+.mk-pr-anchor-label {
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+.mk-pr-anchor-range {
+  font-size: clamp(34px, 4vw, 52px);
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.mk-pr-anchor-unit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13.5px;
+}
+.mk-pr-anchors figcaption {
+  display: grid;
+  gap: 6px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.mk-pr-anchors figcaption p {
+  margin: 0;
+}
+
+/* Lists with an icon per line: the statement extras and how you earn. */
+.mk-pr-ticks {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mk-pr-ticks li {
+  display: flex;
+  gap: 10px;
+  font-size: 16px;
+  line-height: 1.5;
+}
+.mk-pr-ticks svg {
+  flex: none;
+  margin-block-start: 3px;
+  color: var(--muted);
+}
+
+/* How you earn, billing and payouts: three flat cards. */
+.mk-pr-cards {
+  margin: 0;
+}
+.mk-pr-cards .mk-card {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  box-shadow: none;
+}
+.mk-pr-cards h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+}
+.mk-pr-cards .mk-card p,
+.mk-pr-cards .mk-pr-ticks li {
+  color: var(--muted);
+  font-size: 15.5px;
+  line-height: 1.6;
+}
+.mk-pr-cards .mk-pr-ticks svg {
+  color: var(--ink);
+}
+.mk-pr-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mk-pr-tags li {
+  padding: 3px 10px;
+  border: 1px solid var(--ink);
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* Status, then In short and the questions on white. */
+.mk-pr-wash .mk-pf-status {
+  box-shadow: var(--mk-shadow);
+}
+.mk-pr-end .mk-in-short {
+  margin-block-start: 0;
+  border-block-start: 0;
+}
+
+@media (max-width: 960px) {
+  .mk-pr-hero-grid,
+  .mk-pr-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 760px) {
+  .mk-pr-hero {
+    padding-block: 20px 48px;
+  }
+  .mk-pr-rows dd {
+    min-inline-size: 11ch;
+    font-size: 19px;
+  }
+  .mk-pr-figure {
+    font-size: 22px;
+  }
+}
+
+/* Reduced motion stops the marker and the meters only in the motion
+   switch's "device" mode (components/marketing/motion-mode.ts); globals.css
+   stops them too. */
+@media (prefers-reduced-motion: reduce) {
+  .mk-pr-marker:not(:where([data-mk-motion="always"], [data-mk-motion="always"] *)),
+  .mk-pr-marker:not(:where([data-mk-motion="always"], [data-mk-motion="always"] *)) b,
+  .mk-pr-meter-track:not(:where([data-mk-motion="always"], [data-mk-motion="always"] *)) span {
+    transition: none !important;
+  }
+}

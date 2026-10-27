@@ -15,6 +15,7 @@
 import { SETUP_STEPS, SETUP_BRAIN_MINIMUM } from "./coach-setup.ts";
 import { SITE_BUILDER_MODULES, SITE_BUILDER_PRESET_COUNT } from "./site-builder.ts";
 import { BRAND_COPY } from "./brand.ts";
+import { HOME_OFFER, NEVER_LIST, NEVER_NOTE, PROOF_LINKS } from "./marketing-proof.ts";
 import type {
   AvailabilityLine,
   MarketingCard,
@@ -670,10 +671,32 @@ const TRAINED_FAQ: MarketingFaq = {
   q: "Is the AI trained on my data?",
   a: "It is taught with your material: confirmed rules, coaching cases, examples and corrections. Each version is tested on held-out scenarios and can be rolled back. We do not claim to fine-tune a separate model on you, and your teaching stays private to your workspace.",
 };
+// The phase 1 pages (/, /trainer-brain, /demo and /pricing) ask these as
+// "my AI" (the AI always belongs to someone), with the plain words for
+// "held-out scenarios". The originals stay on /how-it-works, /features and
+// /faq until those pages are revised.
+const MY_AI_REPLACE_FAQ: MarketingFaq = {
+  q: "Will my AI replace me?",
+  a: "No. Your AI is built from your rules, cases and corrections and coaches under your name. It hands you anything it is not confident about, and safety issues always come to you. You can take over any subscriber or conversation at any time.",
+};
+const MY_AI_TRAINED_FAQ: MarketingFaq = {
+  q: "Is my AI trained on my data?",
+  a: "It is taught with your material: confirmed rules, coaching cases, examples and corrections. Each version is checked against your test cases and can be rolled back. We do not claim to fine-tune a separate model on you, and your teaching stays private to your workspace.",
+};
 /**
- * Lines shown only while an availability flag is on (marketingPageFor). The
- * "frontier" flag is on only while the active model profile is frontier tier
- * and its latest switch check succeeded (docs/features/model-profiles.md). Public
+ * The answer while subscriber payments are off; AVAILABILITY_LINES carries
+ * the answer once they are on. One answer on every page that asks it (/ and
+ * /pricing), so their FAQ structured data never disagrees.
+ */
+const PAY_TODAY_FAQ: MarketingFaq = {
+  q: "Can subscribers pay me today?",
+  a: "Not yet. Subscriber payments are not on yet, and publishing your page waits for them. Today you can join, set up your page and app, and teach and test your AI.",
+};
+/**
+ * Lines shown only while an availability flag is on (marketingPageFor): the
+ * frontier wording, and answers that change once subscriber payments are on.
+ * The "frontier" flag is on only while the active model profile is frontier
+ * tier and its latest switch check succeeded (docs/features/model-profiles.md). Public
  * text says "frontier model", never the model or its vendor, and "keeps
  * getting better", never "only gets better": single answers can regress,
  * which is why releases can be rolled back (plan section 6).
@@ -711,10 +734,20 @@ export const AVAILABILITY_LINES: readonly AvailabilityLine[] = [
       text: "Approve or correct what comes to you. Each tested release learns from it and keeps getting better.",
     },
   },
+  {
+    // The answer to "Can subscribers pay me today?" once subscriber
+    // payments are on, wherever the question appears (/ and /pricing).
+    when: "payments",
+    faq: { q: PAY_TODAY_FAQ.q, a: "Yes. Subscribers pay you by card in AED." },
+  },
 ];
 const TECH_FAQ: MarketingFaq = {
   q: "Do I need technical skills?",
   a: "No. Setup is a guided checklist: answer interview questions, confirm rules in plain language, test scenarios and set your offer. Your website and app are set up for you.",
+};
+const FOLLOWERS_FAQ: MarketingFaq = {
+  q: "Will my followers pay?",
+  a: "Some will. Use the follower calculator for a strong case with cautious and typical scenarios from published benchmarks, then test your offer. We never promise a number.",
 };
 const INSTAGRAM_FAQ: MarketingFaq = {
   q: "How do my Instagram followers become subscribers?",
@@ -1834,14 +1867,20 @@ export const MARKETING_CONTENT: MarketingPage[] = [
     title: "Online coaching platform fees and commission",
     description:
       "Free to join, nothing upfront. You set your price in AED; {APP_NAME} takes a marginal commission of 25%, 20%, 15% and 10% of subscription revenue.",
-    h1: "Your price, our transparent share",
+    // Phase 1 (27 October 2026, docs/marketing-revamp-2026-10-26/phase1/
+    // PLAN.md): the page computes its figures from the ledger's bands; the
+    // card-processing rate is never stated, only itemised.
+    h1: "Free to join. You set the price.",
+    h1Highlight: "price",
     eyebrow: "PRICING",
-    lede: "Free to join, nothing to pay upfront. You set your price in AED; our commission starts at 25% and falls as you grow.",
+    lede: "Nothing to pay upfront. We earn only when your subscribers pay, and our share falls as you grow.",
     intro:
-      "Joining, setup and teaching your AI are free, with nothing to pay upfront. You choose your price in AED, the programme length and monthly or upfront billing. {APP_NAME} takes a commission on subscription revenue in marginal bands of 25%, 20%, 15% and 10%. Payment processing and optional services are itemised on your statement.",
+      "Joining, setup and teaching your AI are free, with nothing to pay upfront. You choose your price in AED, the programme length and monthly or upfront billing. {APP_NAME} takes a commission on subscription revenue, with our share for each group of subscribers at 25%, 20%, 15% and 10%. Payment processing and optional services are itemised on your statement.",
     primaryKeyword: "online coaching platform fees",
     sections: [
       {
+        // The /how-it-works journey reads its first bullet
+        // (components/marketing/journey.tsx).
         id: "how",
         heading: "How you earn",
         bullets: [
@@ -1851,23 +1890,24 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         ],
       },
       {
-        // Moved from the home page (28 September 2026) with its sources; the
-        // page renders the three price anchors after it.
-        id: "hours",
-        heading: "An hour sells only once",
-        body: [
-          "Published Dubai price guides put one-to-one sessions at roughly AED 70-350, with experienced or premium trainers higher. Online coaching guides quote AED 400-2,000 a month.",
-          "A Trainer Brain lets your method coach many people at once, at a monthly price more followers can afford. You keep the sessions only you can serve.",
+        id: "glance",
+        heading: "What’s free, what we take",
+        body: ["We earn only when your subscribers pay."],
+        cards: [
+          { title: "Free", body: "Joining, your site and app, teaching your AI, and a free {APP_NAME} address." },
+          {
+            title: "What we take",
+            body: "Our share per paying subscriber: 25%, 20%, 15% or 10%. Card processing is itemised on your statement.",
+          },
+          { title: "Optional", body: "Your own domain, priced before you buy, and add-ons you choose." },
         ],
-        note: "Price ranges come from published price guides, not official statistics. See Methodology.",
-        sources: ["heytrainer-dubai-2026", "embody-dubai-2025", "369mmafit-online-2026"],
       },
       {
         id: "bands",
-        heading: "Marginal commission bands",
+        heading: "How our share falls",
         table: {
           caption: "Each band applies only to the subscribers inside it",
-          columns: ["Paying subscriber positions", "Rate in that band"],
+          columns: ["Paying subscribers", "Our share in that band"],
           rows: [
             ["1-100", "25%"],
             ["101-300", "20%"],
@@ -1876,6 +1916,23 @@ export const MARKETING_CONTENT: MarketingPage[] = [
           ],
         },
         note: "Reaching a new band lowers the rate for subscribers in that band only; earlier bands keep their rate.",
+      },
+      {
+        // The page computes the example from the ledger (WorkedExample).
+        id: "example",
+        heading: "What you keep, in AED",
+        note: "An arithmetic example, not a forecast or promise.",
+      },
+      {
+        // Moved from the home page (28 September 2026) with its sources.
+        id: "hours",
+        heading: "An hour sells only once",
+        body: [
+          "Published Dubai price guides put one-to-one sessions at roughly AED 70-350, with experienced or premium trainers higher. Online coaching guides quote AED 400-2,000 a month.",
+          "A Trainer Brain lets your method coach many people at once, at a monthly price more followers can afford. You keep the sessions only you can serve.",
+        ],
+        note: "Price ranges come from published price guides, not official statistics. See Methodology.",
+        sources: ["heytrainer-dubai-2026", "embody-dubai-2025", "369mmafit-online-2026"],
       },
       {
         id: "statement",
@@ -1900,24 +1957,37 @@ export const MARKETING_CONTENT: MarketingPage[] = [
           "Earnings are paid monthly to your verified UAE IBAN after payments are reconciled. Holds, such as the short hold after a bank change, are shown on your statement.",
         ],
       },
+      {
+        // The page renders the "Live today / Not on yet" panel here.
+        id: "status",
+        heading: "Live today, and not on yet",
+      },
     ],
     faqs: [
       FREE_FAQ,
-      PRICE_FAQ,
+      {
+        q: "Who sets the price?",
+        a: "You do. You set the monthly or upfront price in AED, the programme length, trials and promotions. {APP_NAME} takes a transparent commission on subscription revenue: our share for each group of subscribers is 25%, 20%, 15% or 10%.",
+      },
       {
         q: "What will I pay?",
         a: "Nothing to join or set up. Once subscribers pay: commission on subscription revenue by band and payment processing. Optional services you choose, such as the voice add-on or your own domain, are extra. Every item appears on your monthly statement.",
       },
       {
-        q: "How is commission counted when I have different prices?",
+        q: "How does commission work with different prices?",
         a: "Each paying subscriber holds a position from their first payment. The band rate for that position applies to that subscriber’s charges.",
       },
+      {
+        q: "Who owns my subscribers’ data, and what if I leave?",
+        a: "Your method stays private to your workspace. You and your subscribers can download your data and request deletion.",
+      },
+      PAY_TODAY_FAQ,
     ],
     related: ["/earnings-calculator", "/follower-calculator", "/features/payments-and-payouts"],
-    lastUpdated: UPDATED,
+    lastUpdated: "2026-10-27",
     indexable: true,
     jsonLd: ["WebPage", "FAQPage"],
-    cta: { label: "Estimate my earnings", href: "/earnings-calculator" },
+    secondaryCta: { label: "Estimate my earnings", href: "/earnings-calculator" },
   },
   {
     path: "/earnings-calculator",
@@ -2187,10 +2257,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         q: "Will it give bad advice under my name?",
         a: "The Brain acts on its own only where your confirmed rules make it confident. Everything else is handed to you, safety issues always come to you, and you can correct or roll back any release.",
       },
-      {
-        q: "Will my followers pay?",
-        a: "Some will. Use the follower calculator for a strong case with cautious and typical scenarios from published benchmarks, then test your offer. We never promise a number.",
-      },
+      FOLLOWERS_FAQ,
       {
         q: "What does a subscriber get for their money?",
         a: "A personalised, day-by-day plan in your method, guided workouts that adapt as they train, chat with you and a labelled digital coach, and optionally nutrition, voice and one-to-one sessions.",

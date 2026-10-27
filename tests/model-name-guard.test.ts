@@ -12,10 +12,8 @@ import {
 } from "@trainer/contracts";
 import { MARKETING_CONTENT } from "../packages/contracts/src/marketing-content.ts";
 import { MARKETING_ASSISTANT_PUBLIC_TEXT } from "../packages/domain/src/marketing-assistant.ts";
+import { MODEL_OR_VENDOR } from "./marketing-helpers.ts";
 
-/** Model, vendor and hosting-platform names (case-insensitive, whole words). */
-export const MODEL_OR_VENDOR =
-  /\b(?:seed[\s-]*2(?:\.0)?|seed[\s-]*pro|bytedance|byteplus|modelark|volcengine|doubao|openai|chatgpt|gpt(?:-?\d[\w.]*)?|anthropic|claude|opus|sonnet|haiku|gemini|deepseek|qwen|llama|mistral|grok)\b/i;
 /** "Seed" as a capitalised name (the lower-case verb is ordinary English). */
 const SEED_NAME = /\bSeed\b/;
 
@@ -56,6 +54,13 @@ test("web message catalogs name no model or vendor", async () => {
   const dir = new URL("../apps/web/lib/i18n/messages/", import.meta.url);
   const files = (await readdir(dir)).filter((f) => f.endsWith(".ts"));
   assert.ok(files.length > 10);
+  for (const file of files) scan(file, await readFile(new URL(file, dir), "utf8"));
+});
+
+test("the Brain showcases (engine, traces, islands) name no model or vendor", async () => {
+  const dir = new URL("../apps/web/components/marketing/brain/", import.meta.url);
+  const files = (await readdir(dir, { recursive: true })).filter((f) => /\.(js|ts|tsx|json)$/.test(f));
+  assert.ok(files.some((f) => f.endsWith("traces.client.json")) && files.some((f) => f.endsWith("core.js")));
   for (const file of files) scan(file, await readFile(new URL(file, dir), "utf8"));
 });
 

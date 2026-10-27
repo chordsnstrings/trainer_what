@@ -37,6 +37,7 @@ import {
 } from "../apps/web/components/marketing/frame.tsx";
 import { MarketingSite } from "../apps/web/components/marketing/site.tsx";
 import { DEFAULT_FOLLOWER_MODEL } from "../packages/domain/src/marketing-calculators.ts";
+import { contrast, declarations, resolver } from "./marketing-helpers.ts";
 
 const web = (path: string) => new URL("../apps/web/" + path, import.meta.url);
 const pub = (asset: string) => web("public" + asset);
@@ -337,46 +338,6 @@ test("platform surfaces carry .platform-ui; trainer-branded ones never show the 
   for (const token of ["--field-border", "--on-green", "--on-lime", "--focus", "--canvas"])
     assert.match(design, new RegExp(`\\.trainer-theme \\{[^}]*${token}:`), token);
 });
-
-// Minimal colour maths for the token checks (WCAG 2.x relative luminance).
-type Rgb = [number, number, number];
-const hex = (h: string): Rgb => {
-  const s = h.replace("#", "");
-  return [0, 2, 4].map((i) => parseInt(s.slice(i, i + 2), 16)) as Rgb;
-};
-const luminance = ([r, g, b]: Rgb) => {
-  const f = (v: number) => {
-    const c = v / 255;
-    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-  };
-  return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
-};
-const contrast = (a: Rgb, b: Rgb) => {
-  const [x, y] = [luminance(a), luminance(b)].sort((m, n) => n - m);
-  return (x + 0.05) / (y + 0.05);
-};
-function declarations(block: string) {
-  const out: Record<string, string> = {};
-  for (const m of block.matchAll(/(--[\w-]+):\s*([^;]+);/g)) out[m[1]] = m[2].trim();
-  return out;
-}
-function resolver(...layers: Record<string, string>[]) {
-  const merged = Object.assign({}, ...layers);
-  const resolve = (value: string, depth = 0): Rgb => {
-    assert.ok(depth < 10, "token cycle: " + value);
-    const v = value.trim();
-    if (/^#[0-9a-f]{6}$/i.test(v)) return hex(v);
-    const ref = v.match(/^var\((--[\w-]+)\)$/);
-    if (ref) return resolve(merged[ref[1]], depth + 1);
-    const mix = v.match(/^color-mix\(in srgb, (var\(--[\w-]+\)) (\d+)%, (var\(--[\w-]+\))\)$/);
-    if (mix) {
-      const [a, share, b] = [resolve(mix[1], depth + 1), Number(mix[2]) / 100, resolve(mix[3], depth + 1)];
-      return a.map((c, i) => Math.round(c * share + b[i] * (1 - share))) as Rgb;
-    }
-    throw new Error("unresolvable token value " + v);
-  };
-  return (name: string) => resolve(`var(${name})`);
-}
 
 const platformCssFiles = ["globals.css", "marketing.css", "analytics-consent.css", "platform-settings.css", "governance.css", "host-operations.css"];
 

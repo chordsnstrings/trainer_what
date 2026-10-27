@@ -4,6 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
+import { pathToFileURL } from "node:url";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
@@ -67,6 +68,7 @@ import {
 } from "../apps/web/components/marketing/islands.tsx";
 import type { PublicPlatform } from "../apps/web/components/marketing/platform.ts";
 import { INTEGRATION_CATALOG } from "../packages/providers/src/configuration.ts";
+import { C0_BANNED, PLACEHOLDER } from "./marketing-helpers.ts";
 
 const ORIGIN = "https://trainsyou.example";
 // The platform default (DEFAULT_PLATFORM_NAME): the trainsyou brand.
@@ -314,7 +316,9 @@ test("metadata: unique branded titles, canonical and Open Graph addresses per pa
 
 test("JSON-LD: valid schema.org graphs built from the page's visible text", () => {
   for (const page of site) {
-    const graph = marketingJsonLd(page, ctx);
+    // The graph of the page as rendered: the same availability, so a line
+    // that follows a flag (AVAILABILITY_LINES) reads the same in both.
+    const graph = marketingJsonLd(page, { ...ctx, availability: platform.availability });
     const script = jsonLdScript(graph);
     assert.doesNotMatch(script, /<|>/, page.path);
     const parsed = JSON.parse(script);
@@ -328,8 +332,12 @@ test("JSON-LD: valid schema.org graphs built from the page's visible text", () =
     );
     assert.equal(crumbs.itemListElement[0].item, ORIGIN + "/");
     assert.equal(crumbs.itemListElement.at(-1).item, page.path === "/" ? ORIGIN + "/" : ORIGIN + page.path);
-    const html = decode(render(page));
-    assert.ok(html.includes(brandText(page.h1, APP)), page.path + " h1 visible");
+    const raw = render(page);
+    const html = decode(raw);
+    // The H1's own text, its highlight span removed without a gap (a
+    // highlighted last word would otherwise read "price .").
+    const h1 = decode(raw.match(/<h1[\s>][\s\S]*?<\/h1>/)![0].replace(/<[^>]+>/g, "")).trim();
+    assert.equal(h1, brandText(page.h1, APP), page.path + " h1 visible");
     const faq = nodes.find((n) => n["@type"] === "FAQPage");
     if (page.faqs.length && page.jsonLd.includes("FAQPage")) {
       assert.equal(faq.mainEntity.length, page.faqs.length, page.path);
@@ -618,12 +626,20 @@ test("home: one H1 that says what happens, a short hero, the relay and five sect
   assert.match(html, /<div class="mk-home-calc"><section class="mk-calculator card"/);
 });
 
-// Copy limits for the home page and the pages in the header navigation
-// (docs/features/marketing-site.md "Copy limits"). The shared FAQ constants
-// and the answer-first introductions keep their own tests.
+// The pages redesigned in phase 1 (docs/marketing-revamp-2026-10-26/phase1/
+// PLAN.md): each joins with its new registry entry. They also follow the C0
+// vocabulary (PLAYBOOK.md C0): plain words instead of the replaced terms,
+// "your AI" in headings and questions, and no prototype placeholder.
+const C0_PAGES: string[] = [];
+
+// Copy limits for the home page, the pages in the header navigation and the
+// redesigned pages (docs/features/marketing-site.md "Copy limits"). The
+// shared FAQ constants and the answer-first introductions keep their own
+// tests.
 test("copy limits: short headings, ledes, cards, bullets and answers on the header pages", () => {
   const words = (s: string) => brandText(s, APP).split(/\s+/).filter(Boolean).length;
-  for (const path of ["/", "/how-it-works", "/trainer-brain", "/features", "/pricing", "/about", "/get-started"]) {
+  const header = ["/", "/how-it-works", "/trainer-brain", "/features", "/pricing", "/about", "/get-started"];
+  for (const path of new Set([...header, ...C0_PAGES])) {
     const page = marketingPage(path)!;
     assert.ok(words(page.h1) <= 8, `${path} H1: ${page.h1}`);
     assert.doesNotMatch(page.h1, /:/, `${path} H1 has no colon subtitle`);
@@ -644,6 +660,20 @@ test("copy limits: short headings, ledes, cards, bullets and answers on the head
       if (f.a !== page.intro) assert.ok(words(f.a) <= 45, `${path} FAQ: ${f.q}`);
     for (const banned of ["seamless", "revolutionary", "cutting-edge", "unlock", "empower", "game-changing"])
       assert.doesNotMatch(allText(page), new RegExp(banned, "i"), `${path}: ${banned}`);
+  }
+  for (const path of C0_PAGES) {
+    const page = marketingPage(path)!;
+    for (const { term, instead } of C0_BANNED)
+      assert.doesNotMatch(allText(page), term, `${path}: write "${instead}"`);
+    const headings = [
+      page.h1,
+      ...page.sections.flatMap((s) => [s.heading, ...[...(s.cards ?? []), ...(s.steps ?? [])].map((c) => c.title)]),
+      ...page.faqs.map((f) => f.q),
+    ];
+    for (const heading of headings)
+      assert.doesNotMatch(heading, /\b(an|the) AI\b/i, `${path}: "${heading}" (write "your AI")`);
+    assert.doesNotMatch(allText(page), PLACEHOLDER, path);
+    assert.doesNotMatch(decode(render(page)), PLACEHOLDER, path);
   }
   // Moved, not deleted: the home page's former blocks live on deeper pages
   // with their sources, so llms-full.txt still carries them.
@@ -1113,10 +1143,13 @@ test("honesty scan: public pages never name a registrar, the payout provider or 
     assert.doesNotMatch(text, /\bLean\b/, where);
     assert.doesNotMatch(text, HYPE, where);
   }
-  // Source files of the public site, including the directory frame.
+  // Source files of the public site, including the directory frame, and
+  // every file in its subfolders (the Brain engine and its trace data).
   const dir = new URL("../apps/web/components/marketing/", import.meta.url);
   const files = [
-    ...(await readdir(dir)).map((f) => new URL(f, dir)),
+    ...(await readdir(dir, { recursive: true, withFileTypes: true }))
+      .filter((entry) => entry.isFile())
+      .map((entry) => new URL(entry.name, pathToFileURL(entry.parentPath + "/"))),
     new URL("../packages/contracts/src/marketing-content.ts", import.meta.url),
     new URL("../packages/contracts/src/marketing.ts", import.meta.url),
     new URL("../apps/web/components/trainer-growth.tsx", import.meta.url),
