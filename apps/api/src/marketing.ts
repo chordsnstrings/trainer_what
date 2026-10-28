@@ -46,7 +46,12 @@ export function publicAvailability(config: RuntimeConfig = runtimeConfig()) {
   );
   return {
     model: !!status.model,
-    nutrition: !!status.model && config.NUTRITION_ENABLED === "true",
+    // Production also waits for the scope review, as activation does
+    // (nutrition.ts, entitlements.ts complimentaryNutritionApproved).
+    nutrition:
+      !!status.model &&
+      config.NUTRITION_ENABLED === "true" &&
+      (!strictSecurity() || config.NUTRITION_SCOPE_APPROVED === "true"),
     voice: !!status.voice,
     customDomains: !!status.domains,
     payments: !!status.stripe,

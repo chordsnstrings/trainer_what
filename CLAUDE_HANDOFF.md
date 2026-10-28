@@ -136,7 +136,38 @@
     - at 1181–1312 px the hero media column is narrower than the field needs (about 700 px): no clipping, but the labels are ellipsized;
     - in `?lang=ar`, the English sample strings' punctuation shows at the wrong end; suggested fix `unicode-bidi: plaintext`.
   - **Owner FYI:** when Your Today and Paused are full they now show fewer tiles plus "+N". A11Y-7 suggests amending the plan to "44 px tall on phones".
-- **B (anatomy, playground, data) is still running,** with WIP commits up to `0c5c3ff`. A2 comes next.
+- **The container restarted at about 12:52 UTC.** C, D, A1 and B had finished. A2 had run for 7 minutes without editing anything, so its worktree was removed and the workflow resumed as task `wc8hgcv3w`; only A2 runs live.
+- **Fix round 2, B (anatomy, playground, data, render), is done** (report: `scratchpad/fix2-B.json`). 19 items fixed and 7 partly; each partly-fixed one is unfinished only in other owners' files.
+  - **Fixed:**
+    - the What-if stop leak and `aria-pressed`;
+    - Aisha's member line, and the gauge's rounding;
+    - right to left in the anatomy, and the Arabic STOP stamp overflow;
+    - focus after "Throw them all";
+    - attract silence;
+    - the `/demo` h2;
+    - landmarks;
+    - skip-state contrast;
+    - What-ifs reachable by keyboard while pinned;
+    - the anatomy scroll loop is gated (PERF-5).
+  - **Honesty:**
+    - free text never falls back to a sent sample: "No sample is close to that…";
+    - voice, nutrition and the model drive the specialists' statuses;
+    - the strip says "most of this", with a model-off variant;
+    - the Meal planner joins the specialists when nutrition is on.
+  - **Checks:** unit tests pass (anatomy-play 25/25, traces 15/15 and others); typecheck passes; the playground runs at p95 16.8 ms at 4× CPU; first-frame CSS is 17,687 of 18,432 B.
+- **Lead:** `publicAvailability().nutrition` now also needs `NUTRITION_SCOPE_APPROVED` in production, as activation does. Typecheck and `model-profiles` (8/8) pass.
+- **Left for the final pass, from the B and A1 notes:**
+  - the field's "Not on yet" shelf is hard-coded to Meal planner and Recovery (`field.render.js:169`);
+  - field node off-chips must fit;
+  - t4 and t5 receipts should show the prepared status;
+  - the field's lanes and board columns are still 8 regions on `/`;
+  - the field's Pause focus ring is clipped at 1280 px;
+  - playground runs of moments that are not on yet should show a "Not on yet" mark (design decision);
+  - meal photos have no availability flag of their own (`MEAL_PHOTOS_ENABLED`, `MODEL_VISION_ENABLED`);
+  - the hero media column at 1181–1312 px;
+  - Arabic punctuation in the English samples;
+  - the WP3b harness expectations;
+  - the docs list.
 - **Lead follow-ups done:** `registrationOpen` is passed to `llmsFullTxt` and `marketingAssistantFacts`; the traces' Examiner line now reads "Sending on its own needs a pass".
 - **Docs to update at records time:**
   - PLAN §1.5's publish row and PLAN line 610;
