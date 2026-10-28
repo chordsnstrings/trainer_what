@@ -63,9 +63,11 @@ Owner, 27 October 2026: "Go with your recommendation". That means A "Live Brain"
     - the word budget is 629;
     - the docs and these records.
   - **Checks so far:**
-    - `marketing-anatomy-play`, `marketing-showcase` and `marketing-brain-pages`: 59/59;
-    - build, then a probe at 320, 340, 360, 375, 390 and 414 in both states: the closed layout now matches the open one (3 lines at 360 px and wider, 4 at 340 and 320, as with the model on). Nothing reaches the caption: the last button ends 3–24 px above it.
-  - The full showcase check and CI on this commit are recorded in `CLAUDE_HANDOFF.md` and, after the merge, here.
+    - unit tests: 59/59 after the layout fix (`marketing-anatomy-play`, `marketing-showcase`, `marketing-brain-pages`), and 76/76 after the colour rule (adding `root-marks`, `motion-css` and `logical-css`);
+    - build, then a probe at 320, 340, 360, 375, 390 and 414 in both states: the closed layout now matches the open one (3 lines at 360 px and wider, 4 at 340 and 320, as with the model on). Nothing reaches the caption: with the model off, the last button ends 4–24 px above it;
+    - the full showcase check on that build: passed in 440 s. Its performance figures are reported, not judged, without a GPU: `/demo`'s playground p95 measured 33.3 ms in this run, against 16.7–16.8 ms in earlier runs, and the anatomy mount [77, 88];
+    - after the colour rule (a rebuild): the suffix measures 7.82:1 on the stage and 16:1 on a pressed button, at 390 and 1440.
+  - CI on this commit is recorded in `CLAUDE_HANDOFF.md` and, after the merge, here.
 
 **Owner FYIs** (also in the PR body):
 - **Copy changed for accuracy:**

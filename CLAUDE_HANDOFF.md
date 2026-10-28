@@ -2,7 +2,7 @@
 
 ## Work in progress
 
-### Status at 23:40 UTC on 28 October 2026 (Claude): marketing revamp phase 1, final commit before merge
+### Status at 23:45 UTC on 28 October 2026 (Claude): marketing revamp phase 1, final commit before merge
 
 **What it is:** phase 1 of the marketing revamp (`/`, `/trainer-brain`, `/demo`, `/pricing`), as the owner chose on 27 Oct ("Go with your recommendation"; each phase is its own PR, "checked and deployed"). It is in PR #105 from `claude/repository-overview-osejlw`. The full stage record, with every check run, is the 28 October entry in `docs/COMPLETION_STAGES.md`.
 
@@ -16,9 +16,14 @@
   - the home word budget is 629 (the measured count, per PLAN §4.3);
   - docs for the late CI fixes, and these records.
 - **Its checks:**
-  - unit tests 59/59;
+  - unit tests 76/76;
   - a build and a probe at six phone widths in both states: the closed layout matches the open one and nothing overlaps;
-  - the full showcase check is running locally (`scratchpad/mv/showcase-11.log`).
+  - the full showcase check passed in 440 s (`scratchpad/mv/showcase-11.log`);
+  - the suffix measures 7.82:1 on the stage and 16:1 pressed.
+- **Running:** a final verification workflow (`wf_256d4cc2-b79`, 2 agents):
+  - browser edge cases of the What-if change: right to left, dark, forced colours, reduced motion, desktop and landscape, and the accessible name;
+  - an audit of these records and the PR text against the evidence.
+  - Its fixes go into the final commit.
 
 **Next:**
 1. Push, then get CI green on the final head.
