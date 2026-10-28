@@ -1489,7 +1489,7 @@ off the registry text shows unchanged.
 **Static mode.** `Ctx.showcase` carries the showcases' static mode (`MARKETING_SHOWCASE`, [brain-showcase.md](brain-showcase.md)).
 
 **Stylesheets.** All are imported in `app/layout.tsx` after `marketing-journey.css`, so every route on the catch-all loads them.
-- Page sheets: `marketing-proof.css` (`.mk-pf-`), `marketing-home.css` (`.mk-hm-`), `marketing-brain-pages.css` (`.mk-tb-` and `.mk-dm-`) and `marketing-pricing.css` (`.mk-pr-`). Together they are 7.95 KB gzipped against an 8 KB budget, so about 50 B are left.
+- Page sheets: `marketing-proof.css` (`.mk-pf-`), `marketing-home.css` (`.mk-hm-`), `marketing-brain-pages.css` (`.mk-tb-` and `.mk-dm-`) and `marketing-pricing.css` (`.mk-pr-`). Together they are 7.94 KB gzipped (8,132 B) against an 8 KB budget, so about 60 B are left.
 - Then the four first-frame showcase sheets, `app/brain-*.css`.
 - Don't run Prettier on the page sheets. It splits the reduced-motion selectors across lines, and the motion test needs each selector on one line.
 
@@ -1698,7 +1698,7 @@ The plan's §2 table lists every row.
 - **The sitewide motion check:** passed in 18 min 41 s.
 - **The brand check:** 38 failures.
   - 36 are pre-existing: the identical set fails on `4f35e5c`, the build before phase 1. They are the coach sign-in wait, workspace lockups in dark, the coach website and member-app colour checks, and `.onboarding-presence` at 4.30:1.
-  - 2 were the phone walkthrough's "Not on yet" dots, drawn in their own background colour. A fix was in progress when this was written.
+  - 2 were the phone walkthrough's "Not on yet" dots, drawn in their own background colour. Fix round 1 (`22d1a1a`) now keeps each dot's words visually hidden instead. WP7b's second round runs the brand check again.
 - **`npm run test:browser`** passed on its third run.
   - The first run failed on the member app's consent bar at 390×844 while another browser check ran alongside it. That step passed in runs 2 and 3.
   - The second run failed on WP5's own `/demo` smoke test, which looked for "No AI called" in the wrong element. It was fixed in `ad479b4`.
@@ -1715,7 +1715,7 @@ The plan's §2 table lists every row.
 
 ### For the owner (FYI)
 
-- **CSS on every page.** Every page of the site, the member app included, loads the showcases' first-frame CSS (16.8 KB gzipped) and the page sheets (7.95 KB). WP7a's deletions took 2.1 KB off `marketing.css`. This holds until the marketing and app bundles are split.
+- **CSS on every page.** Every page of the site, the member app included, loads the showcases' first-frame CSS (17.0 KB gzipped) and the page sheets (7.94 KB). WP7a's deletions took 2.1 KB off `marketing.css`. Net, the first-load CSS grew by 17.9 KB gzipped in fix round 1's measurement. This holds until the marketing and app bundles are split.
 - **Two speed budgets are looser than the showcase spec:** long tasks of 80 ms or less (the spec says 50 ms), and blocking time of baseline + 100 ms (the spec says prototype + 50 ms).
 - **Layout shift is reported in CI, not judged,** until it passes three PR runs in a row.
 - **Search engines and automated tools see the still frames.** Lighthouse scores leave out the engine.
@@ -1738,7 +1738,7 @@ The plan's §2 table lists every row.
     - judging CLS in CI after three PR runs in a row;
     - judging the frame budgets on real hardware;
     - the `compose.yaml` line for the off switch;
-    - the walkthrough dots and the board's shift on phones (a fix round was in progress on 28 October).
+    - the brand check and the showcase check again after fix round 1 (`22d1a1a`: the walkthrough dots, and the board's shift on phones).
   - **Later:**
     - a founder note and a card-processing rate (owner defaults);
     - splitting the marketing and app bundles, so other routes stop paying for the showcases' CSS.

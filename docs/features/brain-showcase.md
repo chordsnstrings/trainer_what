@@ -233,8 +233,8 @@ With either setting:
 
 | Budget | Limit | Measured |
 |---|---|---|
-| First-frame showcase CSS (`brain-stage`, `-field`, `-play`, `-anatomy`) | 18 KB | 16.8 KB |
-| Page sheets (`marketing-proof`, `-home`, `-brain-pages`, `-pricing`) | 8 KB | 7.95 KB, about 50 B left |
+| First-frame showcase CSS (`brain-stage`, `-field`, `-play`, `-anatomy`) | 18 KB | 17.0 KB (17,361 B), about 1 KB left |
+| Page sheets (`marketing-proof`, `-home`, `-brain-pages`, `-pricing`) | 8 KB | 7.94 KB (8,132 B), about 60 B left |
 | Lazy sheets, per page | 8 KB | `/` 4.3 KB (field and receipt), `/trainer-brain` 3.6 KB, `/demo` 1.6 KB |
 
 **Reported by `npm run test:marketing-showcase`, and judged only with `SHOWCASE_JUDGE_METRICS=1`.** That switch is meant for real hardware, because CI and this sandbox have no GPU. The measurements are from WP7b's run on `0dfc1dd` (28 October): one run, 390×844 at a pixel ratio of 3, 4× CPU throttling, `?tier=full`.
@@ -248,9 +248,13 @@ With either setting:
 | Long tasks from mounting | at most 2, each 80 ms or less. **Looser than §1.6** (no task over 50 ms) | field: one, 78 ms. Anatomy: 291 and 79 ms, over budget (see "Open") |
 | Chip and slider input latency | 200 ms | 72 ms (`/demo`), 80 ms (`/pricing`) |
 | Engine chunks | `/` 45 KB plus the receipt 7 KB on demand; `/trainer-brain` 50 KB; `/demo` 37 KB | 41.3 + 4.4 KB, 46.1 KB, 34 KB |
-| Shared JavaScript growth | 10 KB | +7.1 KB |
-| Global CSS added | 26 KB gross | +19.9 KB net. Measured before WP7a removed 2,097 B (gzipped) from `marketing.css`; the figure after that is measured in WP7b's second round. |
+| Shared JavaScript growth | 10 KB | +7.1 KB. A later run that included WP7a's deletions measured +3.1 KB |
+| Global CSS added | 26 KB gross | +19.9 KB net, before WP7a removed 2,097 B (gzipped) from `marketing.css`. The later run measured +17.9 KB net |
 | Showcase HTML on `/trainer-brain` | 25 KB | 18.9 KB |
+
+The later run is fix round 1's, on 28 October: `d5d32b9` plus the board fix. It passed the whole check too.
+
+**These are single runs in a shared container without a GPU, and they vary between runs.** For example, the anatomy's mount measured long tasks of 291 and 79 ms in WP7b's run and one task of 71 ms in the later run. Its scroll p95 measured 66.6 ms in WP7b's run and 16.8 ms in the later one. That is why the metrics are reported, not judged. Every CI run uploads `test-results/marketing-showcase.json` in the `homepage-call-evidence` artifact.
 
 The two budgets looser than the showcase spec are deliberate. They are in the owner's FYI list, and tightening them is later work.
 
@@ -260,7 +264,13 @@ The two budgets looser than the showcase spec are deliberate. They are in the ow
 - Measured on `0dfc1dd`:
   - `/` at 1440: 0.00016;
   - the `/demo` click, the `/trainer-brain` scroll and the `/pricing` sliders: 0;
-  - `/` at 390: 0.153 (see "Open").
+  - `/` at 390: 0.153. The board's columns moved 92 px when it mounted on screen after the field had played about 10 s.
+- Fix round 1 changed the board (`22d1a1a`): it keeps its room and re-sorts by FLIP, so it shifts nothing when it mounts. Its run then measured:
+  - `/` at 390: 0.00040;
+  - `/` at 1440: 0.00007;
+  - the other three: 0.
+
+  The rest comes from the streamed text's cursor.
 
 **What waits for real hardware: the desktop pin and scroll paint cost.**
 - WP3a measured the anatomy's scroll at 4× CPU throttling in this GPU-less sandbox (1440×900 and 390×844): p95 frame gap 33.3 ms, against the 20 ms budget. The prototype measures the same, 33.4 ms.
@@ -438,12 +448,12 @@ The two budgets looser than the showcase spec are deliberate. They are in the ow
 
 ## Open
 
-These are open as of 28 October 2026, at `26fbe25`.
+These are open as of 28 October 2026, at `289ed10`.
 - **Static mode in production:** the `compose.yaml` line above.
-- **Layout shift on phones.** On `/` at 390 px, the board's columns moved 92 px (CLS 0.153) when the board mounted on screen after the field had played about 10 s. A fix (fix round 1) was being merged when this was written. CLS becomes judged only after three PR runs in a row pass.
-- **The anatomy's mount** was a 291 ms long task at 4× CPU (budget 80 ms). `26fbe25` changes the mount to read before it writes and to insert no node at mount or per frame. Its effect is measured in WP7b's second round.
-- **Frame budgets on real hardware,** above all the pinned anatomy's scroll. The sandbox measures a p95 of about 33 ms at 4× throttling, and up to 66 ms with WP7b's phone metrics.
-- **Every route pays for the first-frame CSS.** Every route on the catch-all, the member app included, loads the four first-frame showcase sheets (16.8 KB gzipped) and the page sheets (7.95 KB), minus WP7a's 2.1 KB. The fix is splitting the marketing and app bundles, recommended for phase 2 or 3.
+- **CLS is not judged in CI yet.** After the board fix the measured CLS is within 0.001, but CI judges it only after three PR runs in a row pass. Then set `SHOWCASE_JUDGE_CLS: "1"` on the CI step.
+- **The anatomy's mount.** It measured long tasks of 291 and 79 ms in WP7b's first run (the budget is 2 tasks of 80 ms or less). The fix round then changed the mount (`26fbe25`, `289ed10`): it reads before it writes, inserts no node at mount or per frame, and skips layout writes that change nothing. WP7b's second round measures the final tree.
+- **Frame budgets on real hardware,** above all the pinned anatomy's scroll paint. The sandbox measures a p95 of about 33 ms at 4× throttling, and its runs vary (see "Budgets").
+- **Every route pays for the first-frame CSS.** Every route on the catch-all, the member app included, loads the four first-frame showcase sheets (17.0 KB gzipped) and the page sheets (7.94 KB). WP7a took 2.1 KB off `marketing.css`. The fix is splitting the marketing and app bundles, recommended for phase 2 or 3.
 - **Later work:**
   - a TypeScript port of the engine;
   - in-browser safety rules for free text (the owner's default is no);
