@@ -263,7 +263,7 @@ test("controls stay usable: contrast themes, phone hit areas, 320px, tips, the s
     rules.find((r) => r.selectors.includes(selector) && (!media || r.context.includes(media)) && r.declarations.some((d) => d.property == prop))?.declarations.find((d) => d.property == prop)?.value;
   // Forced colours: the chosen level and the switch keep system colours (fills are dropped there).
   const FORCED = "@media (forced-colors: active)";
-  for (const s of ['[data-showcase] .mc-lv [aria-checked="true"]', '[data-showcase] .mc-sw[aria-checked="true"] .mc-swk']) {
+  for (const s of ['[data-showcase] .mc-lv button[aria-checked="true"]', '[data-showcase] .mc-sw[aria-checked="true"] .mc-swk']) {
     assert.equal(value(stage, s, "forced-color-adjust", FORCED), "none", s);
     assert.equal(value(stage, s, "background", FORCED), "Highlight", s);
   }

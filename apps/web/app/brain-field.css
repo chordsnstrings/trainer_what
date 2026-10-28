@@ -1668,8 +1668,8 @@ html.sc-motion:not(.sc-late) [data-showcase][data-sc="pre"] .mc-stamp {
 /* Contrast themes (forced colours) drop fills: the chosen level and the
    switch keep system colours, and the switch an outline and a knob. */
 @media (forced-colors: active) {
-  [data-showcase] .mc-lv [aria-checked="true"],
-  [data-showcase] .mc-lv [aria-checked="true"] b,
+  [data-showcase] .mc-lv button[aria-checked="true"],
+  [data-showcase] .mc-lv button[aria-checked="true"] b,
   [data-showcase] .mc-sw[aria-checked="true"] .mc-swk {
     forced-color-adjust: none;
     background: Highlight;

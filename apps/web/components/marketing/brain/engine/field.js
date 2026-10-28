@@ -522,14 +522,15 @@ function mountField(root, o, p) {
   const due = (li) => li.classList.contains("is-due"); // a reserved slot: not landed yet
   /** Stacks a lane's shown tiles (lis, newest first) and its "+N" (n moments
       in all). The lane's box never grows: a tile that would run past its
-      foot (wider text, bigger text spacing) rolls into "+N" instead. */
+      foot (larger text, text spacing) rolls into "+N" instead, the oldest
+      first (every moment stays a button in the members' list). */
   function place(l, lis, n) {
     const mo = lists[l].lastElementChild;
     let k = Math.min(lis.length, SHOW[l]);
     const more = () => { const m = n - lis.slice(0, k).filter((li) => !due(li)).length; mo.hidden = m <= 0; mo.textContent = "+" + m; };
     more();
     if (ph) return;
-    const cap = G.lane[l].list.h; // the stacked list fills its lane, under the header (and Your Today's "To check" line)
+    const cap = G.lane[l].list.h; // the stacked list fills its lane under the header (and Your Today's "To check" line)
     for (;;) {
       let y = 0;
       for (const li of lists[l].children) {
@@ -541,7 +542,7 @@ function mountField(root, o, p) {
         if (ht == null) HT.set(key, (ht = li.offsetHeight));
         y += ht + 4;
       }
-      if (y - 4 <= cap || k < 2) return;
+      if (y - 4 <= cap || !k) return;
       lis[--k].hidden = true;
       more();
     }
