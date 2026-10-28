@@ -112,7 +112,11 @@
     - while open, the consent bar covers the anatomy's Pause;
     - one intermittent 8 px overflow at 320 px comes from the header's `nav.mk-mobile-nav`.
 - **Docs refresh is done** (`06f2654`, `80469bc`). It updated 13 files to describe what shipped: `brain-showcase.md`, `marketing-site.md`, `marketing-motion.md`, `scroll-scenes.md`, `brand.md`, `dark-mode.md`, `analytics-consent.md`, `kamran-assistant.md`, `PROJECT_MEMORY.md`, `COMPLETION_STAGES.md` (factual lines only), the revamp README, and dated corrections in PLAN and SHOWCASE_DESIGN.
-- **Milestone verification is running** (19:10). It has fixed one thing so far (`451080b`): with the model off, the playground's safety-lock still frame moved 9 px when the lazy sheet arrived.
+- **Milestone verification is still running** at 21:05.
+  - Fixes so far:
+    - `451080b`: with the model off, the playground's safety-lock still frame moved 9 px when the lazy sheet arrived;
+    - `3ac6da5`: a `/demo` frame painted mid-parse stretched the playground rows, a load shift at 1366 px (CLS up to 0.025 in 4 of 14 loads, now 0 of 20).
+  - **CI started early:** the lead pushed a commit without `[skip ci]` at 21:05, so PR #105's checks run alongside the milestone's last checks.
 
 **Done today:**
 - **Part 2:** WP4 home, WP5 brain pages, WP7a clean-up, WP7b checks and the CI step, WP8 docs.
