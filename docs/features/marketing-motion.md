@@ -245,18 +245,19 @@ The showcases are the field and the board on `/`, the decision anatomy on `/trai
 
 - **A continuous loop, only while it can be seen.**
   - One `requestAnimationFrame` loop serves every showcase on the page. The field and the playground draw on canvases.
-  - A showcase draws no frame while any pause reason holds: off screen, a hidden tab, idle (90 s without input, or 60 s on phones), the visitor's Pause, an open receipt, a Kamran call (`html[data-mk-call]`), or reduced motion.
+  - A showcase draws no frame while any pause reason holds: off screen, a hidden tab, idle (90 s without input, or 60 s on phones), the visitor's Pause, an open receipt, keyboard focus on a moment in the field, a Kamran call (`html[data-mk-call]`), or reduced motion. Idle counts from the later of the last input and the showcase's return to view (another tab and the back/forward cache are not idle time), and input ends it.
+  - Loops slower than about 24 fps (the 12 fps breathing, the reduced-motion field) sleep on a timer between frames instead of waking every frame.
   - `data-sc-run` is on a showcase root exactly while a frame is scheduled for it, so the browser check can count frames.
-- **Pause.** Every showcase has a Pause control (`[data-sc-pause]`, with a correct `aria-pressed`), because its motion runs longer than 5 s (WCAG 2.2.2).
+- **Pause.** Every showcase has a Pause control (`[data-sc-pause]`), because its motion runs longer than 5 s (WCAG 2.2.2). Since fix round 2 it carries no `aria-pressed`: its label says what a press does ("Pause", "Play", "Play the field"). The anatomy keeps the visitor's Pause through a turn of the phone or a resize.
 - **Reduced motion, in both switch modes.**
   - Showcases follow the device's setting and the member's own `data-reduce-motion="on"`.
   - Their CSS carries no `MOTION_ALWAYS_EXCLUDED`, and neither `brain/head.ts` nor `brain/mount.tsx` reads `MARKETING_MOTION`.
-  - Under either setting, the first frame is final, the anatomy shows flat plates, the field waits paused on its still frame, and the playground resolves each run at once.
+  - Under either setting, the first frame is final, the anatomy shows flat plates, the field waits paused on its still frame, and the playground resolves each run at once. Script replays (Web Animations, which the CSS switch does not reach) are skipped too.
 - **Nothing infinite in CSS or SVG.**
   - Inside a showcase only `opacity`, transforms and `stroke-dashoffset` animate, and no animation is `infinite`.
   - Their easing tokens point at the marketing ones: `--sc-ease`, `--sc-enter` and `--sc-spring` are `--mk-ease-in-out`, `--mk-ease-enter` and `--mk-ease-spring`.
   - `tests/marketing-showcase.test.ts` holds this.
-- **Robots and automated browsers get the still frame.** They are never sent the engine, unless the URL carries `?sc=on`. So this page's browser checks (`npm run test:marketing-motion`) see the still frames, and the showcases have their own check (`npm run test:marketing-showcase`).
+- **Robots and automated browsers get the still frame.** They are never sent the engine, unless the URL carries `?sc=on`. A robot is `navigator.webdriver` or a user agent with "bot" as a product token (`/bot[/)-]|bot [0-9]|crawl|spider|slurp|preview|lighthouse/i`), so a phone whose model name contains "bot" still gets the motion. So this page's browser checks (`npm run test:marketing-motion`) see the still frames, and the showcases have their own check (`npm run test:marketing-showcase`).
 - **No reveal on top.** The section reveal leaves a showcase alone: `[data-showcase], .mk-sc-band, .sc-host` are in `NEVER` (`motion.tsx`). The engine measures its own boxes, so a rise on top would move them.
 - **The pin.** The anatomy pins under the header with its own CSS sticky frame, not the scroll-scenes engine. That happens only under `html.sc-pin` (set before the first paint, with the scroll scenes' gating) on screens at least 700 px tall.
 - **The ink stage.** A dark stage (`--sc-stage` `#171917`) inside `[data-showcase]` only. Text is 4.5:1 or more, and controls and lanes are 3:1 or more; the test computes both.
@@ -264,9 +265,9 @@ The showcases are the field and the board on `/`, the decision anatomy on `/trai
   - p95 frame gap of 20 ms or less, at 4× CPU and `?tier=full`;
   - p95 engine work of 4 ms or less per frame;
   - long tasks from mounting: at most 2, each 80 ms or less;
-  - blocking time within the baseline + 100 ms.
+  - the engine's own blocking time of 100 ms or less, and the page's within the build before phase 1 + 100 ms when that build is measured in the same session.
 
-  `npm run test:marketing-showcase` reports these, and judges them only with `SHOWCASE_JUDGE_METRICS=1` on real hardware. The pinned anatomy's scroll paint measured a p95 of about 33 ms at 4× throttling in this GPU-less sandbox (runs vary), and it waits for a real-hardware check. CLS of 0.001 or less is reported in CI until three PR runs in a row pass it. Figures: [brain-showcase.md](brain-showcase.md), "Budgets".
+  `npm run test:marketing-showcase` reports these, and judges them only with `SHOWCASE_JUDGE_METRICS=1` on real hardware. The pinned anatomy's scroll measured a p95 of 33.3–50 ms at 4× throttling in this GPU-less sandbox through fix round 2, and 16.8 ms in the final fix pass's runs (runs vary); it waits for a real-hardware check. The playgrounds' slow frames that WP7b measured (66.7 and 33.3 ms) were a whole-document restyle by root `:has()` rules, not paint; fix round 2 removed those rules. CLS of 0.001 or less is reported in CI until three PR runs in a row pass it. Figures: [brain-showcase.md](brain-showcase.md), "Budgets".
 
 ## Motion for every visitor (22 October 2026)
 

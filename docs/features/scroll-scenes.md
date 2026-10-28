@@ -60,7 +60,7 @@ Scenes are on only when the head script adds `scenes-on`. It is not added in the
 - the path is not `/`;
 - reduced motion is on (`prefers-reduced-motion` or the member's own `html[data-reduce-motion="on"]`);
 - the visitor has no JavaScript;
-- the visitor is a crawler or an automated browser (`navigator.webdriver`, or a bot user agent);
+- the visitor is a crawler or an automated browser: `navigator.webdriver`, or a user agent that matches `/bot[/)-]|bot [0-9]|crawl|spider|slurp|preview|lighthouse/i`. "bot" counts only as a product token such as "Googlebot/2.1". Until 28 October 2026 any "bot" matched, so in-app browsers on phones whose model name contains it (a CUBOT phone's Instagram or Facebook WebView) lost the scenes; `scenes-head.ts` and `scene-mount.tsx` now share the Brain showcases' pattern ([brain-showcase.md](brain-showcase.md)), and `tests/marketing-showcase.test.ts` pins it in all of them;
 - the browser has no IntersectionObserver or sticky positioning.
 
 Browser checks add `?scenes=on` to switch scenes on despite webdriver. Reduced motion still wins over `?scenes=on`.

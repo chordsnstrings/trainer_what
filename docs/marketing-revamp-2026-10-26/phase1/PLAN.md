@@ -190,8 +190,8 @@ const k = fnv1a(html); // inline 32-bit FNV-1a; node:crypto and server-only fail
 
 **The engine**
 - On its first frame it sets `data-sc="on"` and `data-sc-tier`. It sets `data-sc-run` exactly while a loop frame is scheduled.
-- Every Pause control carries `[data-sc-pause]` with a correct `aria-pressed`.
-- Pause reasons: off screen, hidden tab, idle (90 s, or 60 s on phones), the visitor's Pause, reading a receipt, a call open, reduced motion.
+- Every Pause control carries `[data-sc-pause]` with a correct `aria-pressed` (corrected 28 Oct: with no `aria-pressed` at all; its label says what a press does, "Pause", "Play" or "Play the field". A changing name was chosen over a fixed name with a pressed state, which would break WCAG 2.5.3 against the visible "Play").
+- Pause reasons: off screen, hidden tab, idle (90 s, or 60 s on phones), the visitor's Pause, reading a receipt, a call open, reduced motion (corrected 28 Oct: also keyboard focus on a moment in the field; idle counts from the later of the last input and the showcase's return to running, and input ends it).
 
 **Static mode (the kill switch)**
 - `app/[[...path]]/page.tsx` reads `process.env.MARKETING_SHOWCASE` next to its `publicPlatform()` call (`:311`). It passes `showcase: "live" | "static"` (default `"live"`) through `MarketingSite`.
@@ -239,7 +239,7 @@ const k = fnv1a(html); // inline 32-bit FNV-1a; node:crypto and server-only fail
   - the client copy equals `stripForClient(full)`;
   - no literal brand name, except `format`;
   - visible strings only (every string in the client copy except values under `NON_TEXT_KEYS`: `format`, `id`, `decide`, `status` and the other enum fields) pass these scans: the model and vendor guard, hype words, the payout provider's name, AI-cost wording, hidden-specialty words, the C0 banned vocabulary, and the placeholder pattern (§1.6);
-  - the Not-on-yet shelf is exactly Meal planner and Recovery rule, and t3 is off by default;
+  - the Not-on-yet shelf is exactly Meal planner and Recovery rule, and t3 is off by default (corrected 28 Oct: statuses follow the flags, so the test walks every status through payments, publishing, voice, nutrition, meal photos and the AI model; the field's shelf holds only what is not on yet of the two, the Meal planner joins the specialists once nutrition is on, and the anatomy's (f) has no shelf; t3 stays off);
   - both payments states;
   - `prepare` is pure: trainsyou → Acme → trainsyou, and payments off → on → off, return the first output again, and the imported JSON is unchanged.
 
@@ -317,14 +317,16 @@ const k = fnv1a(html); // inline 32-bit FNV-1a; node:crypto and server-only fail
 |---|---|
 | `registrationOpen` | `teachCta()` (header, hero, closing, showcase `cta`, calculator CTAs); the hero micro line; AddressPreview, shown only while sign-ups are open |
 | `availability.payments` | Not-on-yet chips (subscriber payments, bookings, payments and invoicing); the showcase status strip and `try_yourself` statuses (through `prepare`); the payments-on answer to "Can subscribers pay me today?" (an `AVAILABILITY_LINES` entry) |
-| `payments && payouts` | "Publish" status and the walkthrough's "Publish and share" chip (`apps/api/src/onboarding.ts:520-524, 556-559`) |
+| `payments && payouts` | "Publish" status and the walkthrough's "Publish and share" chip (`apps/api/src/onboarding.ts:520-524, 556-559`). Corrected 28 Oct: publishing follows `PUBLISH_GATES`, sign-ups, payments and the model, the go-live checks `publishStorefront` refuses on (sign-ups stand for the legal check, the same switch in production). Payouts are asked at the first payout, so they gate only "Payouts to a UAE bank" and "Get paid monthly" |
 | `payouts` | "Payouts to a UAE bank" status; pricing payouts chip |
-| `voice` | "Sessions led in your voice" Add-on and Not-on-yet chip; status item; pricing "Optional" card chip |
+| `voice` | "Sessions led in your voice" Add-on and Not-on-yet chip; status item; pricing "Optional" card chip (corrected 28 Oct: the voice add-on status needs voice and payments, since subscribers buy it at checkout; the Optional card no longer offers it, and its chip is the domain's, on custom domains and payments) |
 | `nutrition` | The home nutrition offer chip; the meal-planning row in "Tools it replaces" (Map 2, decision 6) |
 | `frontier` | Only through existing and new `AVAILABILITY_LINES` (the `/trainer-brain` `learns` bullet; the renamed trained-on-my-data FAQ) |
 | recovery | Fixed `false` in phase 1 (owner default). No new `AvailabilityKey`, so the fixtures that list every key stay as they are |
 
 One pure function, `showcaseOptions(platform, cta)` in `brain/options.ts`, builds the engine options. The server render and the island use the same object.
+
+**Corrected 28 Oct (fix round 2 and the final fix pass).** Three flags joined: `model` (teaching and testing, every AI specialist in the showcases, and the publish gate), `mealPhotos` (a new public flag: nutrition plus `MEAL_PHOTOS_ENABLED` and `MODEL_VISION_ENABLED`) and, for the showcases, `publish` (every `PUBLISH_GATES` gate on). The showcases' `try_yourself` statuses become live only with `publish`, not with payments alone. Answers can wait for a list of gates (`AvailabilityLine.when`), sign-ups included. What shipped: `docs/features/marketing-site.md` ("What is live: gates and flags") and `docs/features/brain-showcase.md` ("Flags").
 
 ### 1.6 Copy: registry or components; JSON-LD, llms and assistant facts
 
@@ -349,7 +351,7 @@ One pure function, `showcaseOptions(platform, cta)` in `brain/options.ts`, build
 - Tests pin the overlap:
   - the "14 AI specialists and 11 code steps" numbers equal the roster counts;
   - the playground banner equals `labels.long`;
-  - the /demo `moments` text lists every chip label.
+  - the /demo `moments` text lists every chip label (corrected 28 Oct: the page builds its two paragraphs from the traces under its flags, `momentLines()`, so the registry text names no moment).
 
 **Placeholders, and claims the product does not back**
 - `tests/marketing-helpers.ts` exports `PLACEHOLDER = /\[(rate|owner)[^\]]*\]|owner to (state|confirm|supply)|decision \d/i`.
@@ -530,7 +532,7 @@ export function showcaseOptions(platform: PublicPlatform, cta: Cta, extra?: Part
 
 **DOM hooks that checks may rely on**
 - `root[data-sc]` = `pre`, `on` or `off`; `root[data-sc-tier]`; `root[data-sc-run]`; `root[data-sc-flat]`.
-- `[data-sc-pause]` with `aria-pressed`; `a[data-sc-cta]`.
+- `[data-sc-pause]` with `aria-pressed` (corrected 28 Oct: no `aria-pressed`; the label changes); `a[data-sc-cta]`.
 - `.sc-layer[data-showcase="layer"]`.
 - `html.sc-motion`, `.sc-pin`, `.sc-late`, `.sc-lock`; `html[data-sc-ready]`; `html[data-mk-call]`.
 - The override `?sc=on`, kept in `sessionStorage["sc-on"]`.
@@ -596,7 +598,7 @@ export function showcaseOptions(platform: PublicPlatform, cta: Cta, extra?: Part
 | `followers` | Body from A `homeFollowers` | |
 | `proof` | Body from A `:238`; bullets from `PROOF_LINKS` | |
 | FAQs (7) | How does {APP_NAME} work? (`HOME_INTRO`), `MY_AI_REPLACE_FAQ`, `SAFETY_FAQ`, `FREE_FAQ`, `FOLLOWERS_FAQ`, `PAY_TODAY_FAQ` (A's answer), `TECH_FAQ` | Derived (FYI): 7 questions, not 6, because the intro stays first |
-| `PAY_TODAY_FAQ`, payments on | Answer: "Yes. Subscribers pay you by card in AED." | Derived (FYI) |
+| `PAY_TODAY_FAQ`, payments on | Answer: "Yes. Subscribers pay you by card in AED." (corrected 28 Oct: only once sign-ups, payments and the model are all on; with payments on and publishing off: "Not yet. Subscriber payments are on, but publishing your page is not on yet. …") | Derived (FYI) |
 
 **`/trainer-brain`** (`marketing-content.ts:862-970`; merges with WP5). Fields:
 - H1 "Your AI, built from your judgment".
@@ -607,7 +609,7 @@ export function showcaseOptions(platform: PublicPlatform, cta: Cta, extra?: Part
 |---|---|---|
 | Title | "Trainer Brain: an AI trainer from your judgment" | Derived (FYI): C's title is 65 characters with " \| trainsyou", over the 60 limit (`marketing-site.test.ts:282`) |
 | Description | C's text without the word "coaching" | Derived (FYI): 161 → 152 characters, limit 155 |
-| Intro | "checked against your test cases" and "sends on its own only within your rules" | Derived (FYI): 47 words |
+| Intro | "checked against your test cases" and "sends on its own only within your rules" (corrected 28 Oct: "It is taught by you. Once it passes your test cases, it can send on its own, only within your rules." A first "Waits for me" version is published without an evaluation; only sending on its own needs a passing check) | Derived (FYI): 47 words |
 | `what` | A `tbWhat` | |
 | `inside` | Body: A's roster lede (`brain-a.mjs:57`), then "14 AI specialists and 11 code steps."; cards Coach, Teach and Guard, with the crew subtitle as label | Derived (FYI): Guard's "safety floor" → "safety rules" |
 | `inside` note | `labels.howWeCount` | |
@@ -630,7 +632,7 @@ export function showcaseOptions(platform: PublicPlatform, cta: Cta, extra?: Part
 | Description | 150 characters: "Throw a sample moment at a Trainer Brain. Watch each code check and AI specialist work, then change a setting and run it again. No AI model is called." | Derived (FYI) |
 | Intro | 51 words, keeping the "no AI model is called" honesty line | Derived (FYI) |
 | `next` | "What happens in your account". Body: A's section lede. Three steps: titles are A's keys Setup, Waits for me, Your choice; each body is A's title plus its detail. "6 minutes" is checked against `SETUP_STEPS`. Written close to the step caps | Derived (FYI): titles would otherwise exceed 4 words |
-| `moments` | Up to 2 paragraphs of 35 words or fewer, listing the 12 chip labels; written close to the caps | Derived (FYI) |
+| `moments` | Up to 2 paragraphs of 35 words or fewer, listing the 12 chip labels; written close to the caps (corrected 28 Oct: the registry's two paragraphs now hold for every flag state and name no moment; the page lists the moments from the traces and flags) | Derived (FYI) |
 | FAQs | A's first three, plus `SAFETY_FAQ` with its shared answer (one answer everywhere) | |
 
 **WP0 measures `registryWords('/demo')` against the 350-word floor** (`marketing-site.test.ts:396-405`); this is WP0's job, not WP5's.
@@ -655,7 +657,7 @@ export function showcaseOptions(platform: PublicPlatform, cta: Cta, extra?: Part
 | `example` | Note "An arithmetic example, not a forecast or promise." | |
 | `hours`, `statement`, `billing`, `payouts` | Unchanged | |
 | `status` | "Live today, and not on yet" | |
-| FAQs | B's six (`concept-b/src/pages-core.mjs:240-247`), using `PAY_TODAY_FAQ`. In "Who sets the price?" the vocabulary is fixed | Derived (FYI): the data FAQ answer becomes "Your method stays private to your workspace. You and your subscribers can download your data and request deletion." This is the published "Export and deletion" fact (`marketing-features.ts:200`), with no placeholder |
+| FAQs | B's six (`concept-b/src/pages-core.mjs:240-247`), using `PAY_TODAY_FAQ`. In "Who sets the price?" the vocabulary is fixed | Derived (FYI): the data FAQ answer becomes "Your method stays private to your workspace. You and your subscribers can download your data and request deletion." This is the published "Export and deletion" fact (`marketing-features.ts:200`), with no placeholder. Corrected 28 Oct: the answer did not address ownership or leaving, so it now reads "You keep your rights in what you provide, and subscribers keep theirs: we never own your method or sell client information. If you leave, you can download your data and ask to close your workspace once your existing subscribers are looked after." (terms of 14 Oct, §73 and §95; legal or the owner to confirm) |
 
 **`/faq`** (merges with WP4). Append `INSTAGRAM_FAQ` and use `FOLLOWERS_FAQ`. The text does not change.
 
@@ -761,7 +763,7 @@ export function showcaseOptions(platform: PublicPlatform, cta: Cta, extra?: Part
 - typecheck, build.
 - Local Playwright on `/?sc=on`, run on the WP4 branch with WP2 applied, or on a scratch mount:
   - CLS 0.001 or less over 30 s at 390 and 1440, through at least two loops of streamed text;
-  - Pause works across the receipt sequence: open → Pause → close leaves "Play" with `aria-pressed="true"` and no `data-sc-run`;
+  - Pause works across the receipt sequence: open → Pause → close leaves "Play" with `aria-pressed="true"` and no `data-sc-run` (corrected 28 Oct: "Play" with no `aria-pressed`);
   - 10 navigation round trips with no errors and no leftover `.sc-layer` nodes or `html.sc-lock`;
   - at scroll 0, at 390×844 and 360×800, no field control's box meets Kamran's button;
   - with the consent bar open, an open receipt and the open sheet are topmost at their centres (`elementFromPoint`).
@@ -790,7 +792,7 @@ export function showcaseOptions(platform: PublicPlatform, cta: Cta, extra?: Part
 - Inner ids come from the host id. Today `brain-play.js:38`, `:44` and `:88` render `undefined-*`.
 - `mount` sets `data-sc="on"`; the prototype removes the attribute instead.
 - The attract run (off under reduced motion).
-- Free text is matched to the closest sample through the local keyword table only. In-browser safety rules stay off (decision 7 default).
+- Free text is matched to the closest sample through the local keyword table only. In-browser safety rules stay off (decision 7 default). (Corrected 28 Oct: when no sample is close it says "No sample is close to that. This page can't read new messages: pick a sample moment." and plays nothing; the table loads on the first input.)
 - "Throw them all".
 - The result's height is reserved before and after a run. This fixes the 19 px mount shift and the 614 px CTA jump.
 - `run(traceId)`.
@@ -1154,7 +1156,7 @@ The draft PR's CI runs the full check on every push.
 8. **Kamran:** with the assistant stub on, at 390×844 and 360×800, scroll 0, the floating button's box overlaps no showcase control.
 9. **Receipt and overlays:**
    - opening a receipt moves focus inside; Esc closes it and returns focus;
-   - open → Pause → close leaves "Play" with `aria-pressed="true"` and no `data-sc-run`;
+   - open → Pause → close leaves "Play" with `aria-pressed="true"` and no `data-sc-run` (corrected 28 Oct: "Play" with no `aria-pressed`);
    - with the consent bar open, an open receipt and the open phone sheet are topmost at their centres (`elementFromPoint`);
    - navigating away with a receipt open leaves no `.sc-layer` nodes and no `html.sc-lock`.
 10. **Playground** on `/demo`:
@@ -1218,7 +1220,7 @@ The two budgets looser than the spec are deliberate. They are listed for the own
 - One polite live region per document, in the overlay layer, used only for changes the visitor caused.
 - Level controls are ARIA radios moved with the arrow keys. The stepper and the walkthrough follow the tabs pattern with a roving tabindex.
 - Sliders carry `aria-valuetext`.
-- Controls are 44 px or larger.
+- Controls are 44 px or larger. (Amended 28 Oct, after the final review's A11Y-10: on phones every showcase control has a hit area at least 44 px tall, except the field's level radios, which are 28 px wide because Kamran's gutter leaves no room at 360 px, and the anatomy's notes on pinned phones, which are 22 px tall because 44 px would break the pinned layout. Both pass WCAG 2.5.8's 24 px. Desktop controls stay at 20–38 px. Both belong on the owner's FYI list.)
 - A Pause control appears wherever motion runs longer than 5 s (WCAG 2.2.2).
 - The phone hero's DOM order (H1 → field → lede → CTA) makes focus order follow visual order (WCAG 2.4.3, 1.3.2).
 - The pinned anatomy has a "Skip the figure" link.
@@ -1263,7 +1265,7 @@ The two budgets looser than the spec are deliberate. They are listed for the own
 
 | Risk | Mitigation |
 |---|---|
-| Desktop frames are slow because of paint, not script (33 ms p95 headless without a GPU, Map 4) | Tiers and a watchdog that only steps down; DPR capped at 2; pre-drawn bitmaps; `contain: paint` on the canvas layer; no blurred shadows. CI only reports this; it is judged locally on real hardware. |
+| Desktop frames are slow because of paint, not script (33 ms p95 headless without a GPU, Map 4) | Tiers and a watchdog that only steps down (corrected 28 Oct: it also steps back up after two good windows, never above the starting tier, and judges each tier against its own frame rate); DPR capped at 2; pre-drawn bitmaps; `contain: paint` on the canvas layer; no blurred shadows. CI only reports this; it is judged locally on real hardware. |
 | Long tasks before `load` (845 KB gzipped of shared JS) | The engine loads only after `load` + idle, and TBT is compared with the baseline. Splitting marketing from the workspace bundle is the real fix: recommended for phase 2 or 3. |
 | Engine CSS or runtime code reaching the server render, or every route's first HTML | The render/runtime split; a static-import walk test from `site.tsx` and `render.ts`; runtime sheets only inside client `import()` chunks. |
 | Layout shift from engine DOM changes | Reserved slots, including two lines of streamed text; transform-only motion; the pin height set before the first paint; the anatomy flattens only off screen. CLS is judged at 0.001 or less once it passes 3 of 3 CI runs. |

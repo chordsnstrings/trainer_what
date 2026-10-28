@@ -44,6 +44,7 @@ calculator.
 
   The dated sections below that describe them are the record of their time.
 - **Unchanged:** every other page, the header, the phone menu, the footer, Kamran's button and `/how-it-works` with its journey player.
+- **What the pages call live** follows the platform's go-live checks since the final fix pass (28 October 2026): publishing waits for sign-ups, subscriber payments and the AI model, not for payouts. See "What is live: gates and flags" below. The same gates reach `/faq`'s money answers, `llms-full.txt` and the assistant facts.
 
 ## Current refresh — 3 October 2026
 
@@ -1479,21 +1480,24 @@ off the registry text shows unchanged.
 **Shared parts:**
 - `page-parts.tsx`: `Section`, `PageHead`, `InShort`, `Faqs`, `Related`, `Closing`, `primaryCta`, `TEACH_CTA_PATHS` and the `Ctx` type;
 - `proof.tsx`: the proof atoms (status chips and panel, "Not on yet", the sample and estimate labels, source badges, the Never sheet, `CtaMicro`);
-- `packages/contracts/src/marketing-proof.ts`: the lists behind them (`STATUS_ITEMS`, `HOME_OFFER`, `PROOF_LINKS`, `NEVER_LIST`).
+- `packages/contracts/src/marketing-proof.ts`: the lists behind them (`STATUS_ITEMS`, `HOME_OFFER`, `PROOF_LINKS`, `NEVER_LIST`), the gates (`PUBLISH_GATES`, `TEACH_GATES`, `gatesState()`) and `/pricing`'s block chips (`PRICING_CHIPS`, `BlockChip`).
 
 **Islands:**
 - `home-islands.tsx`: the walkthrough stepper;
 - `brain-page-islands.tsx`: RuleLedger, ReleaseTimeline and CompareReplies, every one labelled as a sample;
 - `pricing-islands.tsx`: ShareSlider and TakeHome, each with one polite live region that speaks after input pauses for 500 ms.
+- **Their startup work** (final fix pass, L16). Number formatters are built once per module, not on every call (`islands.tsx`, `pricing-islands.tsx`, `pages/pricing.tsx`, `marketing-calculators.ts`). `BANDS` and `commission` moved into `packages/domain/src/commission-bands.ts`, which imports nothing, so the browser no longer evaluates the domain index and its red-flag rules; `@trainer/domain` still re-exports them. The follower-settings zod schema is built on first use. `/` blocking time at 4× CPU on a quiet machine went from a median of 298 ms to 261 ms. `tests/marketing-follower-model.test.ts` holds the imports.
 
 **Static mode.** `Ctx.showcase` carries the showcases' static mode (`MARKETING_SHOWCASE`, [brain-showcase.md](brain-showcase.md)).
 
 **Stylesheets.** All are imported in `app/layout.tsx` after `marketing-journey.css`, so every route on the catch-all loads them.
-- Page sheets: `marketing-proof.css` (`.mk-pf-`), `marketing-home.css` (`.mk-hm-`), `marketing-brain-pages.css` (`.mk-tb-` and `.mk-dm-`) and `marketing-pricing.css` (`.mk-pr-`). Together they are 7.94 KB gzipped (8,132 B) against an 8 KB budget, so about 60 B are left.
+- Page sheets: `marketing-proof.css` (`.mk-pf-`), `marketing-home.css` (`.mk-hm-`), `marketing-brain-pages.css` (`.mk-tb-` and `.mk-dm-`) and `marketing-pricing.css` (`.mk-pr-`). Together they are 7.93 KB gzipped (8,118 B, measured on `41e3a4c` with the budget test's arithmetic) against an 8 KB budget, so 74 B are left. Any new rule has to pay for its bytes.
 - Then the four first-frame showcase sheets, `app/brain-*.css`.
 - Don't run Prettier on the page sheets. It splits the reduced-motion selectors across lines, and the motion test needs each selector on one line.
 
 **Bands.** Every band keeps the house structure, `.mk-home-band > .mk-container.mk-home-inner`, so the section reveal and the band rhythm are the home's. A band that holds a showcase carries `.mk-sc-band`, and the reveal leaves it alone.
+
+**In-page links and focus clear the sticky header.** The public root's `scroll-padding-block-start` is the header's height plus 8 px: 82, 77 and 73 px at the header's three heights ([brand.md](brand.md)). Fix round 2 had given the bands a `scroll-margin` instead; the final pass removed it, since it would add to the padding.
 
 **Light, except the showcases.** Public pages stay light in every colour scheme. The one dark surface is the showcases' ink stage, inside `[data-showcase]` only ([brand.md](brand.md)).
 
@@ -1519,6 +1523,51 @@ off the registry text shows unchanged.
 | `/demo` | See how it works → `/how-it-works` |
 | `/pricing` | Estimate my earnings → `/earnings-calculator` |
 
+"Teach your AI — free" follows sign-ups only (PLAN §1.5), so it still shows while the AI model is off. Making it depend on the model is the owner's decision.
+
+### What is live: gates and flags (corrected 28 October 2026)
+
+Fix round 2 and the final fix pass tied every "live" claim on the four pages to the checks the product itself makes. Before, publishing was taken to wait for payments and payouts, and several answers were fixed text.
+
+**The gates** (`packages/contracts/src/marketing-proof.ts`):
+- `PUBLISH_GATES` is sign-ups (`registration`), subscriber payments and the AI model. These are the go-live checks `publishStorefront` refuses on (`apps/api/src/onboarding.ts`): approved legal documents (in production, `LEGAL_APPROVED` also opens sign-ups), card payments configured and approved, and the coaching assistant. Bank details are asked at the first payout, not before launch, so payouts are not a publish gate.
+- `TEACH_GATES` is the AI model.
+- `gatesState(flags, gates)` is true once every gate is on, false once one is off, and undefined while the others are on and sign-ups are unknown. A line that waits for sign-ups is left out while they are unknown.
+
+**The status panel and strip (`STATUS_ITEMS`).**
+
+| Item | Live once |
+|---|---|
+| Sign up free | sign-ups open; otherwise "New sign-ups (early access for now)" under Not on yet |
+| Set up your page and app; Preview what subscribers will see | always |
+| Teach and test your AI | the AI model is on; otherwise "Teaching and testing your AI" |
+| Publish your page to subscribers | every `PUBLISH_GATES` gate is on; otherwise "Publishing your page to subscribers" |
+| Subscriber payments in AED; Paid bookings | payments |
+| Payouts to a UAE bank | payouts |
+| Voice add-on for subscribers | voice and payments (subscribers buy it at checkout) |
+
+**The home walkthrough's "Not on yet" flags** (`STEP_GATES`, `pages/home.tsx`): "Teach your Brain" and "Test it" while the model is off; "Publish and share" until every publish gate is on; "Get paid monthly" until payments and payouts are both on. `tests/marketing-home.test.ts` runs all 32 combinations of sign-ups × model × payments × payouts × voice against an expectation written apart from `STATUS_ITEMS`.
+
+**The `/pricing` hero strip** (`StatusStrip`, `proof.tsx`) says "Subscriber payments and payouts are live." only once publishing and payouts are on. Otherwise it names what is missing, with a "What works today" link:
+- while payments are off: "Subscriber payments are not on yet." or "Subscriber payments and payouts are not on yet.";
+- while payments are on and publishing is not: "Publishing your page is not on yet." or "Publishing your page and payouts are not on yet.";
+- once publishing is on: "Payouts are not on yet."
+
+**Answers that follow the gates** (`AVAILABILITY_LINES`, `marketing-content.ts`). A line's `when` is one flag or a list of gates, `registration` included. `marketingPageFor(page, availability, registrationOpen)` applies a line only when every gate is on; the registry's own text holds in every other state. `site.tsx` passes `platform.registrationOpen`, and so do JSON-LD, the `llms-full.txt` route and the assistant facts. A caller that leaves it out gets the cautious answers, never "Yes".
+- **"Can subscribers pay me today?"** (`/`, `/pricing`):
+  - payments off: "Not yet. Subscriber payments are not on yet, and publishing your page waits for them. With an account you can already set up your page and app." While the model is on it adds ", and teach and test your AI.";
+  - payments on, publishing not on: "Not yet. Subscriber payments are on, but publishing your page is not on yet. With an account you can already set up your page and app.", with the same addition while the model is on;
+  - every publish gate on: "Yes. Subscribers pay you by card in AED."
+- **"How do my Instagram followers become subscribers?"** (`/faq`, and the `/how-it-works` journey's phone line): the registry answer is conditional ("Once your page is live, followers open it, choose your offer and pay in AED."); the present-tense answer waits for the publish gates.
+- **`/faq` "How does money reach me?"**: until payments and payouts are both on, "Once subscriber payments and payouts are on, subscribers pay by card in AED through Stripe, and after reconciliation your earnings are paid monthly to your verified UAE bank account, with a statement from gross to net." Once both are on, the present tense.
+- **`/faq` "What does a subscriber get for their money?"** ends "… nutrition, voice and one-to-one sessions once each is on." until nutrition, voice and payments are all on.
+
+**`/pricing`'s block chips** (`PRICING_CHIPS`): "Not on yet: subscriber payments" and "Not on yet: payouts" on "How you earn"; "Not on yet: subscriber payments" on the worked example; "Not on yet: payouts" on the payouts card; "Not on yet: your own domain" on the Optional card while custom domains or payments are off (a domain is bought by card). The page renders them through `BlockChips`, and `llms-full.txt` and the assistant facts print the same table after each block's text, so a sentence about payouts never reads as live there either.
+
+**`llms-full.txt` and the assistant facts** also print the home offer with each item's state ("(included)", "(optional tier, not on yet)", "(add-on, not on yet)"), the status lines under "What works today" and "Live today, and not on yet", and every section's note ("Once your page is live.", "An arithmetic example, not a forecast or promise.").
+
+**Checks.** `tests/marketing-home.test.ts`, `marketing-pricing.test.ts`, `marketing-site.test.ts` and `marketing-frontier.test.ts` (which allows gate lists) hold this. The final fix pass's flag-matrix scan rendered `/`, `/pricing`, `/trainer-brain`, `/demo` and `/faq` in 80 flag states (400 renders) with exact checks and found 0 problems; fix round 2's scan had found none in 337.
+
 ### Home structure
 
 Title "Free-to-join AI trainer platform for UAE coaches", with the eyebrow "FOR UAE PERSONAL TRAINERS". `lastUpdated` is 2026-10-27 on all four pages.
@@ -1528,11 +1577,12 @@ Title "Free-to-join AI trainer platform for UAE coaches", with the eyebrow "FOR 
    - Then the field ([brain-showcase.md](brain-showcase.md)), then the lede: "Specialists inside your AI handle every message. Code checks every step. You decide what goes out."
    - Then the primary action, "Try the demo", and the micro line.
    - The DOM order is the same at every width: H1, field, lede, buttons. Wide screens place the field in the second column with grid areas, never CSS `order`. Tablets from 761 to 1180 px stack in DOM order.
+   - From 1181 px the hero grid is `minmax(0, 5fr) minmax(720px, 7fr)` (final fix pass, L11). The field keeps the 720 px its desktop layout needs, so no node label is cut, and below about 1,370 px the copy column gives up the difference. Measured: 0 ellipsized labels at 1181, 1240, 1280, 1312, 1366 and 1440 px, and the call to action on the first screen at 1280×720 and 1181×720.
    - `<link rel="expect" href="#mk-hero-end" blocking="render">`: the first paint waits until the hero's last child is parsed, the field's first frame included.
 2. **"Change a setting. Watch it re-sort."** (`#resort`, paper): the board, labelled by the band's H2, and "Throw a moment at your Brain" → `/demo`.
-3. **"How it works"** (white): three numbered steps from the registry, then "Setup to payday · 8 steps".
+3. **"How it works"** (white): three numbered steps from the registry, then "Setup to payday · 8 steps". The third, "You decide", reads "Replies wait for you. Your choice: approved reply fits → sent on its own. Pain → paused." (fix round 2: level 1 starts in "Waits for me").
    - That is the `/how-it-works` steps as an ARIA tabs stepper with a roving tabindex. Left and Right move between tabs, with wrap; Home and End jump; Previous and "Next step" step. Up and Down are not captured.
-   - "Publish and share" and "Get paid monthly" carry "Not on yet" until payments and payouts are both on.
+   - "Not on yet" flags (corrected 28 October 2026): "Teach your Brain" and "Test it" while the AI model is off, "Publish and share" until sign-ups, payments and the model are all on, and "Get paid monthly" until payments and payouts are both on ("What is live: gates and flags"). Until fix round 2, "Publish and share" waited for payments and payouts.
    - "See how it works" links to `/how-it-works`.
 4. **"What subscribers get, under your name"** (white).
    - The offer list (`HOME_OFFER`), each item with its status: an available item shows its offer in green; one that is not shows it in grey with "Not on yet".
@@ -1541,7 +1591,7 @@ Title "Free-to-join AI trainer platform for UAE coaches", with the eyebrow "FOR 
    - "All features".
 5. **"You stay in charge"** (paper).
    - The registry's lead line, with its "“Waits for me” mode:" opening in bold.
-   - The Never sheet, unsigned.
+   - The Never sheet, unsigned. Each line is a whole sentence that starts with "Never" ("Never hide pain or red flags from you."), so it reads the same in `llms-full.txt` and the assistant facts, which also carry its note.
    - The flow window "How your AI decides": Omar, Yousef and Noura's lines, taken from traces t1, t6 and t2 and the default settings; the test holds them to the traces.
    - "How your AI decides" → `/trainer-brain`.
 6. **"Free to start. Your price."** (white).
@@ -1571,36 +1621,45 @@ Title "Free-to-join AI trainer platform for UAE coaches", with the eyebrow "FOR 
 ### /trainer-brain, /demo and /pricing
 
 **`/trainer-brain`.** Title "Trainer Brain: an AI trainer from your judgment"; H1 "Your AI, built from your judgment".
-- **Head:** the lede, the calls to action and the micro line, with the RuleLedger sample beside them.
+- **Head:** the lede, the calls to action and the micro line, with the RuleLedger sample beside them. Since the final fix pass the ledger agrees with the traces (HON-11): "Deload every 4th week · notes.pdf · reviewed" is Confirmed, because t6 cites it as the trainer's rule; the flagged row is "Cardio before lifting → swap the order · notes.pdf · reviewed · Flagged · conflicts with case 3", a rule no trace uses; "No equipment match → hand to me" was dropped to keep four rows.
 - **Bands, in order:**
-  - "Not a generic workout generator" (`what`): one decision traced to its source.
-  - "Who’s inside your Brain" (`inside`): the roster by crew, with "How we count" and "See it work" links that play the specialist's moment in the playground.
+  - "Not a generic workout generator" (`what`): one decision traced to its source. The chain uses t1's numbers: "Back squat 60 → 62.5 kg", the rule "Every set at 2+ RIR → +2.5 kg, up to 5%" and the source "“If every set leaves two reps in reserve, I add a small jump.”"
+  - "Who’s inside your Brain" (`inside`): the roster by crew, with "How we count" and "See it work" links that play the specialist's moment in the playground. A link shows only while its moment runs under the page's flags ([brain-showcase.md](brain-showcase.md)).
   - "Anatomy of one decision" (`decides`): the anatomy, with "Skip the figure".
   - "Throw a moment at your Brain" (`play`): the playground.
   - "What you teach it" (`teach`): five cards with source badges.
-  - "How it gets better" (`learns`): ReleaseTimeline and CompareReplies.
+  - "How it gets better" (`learns`): ReleaseTimeline and CompareReplies. Since fix round 2 the versions follow the order the product makes releases: "v1 Rules, quiz, 3 cases 16 Oct · v2 + 17 cases 18 Oct · v3 + 1 rule 19 Oct · v4 + 2 corrections 21 Oct". The rule card to review is the suggestion from the trainer's edit (t7): "Your edit · 22 Oct", "When every set of an upper-body lift is done, add 2.5 kg".
   - "What your AI will never do" (`never`): the unsigned Never sheet, beside "Your method stays yours" (`yours`).
 - **Then:** "In short", four questions under "Questions about your AI", related links and "Last updated".
+- **Claims about checks** (fix round 2). A first "Waits for me" version is published after confirmed rules, a finished quiz and 3 of the trainer's own cases, without an evaluation. Only sending on its own needs a passing check of 20 or more own cases, and once live every edit is re-checked. So the lede reads "…Every reply waits for you until you choose otherwise.", the intro "It is taught by you. Once it passes your test cases, it can send on its own, only within your rules.", and no answer says each release is checked before it goes live.
 
 **`/demo`.** Title "See an AI coach decide: interactive demo"; H1 "Throw a moment at your Brain".
-- The standard one-column page head, then the playground under it. The playground plays its first moment once on its own and takes its name from the H1.
+- The standard one-column page head, then the playground under it. The playground plays its first moment that runs under the page's flags once on its own, and takes its name from the H1.
 - "What happens in your account" (`next`, three steps).
-- "The 12 sample moments" (`moments`). It states each moment's outcome under the sample settings, and the test holds those outcomes to the traces' lanes.
+- "The 12 sample moments" (`moments`). Since the final fix pass (HON-1) its two paragraphs are built from the traces under the page's flags (`momentLines()` in `pages/demo.tsx`): each moment's outcome under the sample settings, and which moments are not on yet. With sign-ups open, the AI model on, and payments, payouts, voice and nutrition off, they read: "With the sample settings, “Squats felt easy” and “First plan” are sent on their own, within your rules. “Skip my deload?”, “Week is over” and “Creatine question” wait for you." and "“My knee popped”, “22 weeks pregnant” and “Chest pain (Arabic)” pause training. “You edit a reply” suggests a new rule. “Low recovery”, “Meal photo” and “Voice session” are not on yet." With the AI model off, only “Creatine question” waits, the three safety moments pause, and the other eight are not on yet.
+  - The registry text, which `llms-full.txt` carries, names no moment: "Each moment ends one of five ways: sent on its own within your rules, waits for you, training paused, the member confirms, or a new rule for you." and "Change a setting and the same moment can end another way. A moment that needs something not on yet says so."
+  - `tests/marketing-brain-pages.test.ts` parses the rendered paragraphs in six flag states, the AI model off and nutrition on with meal photos off among them.
+- "Is this a real AI response?" says the playground banner's sentence: "AI steps replay answers from test runs or the app's tests, or are marked illustrative." "Can I test my AI before launch?" explains the practice quiz, the trainer's own test cases and the 20-case check before anything sends on its own.
 - "In short", four questions under "Demo questions", related links and "Last updated".
 - `/demo` is not in Kamran's destinations or the assistant's fact pages.
 
 **`/pricing`.** Concept B's page: title "Online coaching platform fees and commission"; H1 "Free to join. You set the price.", with "price" in Pace.
-- **Head:** the status strip comes before any AED figure, with the stairs of our share beside it.
+- **Head:** the status strip comes before any AED figure, with the stairs of our share beside it. It follows publishing and payouts ("What is live: gates and flags").
 - **Bands, in order:**
-  - "What’s free, what we take" (`glance`): three cards.
+  - "What’s free, what we take" (`glance`): three cards. The Optional card reads "Your own domain, priced before you buy.", with "Not on yet: your own domain" while custom domains or subscriber payments are off. Since the final fix pass (HON-5, HON-6) it no longer offers the voice add-on, which subscribers buy, not trainers: a trainer's own domain is the only optional purchase (the owner's decision of 7 October 2026).
   - "How our share falls" (`bands`): the bands from `BANDS`, and the share slider. The slider runs from 1 to 1,500 subscribers, with jumps to 100, 300, 1,000 and 1,500, and one decimal.
-  - "What you keep, in AED" (`example`): the worked example from `estimateEarnings`, and the take-home tile from `MEMBERSHIP_MINIMUMS`.
+  - "What you keep, in AED" (`example`): the worked example from `estimateEarnings`, with "Not on yet: subscriber payments" while payments are off, and the take-home tile from `MEMBERSHIP_MINIMUMS`. Under the tile ("Try your numbers") one computed line gives the minimum prices and the prepaid packs: "Prices start at AED 199 a month, AED 299 with nutrition or voice included and AED 399 with both. On a monthly offer, subscribers can also prepay 6 or 12 months at 10% or 30% off; your share of a pack is held until its 15-day refund window closes." The figures come from `MEMBERSHIP_MINIMUMS`, `prepayQuote` and `PREPAY_REFUND_DAYS`.
+  - While payments are off a note follows: "Subscriber payments are not on yet.", plus "Set up and teach your AI now." while sign-ups are open and the model is on, or "Set up your page and app now." while sign-ups are open and the model is off.
   - "An hour sells only once" (`hours`): B's two price anchors.
   - "What else appears on your statement" (`statement`).
-  - The `how`, `billing` and `payouts` cards. Payouts carry "Not on yet: payouts" until payouts are on.
+  - The `how`, `billing` and `payouts` cards. "How you earn" carries "Not on yet: subscriber payments" and "Not on yet: payouts", and the payouts card "Not on yet: payouts", each while its flag is off (`PRICING_CHIPS`).
   - "Live today, and not on yet" (`status`).
 - **Then:** "In short", six questions under "Pricing, answered", related links and "Last updated".
-- **Figures:** every AED figure and percentage is the ledger's own. There is no card-processing rate: the statement says card processing is itemised.
+  - "Who sets the price?": "You do: the price in AED, from 199 a month (299 with nutrition or voice included, 399 with both), the programme length, monthly or upfront billing, trials and promotions. Monthly offers also let subscribers prepay 6 or 12 months at 10% or 30% off." The share bands moved out of this answer in the final pass.
+  - "What will I pay?" lists commission, card processing and "Your own domain, if you choose one, is extra."
+  - "Who owns my subscribers’ data, and what if I leave?": "You keep your rights in what you provide, and subscribers keep theirs: we never own your method or sell client information. If you leave, you can download your data and ask to close your workspace once your existing subscribers are looked after." It rests on the terms of 14 October 2026 (§73, §95) and the closure route, which refuses until existing clients are settled. The pricing test reads both clauses from the terms file.
+- **Figures:** every AED figure and percentage is the ledger's own, and the minimums and packs are computed from the product's constants. There is no card-processing rate: the statement says card processing is itemised.
+- **The pricing guide** (`/guides/pricing-online-coaching-uae`, "Include commission and costs") says the same since the final pass: "Your statement also lists payment processing and your own domain, if you choose one. Monthly offers also let subscribers prepay 6 or 12 months at 10% or 30% off." That also brings the guide back over its 1,000-word floor (1,010).
 
 ### Copy limits
 
@@ -1635,15 +1694,16 @@ The SEO-depth floor is 350 registry words. `/demo` is 8 over it, so any cut ther
 
 **New unit tests.** All in `npm test`, so they gate deploys:
 
-| Test file | Tests | What it holds |
+| Test file | Tests (on `41e3a4c`) | What it holds |
 |---|---|---|
-| `marketing-brain-traces` | 14 | the Brain traces |
-| `marketing-showcase` | 15 | the showcase contract and budgets |
-| `marketing-field` | 8 | the field and the board |
-| `marketing-anatomy-play` | 23 | the anatomy and the playground |
-| `marketing-home` | 10 | the home |
-| `marketing-brain-pages` | 12 | `/trainer-brain` and `/demo` |
-| `marketing-pricing` | 8 | `/pricing` |
+| `marketing-brain-traces` | 15 | the Brain traces |
+| `marketing-showcase` | 19 | the showcase contract and budgets |
+| `marketing-field` | 11 | the field and the board |
+| `marketing-anatomy-play` | 28 | the anatomy and the playground |
+| `marketing-home` | 12 | the home, the status panel and walkthrough over every flag combination |
+| `marketing-brain-pages` | 12 | `/trainer-brain` and `/demo`, the moments paragraphs in six flag states |
+| `marketing-pricing` | 11 | `/pricing`: the strip, chips, minimums, packs and the data answer |
+| `root-marks` (fix round 2) | 7 | no `:has()` on the root, the marks, the header's scroll padding and the `<noscript>` rules |
 
 `tests/marketing-helpers.ts` holds the shared helpers: `PLACEHOLDER`, `C0_BANNED` and `MODEL_OR_VENDOR`.
 
@@ -1693,12 +1753,12 @@ The plan's §2 table lists every row.
 `/how-it-works` was unchanged. WP7a's deletions changed no page: before and after were identical apart from React's generated ids on `/earnings-calculator`.
 
 **Browser checks.**
-- **The showcase check** passed on `0dfc1dd`: exit 0, 0 failures, 6 min 5 s. It passed again on fix round 1's tree ([brain-showcase.md](brain-showcase.md) has the measurements).
+- **The showcase check** passed on `0dfc1dd`: exit 0, 0 failures, 6 min 5 s. It passed again on fix round 1's tree, and twice more in WP7b's second round (375 s and 376 s). Later runs are in "Checks run after part 2" below ([brain-showcase.md](brain-showcase.md) has the measurements).
 - **The journey check:** 209 passed, 0 failed.
-- **The sitewide motion check:** passed in 18 min 41 s.
-- **The brand check:** 38 failures.
+- **The sitewide motion check:** passed in 18 min 41 s. In WP7b's second round it failed twice on `/trainer-brain` at 1366×900 (CLS 0.048 in 1 cold load of 5): the page head moved while the rule ledger was still being parsed. The lead added a render-blocking `rel=expect` to the end of its hero ([marketing-motion.md](marketing-motion.md): 0 shifts in 40 loads).
+- **The brand check:** 38 failures in the first round.
   - 36 are pre-existing: the identical set fails on `4f35e5c`, the build before phase 1. They are the coach sign-in wait, workspace lockups in dark, the coach website and member-app colour checks, and `.onboarding-presence` at 4.30:1.
-  - 2 were the phone walkthrough's "Not on yet" dots, drawn in their own background colour. Fix round 1 (`22d1a1a`) now keeps each dot's words visually hidden instead. WP7b's second round runs the brand check again.
+  - 2 were the phone walkthrough's "Not on yet" dots, drawn in their own background colour. Fix round 1 (`22d1a1a`) keeps each dot's words visually hidden instead. WP7b's second round ran the brand check again: 36 failures, all of them the pre-existing set, so nothing from phase 1 is left.
 - **`npm run test:browser`** passed on its third run.
   - The first run failed on the member app's consent bar at 390×844 while another browser check ran alongside it. That step passed in runs 2 and 3.
   - The second run failed on WP5's own `/demo` smoke test, which looked for "No AI called" in the wrong element. It was fixed in `ad479b4`.
@@ -1711,16 +1771,36 @@ The plan's §2 table lists every row.
 - Kamran's button covers no control.
 - `next dev`: no hydration warnings. WP4's duplicate-key error was fixed by keying host and island as one fragment.
 
-**Not run here:** the milestone run of PLAN.md §4.6 and the PR's CI. The lead records them in `CLAUDE_HANDOFF.md` and `docs/COMPLETION_STAGES.md`.
+### Checks run after part 2 (28 October 2026: fix round 2 and the final fix pass)
+
+**Fix round 2** (reports in the session scratchpad, `fix2-*.json`):
+- Copy and honesty: `npm run typecheck` exit 0; 237 of 237 targeted tests; a flag-matrix render scan of 337 page states with 0 problems; the showcase check passed on that engineer's build.
+- Root marks: 130 before/after screen comparisons across public, member and trainer pages, light and dark, 390 and 1440; 126 identical, and 4 differ only in relative times ("7→8 minutes ago"). `npm run test:dark` and `npm run test:phone` failed identically on both builds (pre-existing failures).
+
+**The final fix pass** (the pages' report is `final-P.json` in the session scratchpad; the engines' figures are in [brain-showcase.md](brain-showcase.md)):
+- `npx tsc --noEmit -p .` exit 0, and 304 of 304 tests across the marketing suites, `brand`, `discovery-seo`, `public-pages`, `model-name-guard`, `i18n-hardcoded`, `logical-css`, `motion-css`, `rtl-layout`, `root-marks`, `react-dom-behaviour` (local Chromium), `analytics-consent`, `pwa` and `appearance`; `tests/platform.test.ts` 37 of 37.
+- Real pages on its build of `488b9d1` in five flag states: the copy of `/`, `/pricing`, `/demo`, `/faq`, `/trainer-brain` and `/llms-full.txt`; keyboard focus walks with 0 controls hidden under the header in 8 walks; the root marks without JavaScript; the consent bar; the hero widths.
+- The flag-matrix scan with exact checks: 400 renders, 0 problems.
+- Its showcase check: exit 1, with 4 failures, all in the playground, whose engine work was still in progress ([brain-showcase.md](brain-showcase.md), "Results so far").
+- The engines' half ran the full `npm test` at the end: 2,094 tests, 2,093 passed, 1 skipped, 0 failed (22 min 43 s).
+
+**Not run here:** the milestone run of PLAN.md §4.6 (running alongside this docs pass) and the PR's CI. The lead records them in `CLAUDE_HANDOFF.md` and `docs/COMPLETION_STAGES.md`.
 
 ### For the owner (FYI)
 
-- **CSS on every page.** Every page of the site, the member app included, loads the showcases' first-frame CSS (17.0 KB gzipped) and the page sheets (7.94 KB). WP7a's deletions took 2.1 KB off `marketing.css`. Net, the first-load CSS grew by 17.9 KB gzipped in fix round 1's measurement. This holds until the marketing and app bundles are split.
-- **Two speed budgets are looser than the showcase spec:** long tasks of 80 ms or less (the spec says 50 ms), and blocking time of baseline + 100 ms (the spec says prototype + 50 ms).
+- **CSS on every page.** Every page of the site, the member app included, loads the showcases' first-frame CSS (17.5 KB gzipped) and the page sheets (7.93 KB). WP7a's deletions took 2.1 KB off `marketing.css`. Net, the first-load CSS grew by 18.6 KB gzipped in the final fix pass's measurement. This holds until the marketing and app bundles are split.
+- **JavaScript on every marketing page.** The catch-all route ships about 835 KB gzipped of JavaScript (about 2.9 MB raw) to every marketing page, the workspace and member chunks included. Phase 1 added 4.5 KB of it. A separate marketing route group would cut startup work far more than anything left in the page files (phase 2 or 3).
+- **Speed budgets.** Long tasks of 80 ms or less are looser than the showcase spec (50 ms). Page blocking time is judged only against the build before phase 1 measured in the same session (baseline + 100 ms; the spec said prototype + 50 ms), and the engine's own share has a fixed 100 ms budget ([brain-showcase.md](brain-showcase.md), "Budgets").
 - **Layout shift is reported in CI, not judged,** until it passes three PR runs in a row.
 - **Search engines and automated tools see the still frames.** Lighthouse scores leave out the engine.
 - **The off switch** (`MARKETING_SHOWCASE=static`) works without a rebuild. In production, set it in `runtime.env` and re-apply ([brain-showcase.md](brain-showcase.md)).
 - **Copy derived or trimmed to fit the house limits** is listed in the PR. That includes the safety tooltip that now names the platform's rule, and the answer to "Can subscribers pay me today?" that no longer says "Today you can join".
+- **Copy that needs the owner (final fix pass):**
+  - the prepaid-packs sentences on `/pricing` and in the pricing guide are factual and computed from `prepayQuote` and `PREPAY_REFUND_DAYS`, but not approved by the owner;
+  - the answer to "Who owns my subscribers’ data, and what if I leave?" comes from the 14 October terms (§73, §95) and the closure route; legal or the owner should confirm it;
+  - "What will I pay?" lists commission, processing and the domain. The "AI Coach Service Fee" charged for AI and voice that serve subscribers (`platform-finance.md`) stays unmentioned, under the owner's no-AI-costs rule;
+  - not changed: `/features/payments-and-payouts` still says "Optional services such as voice and your own domain.", and `PRICE_FAQ` (`/faq` and others) leaves out the minimums and the packs;
+  - "Teach your AI — free" still shows while the AI model is off.
 
 ## Not done / next
 
@@ -1735,12 +1815,14 @@ The plan's §2 table lists every row.
     - `/coaches` noindex.
   - **Phase 3:** Arabic strings, measurement events and the A/B route split.
   - **Open checks:**
+    - the milestone verification on the final tree (PLAN §4.6), the full showcase check included;
     - judging CLS in CI after three PR runs in a row;
-    - judging the frame budgets on real hardware;
-    - the brand check and the showcase check again after fix round 1 (`22d1a1a`: the walkthrough dots, and the board's shift on phones).
+    - judging the frame budgets on real hardware, and the anatomy's mount, which went over budget in 2 of 7 loads at 4× CPU here ([brain-showcase.md](brain-showcase.md), "Open").
+    - Done since: the brand check and the showcase check after fix round 1 (WP7b's second round).
+  - **Open in the pages:** while the consent bar is open it covers the anatomy's Pause at 1440×900 and on phones, and at `/demo` 320 the header's `nav.mk-mobile-nav` overflowed by 8 px in 1 of 3 runs.
   - **Later:**
     - a founder note and a card-processing rate (owner defaults);
-    - splitting the marketing and app bundles, so other routes stop paying for the showcases' CSS.
+    - splitting the marketing and app bundles (a marketing route group), so other routes stop paying for the showcases' CSS and marketing pages stop loading the workspace and member JavaScript. The final review's first-paint finding (PERF-7: first paint on `/` 150–400 ms later than before phase 1 at 4× CPU) was deferred to it: `content-visibility` on the lower bands measured no gain.
 - Journey: the owner decides D10 (keep the player hidden until a coach can
   launch, the default built here, or show it earlier). brand-check has no
   launch-ready run yet (its runner seeds a platform with every provider

@@ -30,7 +30,15 @@ workspace, which shares it).
   and the open keyboard, as published by the phone-first member shell), so
   it stacks above them and never hides a primary or safety action. With
   nothing below it, it adds `env(safe-area-inset-bottom)` itself. While
-  it shows, `--consent-bar-block-size` on `<html>` carries its height.
+  it shows on subscriber pages (the member app and coach pages, the
+  "people" audience), `--consent-bar-block-size` on `<html>` carries its
+  height to the toasts that read it. Since 28 October 2026 it never sets
+  that property on the marketing site, which has no such element: a
+  property every element inherits restyled the whole document when the
+  bar opened on the first scroll, a frame of over 100 ms at 4× CPU that
+  also stepped the Brain showcases down a tier. The spacer still reserves
+  the bar's height there. A Chromium test in
+  `tests/react-dom-behaviour.test.ts` holds both audiences.
 - While the on-screen keyboard is open (`data-keyboard="open"` on
   `<html>`) the bar steps aside and returns afterwards.
 - On marketing pages it waits for the first scroll, so it never covers the

@@ -31,7 +31,7 @@ Owner feedback on round 1 (27 Oct 2026): "it doesn't actually show what the app 
 Checks:
 - The H1 is the LCP on every changed page. No console errors and no overflow.
 - Phones and the playground pages: p95 frame 16.7–16.8 ms at 4x CPU throttle.
-- **Desktop home pins: p95 33 ms at 4x throttle, so the 20 ms target is not met.** The cost is paint and commit in this sandbox, which has no GPU; showcase script stays within 4 ms per frame. Desktop smoothness must be checked on real hardware.
+- **Desktop home pins: p95 33 ms at 4x throttle, so the 20 ms target is not met.** The cost is paint and commit in this sandbox, which has no GPU; showcase script stays within 4 ms per frame. Desktop smoothness must be checked on real hardware. (Corrected 28 October 2026: this holds for the prototypes' pinned scenes. In `apps/web`, the slow playground frames measured later (66.7 ms on `/trainer-brain`, 33.3 ms on `/demo`, WP7b) were not paint but a whole-document restyle by `:root:has()` rules in the app's global CSS; fix round 2 removed them and both measured 16.7–16.8 ms. The pinned anatomy's scroll stayed paint-bound at 33.4–50 ms then; see `docs/features/brain-showcase.md`.)
 - Long tasks over 50 ms under 4x throttle remain.
 - WebKit was not available, so it was not tested.
 

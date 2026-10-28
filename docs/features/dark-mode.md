@@ -105,8 +105,18 @@ scrollbars follow). The block exists twice with identical declarations: for
 `data-color-scheme="dark"`, and inside `@media (prefers-color-scheme: dark)`
 for `"system"` (the test keeps them identical). `!important` is needed only
 to outrank the inline light values. The document behind a dark surface is
-dark too (`:root:has(...)`), so overscroll and short pages never show
-white. An explicit Light choice sets `color-scheme: light`.
+dark too, so overscroll and short pages never show white. An explicit
+Light choice sets `color-scheme: light`. (Corrected 28 October 2026: the
+document rules no longer use `:root:has(...)`, which made Chromium
+restyle the whole document whenever an element came or went. Each
+subscriber surface marks `<html>` with `data-scheme` while it shows
+(`TrainerTheme`, the `.member-neutral` screens, the offline screen;
+`components/root-marks.tsx`), and `app/appearance.css` reads
+`:root[data-scheme~="dark"]`, or `~="system"` inside the dark media
+query; the consent bar's dark rules follow the same marks. Without
+JavaScript, the server's `<noscript>` copy of those rules keeps the
+document dark. [brand.md](brand.md), "Root marks and the header's scroll
+padding".)
 
 Everything else already used tokens, so the shell and the shared controls
 follow without their own dark rules: the bottom tab bar and its badge, the

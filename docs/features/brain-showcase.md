@@ -6,42 +6,47 @@ Built in phase 1 of the marketing revamp (28 October 2026, branch `claude/reposi
 - the motion exception and the ink stage, both limited to `[data-showcase]`;
 - showcases that follow reduced motion even while the marketing motion switch is `"always"`;
 - "14 AI specialists and 11 code steps", published with "How we count";
-- the Recovery rule and the Meal planner shown as "Not on yet".
+- the Recovery rule and the Meal planner shown as "Not on yet". Since fix round 2 the Meal planner follows the nutrition flag ("Flags"); the Recovery rule stays off for all of phase 1.
 
-The spec is `docs/marketing-revamp-2026-10-26/phase1/PLAN.md` §1. This page records what shipped, including where it differs from the plan. Page structure and copy are in [marketing-site.md](marketing-site.md), and the motion rules in [marketing-motion.md](marketing-motion.md).
+The spec is `docs/marketing-revamp-2026-10-26/phase1/PLAN.md` §1. This page records what shipped, including where it differs from the plan. It was brought in line with the code on 28 October 2026, after two fix rounds, the final review and its fix pass (up to `41e3a4c`). Page structure and copy are in [marketing-site.md](marketing-site.md), and the motion rules in [marketing-motion.md](marketing-motion.md).
 
 ## What visitors see
 
 | Showcase (kind) | Where | Host id | What it shows |
 |---|---|---|---|
-| Field (`field`) | `/`, the hero, between the H1 and the lede | `sc-field` | "A sample hour of your Brain". Sample members' messages pass the checks, one specialist and more checks, and land in a lane: Sent on its own, Your Today, or Training paused. Its first frame is the stop on Noura's knee: "STOP · No AI called" and the Paused bin. Every moment is a button that opens its receipt. |
-| Board (`board`) | `/`, band 2, "Change a setting. Watch it re-sort." (`#resort`) | `sc-board` | Every sample moment, sorted by the settings. The field and the board share one settings object, so a change of level or threshold in either re-sorts both. |
-| Playground (`play`) | `/trainer-brain` "Throw a moment at your Brain" (`#play`), and `/demo` under the page head | `sc-play` | 12 sample moments as chips. Free text finds the closest sample from a local keyword table. Settings change the result and show a before/now line: level, how sure a plan must be, supplements, too heavy, and the safety lock. On `/demo` it plays the first moment once on its own (`attract`). |
-| Decision anatomy (`anatomy`) | `/trainer-brain` "Anatomy of one decision" (`#decides`) | `sc-anatomy` | One reply, Omar's squat, taken apart into nine plates: (a) the message through (i) what the member reads, plus the correction (j). It pins under the header on screens 700 px tall or more, and shows flat plates otherwise. The What-ifs replay a popped knee, a plan change and level 1. A "Skip the figure" link comes before it. |
+| Field (`field`) | `/`, the hero, between the H1 and the lede | `sc-field` | "A sample hour of your Brain". Sample members' messages pass the checks, one specialist and more checks, and land in a lane: Sent on its own, Your Today, or Training paused. Its first frame is the stop on Noura's knee: "STOP · No AI called" and the Paused bin. Every moment is a button that opens its receipt. A full lane shows the tiles that fit and rolls the rest into "+N". |
+| Board (`board`) | `/`, band 2, "Change a setting. Watch it re-sort." (`#resort`) | `sc-board` | Every sample moment, sorted by the settings. The field and the board share one settings object, so a change of level or threshold in either re-sorts both. After a change, a short line under the columns says what moved, for example "Aisha and Fatima moved to …" or "No moment crossed your bar."; the reasons go to the announcement. |
+| Playground (`play`) | `/trainer-brain` "Throw a moment at your Brain" (`#play`), and `/demo` under the page head | `sc-play` | 12 sample moments as chips. Settings change the result and show a before/now line: level, how sure a plan must be, supplements, too heavy, and the safety lock. A moment that does not run under the page's flags shows the card "Built and tested. Not on yet." and plays nothing. Free text finds the closest sample from a local keyword table (see "Free text"). On `/demo` it plays the first moment that runs once on its own (`attract`). |
+| Decision anatomy (`anatomy`) | `/trainer-brain` "Anatomy of one decision" (`#decides`) | `sc-anatomy` | One reply, Omar's squat, taken apart into nine plates: (a) the message through (i) what the member reads, plus the correction (j). It pins under the header on screens 700 px tall or more, and shows flat plates otherwise. The What-ifs replay a popped knee, a plan change and level 1. A "Skip the figure" link comes before it. While the AI model is off it shows Omar's moment as not on yet ("Moments that are not on yet"). |
 
 **Honesty labels, in every frame:**
 - the chip "Sample · scripted · no AI model called";
-- while subscriber payments are off, the strip "Subscribers can't join yet: subscriber payments are not on. You can run all of this on yourself with Try my AI.";
+- until trainers can publish to subscribers, a status strip that says why subscribers can't join (`prepare()` in `data.js`):
+  - subscriber payments off, AI model on: "Subscribers can't join yet: subscriber payments are not on. You can run most of this on yourself with Try my AI.";
+  - subscriber payments off, AI model off: "Subscribers can't join yet: subscriber payments are not on.";
+  - subscriber payments on, publishing not on (sign-ups closed or the model off): "Subscribers can't join yet: publishing is not on yet.";
 - a basis on each AI step: "From a test run", "From the app's tests", "Illustrative" or "Worked out by the app's own rules";
-- "Not on yet" on the Recovery rule and the Meal planner. The Low recovery moment is off by default and never runs.
+- the playground's banner: "Sample moments. Code steps use the app's own limits on sample data. AI steps replay answers from test runs or the app's tests, or are marked illustrative. No AI model is called on this page." The `/trainer-brain` play note and the `/demo` answer "Is this a real AI response?" carry the same sentence (the review's HON-8: three steps are tagged "From the app's tests");
+- "Not on yet" on every specialist and moment the page's flags leave off ("Flags"). The Recovery rule and Low recovery (t3) are always off in phase 1.
 
 **Kept out of search and structured data.**
 - `data-nosnippet` on every root keeps the sample lines out of search snippets.
-- Showcase text never reaches JSON-LD, `llms.txt`, `llms-full.txt` or the assistant facts.
+- Showcase text never reaches JSON-LD, `llms.txt`, `llms-full.txt` or the assistant facts. The `/demo` paragraphs about the 12 moments are drawn from the traces by the page itself; the registry's text for them names no moment.
 - The claims that pages and showcases share are pinned by tests (see "Updating the traces").
 
 ## Files
 
 **`apps/web/components/marketing/brain/engine/`.** The approved prototype's ES modules, ported as `.js` files with hand-written `.d.ts` files for their public surface. `types.d.ts` holds the shared types.
 - **Pure modules:** no DOM, no CSS and nothing at import time, so the server and the tests import them.
-  - `core.js`: data indexing, the one frame loop, scenes and pause reasons, tiers and the watchdog, reduced motion, and the overlay layer with its live region.
-  - `decide.js`: the lane a moment ends in, from the settings.
+  - `core.js`: data indexing, the one frame loop, scenes and pause reasons, tiers and the watchdog, reduced motion, the overlay layer with its live region, `inertOutside()` and `nextTask()`.
+  - `decide.js`: the lane a moment ends in, from the settings, and whether it runs here (`off`).
   - `ui.js`: shared HTML atoms (nodes, lanes, the status strip, the call to action).
   - `data.js`: `prepare`, `stripForClient` and `NON_TEXT_KEYS`.
   - The render modules: `field.render.js` (field and board), `play.render.js` and `anatomy.render.js`.
 - **Runtime modules:** browser only. Each imports its own stylesheet and its render module.
   - `field.js` (field and board), `play.js` and `anatomy.js`.
   - `receipt.js`, which `field.js` loads on demand.
+  - `play.keys.js`, the playground's keyword table, which `play.js` loads on the first free-text input (about 5.9 KB gzipped, outside the `/demo` engine budget).
 - **Lazy stylesheets:** `field.run.css`, `receipt.css`, `play.run.css` and `anatomy.run.css`.
 
 **`brain/data/`.**
@@ -62,6 +67,7 @@ The spec is `docs/marketing-revamp-2026-10-26/phase1/PLAN.md` §1. This page rec
 - `scripts/marketing-showcase-check.mjs`, with `scripts/marketing-showcase-baseline.json`.
 - The tests: `tests/marketing-brain-traces.test.ts`, `marketing-showcase.test.ts`, `marketing-field.test.ts` and `marketing-anatomy-play.test.ts`.
 - The pages that place the showcases: `components/marketing/pages/home.tsx`, `trainer-brain.tsx` and `demo.tsx`.
+- The public availability flags: `publicAvailability()` in `apps/api/src/marketing.ts`, with the web fallback in `components/marketing/platform.ts`.
 
 The sample controls on `/trainer-brain` (`brain-page-islands.tsx`: RuleLedger, ReleaseTimeline and CompareReplies) are ordinary React islands, not showcases.
 
@@ -80,29 +86,33 @@ The sample controls on `/trainer-brain` (`brain-page-islands.tsx`: RuleLedger, R
 ## Lifecycle
 
 1. **The server.**
-   - `BrainShowcase` calls `renderShowcase(kind, options, mode)`. That writes `<section class="… sc-stage" data-showcase="<kind>" data-sc="pre" data-nosnippet aria-labelledby="…">` around the render module's inner HTML. The root uses `aria-label` instead when no page H2 names it.
+   - `BrainShowcase` calls `renderShowcase(kind, options, mode)`. That writes `<section class="… sc-stage" data-showcase="<kind>" data-sc="pre" data-nosnippet …>` around the render module's inner HTML.
+   - The root is named by the page: `role="group"` with `aria-labelledby` when the band's H2 names it (so the band and the showcase are not two regions of one name), or `aria-label` when no page H2 does.
    - The HTML goes into `<div class="sc-host" id="<host id>">` through `dangerouslySetInnerHTML`. React owns the host and never looks inside it.
    - Host and island sit in one fragment keyed by the 32-bit FNV-1a hash of the HTML. A changed payload replaces both, for example a flag flipped inside the platform's 60 s cache.
    - Equal options give equal HTML, and the last 32 renders are cached.
 2. **The first frame is final.**
-   - Each kind's first frame is a finished picture: the field's stop on Noura's knee, the playground's first moment played to its end, and the anatomy's complete figure.
+   - Each kind's first frame is a finished picture: the field's stop on Noura's knee, the playground's first moment that runs played to its end, and the anatomy's complete figure.
    - Results the engine will play again carry `.sc-res`. They are hidden only under `html.sc-motion:not(.sc-late) [data-showcase][data-sc="pre"]`.
-   - Controls render `disabled` until the engine wires them. `brain-stage.css` gives disabled showcase controls their own look, because the site's disabled-button rule (`subscriber-public.css`) would otherwise draw them as white dashed boxes.
+   - Controls render `disabled` until the engine wires them, the board's cards included. `brain-stage.css` gives disabled showcase controls their own look, because the site's disabled-button rule (`subscriber-public.css`) would otherwise draw them as white dashed boxes. "How we count" is a `<details>`, so it opens without the engine.
 3. **The head script** (`head.ts`). It is inline in `<head>`, after the scroll scenes' script, and acts only on `SHOWCASE_PATHS` (`/`, `/trainer-brain` and `/demo`). Before the first paint it adds:
    - `sc-motion`, when neither reduced-motion setting is on and the visitor is not a robot (unless `?sc=on`);
    - `sc-pin`, under the same conditions, when IntersectionObserver and sticky positioning exist;
    - `sc-late`, 6 s later, if no island has set `html[data-sc-ready]`. The final frame then shows, and an engine that still mounts starts from it (`settled`).
 4. **The island** (`mount.tsx`, which renders nothing).
    - **Before paint:** it sets `html[data-sc-ready]` and repeats the head script's test, which covers client-side navigation and settings changed since load. It starts the 6 s fallback the first time the root comes within 200 px of the viewport.
-   - **After paint:** it snapshots the host's HTML. Then it waits for the load event, then idle (`requestIdleCallback` with a 1.5 s timeout, or 300 ms without it), then for the root to come within 200 px. Only then does it run `import()` and `mount(root, {…options, kind, id, settled, navigate})`.
-5. **The engine.** On its first frame it sets `data-sc="on"` and `data-sc-tier`. `data-sc-run` sits on the root exactly while a frame is scheduled for it.
+   - **After paint:** it snapshots the host's HTML. Then it waits for the load event, then idle (`requestIdleCallback` with a 1.5 s timeout, or 300 ms without it), then for the root to come within 200 px. Only then does it mark `performance.mark("sc-mount:<host id>")`, run `import()` and call `mount(root, {…options, kind, id, settled, navigate})`.
+   - **Keyboard users get it sooner.** The page's first Tab mounts every showcase (each island hears it), and focus inside a host mounts that one at once, so a Tab never meets a control still disabled while it waits for its engine (the final review's A11Y-2).
+5. **The engine.**
+   - The field and the anatomy start their mount in a task of their own (`C.nextTask()`: `scheduler.yield()` where there is one), so the chunk's evaluation and the mount are never one long task at 4× CPU.
+   - On its first frame it sets `data-sc="on"` and `data-sc-tier`. `data-sc-run` sits on the root exactly while a frame is scheduled for it.
 6. **"Off" is final.**
    - The island restores the server frame and sets `data-sc="off"` in three cases: the engine has not set `"on"` 6 s after the root first came near, the chunk fails to load, or the engine fails to mount.
    - An engine that finishes mounting later is destroyed, never shown.
    - The anatomy also stops pinning (`data-sc-flat`), but only once it is entirely below the viewport, so nothing the visitor sees moves. Until then its pinned frame shows the complete figure.
 7. **Changes and teardown.**
-   - A change to either reduced-motion setting destroys the engine and mounts it again from the server frame.
-   - Unmounting (navigation, or Strict Mode's second mount) cancels everything pending and calls `destroy()`. That removes the overlay nodes it added and `html.sc-lock`. The island then puts the snapshot back.
+   - A change to either reduced-motion setting destroys the engine and mounts it again from the server frame. Focus that was inside goes back to the same control once it is armed again, or to the root (A11Y-12).
+   - Unmounting (navigation, or Strict Mode's second mount) cancels everything pending and calls `destroy()`. That removes the overlay nodes it added, `html.sc-lock` and any inert marks. The island then puts the snapshot back.
    - The tier is kept for the document.
 8. **Calls to action and run requests.**
    - Engine links carry `a[data-sc-cta]`. The island sends a plain left click through `router.push`, so the page does not reload.
@@ -113,17 +123,18 @@ The sample controls on `/trainer-brain` (`brain-page-islands.tsx`: RuleLedger, R
 - **One loop.** One `requestAnimationFrame` loop serves every showcase on the page.
   - The field and the playground draw their moving parts on one canvas each (`aria-hidden`). The anatomy has no canvas.
   - No CSS or SVG animation inside a showcase runs forever.
+  - **Naps.** When no subscriber is due within the next two frames (loops under about 24 fps: the 12 fps breathing, the 10 fps reduced-motion field), the loop sleeps on a timer until the next one is due. `data-sc-run` stays on during a nap, and any kick ends it. 30 and 60 fps loops wake every frame, because the watchdog judges those gaps.
 - **No frames while paused.** A showcase draws nothing while any pause reason holds:
   - off screen (the strip under the sticky header counts as off screen);
   - a hidden tab;
   - idle: 90 s without input, or 60 s on phones;
   - the visitor's Pause;
   - an open receipt;
-  - a Kamran call: `html[data-mk-call]`, which `assistant-button.tsx` sets while the call panel is open;
+  - keyboard focus on a moment in the field: it shows "Paused while you read", as an open receipt does, so no tile moves, rolls into "+N" or is replaced under the focus (A11Y-3);
+  - a Kamran call: `html[data-mk-call]`, which `assistant-button.tsx` sets while the call panel is open ([kamran-assistant.md](kamran-assistant.md));
   - reduced motion.
-
-  Input resumes only an idle pause, never the visitor's own.
-- **Pause controls.** Every Pause control is `[data-sc-pause]` with a correct `aria-pressed`. Motion that lasts longer than 5 s can always be paused (WCAG 2.2.2).
+- **Idle.** It counts from the later of the last input and the moment the showcase last started running. Time in another tab, off screen or in the back/forward cache is not idle time (`pageshow` with `persisted` resets the clock). Input ends any idle pause, for every showcase, but never the visitor's own Pause.
+- **Pause controls.** Every Pause control is `[data-sc-pause]` and carries no `aria-pressed`: its label says what a press does ("Pause", "Play", or "Play the field" for the reduced-motion field), so a screen reader hears "Pause, button" or "Play, button". Motion that lasts longer than 5 s can always be paused (WCAG 2.2.2). The anatomy keeps the visitor's Pause through a change of mode (a phone turned, a window resized; ENG-4).
 - **Tiers.**
 
   | Tier | Pixel ratio, at most | Frame rate | Detail |
@@ -132,9 +143,13 @@ The sample controls on `/trainer-brain` (`brain-page-islands.tsx`: RuleLedger, R
   | `lite` | 1.5 | 30 fps | Fewer ghosts, no halos |
   | `minimal` | 1 | 30 fps | No ghosts |
 
-  - Starting tier: `lite` on a device with 4 cores or fewer, 3 GB of memory or less, or Save-Data. Safari and every iPhone or iPad browser start at `full`, because WebKit reports neither memory nor a reliable core count; the watchdog decides there.
-  - The watchdog steps down one tier when frames average over 20 ms for 2 s, or when 1 frame in 20 takes over 25 ms over 2 s. It ignores the first second after `load` and the first 500 ms after the loop starts.
-  - It never steps up. The tier holds for the document, client-side navigation included.
+  - **Starting tier:** `lite` on a device with 4 cores or fewer, 3 GB of memory or less, or Save-Data. Safari and every iPhone or iPad browser start at `full`, because WebKit reports neither memory nor a reliable core count; the watchdog decides there.
+  - **The watchdog** judges frame gaps under 250 ms in windows of 2 s, against the frame its tier asks for: 16.7 ms at `full`, 33.3 ms at 30 fps.
+    - It steps down one tier when a window's median gap is over 1.2 frames (20 ms at `full`, 40 ms at 30 fps), or when two windows in a row stutter: 1 frame in 20 (of 30 or more) over 1.5 frames (25 ms, 50 ms). One isolated long frame cannot step it down.
+    - A browser that caps frames at 30 Hz (iOS Low Power Mode, Chrome's Energy Saver) gives steady 33.3 ms gaps. That is what `lite` asks for, so it takes `full` to `lite` and holds there, never `minimal` (ENG-2).
+    - It steps back up after two good windows in a row (fewer than 1 frame in 40 over 1.5 of the tier above's frames). It never goes above the starting tier, and only into a tier left once: a tier left twice holds for the document. A step up wakes subscribers that slept for the lower tier.
+    - It does not judge frames until 1 s after the load event, in the 500 ms after the loop starts or the tier changes, right after a nap, or in the 300 ms after a scroll starts, a resize, or any change to `<html>`'s attributes (a restyle of the whole document, such as the consent bar).
+    - The tier holds across client-side navigation.
 - **The check's switches.** `?tier=full|lite|minimal` and `?slow=<ms>` (which burns that long on every frame to force the watchdog) work only in automated browsers (`navigator.webdriver`).
 
 ## Reduced motion
@@ -143,13 +158,14 @@ Showcases follow the device's `prefers-reduced-motion` and the member's own `<ht
 
 With either setting:
 - there is no `sc-motion` or `sc-pin`: the first frame is final, and the anatomy shows flat plates;
-- the field starts paused on its still frame, with "Play the field" pressed (`aria-pressed="true"`). If the visitor presses it, the field steps to a new moment every 2.5 s instead of playing the hour, with no ghosts and no streamed text;
+- the field starts paused on its still frame, on "Play the field". If the visitor presses it, the field steps to a new moment every 2.5 s instead of playing the hour, with no ghosts and no streamed text;
 - the playground resolves each run at once and never plays on its own;
+- nothing is replayed by script either: the field's count and lane replays (Web Animations, which the CSS switch does not reach) are skipped (ENG-13);
 - `app/brain-stage.css` stops every animation and transition under `[data-showcase]`.
 
 ## Robots, automated browsers and `?sc=on`
 
-- **Robots never get the engine.** A robot is `navigator.webdriver`, or a user agent that matches `bot|crawl|spider|slurp|preview|lighthouse`. `head.ts` and `mount.tsx` use the same test, and a test keeps the two equal.
+- **Robots never get the engine.** A robot is `navigator.webdriver`, or a user agent that matches `/bot[/)-]|bot [0-9]|crawl|spider|slurp|preview|lighthouse/i`: "bot" must be a product token such as "Googlebot/2.1" or "Slackbot 1.0", never the "bot" inside a phone's model name that in-app browsers send (a CUBOT phone's Instagram or Facebook WebView). `head.ts` and `mount.tsx` use the same pattern, and a test keeps the two equal and runs 17 user agents through both. The scroll scenes' `scenes-head.ts` and `scene-mount.tsx` use it too ([scroll-scenes.md](scroll-scenes.md)).
 - **What robots see.** They read the first frame, which is final: `data-sc="pre"` hides nothing without `html.sc-motion`.
 - **What that means for checks.**
   - The existing browser, completion and Kamran call checks see the still frames.
@@ -182,10 +198,17 @@ With either setting:
 ## The overlay layer
 
 - **What lives there.** Receipts opened as a dialog or a phone sheet, their backdrop, the field's phone settings sheet and the one polite live region mount in `<div class="sc-layer" data-showcase="layer">`. On desktop the field opens its receipts inside its own zoom instead.
+- **When it comes.** The field, the board and the anatomy create it when they first need it: a receipt, the phone sheet or an announcement. So they insert no node at mount. The playground creates it when it mounts.
 - **Where it goes.** It is the last child of the marketing root (`.mk`), so the `--mk-*` tokens reach it. It is not on `<body>`.
 - **Stacking.** It is fixed at z-index 70, above the consent bar (45) and Kamran's button (60).
 - **Lifetime.** It is reference-counted and removed with the last showcase.
-- **Scroll lock.** While a receipt is open as a dialog or a sheet, `html.sc-lock` stops page scrolling. Closing it, or `destroy()`, removes the lock, so leaving a page with a receipt open cannot lock the next page.
+- **Modal receipts and the phone sheet.** While a receipt is open as a dialog or a sheet, or the field's settings sheet is open on a phone (`role="dialog"`, `aria-modal="true"` while it sits in the layer; back to `role="group"` in the controls row on desktop):
+  - everything outside the layer is inert (`C.inertOutside()`, which undoes only what it set), and `html.sc-lock` stops page scrolling, with `scrollbar-gutter: stable` so nothing shifts when the scrollbar goes;
+  - Esc and Tab are heard on the document in the capture phase, so Esc closes it wherever focus is (a tap on its text moves focus to the body) and Tab wraps inside;
+  - closing it lifts the inert marks before focus returns to the opener. Closing, or `destroy()`, removes the lock, so leaving a page with a receipt open cannot lock the next page.
+- **The inline receipt** (the field's zoom on desktop) makes the field's covered parts inert. The field's header and its Pause stay reachable. The box takes focus from a click on its text (`tabindex="-1"`), so its keys stay its own.
+- **Turning a phone.** A receipt open in the zoom when the layout turns into the phone's (a phone turned upright, a window narrowed) reopens as the phone's sheet from its lane's bin, so the hero is never left zoomed and inert (ENG-1).
+- **The phone settings sheet** is never taller than the viewport and scrolls within, so at 400% zoom (320×256) its title and Done stay in reach (A11Y-6).
 - **Announcements.** The live region speaks only for changes the visitor caused.
 
 ## Flags
@@ -196,15 +219,90 @@ With either setting:
 |---|---|---|
 | `appName` | the platform name | Replaces `{APP_NAME}` in the traces, for example "Platform safety rules · trainsyou. Can't switch off." |
 | `cta` | `teachCta(registrationOpen)` | "Teach your AI — free" → `/signup`, or "Join early access — free" → `/get-started#early-access` while sign-ups are closed. The field and the board carry it in their frame, so the key changes with it. |
-| `flags.payments` | `availability.payments` | While it is off: the status strip shows, and "Try it on yourself" stays. Once it is on: the strip goes, and those items become live, each only if its own `needs` flag is also on. |
-| `flags.voice`, `flags.nutrition` | availability | With payments on, an item that `needs` one of them stays "Try it on yourself" until that flag is on too. The meal photo reader and the meal-photo moment (t4) need `nutrition`. The voice lines, the set logger and the voice-session moment (t5) need `voice`. |
-| `flags.payouts` | `availability.payouts` | Passed with the others. No showcase status uses it yet. |
+| `flags.publish` | `gatesState(platform, PUBLISH_GATES) === true`: sign-ups, subscriber payments and the AI model all on, as the status panel reads them | Until it is on, items stay "Try it on yourself" and the status strip shows. Once it is on, the strip goes and "Try it on yourself" becomes live, unless the item's own flag (below) leaves it not on yet. |
+| `flags.payments` | `availability.payments` | Picks the strip's wording while publishing is off: it names subscriber payments while they are off, publishing once they are on. |
+| `flags.model` | `availability.model` | While the AI model is off, every AI specialist (and every code step that uses AI, such as the Examiner) is not on yet, and so is every moment one of them plays. Safety rules and the other code steps stay as they are. The strip leaves out "Try my AI". |
+| `flags.nutrition`, `flags.mealPhotos`, `flags.voice` | `availability` | An item that `needs` a flag is not on yet while that flag is off, whatever the others say. The Meal planner needs `nutrition`. The meal photo reader and the meal-photo moment (t4) need `mealPhotos`. The voice lines, the set logger and the voice-session moment (t5) need `voice`. |
+| `flags.payouts` | `availability.payouts` | Passed with the others. No showcase status uses it. |
 | `flags.recovery` | fixed `false` in phase 1 | Low recovery (t3) and the Recovery rule stay "Not on yet", whatever the platform says. |
-
-The Meal planner's "Not on yet" is fixed in the data, not driven by a flag. Its `flag` field names the settings it waits for: `NUTRITION_ENABLED && NUTRITION_SCOPE_APPROVED`. The Recovery rule and Low recovery name `WHOOP_TRAINING_APPROVED`.
 | `heading`, `labelledBy`, `attract` | the page | `heading: false` leaves the H2 to the page, and `labelledBy` names it. `attract` makes the `/demo` playground play once on its own. |
 
-**How the data is prepared.** `prepare(raw, {appName, flags})` deep-clones its input before filling it, so one render's name and flags never leak into the next. `tests/marketing-brain-traces.test.ts` checks this with trainsyou → Acme → trainsyou, and with payments off → on → off.
+**Where the flags come from.** `publicAvailability()` (`apps/api/src/marketing.ts`):
+- `nutrition` is the model plus `NUTRITION_ENABLED`, and in production also `NUTRITION_SCOPE_APPROVED`, as activation needs;
+- `mealPhotos` is `nutrition` plus `MEAL_PHOTOS_ENABLED` and `MODEL_VISION_ENABLED`, the product's own meal-photo switches (`meal-capture.ts`); `tests/marketing-api.test.ts` holds the rule;
+- the web fallback (`components/marketing/platform.ts`) has every flag off;
+- a fixture without `model` counts as on, one without `mealPhotos` as off, and one without `publish` as payments and the model; `showcaseOptions()` always passes all three.
+
+The `flag` field names what each off item waits for: `WHOOP_TRAINING_APPROVED` for the Recovery rule and Low recovery, `NUTRITION_ENABLED && NUTRITION_SCOPE_APPROVED` for the Meal planner.
+
+**How the data is prepared.** `prepare(raw, {appName, flags})` deep-clones its input before filling it, so one render's name and flags never leak into the next. `tests/marketing-brain-traces.test.ts` checks this with trainsyou → Acme → trainsyou, and with payments off → on → off. Another of its tests walks every status and the strip through the flags: payments, publishing, voice, nutrition, meal photos and the AI model.
+
+## Moments that are not on yet
+
+**The rule.** A moment does not run here (`decide()`'s `off`) when it is Low recovery while its flag is off, or when one of its steps, under the current settings, runs a specialist the page's flags leave not on yet. With the AI model off that is every moment but four: the three safety stops (the knee, the pregnancy and the chest pain in Arabic) and the creatine question.
+
+**The playground and the anatomy show it built and tested, never played** (the lead's decision L9):
+- **Playground chips** carry "Not on yet". A press shows the card "Built and tested. Not on yet." with "Specialist not on yet: <name>." or "Specialists not on yet: <names>.", lights those specialists, plays nothing and announces "<moment>: Built and tested. Not on yet.". Low recovery keeps its own card: its tested lane, dashed, with the tests' details.
+- **A setting change** that sends the moment to a specialist that is not on yet shows the same card and announces the same line. For example, with the model off, turning supplements off hands the creatine question to the Draft writer, not on yet.
+- **"Throw them all"** draws such moments with a "Not on yet" chip and no specialist, and the totals line ends " · N not on yet".
+- **The first frame and the `/demo` attract run** play the first moment that runs: Omar's, or else the first chip that runs in the specialty's order (the knee stop while the model is off).
+- **The anatomy**, with Omar's moment off (the AI model off):
+  - the screen-reader summary reads "A sample figure, taken apart in layers. Omar's message passes four code checks. The AI specialist code would pick for it is not on yet, so nothing is sent. The notes list every layer.";
+  - plates (f) to (i) read "Not on yet" or "Not reached", and plate (i) "Nothing is sent while it is not on yet.";
+  - the card reads "Omar · Squats felt easy", with a dashed "Not on yet" in place of the lane;
+  - notes (f) to (j) say what happens "once it is on", and (f)'s count reads "None is on yet.";
+  - a What-if whose moment does not run adds " · Not on yet" to its button.
+- **The anatomy's ghost stacks** run only moments that are on, and no pill that is not on yet gets a member tag.
+
+**The field and the board keep their sample hour.** Every moment still plays its sample there, but its receipt says so: a "Not on yet" chip in the header beside the lane its sample plays to, and the status line in its last section (L4).
+- The field's "Not on yet" shelf lists only what is not on yet of the Meal planner and the Recovery rule (L2).
+- Once nutrition is on, the Meal planner joins row 3 beside the Set logger on desktop. Phones leave it out, because the row has no room.
+- An off specialist carries a small "Not on yet" chip on its lower edge, so its name keeps the node's width (L3).
+
+**The roster** shows "See it work" only for a moment that runs: with the model off, Memory has no link (ENG-6).
+
+**`/demo`'s "The 12 sample moments"** are built from the same prepared traces and `decide()` (`momentLines()` in `pages/demo.tsx`), so they follow the flags too.
+
+## Free text
+
+- The playground matches typed text against a local keyword table (`play.keys.js`) only: English and Arabic folding, red-flag rows first (pregnancy; urgent symptoms, blood pressure, sugar, self-harm and eating disorders; pain and injury), then specific words.
+- When no sample is close, it says "No sample is close to that. This page can't read new messages: pick a sample moment.", plays nothing and announces only that line. There is no fallback to a sample.
+- On the product's own safety corpus, the table misses none of the 252 messages `redFlagCategories()` flags, and it over-flags 84 of 733 others, so it is at least as cautious. A unit test runs the same corpus.
+- In-browser safety rules stay off (the owner's default).
+
+## Accessibility
+
+**Keyboard.**
+- Field: every member is a tab stop, and Up and Down also move between them. Each lane's tiles keep one roving stop.
+- Level controls are radios moved with the arrow keys. In right to left, the arrow points the way the choice moves (ENG-15).
+- The phone bins' list closes when focus moves on, on Esc and on an outside tap. A receipt opened from it keeps it open, and focus returns to the tile.
+- The anatomy: Tab runs through notes (a) to (j), then the What-ifs (shown while they hold focus), then Pause. On narrow pinned phones, focus on a note the step hides moves to the step's note, or to the figure (A11Y-8).
+- The playground: Back focuses "Throw them all", and a mini focuses its chip. Phone chips keep their whole focus ring.
+- The sticky header hides no focused control: the public root's `scroll-padding-block-start` is the header's height plus 8 px ([brand.md](brand.md)).
+
+**Names and announcements.**
+- One polite live region per document, used only for changes the visitor caused. The `/demo` attract run announces nothing.
+- No `<output>`, `role="status"` or second live region inside a showcase. Slider readouts are `aria-hidden` text, and each slider carries `aria-valuetext`.
+- The field's lanes and the board's columns are not landmarks: each list is named by its heading (A11Y-20). Each phone bin's name starts with its lane's name, for example "Training paused …, open the list" (A11Y-9).
+- The board's level note is read out. Its hidden sizers are not.
+- Headings: on `/demo`, "What each step said" is an H2 under the page's H1; on `/trainer-brain` it is an H3 under the band's H2. With its own heading the anatomy's H2 is `#<host id>-title`, apart from its notes `#<host id>-a` to `-j`.
+
+**Targets.** Phone controls have hit areas at least 44 px tall, from `min-block-size` or a transparent `::before` or `::after` box. Two deviations from PLAN §4.4 remain, both above WCAG 2.5.8's 24 px:
+- the field's level radios are 28 px wide on phones, because there is no room inside Kamran's gutter at 360 px;
+- the anatomy's notes on pinned phones are 22 px tall, because 44 px would break the pinned layout.
+
+Desktop controls are unchanged at 20–38 px.
+
+**Forced colours.** The field and board radios and switch, the playground's chips and segmented choices, and the What-ifs mark their chosen state with system colours (`Highlight` and `HighlightText`).
+
+**Reflow, zoom and spacing.**
+- Nothing overflows sideways at 320 px.
+- At 400% zoom the phone settings sheet scrolls within ("The overlay layer").
+- Under WCAG text-spacing overrides, the field's lanes show what fits plus "+N". Without JavaScript the still frame's lanes are still cut.
+
+**Right to left (`?lang=ar`).**
+- The field's drawn layer (canvas and rails) mirrors, and the anatomy's leader lines start from the side that faces the notes.
+- English sample text takes its direction from its first letter (`unicode-bidi: plaintext`, in `brain-stage.css`), so "Up in weight?" keeps its question mark at the end. Arabic samples carry their own `dir`.
 
 ## Styles and the ink stage
 
@@ -216,15 +314,16 @@ The Meal planner's "Not on yet" is fixed in the data, not driven by a flag. Its 
   - controls and lane colours 3:1 or more;
   - ink text on every lane colour 4.5:1 or more.
 
-  The same test fails on any dark background outside `[data-showcase]`.
+  The same test fails on any dark background outside `[data-showcase]`. Skipped nodes and steps keep their text at the muted colour and dim only their icons (7.82:1 at the least, measured in fix round 2).
 - **Tokens.** `--sc-*` tokens are defined once, in `brain-stage.css`. `--sc-ease`, `--sc-enter` and `--sc-spring` point at the matching `--mk-*` tokens, and no showcase sheet defines a `--mk-*` token. `--sc-mono` is the system monospace stack, so there are no new font files.
 - **Scoping.** Every rule sits under `[data-showcase]` (the overlay layer included) or an `html.sc-*` state. Page sheets use their own prefixes: `.mk-hm-`, `.mk-tb-`, `.mk-dm-`, `.mk-pr-` and `.mk-pf-`. There is no CSS nesting, and the properties are logical throughout.
 - **What moves.** Only `opacity`, transforms and `stroke-dashoffset` animate, and nothing is `infinite`.
 - **The pin gate.**
-  - The anatomy pins only under `html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat])`, inside `@media (min-height: 700px)`.
+  - The anatomy pins only under `html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat])`, inside `@media (min-height: 700px)`. All of `anatomy.run.css` sits inside that media query, so no pinned-only rule reaches the flat figure.
   - Its height is set before the first paint from `--sc-pin-len`: 420svh, or 230svh at 760 px wide or less.
   - The base CSS is the flat figure.
-- **`--sc-top`.** It is the sticky header's height: 74 px, 69 px at 1150 px wide or less, 65 px at 760 px or less. These are the scroll scenes' `--scene-top` values, and a test keeps the two equal while `scroll-scenes.css` exists.
+- **`--sc-top`.** It is the sticky header's height: 74 px, 69 px at 1150 px wide or less, 65 px at 760 px or less. These are the scroll scenes' `--scene-top` values, and a test keeps the two equal while `scroll-scenes.css` exists. The public root's scroll padding is these heights plus 8 px.
+- **No root `:has()`.** Since fix round 2, no stylesheet hangs `:has()` on `:root`, `html` or `body` (`tests/root-marks.test.ts`). Such rules made Chromium restyle the whole document whenever a showcase added or removed an element; at 4× CPU that, not paint, was what slowed the playground (WP7b's 66.7 ms) and the field after a scroll. Surfaces now mark `<html>` instead (`components/root-marks.tsx`; [brand.md](brand.md), [dark-mode.md](dark-mode.md)).
 - **Lazy sheets.** They style only classes and states that JavaScript adds. A unit test checks every selector against what the first frames emit, and browser check 1 injects them into a JavaScript-off page and requires that no box moves.
 - **The section reveal.** It never touches a showcase: `motion.tsx`'s `NEVER` holds `[data-showcase], .mk-sc-band, .sc-host`. The band that wraps a showcase carries `.mk-sc-band`.
 - **Kamran's button.** It stays where it was: a floating button, on `/` only.
@@ -233,82 +332,84 @@ The Meal planner's "Not on yet" is fixed in the data, not driven by a flag. Its 
 
 ## Budgets
 
-**Judged in CI by unit tests** (`tests/marketing-showcase.test.ts`, gzipped after removing comments and whitespace). Measured on 28 October 2026:
+**Judged in CI by unit tests** (`tests/marketing-showcase.test.ts`, gzipped after removing comments and whitespace). Measured by the docs pass on 28 October 2026 with the test's own arithmetic, on `41e3a4c`:
 
 | Budget | Limit | Measured |
 |---|---|---|
-| First-frame showcase CSS (`brain-stage`, `-field`, `-play`, `-anatomy`) | 18 KB | 17.0 KB (17,361 B), about 1 KB left |
-| Page sheets (`marketing-proof`, `-home`, `-brain-pages`, `-pricing`) | 8 KB | 7.94 KB (8,132 B), about 60 B left |
-| Lazy sheets, per page | 8 KB | `/` 4.3 KB (field and receipt), `/trainer-brain` 3.6 KB, `/demo` 1.6 KB |
+| First-frame showcase CSS (`brain-stage`, `-field`, `-play`, `-anatomy`) | 18 KB (18,432 B) | 17.5 KB (17,911 B: 3,547 + 6,000 + 2,834 + 5,530), 521 B left |
+| Page sheets (`marketing-proof`, `-home`, `-brain-pages`, `-pricing`) | 8 KB (8,192 B) | 7.93 KB (8,118 B), 74 B left |
+| Lazy sheets, per page | 8 KB | `/` 4.4 KB (field and receipt), `/trainer-brain` 3.7 KB, `/demo` 1.6 KB |
 
-**Reported by `npm run test:marketing-showcase`, and judged only with `SHOWCASE_JUDGE_METRICS=1`.** That switch is meant for real hardware, because CI and this sandbox have no GPU. The measurements are from WP7b's run on `0dfc1dd` (28 October): one run, 390×844 at a pixel ratio of 3, 4× CPU throttling, `?tier=full`.
+**Reported by `npm run test:marketing-showcase`, and judged only with `SHOWCASE_JUDGE_METRICS=1`.** That switch is meant for real hardware: CI and this sandbox have no GPU, and with software compositing (SwiftShader here) the check reports frame gaps without judging them. The figures below are from the final fix pass's two metrics runs on 28 October (E, on a worktree build made at 17:21 UTC from the tree of the time): one load per page at about 17:26 UTC, and a run at 17:32 UTC of seven loads of `/` and `/trainer-brain` (medians, apart from mounts and frames, which come from the first load). Both runs: 390×844 at a pixel ratio of 3, 4× CPU throttling, `?tier=full`.
 
-| Metric | Budget | Measured |
+| Metric | Budget | Measured (one load; seven loads) |
 |---|---|---|
-| Field frame gap, p95 | 20 ms | 16.8 ms |
-| Field engine work per frame, p95 | 4 ms | 1.8 ms |
-| `load` to the STOP stamp | 2.5 s | 1,480 ms |
-| Blocking time against the baseline (`4f35e5c`) | baseline + 100 ms. **Looser than SHOWCASE_DESIGN §1.6** (prototype + 50 ms) | `/` 345 (326), `/trainer-brain` 140 (107), `/demo` 112 (291), `/pricing` 293 (281) ms |
-| Long tasks from mounting | at most 2, each 80 ms or less. **Looser than §1.6** (no task over 50 ms) | field: one, 78 ms. Anatomy: 291 and 79 ms, over budget (see "Open") |
-| Chip and slider input latency | 200 ms | 72 ms (`/demo`), 80 ms (`/pricing`) |
-| Engine chunks | `/` 45 KB plus the receipt 7 KB on demand; `/trainer-brain` 50 KB; `/demo` 37 KB | 41.3 + 4.4 KB, 46.1 KB, 34 KB |
-| Shared JavaScript growth | 10 KB | +7.1 KB. A later run that included WP7a's deletions measured +3.1 KB |
-| Global CSS added | 26 KB gross | +19.9 KB net, before WP7a removed 2,097 B (gzipped) from `marketing.css`. The later run measured +17.9 KB net |
-| Showcase HTML on `/trainer-brain` | 25 KB | 18.9 KB |
+| Field frame gap, p95, after a scroll down 200 px and back | 20 ms | 16.8 ms (tier `full`); 16.8 ms (tier `lite` by the end) |
+| The same, with the field partly under the sticky header | 20 ms | 16.8 ms; 16.7 ms |
+| Anatomy frame gap, p95: idle, and while scrolling through the pin | 20 ms | 16.7 and 16.8 ms; 16.8 and 16.8 ms (tier `full`) |
+| Playground frame gap, p95 (one knee run, start to end) | 20 ms | `/trainer-brain` 16.8 ms, `/demo` 16.8 ms |
+| Engine work per frame, p95 | 4 ms | 0.6–2.8 ms everywhere |
+| `load` to the STOP stamp | 2.5 s | 1,531 ms; 1,477 ms |
+| The engine's own blocking time, from the response's end to 5 s after `load` | 100 ms | `/` 0, `/trainer-brain` 0, `/demo` 2 ms |
+| Page blocking time (TBT), same window | the build before phase 1, served in the same session (`SHOWCASE_BASELINE_URL`), + 100 ms | Not judged: no baseline build was served. Reported: `/` 314 ms (median 339), `/trainer-brain` 149 (177), `/demo` 199, `/pricing` 296 |
+| Long tasks from mounting | at most 2, each 80 ms or less. **Looser than SHOWCASE_DESIGN §1.6** (no task over 50 ms) | Field [51, 60], board none, anatomy [50], both playgrounds none. Over the seven loads the field stayed within budget, and the anatomy went over in 2: [86, 117] and [91, 92] (see "Open") |
+| Chip and slider input latency | 200 ms | 72 ms (`/demo`, the knee chip), 56 ms (`/pricing`) |
+| Engine chunks | `/` 45 KB plus the receipt 7 KB on demand; `/trainer-brain` 50 KB; `/demo` 37 KB | 43.7 + 4.5 KB, 48.1 KB, 34.9 KB |
+| Shared JavaScript growth | 10 KB | +4.5 KB (835.1 KB against 830.6) |
+| Global CSS added | 26 KB gross | +18.6 KB net (104.6 KB against 86.1) |
+| Showcase HTML on `/trainer-brain` | 25 KB | 16.7 KB (HTML 8.1 + RSC 8.6) |
+| Largest paint (reported) | — | `/` 748 ms, `/trainer-brain` 608, `/demo` 492, `/pricing` 524 |
 
-The later run is fix round 1's, on 28 October: `d5d32b9` plus the board fix. It passed the whole check too.
+**How blocking time is measured since the final fix pass.** It runs from the response's end, not from the first paint, which the framework's own script task falls on either side of. The engine's share (long tasks in frames that ran its chunks or the island's) is judged against a fixed 100 ms. The page's total is judged only against the build before phase 1 measured in the same session, interleaved run by run. The number stored in `scripts/marketing-showcase-baseline.json` (`/` 326 ms) came from another machine and the first paint, so it is shown for reference only: measured the same way, the baseline build sat over it too (the final review's PERF-4).
 
-**These are single runs in a shared container without a GPU, and they vary between runs.** For example, the anatomy's mount measured long tasks of 291 and 79 ms in WP7b's run and one task of 71 ms in the later run. Its scroll p95 measured 66.6 ms in WP7b's run and 16.8 ms in the later one. That is why the metrics are reported, not judged. Every CI run uploads `test-results/marketing-showcase.json` in the `homepage-call-evidence` artifact.
+**Mount windows.** A long task counts as a mount task only between the island's `sc-mount:<id>` mark (or the root coming near) and `"on"` + 1 s, and only in a frame that ran the engine's or the island's script, or only rendered. The consent bar opens on the first scroll and is reported on its own ("consent", none on the four pages in these runs).
 
-The two budgets looser than the showcase spec are deliberate. They are in the owner's FYI list, and tightening them is later work.
+**These are runs in a shared container without a GPU, and they vary.** The anatomy's mount, for example, measured 291 and 79 ms in WP7b's first run, [158, 52, 67], [223, 61, 58] and [114, 50, 50] in fix round 2, [57, 62] in P's final-pass run and [50] in E's. Part of fix round 2's figures was the consent bar's restyle of the whole document, which no longer happens on marketing pages ([analytics-consent.md](analytics-consent.md)). Every CI run uploads `test-results/marketing-showcase.json` in the `homepage-call-evidence` artifact.
+
+The long-task budget looser than the showcase spec is deliberate. It is in the owner's FYI list, and tightening it is later work.
 
 **Layout shift (CLS).**
 - The budget is 0.001 or less.
 - CI reports it but does not judge it yet. It becomes judged once it has passed in three PR runs in a row: then set `SHOWCASE_JUDGE_CLS: "1"` on the CI step.
-- Measured on `0dfc1dd`:
-  - `/` at 1440: 0.00016;
-  - the `/demo` click, the `/trainer-brain` scroll and the `/pricing` sliders: 0;
-  - `/` at 390: 0.153. The board's columns moved 92 px when it mounted on screen after the field had played about 10 s.
-- Fix round 1 changed the board (`22d1a1a`): it keeps its room and re-sorts by FLIP, so it shifts nothing when it mounts. Its run then measured:
-  - `/` at 390: 0.00040;
-  - `/` at 1440: 0.00007;
-  - the other three: 0.
+- Measured in the final fix pass (E's run of 17:11 UTC on 28 October):
+  - `/` at 390: 0.00039, and at 1440: 0.00007, both from the streamed text's cursor (`span.sc-caret`);
+  - the `/demo` click, the `/trainer-brain` anatomy scroll and the `/pricing` sliders: 0.
+- History: `/` at 390 measured 0.153 on `0dfc1dd`, when the board's columns moved 92 px as it mounted. Fix round 1 (`22d1a1a`) made the board keep its room and re-sort by FLIP. The final pass also reserves the room of the board's longest "what moved" line, so a setting change no longer grows or shrinks the board (ENG-5): check 16 measured its height at 1,638.5 px (390) and 703.7 px (1440) through five changes.
 
-  The rest comes from the streamed text's cursor.
-
-**What waits for real hardware: the desktop pin and scroll paint cost.**
-- WP3a measured the anatomy's scroll at 4× CPU throttling in this GPU-less sandbox (1440×900 and 390×844): p95 frame gap 33.3 ms, against the 20 ms budget. The prototype measures the same, 33.4 ms.
-- The cost is compositing and painting, not script. Removing the plates, or the ghosts and the overlay, brings it to 16.8 ms. Unthrottled, every gap is 16.7–16.8 ms, and engine work stays at 1.5–2.3 ms a frame.
-- WP7b's metrics pass found more in the same sandbox:
-
-  | What | p95 frame gap | Tier reached |
-  |---|---|---|
-  | The anatomy while scrolling | 66.6 ms | `minimal` |
-  | The `/trainer-brain` playground | 66.7 ms | `minimal` |
-  | The `/demo` playground | 33.3 ms | `lite` |
-
-- The tiers and the watchdog limit the damage on slow devices.
-- Judge this on real hardware. The owner can also simply open `/` and `/trainer-brain` on their own phone and laptop.
+**What waits for real hardware.**
+- **The frame budgets.** They are judged only on GPU hardware. E's final runs measured every showcase within 20 ms, but earlier runs in the same container did not:
+  - the pinned anatomy's scroll measured a p95 of 33.3–50 ms through fix round 2 (WP3a, fix round 2's B and D), the same before and after the root-`:has()` fix. Its frames are bound by raster and compositing; script stays at about 2–4 ms. The prototype measured the same 33.4 ms. Why E's runs measured 16.8 ms is not established;
+  - the field after a scroll and back measured 33.3 ms in 1 of 3 runs in fix round 2: the per-frame commit of its pixel-ratio-2 canvas, a CPU copy without a GPU (the final review's PERF-5).
+- **Corrected 28 October.** The WP7b table this page used to show (the `/trainer-brain` playground at 66.7 ms and tier `minimal`, the `/demo` playground at 33.3 ms and `lite`) was not paint. It was the whole-document restyle of the `:root:has()` rules ("Styles and the ink stage"). Fix round 2 removed them, and both playgrounds then measured 16.7–16.8 ms at tier `full`.
+- **The anatomy's mount**: see "Open".
+- **The watchdog's two-window stutter rule.** In this container at 4× CPU the field sits at about 1 frame in 30 over 25 ms with no event at all, near the old one-window line. Real-device data may tune it.
+- The tiers and the watchdog limit the damage on slow devices. The owner can also simply open `/` and `/trainer-brain` on their own phone and laptop.
 
 ## Checks
 
 **Unit tests.** All of them run in `npm test`, so they gate deploys.
-- **`tests/marketing-brain-traces.test.ts`** (14 tests). The traces against the product: see "Updating the traces".
-- **`tests/marketing-showcase.test.ts`** (15 tests):
-  - the head script and the island decide alike;
+- **`tests/marketing-brain-traces.test.ts`** (15 tests). The traces against the product: see "Updating the traces".
+- **`tests/marketing-showcase.test.ts`** (19):
+  - the head script and the island decide alike, and the robot pattern against 17 user agents;
   - literal `import()`s only, and import hygiene;
   - no side effects at import;
-  - the core: Pause stays correct through every pause reason, `data-sc-run`, the Kamran pause, and the shared overlay layer;
+  - the core, on a made-up clock: Pause through every pause reason (no `aria-pressed`), `data-sc-run`, the Kamran pause, the shared overlay layer and `inertOutside()`, idle after another tab or the back/forward cache, naps, the watchdog (median, two windows, holds, the 30 Hz cap, stepping up), and one frame callback a frame;
+  - `?tier=` and `?slow=` for automated browsers only;
   - the CSS contract and tokens, ink-stage contrast, reduced motion without the always-on exclusion, the pre-state, the pin gate and the layer;
   - `--sc-top`, the lazy sheets and the CSS budgets;
-  - static mode, the shared key, escaping, the options, and the island on the server.
-- **`tests/marketing-field.test.ts`** (8) and **`tests/marketing-anatomy-play.test.ts`** (23). Each kind's first frame:
+  - static mode, the shared key, escaping, the options (the `publish`, `model` and `mealPhotos` flags included) and the island on the server;
+  - English sample text in right to left;
+  - the first Tab mounting every showcase, and focus kept through a reduced-motion change.
+- **`tests/marketing-field.test.ts`** (11) and **`tests/marketing-anatomy-play.test.ts`** (28). Each kind's first frame:
   - inner ids that start with the host id;
   - valid HTML, with no parser fix-up and therefore no hydration mismatch;
-  - reserved sizes;
+  - reserved sizes, the board's "what moved" line included;
   - the honesty labels and the call to action;
-  - the runtime's own CSS, its literal imports and the layer.
-- **The page tests:** `tests/marketing-home.test.ts` (10) and `tests/marketing-brain-pages.test.ts` (12).
+  - moments that are not on yet: the playground's chips and cards, the anatomy with the model off, the ghost stacks, the field's shelf;
+  - the runtime's own CSS, its literal imports and the layer;
+  - code contracts for the runtimes: modal receipts and the sheet hear Esc and Tab on the document, a receipt in the zoom turns into the phone's sheet, keyboard focus holds the field, the anatomy keeps the visitor's Pause through a change of mode, free text has no fallback.
+- **The page tests:** `tests/marketing-home.test.ts` (12) and `tests/marketing-brain-pages.test.ts` (12, including the `/demo` moments paragraphs in six flag states).
+- **`tests/root-marks.test.ts`** (7) guards against `:has()` on the root, and `tests/marketing-api.test.ts` holds the meal-photo availability rule.
 - **`node scripts/brain-traces.mjs --check`.** It fails when `traces.client.json` is stale. The trace test checks the same thing.
 
 **Browser check.** `npm run test:marketing-showcase`, after `npm run build`.
@@ -317,43 +418,45 @@ The two budgets looser than the showcase spec are deliberate. They are in the ow
   - Ports: `MOTION_WEB_PORT`/`MOTION_API_PORT`, default 3967/4967.
   - It uses local Chromium only, never a cloud browser.
 - **The stub's two states.**
-  1. It starts closed: sign-ups closed, every provider off.
-  2. After the metrics, it turns to "assistant": sign-ups open, payments on, and Kamran's button on `/`.
-- **What is judged.** Fifteen deterministic checks:
-  1. JavaScript off: the first screen, and the lazy sheets moving no box;
-  2. the LCP element is the H1 or the lede;
+  1. It starts closed: sign-ups closed, every provider off, the AI model included.
+  2. After the closed checks and the metrics, it turns to "assistant": sign-ups open, payments on, the model on, and Kamran's button on `/`.
+- **What is judged.** Sixteen deterministic checks:
+  1. JavaScript off: the first screen, and the lazy sheets moving no box at 390 and 1440 (on a second try as well);
+  2. the largest paint is the H1 or the lede, at 390 and 1440;
   3. CLS, reported only;
-  4. overflow, duplicate ids and errors, at 360, 390 and 1440 wide, left to right and right to left;
+  4. overflow, duplicate ids and errors, at 320, 360, 390 and 1440 wide, left to right and right to left;
   5. the lifecycle and fallbacks;
-  6. frames and every pause reason;
+  6. frames and every pause reason; after Pause the control reads "Play…" with no `aria-pressed`;
   7. the watchdog;
   8. Kamran's button;
-  9. receipts and overlays;
-  10. the `/demo` playground;
+  9. receipts and overlays: focus, Esc, Pause; with the consent bar open, the phone receipt and settings sheet on top; nothing left after leaving; a receipt open in the zoom at 844×390 becomes the phone's sheet when turned to 390×844;
+  10. the `/demo` playground under the page's flags, twice: in the closed pass with the model off (the off cards, and the creatine question's supplements switch handing it to the Draft writer and back) and in the open pass with the model on (the before/now line and the deload lane); the knee, low recovery, free text (a close sample, and none for "hello there") and the keyboard in both;
   11. the `/trainer-brain` pin and "See it work";
   12. a three-round navigation loop;
   13. sign-ups closed and open;
   14. the `/pricing` calculators;
-  15. the robot path.
-- **The metrics pass** is reported only (see "Budgets"). CPU throttling applies only in that pass.
+  15. the robot path;
+  16. at 1280×900, Tab from the top of `/` and of `/trainer-brain` reaches the board's controls and the playground's chips, and the board's height holds through a change of each of its controls.
+- **The metrics pass** is reported only (see "Budgets"). CPU throttling applies only in that pass. It samples frames after a scroll down 200 px and back, adds a field sample partly under the header, takes the playground's sample over one knee run, and times input on the knee chip (it runs with the model off, and sits in the phone's first six).
 - **Variables:**
 
   | Variable | What it does |
   |---|---|
   | `SHOWCASE_PAGES` | narrows the pages |
   | `SHOWCASE_CHECKS` | runs a subset, for example `1,4,metrics` |
-  | `SHOWCASE_RUNS` | loads per page in the metrics pass (median; default 1) |
+  | `SHOWCASE_RUNS` | loads per page in the metrics pass (median; default 1, or 5 when judging) |
   | `SHOWCASE_JUDGE_CLS` | judges layout shift |
   | `SHOWCASE_JUDGE_METRICS` | judges the metrics, on real hardware |
+  | `SHOWCASE_BASELINE_URL` | the build before phase 1, served alongside, for page blocking time measured in the same session |
   | `SHOWCASE_BASELINE` | the baseline file to compare with |
   | `SHOWCASE_BASELINE_OUT` | writes a new baseline |
   | `SHOWCASE_OUT` | the results file (default `test-results/marketing-showcase.json`) |
 
-- **The baseline.** `scripts/marketing-showcase-baseline.json` was measured on `4f35e5c`, the build before phase 1, on 28 October 2026, with `SHOWCASE_CHECKS=metrics SHOWCASE_RUNS=5`. Never measure it again on a later build.
+- **The baseline.** `scripts/marketing-showcase-baseline.json` was measured on `4f35e5c`, the build before phase 1, on 28 October 2026, with `SHOWCASE_CHECKS=metrics SHOWCASE_RUNS=5`. Its JavaScript and CSS sizes are still the comparison for shared growth; its blocking times are shown for reference only. Never measure it again on a later build.
 
 **CI.** The `homepage-call` job runs the browser check as "Brain showcases on /, /trainer-brain, /demo and /pricing", on ports 3241/4241.
 - It runs after the call check, even when that check fails, as long as the browser install succeeded.
-- The job's limit went from 40 to 50 minutes. A full run takes about 6 minutes and must stay under 8.
+- The job's limit went from 40 to 50 minutes. Full runs in this sandbox took 6 min 5 s to 6 min 27 s, before the final pass added step 16 and the open pass of step 10. A full run must stay under 8 minutes.
 
 **Other browser checks.**
 - **`npm run test:browser`** (`scripts/browser-check.mjs`, in the `application` job):
@@ -363,9 +466,16 @@ The two budgets looser than the showcase spec are deliberate. They are in the ow
   - clears the flag.
 - **`npm run test:brand`** checks the hero field at 1440 and 390, the word budget, and the field in right to left.
 
-**Results so far.**
-- WP7b's full run on `0dfc1dd`: exit 0, 0 failures, 6 min 5 s. Its numbers are in "Budgets".
-- The fallbacks, measured from `data-sc-ready`:
+**Results so far** (all local Chromium in this sandbox; nothing here is a CI or real-hardware result).
+- WP7b's full run on `0dfc1dd`: exit 0, 0 failures, 6 min 5 s.
+- Fix round 2 (A2), three full runs on `c91de92`: 1 or 2 failures each, both since dealt with. The anatomy's Pause still wrote `aria-pressed` (fixed in the final pass, L1). One run overflowed by 8 px at `/demo` 320; the final pass traced it to the header's `nav.mk-mobile-nav`, outside the showcases (see "Open"). Step 7 stepped down in 2.5 s; step 12 counted one callback per frame in every round.
+- The final fix pass, 28 October:
+  - P's full run on `488b9d1`, while E's playground work was still in progress: exit 1, with 4 failures, all in the playground. The lazy sheets moved `.bp-out`, `.bp-change` and `.bp-set` by 9 px at 1440 with JavaScript off on `/trainer-brain` and `/demo`; a `/demo` setting change showed an empty before/now line; and in the open pass at 390 the largest paint on `/demo` was the longer `p.bp-banner`. Everything else passed.
+  - E's last judged runs, on worktree builds made at 17:05 and 17:21 UTC: steps 3, 4, 6, 9, 10 (both passes), 11 and 16 passed at 17:11, and step 10 passed again beside the metrics at 17:26. They did not include steps 1, 5, 7, 8, 12, 14 or 15.
+  - E's two metrics runs passed (reported figures in "Budgets").
+  - E's full `npm test` at the end of the pass: 2,094 tests, 2,093 passed, 1 skipped, 0 failed (22 min 43 s).
+- **Not recorded here:** one full run of all sixteen steps on the final tree. That belongs to the milestone verification (PLAN §4.6), which was running alongside this docs pass; `CLAUDE_HANDOFF.md` and `docs/COMPLETION_STAGES.md` record its result.
+- The fallbacks, measured by WP7b from `data-sc-ready`:
 
   | Case | Result |
   |---|---|
@@ -386,9 +496,10 @@ The two budgets looser than the showcase spec are deliberate. They are in the ow
   - the Today and feed wording;
   - the inbox card titles, "Your Brain drafted a reply" and "Waiting for your reply";
   - the voice lines;
-  - what the Learner receives.
+  - what the Learner receives;
+  - the notice a member sees when their week's sessions are adjusted on their own (t8, from `message-templates.ts` and `brain-plans.ts`, word for word).
 - **Safety:** every chat moment's categories, computed by `redFlagCategories()`. Each highlighted word sits in a phrase that triggers on its own, and there are nine categories (`RED_FLAG_CATEGORIES`).
-- **Plan maths:** `decide()` equals `planConfidence()` and `planRoute()` across 480 combinations. Voice and recovery maths equal `reducedLoad()` and `reduceWhoopWorkout()`.
+- **Plan maths:** `decide()` equals `planConfidence()` and `planRoute()` across 2,000 combinations, every slider position from 50 to 99 included. A score that rounding would lift onto a bar it misses shows one decimal below the bar ("70.5% · your bar 71%"). Voice and recovery maths equal `reducedLoad()` and `reduceWhoopWorkout()`.
 - **Lanes:** `decide()` reproduces every moment's lane, every variant and the totals.
 - **Shared claims:**
   - "last 28 days";
@@ -403,7 +514,7 @@ The two budgets looser than the showcase spec are deliberate. They are in the ow
   - the client copy equals `stripForClient(full)`;
   - the brand is a token, never a literal;
   - every visible string passes the copy scans: no model or vendor name, hype words, the payout provider, AI-cost wording, hidden specialties, the C0 vocabulary or placeholders.
-- **The rest:** the Not-on-yet shelf, both payments states, and `prepare()` purity.
+- **The rest:** the honesty strings exactly as SHOWCASE_DESIGN.md §1.5 now gives them, the strip and every status through the flags (payments, publishing, voice, nutrition, meal photos and the AI model), and `prepare()` purity.
 
 **When a check fails:**
 1. **Read which check failed.** Decide whether the product changed or the traces drifted. The product is the truth: change the traces to match it. Never change the product, or loosen a check, to keep a sample.
@@ -415,11 +526,13 @@ The two budgets looser than the showcase spec are deliberate. They are in the ow
 3. **Regenerate the client copy.** Run `node scripts/brain-traces.mjs`, then `node scripts/brain-traces.mjs --check`. Never edit `traces.client.json` by hand: it is minified and has the internal fields removed.
 4. **If a page states the same claim, change the registry and its test in the same commit.** The registry is `packages/contracts/src/marketing-content.ts`. The overlaps are:
    - "14 AI specialists and 11 code steps", which equals the roster counts;
-   - the `play` note, which equals `labels.long`;
+   - the `play` note and the `/demo` answer "Is this a real AI response?", which equal `labels.long`;
    - the `inside` note, which equals `labels.howWeCount`;
-   - the `/demo` moments text, which states each moment's outcome from its lane;
-   - the home flow window's moments (t1, t6 and t2).
-5. **If a specialist or moment changes status,** for example the Meal planner goes live or a recovery flag arrives, update its `status`, `flag` or `needs`. Then update the shelf and payments-state expectations in the trace test, and the flag mapping in `options.ts`.
+   - the home flow window's moments (t1, t6 and t2);
+   - the `/trainer-brain` sample ledger and trace chain, which the brain-pages test ties to t6's rule and t1's load, increase, reps in reserve and cap.
+
+   The `/demo` moments paragraphs need no edit: `momentLines()` computes them from the traces. Their registry text names no moment, and the test checks that.
+5. **If a specialist or moment changes status,** for example the Meal planner goes live or a recovery flag arrives, update its `status`, `flag` or `needs` (`nutrition`, `mealPhotos` or `voice`). Then update the flag-state expectations in the trace test and the flag mapping in `options.ts`. A new public flag also needs `publicAvailability()`, the contracts type, the web fallback in `platform.ts` and `tests/marketing-api.test.ts`.
 6. **Run the related tests:**
    ```sh
    node --import tsx --test tests/marketing-brain-traces.test.ts tests/marketing-showcase.test.ts \
@@ -431,35 +544,53 @@ The two budgets looser than the showcase spec are deliberate. They are in the ow
 
 ## Where it differs from the plan
 
-- **Statuses need a second flag when payments are on.** "Try it on yourself" becomes live only when payments and the item's own `needs` flag (nutrition or voice) are both on. Otherwise those items would read as live while their provider is off.
-- **The roots and their names.** Each render module exports `ROOT`, its root classes per kind. `RenderOptions` gains `label`, which becomes the root's `aria-label`.
+- **Statuses wait for publishing, not for payments alone.** "Try it on yourself" becomes live only once trainers can publish (sign-ups, subscriber payments and the AI model: `PUBLISH_GATES`, as the status panel reads them), and only for items whose own `needs` flag is on (the final review's HON-3). PLAN §1.5 tied the statuses to payments.
+- **The AI model and meal photos are flags too.** With the model off every AI specialist is not on yet. Meal photos have their own public flag, because the product has its own switches for them (L10).
+- **Moments that are not on yet never play** in the playground or the anatomy (the lead's decision, L9). The field and the board keep their sample hour, and their receipts say "Not on yet".
+- **Pause carries no `aria-pressed`.** The plan asked for "a correct `aria-pressed`". A name that changes ("Pause", "Play") with no pressed state was chosen instead, because a fixed name would break WCAG 2.5.3 against the visible "Play" label or drop "Play the field".
+- **The anatomy's plate (f) shows the seven coaching specialists**, the Meal planner among them (dashed until nutrition is on), with no separate shelf, as SHOWCASE_DESIGN.md §(f) specifies. The field's shelf follows the flags instead of always holding the Meal planner and the Recovery rule.
+- **Free text never falls back to a sample** ("Free text").
+- **Two target sizes stay under 44 px** ("Accessibility").
+- **The watchdog steps back up** after two good windows, judges each tier against its own frame rate, and ignores page events. The plan's risk table had a watchdog that only steps down.
+- **The roots and their names.** Each render module exports `ROOT`, its root classes per kind. `RenderOptions` gains `label`, which becomes the root's `aria-label`; a root labelled by its band is `role="group"`.
 - **The island handles every engine call to action** with one delegated handler, and falls back to `location.assign` where no app router is mounted (the unit tests' server renders).
 - **The pin gate lives in `brain-stage.css`,** with `--sc-pin-len`, because only that sheet may define `--sc-*` tokens.
 - **The field and the board carry the receipts' call to action** in an inert `<template class="mc-cta">`. Opening sign-ups therefore changes the key and remounts the island.
 - **The platform's own safety rule is in every frame.** The safety lock's tip, the anatomy's plate (b) and the playground's Safety node name it: "Platform safety rules · {APP_NAME}. Can't switch off."
 - **The playground.**
   - Its result column does not stick, because only the anatomy may use `position: sticky`.
-  - "Step by step" and "Change a setting" are phone-only toggle buttons, not `<details>`.
-  - Its first frame is the first moment played to its end. The engine adopts it rather than rebuilding it.
+  - "Step by step" and "Change a setting" are phone-only toggle buttons, not `<details>`. "How we count" is a `<details>`.
+  - Its first frame is the first moment that runs, played to its end. The engine adopts it rather than rebuilding it.
   - `attract` is opt-in, and only `/demo` turns it on.
 - **The roster's "See it work" links point at the band, `#play`, not `#sc-play`.** With `#sc-play` the playground's top landed under the sticky header. The island still runs the link, because the target contains the playground.
 - **The anatomy.**
   - It is flat by default, and the 3D figure applies only under the gate.
-  - Its notes are `#<host id>-a` to `-j`.
+  - Its notes are `#<host id>-a` to `-j`, and its own H2 (when it has one) is `#<host id>-title`.
   - Colour changes are instant, because only opacity and transforms may animate.
 - **A blurred glow on lit nodes is kept** in the field and the playground (concept A's). The plan's risk table said "no blurred shadows". It is listed for a decision with the desktop paint cost.
 - **Host and island share one keyed fragment.** The plan gave both the same key as siblings, which made React log a duplicate-key error under `next dev`.
 
 ## Open
 
-These are open as of 28 October 2026, at `848538b`.
-- **CLS is not judged in CI yet.** After the board fix the measured CLS is within 0.001, but CI judges it only after three PR runs in a row pass. Then set `SHOWCASE_JUDGE_CLS: "1"` on the CI step.
-- **The anatomy's mount.** It measured long tasks of 291 and 79 ms in WP7b's first run (the budget is 2 tasks of 80 ms or less). The fix round then changed the mount (`26fbe25`, `289ed10`, `e66afb8`). It now reads before it writes, inserts no node at mount or per frame, skips layout writes that change nothing, turns on before it measures, and mounts the figure in its own task. WP7b's second round measures the final tree.
-- **Frame budgets on real hardware,** above all the pinned anatomy's scroll paint. The sandbox measures a p95 of about 33 ms at 4× throttling, and its runs vary (see "Budgets").
-- **Every route pays for the first-frame CSS.** Every route on the catch-all, the member app included, loads the four first-frame showcase sheets (17.0 KB gzipped) and the page sheets (7.94 KB). WP7a took 2.1 KB off `marketing.css`. The fix is splitting the marketing and app bundles, recommended for phase 2 or 3.
+These are open as of 28 October 2026, at `41e3a4c`.
+- **The full browser check on the final tree.** It belongs to the milestone verification ("Checks", "Results so far").
+- **CLS is not judged in CI yet.** The measured CLS is within 0.001, but CI judges it only after three PR runs in a row pass. Then set `SHOWCASE_JUDGE_CLS: "1"` on the CI step.
+- **The anatomy's mount at 4× CPU.** It went over budget in about 2 of 7 loads in this GPU-less container: [86, 117] and [91, 92] in E's seven-load run. What remains is the page restyle forced inside `figure()`, plus the rendering task after it. Measure again on GPU hardware or a quiet machine before changing more. With more than one load, the metrics judge mounts and frames from the first load only, so one outlier can pass or fail a run by chance.
+- **Frame budgets on real hardware,** above all the pinned anatomy's scroll ("What waits for real hardware").
+- **Page blocking time is not judged** unless the build before phase 1 is served alongside (`SHOWCASE_BASELINE_URL`).
+- **The playground's scroll and focus (E's files).**
+  - `.bp-diagram` keeps `scroll-margin-block-start: calc(var(--sc-top) + 8px)` (`brain-play.css`, and again in `play.run.css`), which now adds to the public root's scroll padding: `play.js`'s scroll to the diagram lands about 164 px down instead of 82. Dropping the margin also saves first-frame bytes.
+  - The rest of the final review's A11Y-1: the playground's focus moves with `preventScroll` (`play.js`), and the check has no Shift+Tab walk.
+- **Other owners' areas.** While the consent bar is open it covers the anatomy's Pause at 1440×900 and on phones. The one 8 px overflow at `/demo` 320 came from the header's `nav.mk-mobile-nav`.
+- **For the lead or the owner.**
+  - With the model off, 5 of the 6 chips a phone shows in the playground read "Not on yet" (t1, t6, t8, t5 and t10); only the knee runs. That is accurate. Ordering runnable moments first would change the specialty's order, which tests pin.
+  - Full lanes show fewer tiles plus "+N" (a design change from the storyboard).
+  - The two target-size deviations ("Accessibility") need PLAN §4.4's 44 px amended, or a design change.
+  - The watchdog's two-window rule may need tuning on real devices.
+- **Every route pays for the first-frame CSS.** Every route on the catch-all, the member app included, loads the four first-frame showcase sheets (17.5 KB gzipped) and the page sheets (7.93 KB). The catch-all route also ships about 835 KB gzipped of JavaScript to every marketing page, workspace and member chunks included. Splitting the marketing and app bundles (a marketing route group) is the lever, recommended for phase 2 or 3.
 - **Later work:**
   - a TypeScript port of the engine;
   - in-browser safety rules for free text (the owner's default is no);
   - a recovery flag tied to `WHOOP_TRAINING_APPROVED`;
   - Arabic strings and measurement events (phase 3);
-  - tightening the blocking-time and long-task budgets to §1.6.
+  - tightening the long-task budget to §1.6.
