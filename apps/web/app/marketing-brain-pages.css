@@ -66,6 +66,13 @@
   min-block-size: 44px;
   font-size: 14px;
 }
+.mk-tb-box .mk-pf-chip {
+  gap: 4px;
+}
+/* A split whose columns start together (the release and comparison column is tall). */
+.mk-tb-top {
+  align-items: start;
+}
 
 /* ---------- the hero: the page head beside the rule ledger ---------- */
 .mk-tb-hero .mk-page-head {
@@ -91,7 +98,8 @@
 }
 .mk-tb-rc-text,
 .mk-tb-rc textarea {
-  font: 500 20px/1.3 inherit;
+  font-size: 21px;
+  font-weight: 500;
 }
 .mk-tb-rc .mk-tb-no {
   color: var(--error);
@@ -173,9 +181,6 @@
   display: grid;
   padding-block-start: 12px;
   font-size: 13px;
-}
-.mk-tb-track [aria-current] {
-  font-weight: 600;
 }
 .mk-tb-cmp small {
   display: block;

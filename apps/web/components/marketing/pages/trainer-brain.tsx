@@ -53,7 +53,7 @@ const LANE_CHIP: Partial<Record<Lane, string>> = {
   waits: "mk-pf-chip mk-pf-soon",
   paused: "mk-pf-chip mk-tb-paused",
 };
-/** The playground's host on this page: "See it work" and "Skip the figure" lead to it. */
+/** The playground's host on this page. */
 const PLAY = "sc-play";
 
 export function sectionOf(page: MarketingPage, id: string): MarketingSection {
@@ -224,7 +224,7 @@ export function TrainerBrainPage({ page, platform, showcase = "live" }: Ctx) {
     <>
       <div className="mk-container mk-page mk-tb-hero">
         <Breadcrumbs page={page} t={t} />
-        <div className="mk-home-split">
+        <div className="mk-home-inner mk-home-split">
           <PageHead
             page={page}
             platform={platform}
@@ -246,7 +246,7 @@ export function TrainerBrainPage({ page, platform, showcase = "live" }: Ctx) {
       </div>
 
       <Band section={what} tone="paper">
-        <div className="mk-home-split">
+        <div className="mk-home-inner mk-home-split">
           <BandHead section={what} t={t} eyebrow="What it is" />
           <TraceChain />
         </div>
@@ -263,7 +263,7 @@ export function TrainerBrainPage({ page, platform, showcase = "live" }: Ctx) {
         <Roster
           crews={crews}
           options={options}
-          play={PLAY}
+          play={play.id}
           howWeCount={t(inside.note ?? "")}
         />
       </Band>
@@ -327,7 +327,7 @@ export function TrainerBrainPage({ page, platform, showcase = "live" }: Ctx) {
       </Band>
 
       <Band section={learns} tone="white">
-        <div className="mk-home-split">
+        <div className="mk-home-inner mk-home-split mk-tb-top">
           <BandHead section={learns} t={t} eyebrow="Learning">
             <ul className="mk-list">
               {learns.bullets?.map((bullet) => (

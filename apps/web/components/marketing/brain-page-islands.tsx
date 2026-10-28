@@ -197,19 +197,21 @@ export function RuleLedger() {
           {LEDGER.map((row) => (
             <li key={row.rule} className="mk-tb-row">
               <code>{row.rule}</code>
-              <span className="mk-tb-mono">{row.source}</span>
-              {row.state === "confirmed" ? (
-                <span className="mk-pf-chip mk-pf-live">Confirmed</span>
-              ) : row.state === "flagged" ? (
-                <span className="mk-pf-chip mk-pf-soon">
-                  Flagged · conflicts with case 3
-                </span>
-              ) : (
-                <span className="mk-pf-chip mk-pf-estimate">
-                  <Lock size={12} aria-hidden="true" />
-                  Can’t switch off
-                </span>
-              )}
+              <span>
+                <span className="mk-tb-mono">{row.source}</span>{" "}
+                {row.state === "confirmed" ? (
+                  <span className="mk-pf-chip mk-pf-live">Confirmed</span>
+                ) : row.state === "flagged" ? (
+                  <span className="mk-pf-chip mk-pf-soon">
+                    Flagged · conflicts with case 3
+                  </span>
+                ) : (
+                  <span className="mk-pf-chip mk-pf-estimate">
+                    <Lock size={12} aria-hidden="true" />
+                    Can’t switch off
+                  </span>
+                )}
+              </span>
             </li>
           ))}
         </ul>
@@ -331,8 +333,7 @@ export function CompareReplies() {
           <div key={point} className="mk-tb-row">
             <dt>{point}</dt>
             <dd>
-              <Dots value={a} who="Reply A" />
-              <Dots value={b} who="Reply B" />
+              <Dots value={a} who="Reply A" /> <Dots value={b} who="Reply B" />
             </dd>
           </div>
         ))}

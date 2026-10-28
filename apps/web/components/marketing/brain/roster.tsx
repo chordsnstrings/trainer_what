@@ -72,8 +72,10 @@ const CHIP: Record<Specialist["status"], string> = {
 };
 
 /**
- * Every specialist by crew, as cards. `play` is the playground host's id on
- * the same page; `howWeCount` the registry's note, shown as a disclosure.
+ * Every specialist by crew, as cards. `play` is the id of the band that
+ * holds the playground on the same page: "See it work" leads there, under
+ * its heading, and the playground plays the moment; `howWeCount` is the
+ * registry's note, shown as a disclosure.
  */
 export function Roster({
   crews,
