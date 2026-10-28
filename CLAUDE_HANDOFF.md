@@ -74,12 +74,28 @@
     - field mount long task: 120 ms;
     - `/` blocking time: 406–484 ms, against a 326 ms baseline plus 100;
     - `/trainer-brain` playground p95: 83 ms at tier minimal.
-- **Review at 08:40 UTC:**
-  - Three finders are done, with 53 findings: engines 16, pages and honesty 14 (one blocker), accessibility 23.
-  - The performance and security finders are still running.
-  - **Plan:** stop the workflow once all five finders report, and skip its separate verifiers to save about 2 hours.
-  - **Fix round 2:** three agents, split by file ownership. Each reproduces a finding before fixing it.
-  - **After that:** a final adversarial review of the fixed diff.
+- **Review findings** (`wf_aa89a290-849`, stopped after the five finders): 62 findings, saved in `scratchpad/review-findings.json`.
+  - Pages and honesty, 14:
+    - blocker: `llms-full.txt` and the assistant facts drop "Never" from the never-list lines;
+    - the publish status is gated wrongly on payouts;
+    - unmatched free text in the playground falls back to "Squats felt easy" and is "sent", even for red flags;
+    - "checked against your test cases" is untrue for the first release;
+    - voice and nutrition say "Try it on yourself" while their providers are off.
+  - Engines, 16: for example the What-if STOP stamp leak, and the hero frozen after a hidden tab.
+  - Accessibility, 23: for example the receipt focus trap, 320 px reflow and forced colours.
+  - Performance, 6. PERF-1 is the root cause of the slow frames: the root-level `:root:has(...)` theme and shell rules restyle about 900 elements on every DOM insertion after scrolling. Field p95 goes from 16.8 to 66–117 ms, and the playground drops to 12 fps at 4× CPU. Deleting those rules gives 16.8 ms.
+  - Security, CI and tests, 3: all minor or nit.
+- **Fix round 2 is running** (`wf_f0fd9acb-b51`). Each finding is reproduced before it is fixed, and the result is reported per id.
+  - First, in parallel:
+    - D: replaces the root `:has()` rules with `<html>` classes, with no visual change across shells and themes;
+    - C: pages, copy and honesty.
+  - Then, in parallel: A1 (field, board, receipts) and B (anatomy, playground, data, render).
+  - Last: A2 (core, head, island, the showcase check, tests).
+  - Assignments are in `scratchpad/fix2-args.json`.
+- **Next:**
+  - an adversarial review of the fix diff;
+  - the milestone verification on a quiet machine;
+  - a push without `[skip ci]`, CI to green, then merge, deploy and the live check.
 - **Left for the review and fix stage:**
   - the field's plan slider snaps back if another control is touched within its 120 ms debounce;
   - `/` total blocking time measured 444 ms on a loaded machine, against a 326 ms baseline plus a 100 ms allowance; measure again at the milestone;
