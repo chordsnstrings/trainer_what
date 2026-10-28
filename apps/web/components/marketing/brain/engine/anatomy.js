@@ -72,9 +72,12 @@ const MODES = ["(min-height: 700px)", "(max-width: 760px)"];
 
 /** Mounts on the root (brain/mount.tsx calls it after load, idle and near). */
 export async function mount(root, o) {
-  const d = prepare(raw, o), S0 = defaults(d), L = C.layer(root), snap = root.innerHTML;
+  const d = prepare(raw, o), S0 = defaults(d), snap = root.innerHTML;
   const modes = MODES.map((q) => matchMedia(q));
-  let run = null, dead = false, again = 0;
+  let run = null, dead = false, again = 0, L = null;
+  // The overlay layer holds only the live region here: it comes with the first announcement, since a node
+  // inserted at mount restyles the whole page (figure()).
+  const say = (msg) => { if (!L) L = C.layer(root); C.say(msg); };
   // The viewport crossed a line where the CSS pins or flattens (a phone
   // turned, a window resized): start again in the new mode, from the
   // finished figure (no second intro).
@@ -85,17 +88,17 @@ export async function mount(root, o) {
       run.stop();
       root.innerHTML = snap;
       STATES.forEach((a) => root.removeAttribute(a));
-      run = figure(root, d, S0, o, true);
+      run = figure(root, d, S0, o, true, say);
     }, 150);
   };
   try {
-    run = figure(root, d, S0, o, o.settled);
+    run = figure(root, d, S0, o, o.settled, say);
     modes.forEach((m) => m.addEventListener("change", restart));
     root.setAttribute("data-sc", "on");
     root.setAttribute("data-sc-tier", C.tier.name);
   } catch (e) {
     if (run) run.stop();
-    L.release();
+    if (L) L.release();
     throw e;
   }
   return {
@@ -105,13 +108,16 @@ export async function mount(root, o) {
       clearTimeout(again);
       modes.forEach((m) => m.removeEventListener("change", restart));
       run.stop();
-      L.release();
+      if (L) L.release();
     },
   };
 }
 
-/** One run of the figure on the root's current markup: pinned or flat, as the CSS lays it out. */
-function figure(root, d, S0, o, settled) {
+/** One run of the figure on the root's current markup: pinned or flat, as the CSS lays it out.
+    It reads first (style, geometry, scroll: one style and layout pass) and writes after. Text changes
+    go through the text node's data: on these pages an inserted or removed node, anywhere, restyles the
+    whole document (a global :has() rule; 35–55 ms at 4x CPU), so mounting inserts none of its own. */
+function figure(root, d, S0, o, settled, say) {
   const $ = (s) => root.querySelector(s), $$ = (s) => [...root.querySelectorAll(s)];
   const frame = $(".ca-frame"), grid = $(".ca-grid"), scene = $(".ca-scene"), cam = $(".ca-cam"), stack = $(".ca-stack"), svg = $(".ca-svg"), book = $(".ca-book");
   const noteLis = $$(".ca-nl li"), dots = $$(".ca-dots i"), ghosts = $$(".ca-g"), nl = $(".ca-nl"), pb = $(".ca-pause");
@@ -124,10 +130,13 @@ function figure(root, d, S0, o, settled) {
     tagEl = plates[5] && plates[5].querySelector(".ca-x .ca-tag");
   };
   collect();
-  root.dataset.trace = "t1";
-  $$(".ca-nb, .ca-wb").forEach((b) => (b.disabled = false));
-  // On phones the notes outside the current step are visually hidden: out of the tab order too.
-  if (phone) noteLis.forEach((li) => (li.querySelector("button").tabIndex = -1));
+  /** The controls come alive (after the mount's reads). */
+  const arm = () => {
+    root.dataset.trace = "t1";
+    $$(".ca-nb, .ca-wb").forEach((b) => (b.disabled = false));
+    // On phones the notes outside the current step are visually hidden: out of the tab order too.
+    if (phone) noteLis.forEach((li) => (li.querySelector("button").tabIndex = -1));
+  };
 
   /* ---------------- plates (re-rendered only for a What-if) */
   function setTrace(id, level) {
@@ -157,14 +166,14 @@ function figure(root, d, S0, o, settled) {
     k.add(() => render.stop());
   }
 
-  /* ---------------- geometry (rect reads on resize and step change only) */
+  /* ---------------- geometry (rect reads on resize and step change only; every read before the writes) */
   let G = null;
   function layout() {
     if (flat || dead) return;
-    const g = grid.getBoundingClientRect(), s = scene.getBoundingClientRect(), cs = getComputedStyle(root);
+    const g = grid.getBoundingClientRect(), s = scene.getBoundingClientRect(), cs = getComputedStyle(root), y = scrollY;
     G = { W: g.width, H: g.height, ox: s.left - g.left + (s.width * num(cs, "--ox")) / 100, oy: s.top - g.top + (s.height * num(cs, "--oy")) / 100,
       pw: num(cs, "--pw"), ph: num(cs, "--ph"), gap: num(cs, "--gap"), tz: num(cs, "--tz"), ty: num(cs, "--ty"), tx: num(cs, "--tx"), txf: cs.getPropertyValue("--txf").trim() ? num(cs, "--txf") : num(cs, "--tx"),
-      top: root.getBoundingClientRect().top + scrollY, len: Math.max(1, root.offsetHeight - frame.offsetHeight), lift: num(cs, "--lift"), vh: innerHeight, hh: num(cs, "--sc-top"),
+      top: root.getBoundingClientRect().top + y, y, len: Math.max(1, root.offsetHeight - frame.offsetHeight), lift: num(cs, "--lift"), vh: innerHeight, hh: num(cs, "--sc-top"),
       sx: s.left - g.left, sy: s.top - g.top, sw: s.width, sh: s.height };
     const b = book.getBoundingClientRect();
     G.book = [b.right - g.left, b.top - g.top + b.height * 0.5];
@@ -178,8 +187,8 @@ function figure(root, d, S0, o, settled) {
       G.fx = clamp(room, 0, over);
     } else G.fx = 0;
     centres();
-    svg.setAttribute("viewBox", `0 0 ${G.W} ${G.H}`);
     notesGeo(g);
+    svg.setAttribute("viewBox", `0 0 ${G.W} ${G.H}`);
     noteAt = null; last = {};
     draw();
   }
@@ -253,13 +262,13 @@ function figure(root, d, S0, o, settled) {
       n.classList.toggle("is-open", me && V.f > 0.55);
       if (me && i != 5) put(mores[i], "--q", fx(V.q)); // (f)'s drawer has no --q effects (it reveals by words below)
     });
-    // inspected (f): reason reveals with scroll
+    // inspected (f): reason reveals with scroll, in its one text node (a new node would restyle the page)
     const fp = plates[5], rs = fp && fp.querySelector(".ca-rs");
     if (rs) {
       const full = rs.dataset.full;
       let n = V.k == 5 ? Math.round(full.length * clamp((V.q - 0.25) / 0.5, 0, 1)) : V.lit > 5 ? full.length : 0;
       if (n > 0 && n < full.length) n = Math.max(0, full.lastIndexOf(" ", n)); // word by word: ~20 text layouts, not one a frame
-      if (last.rs != n) { rs.textContent = full.slice(0, n) || " "; last.rs = n; }
+      if (last.rs != n) { rs.firstChild.data = full.slice(0, n) || " "; last.rs = n; }
     }
     const dim = V.k >= 0 && V.f > 0.12 ? "k" : V.j > 0.02 ? "j" : "";
     if ((stack.dataset.dim || "") != dim) dim ? (stack.dataset.dim = dim) : stack.removeAttribute("data-dim");
@@ -367,13 +376,13 @@ function figure(root, d, S0, o, settled) {
     if (w == "base") {
       clearWhatIf();
       if (!flat) onScroll(true);
-      C.say(`${M.t.member}: ${d.labels.lanes[M.r.lane]}.`);
+      say(`${M.t.member}: ${d.labels.lanes[M.r.lane]}.`);
       return;
     }
     const [, , id, lvl] = COPY.whatIf.find((x) => x[0] == w);
     setTrace(id, lvl);
     wi = w;
-    C.say(`${M.t.member}: ${d.labels.lanes[M.r.lane]}.${M.stop ? " No AI called." : ""}`);
+    say(`${M.t.member}: ${d.labels.lanes[M.r.lane]}.${M.stop ? " No AI called." : ""}`);
     if (flat) return;
     gsc.play(); gscIntro.play(); // a What-if is the visitor asking for motion
     if (RM) { V = { ...V, e: 1, ex: Array(9).fill(1), lit: 9, k: -1, f: 0, end: 0, stop: M.stop ? 1 : 0, cam: 1 }; draw(); lightAll(); return; }
@@ -397,16 +406,16 @@ function figure(root, d, S0, o, settled) {
     lightAll();
   }
   if (flat) {
+    arm();
     if (phone) $$(".ca-nb").forEach((b) => (b.tabIndex = -1));
     fromHash();
     return { stop };
   }
 
   /* ---------------- ghosts: other members' moments, one specialist each */
+  // both scenes read the header's height (--sc-top): before any write
   gsc = C.scene(scene, { resumeOnInput: true });
-  gsc.button(pb, { pause: COPY.pause, play: COPY.play });
-  pb.disabled = false;
-  gsc.pause("intro"); // ghosts start after the burst (they are invisible before it; no frames spent on them)
+  gscIntro = C.scene(root, { idle: 0 });
   const G0 = ghosts.map((g, i) => ({ g, t: i * 420, run: -1 }));
   // the pill a ghost member's moment uses, in the inspected Brain card (base trace only)
   const GP = GHOSTS.map(([id]) => [pick(d.trace(id), d, S0), d.trace(id).member]);
@@ -478,16 +487,14 @@ function figure(root, d, S0, o, settled) {
     tl.span(F1, 460, (q) => { const f = 1 - smooth(q); V.f = f; V.tl = f; V.cam = camAt(f); V.ghost = 0.72 + 0.38 * f; if (q >= 1) { V.k = -1; V.q = 0; } draw(); });
     return tl.play().then(() => { if (!dead) finish(); });
   }
-  gscIntro = C.scene(root, { idle: 0 });
-  // the intro runs ~7 s (burst + teaser), so Pause stops it too (WCAG 2.2.2), not only the ambient stacks
-  k.on(pb, "click", () => (gsc.reasons.has("user") || gsc.reasons.has("idle") ? gscIntro.pause() : gscIntro.play()));
-  function finish() {
+  /** y: the scroll position when the caller has just read it (mounting), so nothing reads it after a write. */
+  function finish(y) {
     introTl = null; introDone = true;
     gsc.set("intro", false);
     V = { ...V, e: 1, ex: Array(9).fill(1), lit: 9, pulse: null, ghost: 0.72, tl: 0, k: -1, f: 0, q: 0, cam: 1 };
     curStep = "?"; root.removeAttribute("data-tease");
     lightAll();
-    onScroll(true);
+    onScroll(true, y);
     draw();
   }
 
@@ -517,32 +524,41 @@ function figure(root, d, S0, o, settled) {
     if (!phone) nl.style.setProperty("--bh", (foc && BH[foc] ? BH[foc] : 0) + "px");
     noteAt = null;
   }
-  const progress = () => (G ? clamp((scrollY - (G.top - G.hh)) / G.len, 0, 1) : 0);
-  function readScroll(force) {
+  // reading scrollY lays the page out: y, when given, is the position layout() has just read
+  const progress = (y = scrollY) => (G ? clamp((y - (G.top - G.hh)) / G.len, 0, 1) : 0);
+  function readScroll(force, y = scrollY) {
     if (!G) return;
-    const y = scrollY, p = progress(), pre = clamp((G.top - G.hh - y) / (G.vh - G.hh), 0, 1);
+    const p = progress(y), pre = clamp((G.top - G.hh - y) / (G.vh - G.hh), 0, 1);
     if (pre != V.pre) { V.pre = pre; if (!introDone || cur == target) draw(); }
     if (introTl && p > 0.015) introTl.skip();
     target = p;
     if (force) { cur = p; apply(cur); }
   }
-  function onScroll(force) {
-    if (force) readScroll(true);
+  function onScroll(force, y) {
+    if (force) readScroll(true, y);
     else need = true;
     render.wake();
   }
   k.on(window, "scroll", () => onScroll(), { passive: true });
   // the figure's own size, and the page above it (a disclosure opened, an image in): rect reads on change only
-  const ro = new ResizeObserver(() => { layout(); onScroll(true); });
+  const ro = new ResizeObserver(() => { layout(); onScroll(true, G && G.y); });
   ro.observe(grid);
   ro.observe(document.documentElement);
   k.add(() => ro.disconnect());
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { if (!dead) layout(), onScroll(true); });
+  // fonts still loading: measure again once they are in (already in: the mount's measure stands)
+  if (document.fonts && document.fonts.status == "loading") document.fonts.ready.then(() => { if (!dead) layout(), onScroll(true, G && G.y); });
   // tiers (SHOWCASE_DESIGN.md §1.6): lite drops halos and most ghosts, minimal drops ghosts; the watchdog only steps down
   k.add(C.tier.on((n) => { root.setAttribute("data-sc-tier", n); draw(); }));
 
-  layout();
-  if (settled || progress() > 0.015 || link.test(location.hash)) { finish(); fromHash(); }
+  layout(); // the mount's reads, then its first writes
+  const noIntro = settled || progress(G && G.y) > 0.015 || link.test(location.hash);
+  arm();
+  gsc.button(pb, { pause: COPY.pause, play: COPY.play });
+  pb.disabled = false;
+  gsc.pause("intro"); // ghosts start after the burst (they are invisible before it; no frames spent on them)
+  // the intro runs ~7 s (burst + teaser), so Pause stops it too (WCAG 2.2.2), not only the ambient stacks
+  k.on(pb, "click", () => (gsc.reasons.has("user") || gsc.reasons.has("idle") ? gscIntro.pause() : gscIntro.play()));
+  if (noIntro) { finish(G && G.y); fromHash(); }
   else {
     card0();
     // burst when at least a quarter of the frame is in view

@@ -775,7 +775,7 @@ const SCENES: Scene[] = [
   },
 ];
 
-/** The platform's mark on the laptop bar's Pace tile: the brand mark, or the initials. */
+/** The laptop bar's Pace tile: the platform's mark, or its initials. */
 function CoreMark({ platform }: { platform: PublicPlatform }) {
   if (!usesBrandIdentity(platform.name))
     return (

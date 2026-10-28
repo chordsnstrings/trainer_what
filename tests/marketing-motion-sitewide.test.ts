@@ -80,7 +80,7 @@ const EASING = /^var\(--mk-ease-(out|in|in-out|spring|enter)\)$/;
 const STAGGER_VAR = String.raw`var\(--mk-(?:stagger(?:-step|-load)?|set-step)(?:, ?[\d.]+m?s)?\)`;
 const TIME = new RegExp(String.raw`^(-?[\d.]+m?s|${STAGGER_VAR}|calc\((?:[\d.]+m?s|[\d.]+|${STAGGER_VAR}|[\s+*-])+\))$`);
 const KEYWORD_EASING = /^(ease|ease-in|ease-out|ease-in-out|linear|step-start|step-end|(cubic-bezier|steps|linear)\(.*\))$/;
-/** The success states that may use the spring (the /features ticks, pops). */
+/** The success states that may use the spring (the /features ticks, the Trainer Brain stamp). */
 const SPRING_ALLOWED = [
   '.mk-sets[data-mk-cue="in"] svg',
   ".mk-screen-note svg",
