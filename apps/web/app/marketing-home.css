@@ -1,3 +1,941 @@
 /* The home page (components/marketing/pages/home.tsx). Every rule sits
    under the .mk-hm- prefix, and the marketing motion contract applies
-   (tests/marketing-motion-sitewide.test.ts). */
+   (tests/marketing-motion-sitewide.test.ts). Concept A's home in the house
+   tokens; always light, so the sample mock-ups draw their frames with ink
+   lines and Pace fills, never an ink surface (scripts/brand-check.mjs). The
+   showcases style themselves (app/brain-*.css). */
+
+/* ---------- the hero ---------- */
+/* One column in the DOM's order (eyebrow, H1, field, lede, calls to
+   action, micro line) up to 1180px. From 1181px the copy takes five of
+   twelve columns, centred against the field in the other seven: grid
+   areas, never CSS order, so focus follows what the eye reads. */
+.mk-hm-hero-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  padding-block: clamp(20px, 2.2vw, 32px) clamp(48px, 5vw, 72px);
+}
+.mk-hm-hero .eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-block-end: 16px;
+}
+.mk-hm-hero .eyebrow::before {
+  content: "";
+  inline-size: 8px;
+  block-size: 8px;
+  border-radius: 2px;
+  background: var(--lime);
+  box-shadow: inset 0 0 0 1px rgb(23 25 23 / 25%);
+}
+.mk-hm-hero-media {
+  min-inline-size: 0;
+  margin-block-start: 16px;
+}
+.mk-hm-hero .mk-hero-lede {
+  margin-block-start: 20px;
+}
+.mk-hm-hero .mk-hm-ctas {
+  gap: 12px;
+  margin-block-start: 24px;
+}
+.mk-hm-ctas .button {
+  font-size: 15px;
+}
+.mk-hm-hero .mk-pf-micro {
+  margin-block-start: 16px;
+}
+@media (min-width: 1181px) {
+  .mk-hm-hero-grid {
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    grid-template-rows: 1fr repeat(5, auto) 1fr;
+    grid-template-areas: ". media" "eyebrow media" "h1 media" "lede media" "cta media" "micro media" ". media";
+    column-gap: 24px;
+  }
+  .mk-hm-hero .eyebrow {
+    grid-area: eyebrow;
+  }
+  .mk-hm-hero h1 {
+    grid-area: h1;
+  }
+  .mk-hm-hero-media {
+    grid-area: media;
+    align-self: center;
+    margin: 0;
+  }
+  .mk-hm-hero .mk-hero-lede {
+    grid-area: lede;
+  }
+  .mk-hm-hero .mk-hm-ctas {
+    grid-area: cta;
+  }
+  .mk-hm-hero .mk-pf-micro {
+    grid-area: micro;
+  }
+}
+@media (min-width: 761px) and (max-width: 1180px) {
+  .mk-hm-hero h1 {
+    max-inline-size: 14em;
+  }
+}
+/* Phones: the H1 in two fixed lines, sized so the first fits in the
+   fallback font too, so the field under it never moves when Inter loads. */
+@media (min-width: 761px) {
+  .mk-hm-br {
+    display: none;
+  }
+}
+@media (max-width: 760px) {
+  .mk-hm-hero h1 {
+    font-size: min(9.6vw, 40px);
+    max-inline-size: none;
+  }
+  .mk-hm-l1,
+  .mk-hm-l2 {
+    white-space: nowrap;
+  }
+  .mk-hm-hero .mk-hm-ctas {
+    display: grid;
+    gap: 8px;
+  }
+  .mk-hm-ctas .button {
+    min-block-size: 48px;
+  }
+  .mk-hm-hero + .mk-hm-resort {
+    padding-block-start: 56px;
+  }
+}
+/* The band after the hero is paper: its full top space (phones: above). */
+@media (min-width: 761px) {
+  .mk-hm-hero + .mk-hm-resort {
+    padding-block-start: 96px;
+  }
+}
+
+/* ---------- bands ---------- */
+.mk-hm-rule {
+  border-block-start: 1px solid var(--mk-line);
+}
+.mk-hm-head h2 {
+  margin: 0;
+  font-size: clamp(28px, 3.2vw, 44px);
+  line-height: 1.12;
+  letter-spacing: -0.04em;
+  font-weight: 540;
+}
+.mk-hm-lede {
+  max-inline-size: 36em;
+  margin-block: 16px 0;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1.5;
+}
+.mk-hm-note {
+  margin-block: 8px 0;
+  color: var(--muted);
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+.mk-hm-split,
+.mk-hm-copy,
+.mk-hm-econ,
+.mk-hm-econ-lower {
+  display: grid;
+  gap: 24px;
+  align-items: start;
+  min-inline-size: 0;
+}
+.mk-hm-split {
+  gap: 32px;
+}
+.mk-hm-copy .mk-home-more {
+  margin: 0;
+}
+@media (min-width: 1001px) {
+  .mk-hm-head-split {
+    display: grid;
+    grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+    column-gap: 24px;
+    align-items: end;
+  }
+  .mk-hm-head-split .mk-hm-lede {
+    margin: 0;
+  }
+  .mk-hm-split {
+    grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+    column-gap: calc(8.33% + 24px);
+  }
+  .mk-hm-flip {
+    grid-template-columns: minmax(0, 6fr) minmax(0, 5fr);
+  }
+  .mk-hm-flip > .mk-hm-media {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .mk-hm-econ,
+  .mk-hm-econ-lower {
+    grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  }
+}
+.mk-hm-n,
+.mk-hm-mono,
+.mk-hm-url span,
+.mk-hm-ph-date,
+.mk-hm-ph-mono,
+.mk-hm-walk-n,
+.mk-hm-walk-count,
+.mk-hm-window-meta,
+.mk-hm-rule-text,
+.mk-hm-flow-score,
+.mk-hm-lane-ex,
+.mk-hm-bands {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+.mk-hm-n {
+  display: block;
+  margin-block-end: 24px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* ---------- how it works: three steps and the walkthrough ---------- */
+.mk-hm-steps,
+.mk-hm-offer,
+.mk-hm-lanes,
+.mk-hm-facts,
+.mk-hm-bands,
+.mk-hm-tools,
+.mk-hm-checks {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mk-hm-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+}
+.mk-hm-steps li {
+  padding-block-start: 16px;
+  border-block-start: 1px solid var(--ink);
+}
+.mk-hm-steps h3,
+.mk-hm-walk-panel h3 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.025em;
+}
+.mk-hm-steps p {
+  max-inline-size: 30ch;
+  margin-block: 8px 0;
+  color: var(--muted);
+}
+.mk-hm-walk-wrap {
+  margin-block-start: 32px;
+}
+.mk-hm-walk-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-block-end: 12px;
+}
+.mk-hm-walk-label {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.mk-hm-walk {
+  display: grid;
+  gap: 24px;
+}
+.mk-hm-walk-rail {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(var(--n), minmax(0, 1fr));
+  border-block-start: 1px solid var(--line);
+}
+.mk-hm-walk-rail [role="tab"] {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-block-size: 72px;
+  padding-block: 14px 8px;
+  padding-inline: 0 12px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.mk-hm-walk-rail [aria-selected="true"] {
+  color: var(--ink);
+}
+.mk-hm-walk-n,
+.mk-hm-walk-count {
+  font-size: 12px;
+}
+.mk-hm-walk-t {
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.3;
+}
+/* The rail's ink under the chosen step: a transform, never a layout move. */
+.mk-hm-walk-ink {
+  position: absolute;
+  inset-block-start: -1px;
+  inset-inline-start: 0;
+  inline-size: calc(100% / var(--n));
+  block-size: 2px;
+  background: var(--ink);
+  translate: calc(var(--k, 0) * 100% * var(--inline-sign, 1)) 0;
+  transition: translate var(--mk-dur-base) var(--mk-ease-out);
+}
+@media (hover: hover) {
+  .mk-hm-walk-rail [role="tab"]:hover {
+    color: var(--ink);
+  }
+}
+/* Every panel shares one cell, so the box keeps the tallest panel's height
+   and nothing below it moves from step to step; the closed ones stay
+   hidden from every reader. */
+.mk-hm-walk-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 24px;
+  padding: clamp(20px, 3vw, 32px);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--white);
+}
+.mk-hm-walk-panel {
+  grid-area: 1 / 1;
+  align-self: start;
+  max-inline-size: 40em;
+}
+.mk-hm-walk-panel[hidden] {
+  display: block;
+  visibility: hidden;
+}
+.mk-hm-walk-panel p {
+  margin: 0;
+}
+.mk-hm-walk-panel p:last-child {
+  margin-block-start: 8px;
+  color: var(--muted);
+}
+.mk-hm-walk-panel .mk-hm-walk-count {
+  margin-block-end: 8px;
+  color: var(--muted);
+}
+.mk-hm-walk-nav {
+  grid-area: 1 / 2;
+  display: flex;
+  gap: 8px;
+}
+.mk-hm-walk-nav [aria-disabled="true"] {
+  opacity: 0.4;
+  cursor: default;
+}
+@media (max-width: 760px) {
+  .mk-hm-steps {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+  .mk-hm-steps .mk-hm-n {
+    margin-block-end: 8px;
+  }
+  /* Numbered squares; each title stays in its tab's name, and a "Not on
+     yet" chip shrinks to a dot that keeps its words. */
+  .mk-hm-walk-rail {
+    grid-template-columns: repeat(var(--n), minmax(0, 1fr));
+    gap: 6px;
+    border: 0;
+  }
+  .mk-hm-walk-rail [role="tab"] {
+    position: relative;
+    min-block-size: 44px;
+    padding: 0;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--ty-radius-control);
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+  .mk-hm-walk-rail [aria-selected="true"] {
+    box-shadow: inset 0 0 0 2px var(--ink);
+    font-weight: 700;
+  }
+  .mk-hm-walk-t {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .mk-hm-walk-ink {
+    display: none;
+  }
+  .mk-hm-walk-flag {
+    position: absolute;
+    inset-block-start: 5px;
+    inset-inline-end: 5px;
+    line-height: 0;
+  }
+  .mk-hm-walk-flag .mk-pf-chip {
+    inline-size: 7px;
+    block-size: 7px;
+    min-block-size: 0;
+    padding: 0;
+    overflow: hidden;
+    background: var(--warning);
+    font-size: 0;
+  }
+  .mk-hm-walk-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .mk-hm-walk-nav {
+    grid-area: 2 / 1;
+  }
+}
+@media (max-width: 420px) {
+  .mk-hm-walk-rail {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/* ---------- what subscribers get ---------- */
+.mk-hm-offer li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-block-size: 52px;
+  padding-block: 10px;
+  border-block-start: 1px solid var(--line);
+}
+.mk-hm-offer li:last-child {
+  border-block-end: 1px solid var(--line);
+}
+.mk-hm-offer-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.mk-hm-neutral {
+  background: var(--paper);
+  color: var(--ink);
+}
+.mk-hm-brand {
+  margin: 0;
+}
+.mk-hm-mono {
+  font-size: 14px;
+}
+/* The sample phone on a dotted stage: ink lines, a Pace card, no ink fill. */
+.mk-hm-sample {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+.mk-hm-stage {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  padding-block: 72px 56px;
+  padding-inline: 24px;
+  border-radius: 12px;
+  background-color: var(--paper);
+  background-image: radial-gradient(circle at 1px 1px, rgb(23 25 23 / 6%) 1.2px, transparent 1.6px);
+  background-size: 24px 24px;
+}
+.mk-hm-phone {
+  inline-size: 264px;
+  overflow: hidden;
+  border: 2px solid var(--ink);
+  border-radius: 28px;
+  background: var(--white);
+  box-shadow: var(--mk-shadow);
+  font-size: 12px;
+}
+.mk-hm-phone p {
+  margin: 0;
+}
+.mk-hm-ph-status,
+.mk-hm-ph-head,
+.mk-hm-ph-progress p,
+.mk-hm-ph-row,
+.mk-hm-ph-tabs,
+.mk-hm-ph-start,
+.mk-hm-url {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.mk-hm-ph-status {
+  block-size: 34px;
+  padding-inline: 22px 18px;
+  font-size: 11px;
+  font-weight: 500;
+}
+.mk-hm-ph-island {
+  inline-size: 64px;
+  block-size: 10px;
+  border-radius: 999px;
+  background: var(--ink);
+}
+.mk-hm-ph-battery {
+  inline-size: 20px;
+  block-size: 10px;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1.4px var(--ink);
+}
+.mk-hm-ph-head {
+  justify-content: flex-start;
+  padding-block: 4px 10px;
+  padding-inline: 14px;
+  border-block-end: 1px solid var(--line);
+  font-size: 13px;
+  font-weight: 600;
+}
+.mk-hm-ph-av,
+.mk-hm-icon span {
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--lime);
+  font-weight: 700;
+}
+.mk-hm-ph-av {
+  inline-size: 24px;
+  block-size: 24px;
+  font-size: 10px;
+}
+.mk-hm-ph-tag {
+  margin-inline-start: auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--paper);
+  font-size: 10.5px;
+  font-weight: 500;
+}
+.mk-hm-ph-today {
+  display: grid;
+  gap: 10px;
+  padding-block: 12px 14px;
+  padding-inline: 14px;
+}
+.mk-hm-ph-date {
+  color: var(--muted);
+  font-size: 10.5px;
+}
+.mk-hm-phone .mk-hm-ph-title {
+  margin-block-start: -6px;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+.mk-hm-ph-start {
+  justify-content: flex-start;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--lime);
+  color: var(--on-lime);
+}
+.mk-hm-ph-start strong,
+.mk-hm-ph-start small {
+  display: block;
+  font-size: 13.5px;
+}
+.mk-hm-ph-start small {
+  font-size: 11px;
+}
+.mk-hm-ph-play {
+  display: grid;
+  place-items: center;
+  flex: none;
+  inline-size: 32px;
+  block-size: 32px;
+  border-radius: 50%;
+  background: var(--white);
+}
+.mk-hm-ph-progress {
+  padding-block: 10px;
+  padding-inline: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.mk-hm-ph-progress p,
+.mk-hm-ph-row {
+  font-weight: 600;
+}
+.mk-hm-ph-mono {
+  font-size: 11px;
+  font-weight: 500;
+}
+.mk-hm-ph-spark {
+  inline-size: 100%;
+  block-size: 44px;
+  margin-block-start: 6px;
+  overflow: visible;
+}
+.mk-hm-ph-spark polyline {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.mk-hm-ph-spark circle {
+  fill: var(--lime);
+  stroke: var(--ink);
+  stroke-width: 1.6;
+}
+.mk-hm-ph-tabs {
+  justify-content: space-around;
+  padding-block: 10px 14px;
+  padding-inline: 6px;
+  border-block-start: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 10.5px;
+}
+.mk-hm-ph-on {
+  color: var(--ink);
+  font-weight: 600;
+}
+.mk-hm-url {
+  position: absolute;
+  inset-block-start: 20px;
+  inset-inline-start: 20px;
+  max-inline-size: calc(100% - 40px);
+  block-size: 34px;
+  margin: 0;
+  padding-inline: 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--white);
+  box-shadow: var(--mk-shadow);
+  font-size: 12px;
+}
+.mk-hm-url svg {
+  flex: none;
+  color: var(--success);
+}
+.mk-hm-url span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mk-hm-icon {
+  position: absolute;
+  inset-inline-end: 28px;
+  inset-block-end: 44px;
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  margin: 0;
+}
+.mk-hm-icon span {
+  inline-size: 64px;
+  block-size: 64px;
+  border-radius: 16px;
+  box-shadow: var(--mk-shadow);
+  font-size: 20px;
+}
+.mk-hm-icon small {
+  font-size: 12px;
+  font-weight: 500;
+}
+@media (max-width: 760px) {
+  .mk-hm-stage {
+    padding-block: 64px 40px;
+    padding-inline: 12px;
+  }
+  .mk-hm-icon {
+    inset-inline-end: 10px;
+    inset-block-end: 18px;
+  }
+  .mk-hm-icon span {
+    inline-size: 52px;
+    block-size: 52px;
+    border-radius: 13px;
+    font-size: 16px;
+  }
+}
+
+/* ---------- you stay in charge: the flow window ---------- */
+.mk-hm-window {
+  margin: 0;
+  overflow: hidden;
+  border: 2px solid var(--ink);
+  border-radius: 12px;
+  background: var(--white);
+  box-shadow: var(--mk-shadow);
+}
+.mk-hm-window-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-block-size: 36px;
+  padding-inline: 14px;
+  border-block-end: 1px solid var(--line);
+  background: var(--paper);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.mk-hm-window-meta {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+.mk-hm-flow {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+.mk-hm-flow p {
+  margin: 0;
+}
+.mk-hm-flow-msg {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+}
+.mk-hm-flow-who,
+.mk-hm-rule-src {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+.mk-hm-bubble {
+  padding-block: 9px;
+  padding-inline: 12px;
+  border-radius: 16px;
+  border-end-start-radius: 4px;
+  background: var(--paper);
+  font-size: 13.5px;
+  line-height: 1.35;
+}
+.mk-hm-flow-rule {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.mk-hm-rule-chip {
+  display: grid;
+  flex: 1 1 220px;
+  gap: 2px;
+  padding-block: 8px;
+  padding-inline: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.mk-hm-rule-text {
+  font-size: 13px;
+  font-weight: 500;
+}
+.mk-hm-flow-score {
+  padding-block: 6px;
+  padding-inline: 10px;
+  border-radius: 999px;
+  background: var(--paper);
+  font-size: 12px;
+}
+.mk-hm-lanes {
+  display: grid;
+  gap: 8px;
+}
+.mk-hm-lanes li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-block-size: 52px;
+  padding-block: 8px;
+  padding-inline: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.mk-hm-lanes .mk-hm-on {
+  border-color: color-mix(in srgb, var(--lime) 55%, var(--line));
+  background: color-mix(in srgb, var(--lime) 22%, var(--white));
+}
+.mk-hm-lane {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-block-size: 30px;
+  padding-block: 4px;
+  padding-inline: 12px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.mk-hm-lane-dot {
+  flex: none;
+  inline-size: 7px;
+  block-size: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.mk-hm-lane[data-tone="sent"] {
+  background: var(--success-bg);
+  color: var(--success);
+}
+.mk-hm-lane[data-tone="waits"] {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+.mk-hm-lane[data-tone="paused"] {
+  background: var(--error-bg);
+  color: var(--error);
+}
+.mk-hm-lane-ex {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.mk-hm-here {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+@media (max-width: 760px) {
+  .mk-hm-lanes li {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .mk-hm-lane-ex {
+    grid-area: 2 / 1 / 3 / 3;
+  }
+}
+
+/* ---------- free to start: status, facts, tools ---------- */
+.mk-hm-facts > li {
+  padding-block: 16px 18px;
+  border-block-start: 1px solid var(--line);
+}
+.mk-hm-facts .mk-hm-n {
+  margin-block-end: 6px;
+}
+.mk-hm-facts h3 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+.mk-hm-bands,
+.mk-hm-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.mk-hm-bands {
+  margin-block-start: 10px;
+}
+.mk-hm-bands li {
+  padding-block: 4px;
+  padding-inline: 8px;
+  border-radius: var(--ty-radius-control);
+  background: var(--paper);
+  font-size: 12.5px;
+}
+.mk-hm-tools-h {
+  margin-block: 0 12px;
+  font-weight: 600;
+}
+.mk-hm-tools {
+  gap: 8px;
+}
+.mk-hm-tools li {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-block-size: 40px;
+  padding-block: 4px;
+  padding-inline: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 14.5px;
+}
+.mk-hm-tools svg {
+  flex: none;
+  color: var(--success);
+}
+.mk-hm-tools .lucide-minus {
+  color: var(--warning);
+}
+.mk-hm-econ-lower {
+  margin-block-start: 16px;
+}
+@media (min-width: 1001px) {
+  .mk-hm-facts > li:first-child {
+    padding-block-start: 0;
+    border-block-start: 0;
+  }
+}
+
+/* ---------- the follower estimate and the proof ---------- */
+.mk-hm-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+.mk-hm-calc-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px 28px;
+}
+.mk-hm-calc-foot .mk-pf-micro {
+  margin-block-start: 8px;
+}
+.mk-hm-checks {
+  margin-block-start: 16px;
+  border-block-start: 1px solid var(--line);
+}
+.mk-hm-checks li {
+  border-block-end: 1px solid var(--line);
+}
+.mk-hm-checks a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-block-size: 56px;
+  color: var(--ink);
+  font-size: 17px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  text-decoration: none;
+}
+@media (hover: hover) {
+  .mk-hm-checks a:hover {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+}
+
+/* ---------- reduced motion ("device" mode only; marketing-motion.md) ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .mk-hm-walk-ink:not(:where([data-mk-motion="always"], [data-mk-motion="always"] *)) {
+    transition: none !important;
+  }
+}

@@ -72,6 +72,7 @@ import {
   secondaryCta,
   type Ctx,
 } from "./page-parts";
+import { HomePage } from "./pages/home";
 import { PricingPage } from "./pages/pricing";
 import { ScrollScenes } from "./scene-mount";
 import type { PublicPlatform } from "./platform";
@@ -91,6 +92,7 @@ export { availabilityChip, Section };
  */
 const BESPOKE: Partial<Record<string, (c: Ctx) => ReactNode>> = {
   "/pricing": (c) => <PricingPage {...c} />,
+  "/": (c) => <HomePage {...c} />,
 };
 
 /**

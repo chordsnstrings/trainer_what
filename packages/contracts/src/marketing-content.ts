@@ -690,7 +690,7 @@ const MY_AI_TRAINED_FAQ: MarketingFaq = {
  */
 const PAY_TODAY_FAQ: MarketingFaq = {
   q: "Can subscribers pay me today?",
-  a: "Not yet. Subscriber payments are not on yet, and publishing your page waits for them. Today you can join, set up your page and app, and teach and test your AI.",
+  a: "Not yet. Subscriber payments are not on yet, and publishing your page waits for them. With an account you can already set up your page and app, and teach and test your AI.",
 };
 /**
  * Lines shown only while an availability flag is on (marketingPageFor): the
@@ -772,56 +772,83 @@ export const MARKETING_CONTENT: MarketingPage[] = [
     // teaches, the platform trains their subscribers); the brand line leads
     // the description and closes every page. Removed home blocks now live
     // on deeper pages (docs/features/marketing-site.md "Where the home
-    // content went").
+    // content went"). Phase 1 (27 October 2026, docs/marketing-revamp-
+    // 2026-10-26/phase1/PLAN.md): the bands of the redesigned home; the
+    // introduction stays the answer to the first FAQ.
     description:
       "Your coaching. Beyond your hours. Free to join: teach your AI how you coach; it trains your subscribers day by day under your brand, priced in AED.",
     h1: BRAND_COPY.homeHeadline,
     h1Highlight: "trains",
-    eyebrow: "FOR PERSONAL TRAINERS",
-    // One name in the hero ("your AI", as in the H1 and the call to
-    // action); the relay's loop is the only place that says it asks you.
-    lede: "Free to set up, nothing to pay upfront. Share your methods and rules; your AI coaches every subscriber day by day, your way.",
+    eyebrow: "FOR UAE PERSONAL TRAINERS",
+    lede: "Specialists inside your AI handle every message. Code checks every step. You decide what goes out.",
     intro: HOME_INTRO,
     primaryKeyword: "AI personal trainer platform",
     sections: [
       {
+        id: "resort",
+        heading: "Change a setting. Watch it re-sort.",
+        body: [
+          "Your settings apply to every moment at once. Make it stricter and more waits for you. Safety rules never switch off.",
+        ],
+      },
+      {
+        // The /how-it-works steps follow as the home's walkthrough.
+        id: "how",
+        heading: "How it works",
+        steps: [
+          { title: "You teach", body: "Rules, cases and an 8-answer quiz shape your AI (we call it your Trainer Brain)." },
+          { title: "It coaches", body: "A dated plan daily, guided workouts, adjusted as they train." },
+          { title: "You decide", body: "Your approved reply fits → sent on its own. Anything else waits for you. Pain → paused." },
+        ],
+      },
+      {
         id: "subscribers",
-        heading: "What your subscribers get",
-        body: ["A plan for every day, built your way, that adapts as they train."],
+        heading: "What subscribers get, under your name",
+        bullets: HOME_OFFER.map((item) => item.text),
+        note: "Once your page is live.",
       },
       {
         id: "control",
         heading: "You stay in charge",
         body: [
-          "You choose what runs on its own. Take over any subscriber, any time.",
+          "“Waits for me” mode: replies wait for you until automatic sending is on. That needs 20 cases and passing checks.",
         ],
+        bullets: NEVER_LIST,
+        note: NEVER_NOTE,
       },
       {
         id: "economics",
         heading: "Free to start. Your price.",
-        body: [
-          "Joining, your coaching site and app, and teaching your AI are free. Nothing to pay upfront; your own domain is optional.",
-          "You set the price in AED. We earn only when subscribers pay: our share starts at 25% and falls as you grow. Card processing is itemised.",
-        ],
+        body: ["We earn only when your subscribers pay."],
+        bullets: ["Free to join", "You set the AED price", "Our share falls as you grow"],
+        note: "Each rate applies to its band only.",
       },
       {
         id: "followers",
         heading: "What are your followers worth?",
-        body: ["The headline is a strong case for an engaged, growing audience, from published benchmarks and our stated assumptions. An estimate, not a promise."],
+        body: ["A best case for an engaged, growing audience, from published benchmarks. An estimate, not a promise."],
+      },
+      {
+        id: "proof",
+        heading: "Proof you can check",
+        body: ["We publish no testimonials, logos, ratings or counts we can’t show. Check these instead:"],
+        bullets: PROOF_LINKS.map((link) => link.label),
       },
     ],
     faqs: [
       { q: "How does {APP_NAME} work?", a: HOME_INTRO },
-      REPLACE_FAQ,
+      MY_AI_REPLACE_FAQ,
       SAFETY_FAQ,
       FREE_FAQ,
+      FOLLOWERS_FAQ,
+      PAY_TODAY_FAQ,
       TECH_FAQ,
-      INSTAGRAM_FAQ,
     ],
     related: ["/how-it-works", "/trainer-brain", "/features", "/pricing", "/follower-calculator"],
-    lastUpdated: "2026-10-03",
+    lastUpdated: "2026-10-27",
     indexable: true,
     jsonLd: ["WebPage", "FAQPage"],
+    secondaryCta: { label: "Try the demo", href: "/demo" },
   },
   {
     path: "/how-it-works",
@@ -2285,6 +2312,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         q: "Do I need an advertiser permit to promote my own coaching?",
         a: "Reports on the UAE Advertiser Permit say people promoting their own services through personal accounts are exempt. Rules change, so check with the UAE Media Council. This is information, not legal advice.",
       },
+      INSTAGRAM_FAQ,
     ],
     related: ["/how-it-works", "/pricing", "/guides/uae-advertiser-permit"],
     lastUpdated: UPDATED,

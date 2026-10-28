@@ -56,7 +56,7 @@ export const SUBSCRIBER_LINES: RegistryLine[] = [
   { path: "/features/subscriber-app", section: "subscriber", bullet: 1 },
   { path: "/features/payments-and-payouts", section: "subscriber", bullet: 0 },
   {
-    path: "/",
+    path: "/faq",
     faq: "How do my Instagram followers become subscribers?",
     sentence: 1,
   },
