@@ -111,7 +111,8 @@
     - phone hit areas: the field's level radios are 28 px wide and the anatomy notes 22 px tall. Both pass WCAG 2.5.8; PLAN §4.4 is to be amended;
     - while open, the consent bar covers the anatomy's Pause;
     - one intermittent 8 px overflow at 320 px comes from the header's `nav.mk-mobile-nav`.
-- **Now running:** the docs refresh and the milestone verification, started about 18:05.
+- **Docs refresh is done** (`06f2654`, `80469bc`). It updated 13 files to describe what shipped: `brain-showcase.md`, `marketing-site.md`, `marketing-motion.md`, `scroll-scenes.md`, `brand.md`, `dark-mode.md`, `analytics-consent.md`, `kamran-assistant.md`, `PROJECT_MEMORY.md`, `COMPLETION_STAGES.md` (factual lines only), the revamp README, and dated corrections in PLAN and SHOWCASE_DESIGN.
+- **Milestone verification is running** (19:10). It has fixed one thing so far (`451080b`): with the model off, the playground's safety-lock still frame moved 9 px when the lazy sheet arrived.
 
 **Done today:**
 - **Part 2:** WP4 home, WP5 brain pages, WP7a clean-up, WP7b checks and the CI step, WP8 docs.
