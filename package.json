@@ -28,6 +28,7 @@
     "test:marketing-motion": "node scripts/run-marketing-motion-checks.mjs",
     "test:marketing-motion-journey": "node --import tsx scripts/run-marketing-motion-check.mjs",
     "test:marketing-motion-sitewide": "node --import tsx scripts/marketing-motion-sitewide-check.mjs",
+    "test:marketing-showcase": "MOTION_CHECK_MODULE=./marketing-showcase-check.mjs node --import tsx scripts/run-marketing-motion-check.mjs",
     "screenshots": "node scripts/capture-app-views.mjs",
     "format": "prettier --write apps packages scripts tests",
     "readiness": "node --import tsx --env-file-if-exists=.env scripts/readiness.ts",
