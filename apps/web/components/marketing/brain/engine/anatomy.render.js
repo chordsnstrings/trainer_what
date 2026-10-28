@@ -59,7 +59,8 @@ export const LET = "abcdefghij";
 /* What code can pick from, each with its moment (SHOWCASE_DESIGN.md §4 (f));
    any specialist not on yet sits on the shelf beside them. */
 const COACH = [["reply_picker", "a rule fits"], ["draft_writer", "no rule fits"], ["plan_writer", "new plan"], ["week_reviewer", "week ends"], ["meal_photo", "meal photo"], ["voice_lines", "before a voice session"], ["set_logger", "during a workout"]];
-/* Other members' moments (the ghost stacks): trace, moment, shown on phones. Each lights only its own node. */
+/* Other members' moments (the ghost stacks): trace, moment, shown on phones. Each lights only its own
+   node; the runtime runs them (data-run), and the still figure shows them unlit. */
 export const GHOSTS = [["t8", "week ends", 1], ["t2", "knee", 1], ["t4", "meal photo", 1], ["t9", "creatine", 0], ["t10", "first plan", 0]];
 
 /* ------------------------------------------------------------------ model */
@@ -164,7 +165,7 @@ export const stackHTML = (d, M, S) => M.plates.map((p, i) => plateHTML(d, M, p, 
 function ghostHTML(d, S) {
   return GHOSTS.map(([id, moment, ph], g) => {
     const t = d.trace(id), r = decide(t, S, d), pk = pick(t, d, S), stop = (stepOf(r, "safety") || {}).result == "hit", topic = (stepOf(r, "topics") || {}).result == "hit";
-    return `<div class="ca-g" data-g="${g}"${ph ? "" : " data-desk"} data-run="4"><span class="ca-gl">${esc(t.member)} · ${esc(moment)}</span><div class="ca-gs">` +
+    return `<div class="ca-g" data-g="${g}"${ph ? "" : " data-desk"}><span class="ca-gl">${esc(t.member)} · ${esc(moment)}</span><div class="ca-gs">` +
       `<i data-k="m"></i><i data-k="c"${stop ? " data-hit" : topic ? " data-amber" : ""}><b>${stop ? "STOP · No AI called" : topic ? "Your topic" : ""}</b></i>` +
       `<i data-k="s"${pk ? "" : " data-none"}><b>${esc(pk ? d.sp[pk].name : d.labels.noAi)}</b></i><i data-k="l" data-lane="${r.lane}"><b>${esc(d.labels.lanes[r.lane].replace(", within your rules", ""))}</b></i></div></div>`;
   }).join("");

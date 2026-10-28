@@ -113,7 +113,160 @@ html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-book[data-jl] .ca-
   transform: none;
 }
 
-/* ---------- other members' moments, mid-run (the first frame shows them done) ---------- */
+/* ---------- while the engine plays: the halo, the overlay (thread, pulse, rule lines,
+   brackets, the leader), its labels and the stamp, and other members' finished moments.
+   The first frame never shows them: the still figure has no paths to draw. ---------- */
+/* The halo is a gradient, not a blurred shadow: far cheaper to raster on a 3D plane. */
+html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-brain::before {
+  content: "";
+  position: absolute;
+  inset: -56px -64px;
+  z-index: -1;
+  border-radius: 40px;
+  background: radial-gradient(
+    closest-side,
+    color-mix(in srgb, var(--sc-ai-on) 34%, transparent),
+    color-mix(in srgb, var(--sc-ai-on) 10%, transparent) 55%,
+    transparent
+  );
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--mk-dur-slow) var(--sc-ease);
+}
+html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-brain[data-lit][data-state="lit"]::before {
+  opacity: 1;
+}
+
+/* The overlay: the thread, the pulse, rule lines, brackets, the leader. */
+html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-svg {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-svg path {
+  fill: none;
+}
+html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-thr {
+  stroke: color-mix(in srgb, var(--sc-text) 14%, transparent);
+  stroke-width: 1.5;
+}
+html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-thr--on {
+  stroke: var(--sc-ai-on);
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+}
+html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-dot,
+html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-halo {
+  fill: var(--sc-ai-on);
+  opacity: 0;
+  transition: opacity var(--mk-dur-fast) var(--sc-ease);
+}
+html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-rl {
+  stroke: color-mix(in srgb, var(--sc-pace) 30%, transparent);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-br {
+  stroke: color-mix(in srgb, var(--sc-pace) 70%, transparent);
+  stroke-width: 1.25;
+}
+html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-lead {
+  stroke: var(--sc-pace);
+  stroke-width: 1.25;
+}
+html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-brk,
+html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-cite,
+html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-mean {
+  position: absolute;
+  inset-inline-start: 0;
+  inset-block-start: 0;
+  z-index: 2;
+  display: block;
+  white-space: nowrap;
+  pointer-events: none;
+  font: 400 12px/1.2 var(--sc-font);
+  color: var(--sc-pace);
+}
+html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-brk {
+  translate: calc(-100% * var(--inline-sign, 1)) -50%;
+  opacity: calc(var(--sv, 0) * 0.9);
+}
+html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-cite {
+  translate: calc(-100% * var(--inline-sign, 1)) -150%;
+  opacity: 0;
+  transition: opacity var(--mk-dur-base) var(--sc-ease);
+}
+html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-mean {
+  inset-inline: auto 0;
+  color: var(--sc-muted);
+  opacity: calc(var(--gh) * 1.8);
+}
+html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-stop {
+  position: absolute;
+  inset-inline-start: calc(var(--ox) * 1%);
+  inset-block-start: calc(var(--oy) * 1% - 40px);
+  z-index: 4;
+  display: block;
+  padding: 6px 14px;
+  border: 2.5px solid var(--sc-paused);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--sc-stage) 85%, transparent);
+  color: var(--sc-paused);
+  font: 800 22px/1.2 var(--sc-font);
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  translate: calc(-50% * var(--inline-sign, 1)) -50%;
+  rotate: -4deg;
+  opacity: 0;
+  transform: scale(1.12);
+  pointer-events: none;
+  transition:
+    opacity var(--mk-dur-fast) var(--sc-ease),
+    transform var(--mk-dur-base) var(--sc-spring);
+}
+
+/* A finished moment (data-run="4"): every layer lit, white text on its lane's tint. */
+html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-g[data-run="4"] :is([data-k="m"], [data-k="c"]) {
+  border-color: var(--sc-text);
+}
+html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-g[data-run="4"] [data-k="c"][data-hit] {
+  border-color: var(--sc-paused);
+  background: color-mix(in srgb, var(--sc-paused) 30%, var(--sc-node));
+}
+html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-g[data-run="4"] [data-k="c"][data-amber] {
+  border-color: var(--sc-waits);
+  background: color-mix(in srgb, var(--sc-waits) 24%, var(--sc-node));
+}
+html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-g[data-run="4"] [data-k="s"]:not([data-none]) {
+  border-color: var(--sc-ai-on);
+  background: color-mix(in srgb, var(--sc-ai-on) 24%, var(--sc-node));
+}
+html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-g[data-run="4"] [data-k="l"] {
+  border-color: var(--sc-sent);
+  background: color-mix(in srgb, var(--sc-sent) 24%, var(--sc-node));
+}
+html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-g[data-run="4"] [data-k="l"][data-lane="waits"] {
+  border-color: var(--sc-waits);
+  background: color-mix(in srgb, var(--sc-waits) 24%, var(--sc-node));
+}
+html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-g[data-run="4"] [data-k="l"][data-lane="paused"] {
+  border-color: var(--sc-paused);
+  background: color-mix(in srgb, var(--sc-paused) 30%, var(--sc-node));
+}
+html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-g[data-run="4"] [data-k="l"][data-lane="member"] {
+  border-color: var(--sc-member);
+  background: color-mix(in srgb, var(--sc-member) 20%, var(--sc-node));
+}
+html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-g[data-run="4"] :is([data-k="c"][data-hit], [data-k="c"][data-amber], [data-k="s"], [data-k="l"]) b {
+  opacity: 1;
+}
+
+/* ---------- other members' moments, mid-run ---------- */
 html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-g:is([data-run="0"], [data-run="1"], [data-run="2"], [data-run="3"]) [data-k="m"],
 html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-g:is([data-run="1"], [data-run="2"], [data-run="3"]) [data-k="c"] {
   border-color: var(--sc-text);
