@@ -41,7 +41,8 @@
 //     under emulated reduced motion, with the member's reduce-motion cookie
 //     and during a Kamran call (html[data-mk-call]); the rest of the
 //     marketing motion still follows its switch (data-mk-motion); nothing in
-//     a showcase animates forever.
+//     a showcase animates forever. Pages start at ?tier=full; a pass the
+//     watchdog ends at "minimal" (no anatomy frames by design) runs again.
 //  7. ?tier=full&slow=30 steps data-sc-tier down within 5 s.
 //  8. Kamran's button (the assistant stub on) meets no showcase control at
 //     390x844 and 360x800, scroll 0.
@@ -747,19 +748,34 @@ await step(5, "lifecycle", async () => {
  * Frames per kind: running while visible; gone within 1 s off screen, in a
  * hidden document, after Pause, during a call and under the device's reduced
  * motion, and back each time; the member's cookie in a context of its own.
+ * Pages start at ?tier=full. The watchdog can still step a busy machine down
+ * to "minimal", where the anatomy draws no frames at all (by design), so a
+ * pass that ends there is tried once more on a fresh page.
  */
 async function framesFor(path, kind, viewport = DESKTOP) {
   const label = `6. ${path} ${kind}`;
+  for (let attempt = 1; ; attempt++) {
+    const { problems, tier } = await framesPass(path, kind, viewport, label);
+    if (problems.length && tier === "minimal" && attempt === 1) {
+      report(label, `the watchdog stepped down to "minimal" (${problems[0]}); tried once more`);
+      continue;
+    }
+    for (const p of problems) fail(label, tier === "minimal" ? `${p} (tier "minimal")` : p);
+    return;
+  }
+}
+async function framesPass(path, kind, viewport, label) {
+  const problems = [];
   const page = await open({ viewport });
-  await go(page, path);
+  await go(page, path, "sc=on&tier=full");
   const id = await hostOf(page, kind);
   await scrollToHost(page, id, kind === "anatomy" ? "start" : "center");
   if (!(await isOn(page, id))) throw new Error(`${label}: never "on"`);
   if (kind === "anatomy") await scrollTop(page, await page.evaluate((id) => document.getElementById(id).getBoundingClientRect().top + scrollY + innerHeight * 0.4, id));
   const runs = async (what) => {
-    if (!(await running(page, id, true, 4000))) return fail(label, `${what}: no data-sc-run while visible`);
+    if (!(await running(page, id, true, 4000))) return problems.push(`${what}: no data-sc-run while visible`);
     const f = await frames(page, 1000);
-    if (!(f.count > 0)) fail(label, `${what}: no frame in 1 s while running`);
+    if (!(f.count > 0)) problems.push(`${what}: no frame in 1 s while running`);
   };
   await runs("visible");
   const y = await page.evaluate(() => scrollY);
@@ -772,15 +788,15 @@ async function framesFor(path, kind, viewport = DESKTOP) {
   ];
   for (const [what, apply, undo] of states) {
     await apply();
-    if (!(await running(page, id, false, 1000))) fail(label, `data-sc-run still set 1 s after ${what}`);
+    if (!(await running(page, id, false, 1000))) problems.push(`data-sc-run still set 1 s after ${what}`);
     if (what === "Pause") {
       const p = await pauseState(page, id);
-      if (p?.pressed !== "true") fail(label, `Pause: aria-pressed ${p?.pressed}`);
+      if (p?.pressed !== "true") problems.push(`Pause: aria-pressed ${p?.pressed}`);
     }
     if (what.startsWith("reduced")) {
       await isOn(page, id, 5000);
       await page.waitForTimeout(500);
-      if ((await scState(page, id))?.run) fail(label, "frames run again under reduced motion");
+      if ((await scState(page, id))?.run) problems.push("frames run again under reduced motion");
     }
     await undo();
     if (what.startsWith("reduced")) await isOn(page, id, 5000);
@@ -792,9 +808,11 @@ async function framesFor(path, kind, viewport = DESKTOP) {
       .filter((a) => a.effect?.target?.closest?.("[data-showcase]") && a.effect.getComputedTiming().iterations === Infinity)
       .map((a) => a.animationName ?? "script"),
   );
-  if (infinite.length) fail(label, `infinite animation(s): ${infinite.join(", ")}`);
-  if (page.errors.length) fail(label, page.errors.slice(0, 3).join(" | "));
+  if (infinite.length) problems.push(`infinite animation(s): ${infinite.join(", ")}`);
+  if (page.errors.length) problems.push(page.errors.slice(0, 3).join(" | "));
+  const tier = (await scState(page, id))?.tier;
   await close(page);
+  return { problems, tier };
 }
 
 await step(6, "frames", async () => {
