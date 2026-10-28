@@ -35,7 +35,7 @@ Owner, 26 October 2026: "first understand what converts the most, research, and 
 - `concept-*/site/assets/`, the hand-written CSS and JS.
 
 It also holds:
-- `shared/brain/`, the shared Brain showcase engine (traces, scheduler, playground, anatomy) with its README and verification tools;
+- `shared/brain/`, the shared Brain showcase engine (traces, scheduler, playground, anatomy) with its README and verification tools. Phase 1 ported it to `apps/web/components/marketing/brain/` (`docs/features/brain-showcase.md`), and that port is the one to maintain;
 - `content.json`, the marketing content snapshot the generators read;
 - `export-content.ts`, which re-exports it from `packages/contracts`;
 - `thumbs.cjs`, which captures the gallery screenshots.

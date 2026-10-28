@@ -175,7 +175,7 @@ With either setting:
 
 **Switching, once that line is in:**
 1. Set `MARKETING_SHOWCASE=static` in `runtime.env`, from the DigitalOcean console.
-2. Request "Re-apply runtime settings" on the Super admin Host page, or run `hostops.py reapply` from the console ([infra-ops.md](infra-ops.md)). Either one recreates the serving release with the current `runtime.env`. A plain container restart does not re-read it.
+2. Request "Re-apply runtime settings" on the Super admin "Host and backups" page, or run `hostops.py reapply` from the console ([infra-ops.md](infra-ops.md)). Either one recreates the serving release with the current `runtime.env`. A plain container restart does not re-read it.
 3. To go back, remove the line (or set it to `live`) and re-apply.
 
 ## The overlay layer
@@ -196,8 +196,11 @@ With either setting:
 | `appName` | the platform name | Replaces `{APP_NAME}` in the traces, for example "Platform safety rules · trainsyou. Can't switch off." |
 | `cta` | `teachCta(registrationOpen)` | "Teach your AI — free" → `/signup`, or "Join early access — free" → `/get-started#early-access` while sign-ups are closed. The field and the board carry it in their frame, so the key changes with it. |
 | `flags.payments` | `availability.payments` | While it is off: the status strip shows, and "Try it on yourself" stays. Once it is on: the strip goes, and those items become live, each only if its own `needs` flag is also on. |
-| `flags.payouts`, `voice`, `nutrition` | availability | Statuses: the meal photo reader and the meal-photo moment (t4) need `nutrition`. The voice lines, the set logger and the voice-session moment (t5) need `voice`. |
+| `flags.voice`, `flags.nutrition` | availability | With payments on, an item that `needs` one of them stays "Try it on yourself" until that flag is on too. The meal photo reader and the meal-photo moment (t4) need `nutrition`. The voice lines, the set logger and the voice-session moment (t5) need `voice`. |
+| `flags.payouts` | `availability.payouts` | Passed with the others. No showcase status uses it yet. |
 | `flags.recovery` | fixed `false` in phase 1 | Low recovery (t3) and the Recovery rule stay "Not on yet", whatever the platform says. |
+
+The Meal planner's "Not on yet" is fixed in the data, not driven by a flag. Its `flag` field names the settings it waits for: `NUTRITION_ENABLED && NUTRITION_SCOPE_APPROVED`. The Recovery rule and Low recovery name `WHOOP_TRAINING_APPROVED`.
 | `heading`, `labelledBy`, `attract` | the page | `heading: false` leaves the H2 to the page, and `labelledBy` names it. `attract` makes the `/demo` playground play once on its own. |
 
 **How the data is prepared.** `prepare(raw, {appName, flags})` deep-clones its input before filling it, so one render's name and flags never leak into the next. `tests/marketing-brain-traces.test.ts` checks this with trainsyou → Acme → trainsyou, and with payments off → on → off.
