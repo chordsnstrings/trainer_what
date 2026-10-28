@@ -165,13 +165,18 @@ test("the first paint waits for the whole hero: one rel=expect, to the hero's la
   const section = source.slice(source.indexOf('<section className="mk-hero mk-hm-hero"'));
   assert.ok(section.indexOf('<link rel="expect" href="#mk-hero-end" blocking="render" />') < section.indexOf('className="eyebrow"'));
   assert.match(section, /<span id="mk-hero-end" hidden \/>\s+<\/section>/);
-  // No other marketing page blocks its first paint.
-  for (const page of ["/how-it-works", "/pricing", "/trainer-brain", "/demo", "/features"]) {
+  // No other marketing page blocks its first paint, except /trainer-brain,
+  // whose page head is centred beside the rule ledger (the same race).
+  for (const page of ["/how-it-works", "/pricing", "/demo", "/features"]) {
     const other = renderToStaticMarkup(
       createElement(MarketingSite, { page: marketingPage(page)!, platform: platform("off"), origin: ORIGIN }),
     );
     assert.doesNotMatch(other, /rel="expect"/, page);
   }
+  const brain = renderToStaticMarkup(
+    createElement(MarketingSite, { page: marketingPage("/trainer-brain")!, platform: platform("off"), origin: ORIGIN }),
+  );
+  assert.deepEqual(brain.match(/<link rel="expect"[^>]*>/g), ['<link rel="expect" href="#mk-tb-hero-end" blocking="render"/>']);
 });
 
 test("the bands: the registry's headings in order; the showcases' bands keep still and the board is named by its heading", () => {

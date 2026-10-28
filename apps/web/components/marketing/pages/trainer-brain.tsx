@@ -223,6 +223,10 @@ export function TrainerBrainPage({ page, platform, showcase = "live" }: Ctx) {
   return (
     <>
       <div className="mk-container mk-page mk-tb-hero">
+        {/* As on the home page: the first paint waits for the whole hero,
+            so the page head (centred beside the ledger) never paints
+            beside a half-parsed ledger and then moves. */}
+        <link rel="expect" href="#mk-tb-hero-end" blocking="render" />
         <Breadcrumbs page={page} t={t} />
         <div className="mk-home-inner mk-home-split">
           <PageHead
@@ -243,6 +247,7 @@ export function TrainerBrainPage({ page, platform, showcase = "live" }: Ctx) {
             </figcaption>
           </figure>
         </div>
+        <span id="mk-tb-hero-end" hidden />
       </div>
 
       <Band section={what} tone="paper">

@@ -420,6 +420,12 @@ the home hero is phase 1's, and its one `rel=expect` points at
 first paint waits for the whole hero, the field's first frame included.
 `tests/marketing-home.test.ts` and `tests/marketing-motion-sitewide.test.ts`
 hold this. The LCP element is the H1 at 390x844 and 1440x900.
+`/trainer-brain` has the same race: its page head is centred beside the
+rule ledger, so a first paint during the ledger's parse moved the head
+down 114 px (CLS 0.048 in about 1 cold load in 9 at 1366x900 with 4x CPU).
+Its hero ends in `#mk-tb-hero-end` with one `rel=expect` to it (28 October
+2026): 0 shifts in 40 loads, median LCP 576 ms at 1366. No other marketing
+page blocks its first paint; the same two tests hold that.
 
 **The Pace sweep behind "trains": built, measured, then shipped on the owner's instruction (23 October 2026).**
 The owner approved the sweep only if LCP was proven unchanged. The plan

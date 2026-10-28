@@ -767,7 +767,10 @@ test("the home page's first paint waits for the whole hero (CLS 0 when the parse
       .filter((file) => file.endsWith(".tsx"))
       .map((file) => readFile(web("components/marketing/pages/" + file), "utf8")),
   );
-  assert.equal([site, ...pages].join("\n").match(/rel="expect"/g)?.length, 1, "only the home hero blocks the first paint");
+  assert.equal([site, ...pages].join("\n").match(/rel="expect"/g)?.length, 2, "only the home and /trainer-brain heroes block the first paint");
+  const brain = pages.find((p) => p.includes('className="mk-container mk-page mk-tb-hero"'))!;
+  assert.match(brain, /<link rel="expect" href="#mk-tb-hero-end" blocking="render" \/>\s+<Breadcrumbs/);
+  assert.match(brain, /<span id="mk-tb-hero-end" hidden \/>\s+<\/div>\s+<Band section=\{what\}/);
 });
 
 test('the Pace sweep behind "trains": once at load, from the left, scale only, and at rest the fill the span had', async () => {
