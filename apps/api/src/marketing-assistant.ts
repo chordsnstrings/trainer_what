@@ -285,7 +285,7 @@ async function prepareAssistantCues(db: Database, lang: AssistantLanguage) {
   const day = uaeDay(), characters = lines.reduce((n, line) => n + line.length, 0);
   // Keep room for the caller's answer. Shared cues never consume a visit turn.
   const platform = publicPlatform();
-  const facts = marketingAssistantFacts({ origin: config.PUBLIC_APP_URL || "http://localhost:3000", appName: platform.name, followerModel: platform.followerModel, availability: platform.availability });
+  const facts = marketingAssistantFacts({ origin: config.PUBLIC_APP_URL || "http://localhost:3000", appName: platform.name, followerModel: platform.followerModel, availability: platform.availability, registrationOpen: platform.registrationOpen });
   const history: AssistantTurn[] = Array.from({ length: MARKETING_ASSISTANT_LIMITS.historyTurns }, () => ({ from: "visitor", text: "x".repeat(MARKETING_ASSISTANT_LIMITS.replyCharacters) }));
   const answer = turnReserve(config, { promptBytes: assistantPromptBytes(platform.name, facts, history), billableMs: MARKETING_ASSISTANT_LIMITS.audioSeconds * 1000, sttUsdPerHour: speechToTextContract().pricePerHour, voiceUsdPer1000: voice.price });
   const reserved = Math.ceil(characters / 1000 * voice.price * usdToAed(config) * 10000) / 10000 + answer.aed;
@@ -442,6 +442,7 @@ export function registerMarketingAssistant(
         appName: platform.name,
         followerModel: platform.followerModel,
         availability: platform.availability,
+        registrationOpen: platform.registrationOpen,
       });
       const reserve = turnReserve(config, {
         promptBytes: assistantPromptBytes(platform.name, facts, b.history),

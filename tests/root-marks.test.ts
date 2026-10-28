@@ -203,7 +203,8 @@ test("every surface the rules follow holds its mark", async () => {
     /document\.body\.classList\.add\("nutrition-kitchen-open"\);[\s\S]{0,120}holdRootMark\("data-open", "kitchen"\)/,
     "the kitchen sheet",
   );
-  // Every element that carries these classes is one of the above.
+  // Every element that carries these classes is one of the above, or Kamran's
+  // host, which shows only inside a marketing page (already "public").
   const components = new URL("../apps/web/components/", import.meta.url);
   const files = (await readdir(components, { recursive: true })).filter((f) =>
     f.endsWith(".tsx"),

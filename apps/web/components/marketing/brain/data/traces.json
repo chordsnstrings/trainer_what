@@ -176,7 +176,7 @@
    "kind": "check",
    "crew": "teach",
    "icon": "clipboard-check",
-   "line": "Your AI answers your test cases; code marks them. Only a pass goes live.",
+   "line": "Your AI answers your test cases; code marks them. Sending on its own needs a pass.",
    "signsOff": "Fixed rule",
    "status": "live",
    "code": "Check my Brain · apps/api/src/brain-check.ts",
