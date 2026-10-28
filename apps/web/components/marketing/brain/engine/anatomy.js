@@ -29,6 +29,9 @@ import { COPY, GHOSTS, LET, dark, model, stackHTML } from "./anatomy.render.js";
 const { clamp } = C;
 
 const RX = 56, RZ = -32, PERSP = 1600;
+const rad = (deg) => (deg * Math.PI) / 180, S56 = Math.sin(rad(RX)), C56 = Math.cos(rad(RX));
+/** Where a point 1 px down the stack's plane lands after rotateX(56°) rotateZ(−32°): [x, y, z]. */
+const OFF = [-Math.sin(rad(RZ)), Math.cos(rad(RZ)) * C56, Math.cos(rad(RZ)) * S56];
 const num = (cs, k) => parseFloat(cs.getPropertyValue(k)) || 0;
 const sm = (a, b, k) => clamp((k - a) / (b - a), 0, 1);
 const smooth = (k) => k * k * (3 - 2 * k);
@@ -132,6 +135,7 @@ function figure(root, d, S0, o, settled) {
     M = model(d, d.trace(id), S);
     stack.innerHTML = stackHTML(d, M, S);
     collect();
+    if (G) centres();
     root.dataset.trace = id + (level ? "l" + level : "");
     $(".ca-card b").textContent = id == "t1" && !level ? `Answered ${M.t.member}` : `${M.t.member} · ${M.t.chip}`;
     const c = $(".ca-card .ca-lane");
@@ -173,11 +177,14 @@ function figure(root, d, S0, o, settled) {
       const room = G.ty - fp.offsetHeight / 2 + (G.oy - G.sy - 12) / (0.86 * kz); // the inspected centre sits at oy + cam·k·(ty − fx)
       G.fx = clamp(room, 0, over);
     } else G.fx = 0;
+    centres();
     svg.setAttribute("viewBox", `0 0 ${G.W} ${G.H}`);
     notesGeo(g);
     noteAt = null; last = {};
     draw();
   }
+  /** Each plate's centre below the stack's axis: (i) grows with its content, the others sit on it. */
+  function centres() { G.cy = plates.map((n) => n.offsetTop + n.offsetHeight / 2); }
   /* Desktop notes: titles never move in layout. The open note's text is out of flow under its title and the
      titles below slide down by its height with a transform (no layout shift, no layout per frame), so each
      title's anchor is fixed: read here on resize (and when fonts load), never in the loop. */
@@ -230,8 +237,10 @@ function figure(root, d, S0, o, settled) {
       const me = i == V.k, z = zOf(i, V);
       let tr = `translateZ(${z.toFixed(1)}px)`;
       if (me && V.f > 0) {
-        const f = V.f, s56 = Math.sin((RX * Math.PI) / 180), c56 = Math.cos((RX * Math.PI) / 180);
-        const dx = (i == 5 ? G.txf : G.tx) * f, dy = (G.ty - (i == 5 ? G.fx : 0) + z * s56) * f, dz = (G.tz - z * c56) * f;
+        // brought forward flat to (tx, ty, tz); a plate whose centre sits cy below the axis lands that far off
+        // (the stack's rotation carries it), so the move takes it back: every inspected plate centres alike
+        const f = V.f, cy = G.cy[i] || 0;
+        const dx = ((i == 5 ? G.txf : G.tx) - cy * OFF[0]) * f, dy = (G.ty - (i == 5 ? G.fx : 0) + z * S56 - cy * OFF[1]) * f, dz = (G.tz - z * C56 - cy * OFF[2]) * f;
         tr += ` rotateZ(${fx(32 * f)}deg) rotateX(${fx(-56 * f)}deg) translate3d(${dx.toFixed(1)}px, ${dy.toFixed(1)}px, ${dz.toFixed(1)}px)`;
       } else if (V.k >= 0) tr += ` translateZ(${(-30 * V.f).toFixed(1)}px)`;
       put(n, "transform", tr);
