@@ -49,6 +49,17 @@
    - the static-mode rehearsal;
    - screenshots.
 
+**Progress at 15:25 UTC:**
+- **Honesty lens done:** 11 findings (3 major). Among them:
+  - the `/demo` "12 sample moments" text ignores the flags;
+  - "Yes, subscribers pay you" is answered from the payments flag alone;
+  - the showcase statuses and strip ignore whether sign-ups are open.
+- **Engines lens done:** 6 findings (3 major). Among them:
+  - a receipt open while the phone rotates;
+  - the watchdog reads a 30 fps cap (iOS Low Power Mode, Chrome energy saver) as slowness;
+  - the anatomy still runs Omar's AI reply with the model off.
+- **Still running:** the accessibility and performance lenses. Then the fix pass, docs and the milestone.
+
 **Done today:**
 - **Part 2:** WP4 home, WP5 brain pages, WP7a clean-up, WP7b checks and the CI step, WP8 docs.
 - **Fix round 1:** the board's CLS, the anatomy mount, the control reset and the dot contrast.
