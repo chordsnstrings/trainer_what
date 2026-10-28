@@ -269,10 +269,12 @@ test("controls stay usable: contrast themes, phone hit areas, 320px, tips, the s
   }
   assert.equal(value(stage, "[data-showcase] .mc-swk", "border", FORCED), "1px solid CanvasText");
   assert.equal(value(stage, "[data-showcase] .mc-swk::after", "background", FORCED), "CanvasText");
-  // Phones: every field and board control is hit over at least 44px of height (More settings over 44px square).
-  const PHONE = "@media (max-width: 760px)", hit = '[data-showcase] :is(.mc-lv button, .mc-how summary, .mc-lock, .mc-chk, .mc-sw)::before';
-  assert.equal(value(stage, hit, "inset", PHONE), "calc(50% - 22px) 0");
-  assert.equal(value(stage, '[data-showcase="field"] .mc-moreb::before', "inset-inline", PHONE), "-4px");
+  // Phones: every armed field and board control is hit over at least 44px of height (More settings over 44px square).
+  const PHONE = "@media (max-width: 760px)";
+  const hit = '[data-showcase][data-sc="on"] :is(.mc-lv button, .mc-how summary, .mc-lock, .mc-chk, .mc-sw, .mc-moreb)::before';
+  assert.equal(value(run, hit, "inset", PHONE), "calc(50% - 22px) 0");
+  assert.equal(value(run, '[data-showcase="layer"] :is(.mc-lock, .mc-chk, .mc-sw)::before', "inset", PHONE), "calc(50% - 22px) 0");
+  assert.equal(value(run, '[data-showcase][data-sc="on"] .mc-moreb.mc-moreb::before', "inset-inline", PHONE), "-4px");
   assert.equal(value(stage, '[data-showcase="board"] .mc-bar input[type="range"]', "height", PHONE), "44px");
   assert.equal(value(run, '[data-showcase="layer"] .mc-sheet .mc-bar input[type="range"]', "height"), "44px");
   assert.equal(value(run, '[data-showcase="layer"] .mc-x', "min-block-size"), "44px");

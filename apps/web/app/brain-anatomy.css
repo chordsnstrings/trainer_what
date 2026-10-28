@@ -283,7 +283,7 @@
   color: var(--sc-paused);
 }
 
-/* ---------- (f) one bounded shell: what code can pick, the shelf beside it ---------- */
+/* ---------- (f) one bounded shell: the seven coaching specialists code picks from ---------- */
 [data-showcase="anatomy"] .ca-shell {
   display: flex;
   flex-wrap: wrap;
@@ -339,20 +339,6 @@
   display: grid;
   color: var(--sc-on-ai);
 }
-[data-showcase="anatomy"] .ca-shelf {
-  display: inline-flex;
-  align-items: center;
-  justify-self: end;
-  gap: 5px;
-  padding: 2px 9px;
-  border: 1px dashed var(--sc-control);
-  border-radius: 999px;
-  color: var(--sc-muted);
-  font-size: 11px;
-}
-[data-showcase="anatomy"] .ca-shelf .sc-ic {
-  opacity: 0.45;
-}
 [data-showcase="anatomy"] .ca-tag {
   position: absolute;
   inset-inline-start: 50%;
@@ -380,8 +366,7 @@
 }
 /* The labelled grid (.ca-x): in the flat figure it is the plate; pinned,
    it is the inspected card's overlay. */
-[data-showcase="anatomy"] .ca-brain > .ca-shell,
-[data-showcase="anatomy"] .ca-brain > .ca-shelf {
+[data-showcase="anatomy"] .ca-brain > .ca-shell {
   display: none;
 }
 [data-showcase="anatomy"] .ca-x {
@@ -963,10 +948,6 @@
     display: flex;
     transition: opacity var(--mk-dur-fast) var(--sc-ease);
   }
-  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-brain > .ca-shelf {
-    display: inline-flex;
-    transition: opacity var(--mk-dur-fast) var(--sc-ease);
-  }
   /* (f) inspected: the labelled grid is an overlay that crossfades over the
      compact row and hangs below the plate's box; it draws the plate's sides
      and foot so the plate reads as one taller card. */
@@ -1447,10 +1428,6 @@
   }
   html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-x .ca-sp b {
     display: block;
-  }
-  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-shelf {
-    padding: 1px 7px;
-    font-size: 10px;
   }
   html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-lane {
     min-block-size: 20px;

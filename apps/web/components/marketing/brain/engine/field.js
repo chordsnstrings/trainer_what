@@ -308,7 +308,7 @@ function mountField(root, o, p) {
   const $ = (s) => root.querySelector(s), $$ = (s) => [...root.querySelectorAll(s)];
   const body = $(".mc-body"), frame = $(".mc-frame"), rails = $(".mc-rails"), cv = $(".mc-cv2"), sheet = $(".mc-sheet"), moreb = $(".mc-moreb");
   const sheetHome = sheet.parentElement, pb = $(".mc-pause");
-  // sign: the inline direction's (WAAPI keyframes are physical), read with the geometry; sc and ctl come after the first reads.
+  // sign: the inline direction's (WAAPI keyframes are physical), read with the geometry; sc and ctl come with the mount (below).
   let ph = C.phone(), G = null, ctx = null, W = 0, T = 0, freeze = 0, seq = 0, drawnAt = -1e9, dead = false, sign = 1, sc = null, ctl = null, L = null;
   // The overlay layer comes with the first sheet, receipt or announcement.
   const lay = () => L || (L = C.layer(root)), say = (m) => (lay(), C.say(m));

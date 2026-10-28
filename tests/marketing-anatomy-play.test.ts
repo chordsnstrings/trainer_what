@@ -85,27 +85,30 @@ test("the first frame is the finished figure: Omar's reply in nine lit plates, c
   assert.match(html, /<b>Upper body increments<\/b>/);
 });
 
-test("(f): what code can pick from, each with its moment; one not on yet keeps its place, marked; the Meal planner waits on the shelf, then joins them", () => {
+test("(f): the seven coaching specialists code picks from, each with its moment; one not on yet keeps its place, dashed and marked, so the plate matches the note's count", () => {
   const grid = (html: string) => html.slice(html.indexOf('<div class="ca-x">'));
   const pills = (html: string) => [...grid(html).matchAll(/<span class="ca-sp" data-sp="(\w+)" data-kind="(\w+)"/g)].map((m) => m[1] + ":" + m[2]);
   const off = (html: string) => [...grid(html).matchAll(/<span class="ca-sp" data-sp="(\w+)"[^>]*data-off/g)].map((m) => m[1]);
-  const seven = ["reply_picker:ai", "draft_writer:ai", "plan_writer:ai", "week_reviewer:ai", "meal_photo:ai", "voice_lines:ai", "set_logger:check"];
-  // Voice and nutrition off (the platform's default): their specialists keep their places, marked; the Meal planner is on the shelf.
+  const seven = ["reply_picker", "draft_writer", "plan_writer", "week_reviewer", "meal_photo", "voice_lines", "meal_planner"];
   const { d, html } = render();
-  assert.deepEqual(pills(html), seven);
-  assert.deepEqual(off(html), ["meal_photo", "voice_lines", "set_logger"]);
+  // The plate is the coach crew, all seven AI specialists, in every flag state; no shelf beside it.
+  assert.deepEqual([...seven].sort(), d.specialists.filter((s) => s.crew == "coach").map((s) => s.id).sort());
+  assert.deepEqual(pills(html), seven.map((s) => s + ":ai"));
+  assert.equal((html.match(/<span class="ca-sp" /g) || []).length, 14, "seven in the compact row, seven in the labelled grid");
+  assert.doesNotMatch(html, /ca-shelf/);
+  // Voice and nutrition off (the platform's default): their specialists keep their places, marked.
+  assert.deepEqual(off(html), ["meal_photo", "voice_lines", "meal_planner"]);
   assert.match(grid(html), /<b>Meal photo reader<\/b><small>meal photo · Not on yet<\/small>/);
-  assert.equal((html.match(/<span class="ca-shelf">/g) || []).length, 2, "the shelf, in the compact row and the labelled grid");
-  assert.match(html, /Meal planner · Not on yet<\/span>/);
-  for (const s of d.specialists.filter((x) => x.crew == "coach")) assert.equal(off(html).includes(s.id) || html.includes(`${s.name} · Not on yet</span>`), s.status == "not_on_yet", s.id);
-  // Every flag on: nothing marked, no shelf; the Meal planner joins them (it has no sample moment).
+  assert.match(grid(html), /<b>Meal planner<\/b><small>Not on yet<\/small>/);
+  for (const s of d.specialists.filter((x) => x.crew == "coach")) assert.equal(off(html).includes(s.id), s.status == "not_on_yet", s.id);
+  // Every flag on: nothing marked; the Meal planner has no sample moment.
   const all = render({ flags: { ...FLAGS, voice: true, nutrition: true } }).html;
-  assert.deepEqual(pills(all), [...seven, "meal_planner:ai"]);
-  assert.doesNotMatch(all, /data-off|ca-shelf/);
-  // The AI model off: every AI specialist is marked; the code step that needs only voice is not.
+  assert.deepEqual(pills(all), seven.map((s) => s + ":ai"));
+  assert.doesNotMatch(all, /data-off/);
+  assert.match(grid(all), /<b>Meal planner<\/b><\/span>/);
+  // The AI model off: every one marked.
   const noModel = render({ flags: { ...FLAGS, voice: true, nutrition: true, model: false } }).html;
-  assert.deepEqual(off(noModel), seven.filter((p) => p.endsWith(":ai")).map((p) => p.split(":")[0]));
-  assert.match(noModel, /Meal planner · Not on yet<\/span>/);
+  assert.deepEqual(off(noModel), seven);
   assert.match(html, /<em class="ca-tag">Chat · a rule fits<\/em>/);
   assert.ok(html.includes(String(d.labels.picks)), "Code picks the specialist. No AI chooses which AI runs.");
 });

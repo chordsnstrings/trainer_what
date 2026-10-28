@@ -64,10 +64,10 @@ export function note(d, k) {
   const coach = d.specialists.filter((s) => s.crew == "coach" && s.kind == "ai"), n = coach.filter((s) => s.status == "not_on_yet").length;
   return NOTES.f[1].replace("{off}", !n ? "" : n == coach.length ? "None is on yet. " : `${COUNT[n - 1]} ${n > 1 ? "are" : "is"} not on yet. `);
 }
-/* What code can pick from, each with its moment (SHOWCASE_DESIGN.md §4 (f)):
-   one not on yet keeps its place, marked; any other coaching specialist sits
-   on the shelf beside them while it is not on yet and joins them once it is. */
-const COACH = [["reply_picker", "a rule fits"], ["draft_writer", "no rule fits"], ["plan_writer", "new plan"], ["week_reviewer", "week ends"], ["meal_photo", "meal photo"], ["voice_lines", "before a voice session"], ["set_logger", "during a workout"]];
+/* What code picks from (SHOWCASE_DESIGN.md §4 (f)): the seven coaching specialists, each with its
+   moment (the Meal planner has none in the sample); one not on yet keeps its place, dashed and marked,
+   so the plate always matches the note's count. */
+const COACH = [["reply_picker", "a rule fits"], ["draft_writer", "no rule fits"], ["plan_writer", "new plan"], ["week_reviewer", "week ends"], ["meal_photo", "meal photo"], ["voice_lines", "before a voice session"], ["meal_planner", ""]];
 /* Other members' moments (the ghost stacks): trace, moment, shown on phones. Each lights only its own
    node; the runtime runs them (data-run), and the still figure shows them unlit. */
 export const GHOSTS = [["t8", "week ends", 1], ["t2", "knee", 1], ["t4", "meal photo", 1], ["t9", "creatine", 0], ["t10", "first plan", 0]];
@@ -153,15 +153,12 @@ function moreHTML(d, M, p, S) {
    plate never reflows (no layout shift, no transform-origin jump); the
    drawer (.ca-more) hangs under the overlay. */
 function brainHTML(d, M, more) {
-  const rest = d.specialists.filter((s) => s.crew == "coach" && !COACH.some(([sp]) => sp == s.id)), notYet = d.labels.status.not_on_yet;
-  const list = [...COACH, ...rest.filter((s) => s.status != "not_on_yet").map((s) => [s.id, ""])];
-  const pills = (x) => list.map(([sp, m]) => {
+  const notYet = d.labels.status.not_on_yet;
+  const pills = (x) => COACH.map(([sp, m]) => {
     const s = d.sp[sp], on = sp == M.pick, off = s.status == "not_on_yet", sub = [m, off && notYet].filter(Boolean).join(" · ");
     return `<span class="ca-sp" data-sp="${sp}" data-kind="${s.kind}"${on ? " data-pick" : ""}${off ? " data-off" : ""}>${on ? MX(s.kind, true) : ""}${U.icon(s.icon, 14)}<b>${esc(s.name)}</b>${x ? `${sub ? `<small>${esc(sub)}</small>` : ""}${on ? `<em class="ca-tag">${esc(M.tag)}</em>` : ""}` : ""}</span>`;
   }).join("");
-  const shelf = rest.filter((s) => s.status == "not_on_yet")
-    .map((s) => `<span class="ca-shelf">${U.icon(s.icon, 13)}${esc(s.name)} · ${esc(notYet)}</span>`).join("");
-  return `<div class="ca-shell">${pills(0)}</div>${shelf}<div class="ca-x"><p class="ca-picks ca-xpick">${esc(d.labels.picks)}</p><div class="ca-shell">${pills(1)}</div>${shelf}${more}</div>`;
+  return `<div class="ca-shell">${pills(0)}</div><div class="ca-x"><p class="ca-picks ca-xpick">${esc(d.labels.picks)}</p><div class="ca-shell">${pills(1)}</div>${more}</div>`;
 }
 /** One plate, lit (the finished figure: the runtime dims and relights it). */
 export function plateHTML(d, M, p, i, S) {

@@ -182,8 +182,7 @@
     opacity: 1;
     transform: none;
   }
-  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-brain.is-open > .ca-shell,
-  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-brain.is-open > .ca-shelf {
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-brain.is-open > .ca-shell {
     opacity: 0;
   }
   html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-brain.is-open .ca-x {

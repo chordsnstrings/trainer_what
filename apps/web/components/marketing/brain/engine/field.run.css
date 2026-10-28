@@ -463,6 +463,24 @@ html.sc-lock {
   visibility: visible;
 }
 
+/* Phones: an armed control's hit area is at least 44px tall (More
+   settings, 44px square), from a transparent ::before, not a bigger box. */
+@media (max-width: 760px) {
+  [data-showcase][data-sc="on"] :is(.mc-how summary, .mc-sw, .mc-moreb),
+  [data-showcase="layer"] .mc-sw {
+    position: relative;
+  }
+  [data-showcase][data-sc="on"] :is(.mc-lv button, .mc-how summary, .mc-lock, .mc-chk, .mc-sw, .mc-moreb)::before,
+  [data-showcase="layer"] :is(.mc-lock, .mc-chk, .mc-sw)::before {
+    content: "";
+    position: absolute;
+    inset: calc(50% - 22px) 0;
+  }
+  [data-showcase][data-sc="on"] .mc-moreb.mc-moreb::before {
+    inset-inline: -4px;
+  }
+}
+
 /* ---------- phones: the readout, the bins' lists, the settings sheet in the overlay layer ---------- */
 [data-showcase] .mc-binlist {
   position: absolute;
