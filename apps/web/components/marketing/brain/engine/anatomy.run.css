@@ -57,7 +57,7 @@ html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-svg 
   overflow: visible;
   pointer-events: none;
 }
-html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-svg path {
+html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-svg path {
   fill: none;
 }
 html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-thr {
@@ -139,39 +139,41 @@ html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-stop
     transform var(--mk-dur-base) var(--sc-spring);
 }
 
-/* A finished moment (data-run="4"): every layer lit, white text on its lane's tint. */
-html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-g[data-run="4"] :is([data-k="m"], [data-k="c"]) {
+/* A finished moment (data-run="4"): every layer lit, white text on its lane's tint. Only
+   the engine sets data-run, so these rules need no [data-sc="on"]: turning on then
+   restyles no ghost node (nor, below, an icon's path). */
+html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-g[data-run="4"] :is([data-k="m"], [data-k="c"]) {
   border-color: var(--sc-text);
 }
-html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-g[data-run="4"] [data-k="c"][data-hit] {
+html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-g[data-run="4"] [data-k="c"][data-hit] {
   border-color: var(--sc-paused);
   background: color-mix(in srgb, var(--sc-paused) 30%, var(--sc-node));
 }
-html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-g[data-run="4"] [data-k="c"][data-amber] {
+html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-g[data-run="4"] [data-k="c"][data-amber] {
   border-color: var(--sc-waits);
   background: color-mix(in srgb, var(--sc-waits) 24%, var(--sc-node));
 }
-html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-g[data-run="4"] [data-k="s"]:not([data-none]) {
+html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-g[data-run="4"] [data-k="s"]:not([data-none]) {
   border-color: var(--sc-ai-on);
   background: color-mix(in srgb, var(--sc-ai-on) 24%, var(--sc-node));
 }
-html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-g[data-run="4"] [data-k="l"] {
+html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-g[data-run="4"] [data-k="l"] {
   border-color: var(--sc-sent);
   background: color-mix(in srgb, var(--sc-sent) 24%, var(--sc-node));
 }
-html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-g[data-run="4"] [data-k="l"][data-lane="waits"] {
+html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-g[data-run="4"] [data-k="l"][data-lane="waits"] {
   border-color: var(--sc-waits);
   background: color-mix(in srgb, var(--sc-waits) 24%, var(--sc-node));
 }
-html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-g[data-run="4"] [data-k="l"][data-lane="paused"] {
+html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-g[data-run="4"] [data-k="l"][data-lane="paused"] {
   border-color: var(--sc-paused);
   background: color-mix(in srgb, var(--sc-paused) 30%, var(--sc-node));
 }
-html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-g[data-run="4"] [data-k="l"][data-lane="member"] {
+html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-g[data-run="4"] [data-k="l"][data-lane="member"] {
   border-color: var(--sc-member);
   background: color-mix(in srgb, var(--sc-member) 20%, var(--sc-node));
 }
-html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-g[data-run="4"] :is([data-k="c"][data-hit], [data-k="c"][data-amber], [data-k="s"], [data-k="l"]) b {
+html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-g[data-run="4"] :is([data-k="c"][data-hit], [data-k="c"][data-amber], [data-k="s"], [data-k="l"]) b {
   opacity: 1;
 }
 

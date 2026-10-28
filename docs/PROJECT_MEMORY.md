@@ -45,7 +45,7 @@ The downloadable `trainsyou-ux-ui-audit-2026-10-19.html` was refreshed and saved
     - Spec: `docs/marketing-revamp-2026-10-26/phase1/PLAN.md`.
     - What shipped: `docs/features/marketing-site.md` ("Phase 1") and `docs/features/brain-showcase.md`.
     - The calls to action change on the four pages only. Other pages keep "Start coaching" until phase 2.
-  - **The off switch.** `MARKETING_SHOWCASE=static` turns every showcase into its still frame without a build. In production it first needs `MARKETING_SHOWCASE` passed to the `web` service in `compose.yaml`, then `runtime.env` and a re-apply (`brain-showcase.md`).
+  - **The off switch.** `MARKETING_SHOWCASE=static` turns every showcase into its still frame without a build. In production: set it in `runtime.env` and re-apply the release; `compose.yaml` passes it to `web` (`brain-showcase.md`).
   - **Deploy authority for the revamp.**
     - `CLAUDE.md` says deployment "remains stopped and separately assigned to Claude", and must not be inferred from the coding handoff.
     - Each revamp phase deploys instead on the owner's explicit instruction of 27 October 2026: each phase is its own PR, "checked and deployed".

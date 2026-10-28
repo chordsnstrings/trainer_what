@@ -79,7 +79,7 @@
 14. **Robots and automated browsers get the static frame.**
     - The engine never mounts for them unless the URL carries `?sc=on`. That override persists for the tab.
     - The existing CI checks therefore run the static path. The new showcase check uses `?sc=on`.
-15. **A kill switch.** Setting `MARKETING_SHOWCASE=static` on the web service makes every showcase render as its static frame, with no engine. It needs a restart, not a build.
+15. **A kill switch.** Setting `MARKETING_SHOWCASE=static` on the web service makes every showcase render as its static frame, with no engine. It needs a re-apply of the release, not a build (corrected 28 Oct: a restart does not re-read `runtime.env`).
 16. **Every merge stays green.**
     - Each work package fixes, in the same merge, the existing assertions it breaks.
     - Each page's registry entry merges together with its page.
@@ -196,7 +196,7 @@ const k = fnv1a(html); // inline 32-bit FNV-1a; node:crypto and server-only fail
 **Static mode (the kill switch)**
 - `app/[[...path]]/page.tsx` reads `process.env.MARKETING_SHOWCASE` next to its `publicPlatform()` call (`:311`). It passes `showcase: "live" | "static"` (default `"live"`) through `MarketingSite`.
 - In static mode, every root renders `data-sc="off"` (and the anatomy root `data-sc-flat`). No island renders and no engine chunk loads.
-- To use it, set `MARKETING_SHOWCASE=static` in the host's `runtime.env` (kept by `infra/digitalocean/hostops.py`) and restart the web service. There is no build and no CI cycle, whereas a revert costs a full CI run (the application job alone took 36 min).
+- To use it, set `MARKETING_SHOWCASE=static` in the host's `runtime.env` (kept by `infra/digitalocean/hostops.py`) and re-apply the release (`hostops.py reapply`; corrected 28 Oct: `compose.yaml` passes the variable to `web`, and a plain restart does not re-read it). There is no build and no CI cycle, whereas a revert costs a full CI run (the application job alone took 36 min).
 - WP1 confirms in the `next build` route table that `/[[...path]]` renders per request, so the value is read live.
 
 **The section reveal.**
@@ -1388,7 +1388,7 @@ The two budgets looser than the spec are deliberate. They are listed for the own
   - the extra live regions removed (`a-field.js:173`, `c-anatomy.js:178`);
   - the `reduced()` cache resets (`brain-core.js:90-94`).
 - **P2-8.** The header offset is copied into `brain-stage.css` as `--sc-top` (from `scroll-scenes.css:34-46`), with an equality test and a flush-under-header check. `scenes-on` on `/` is noted as harmless and documented.
-- **P2-9.** Kill switch: `MARKETING_SHOWCASE=static`, read per request in `page.tsx:311` and switched via `runtime.env` plus a restart. Static rendering is tested in WP1, rehearsed in §4.6 and used as the live fallback.
+- **P2-9.** Kill switch: `MARKETING_SHOWCASE=static`, read per request in `page.tsx:311` and switched via `runtime.env` plus a re-apply (corrected 28 Oct). Static rendering is tested in WP1, rehearsed in §4.6 and used as the live fallback.
 - **P2-10.**
   - `.sc-host` added to `NEVER`.
   - WP4 renders the CTA under the compact calculator (`islands.tsx:431-445`).

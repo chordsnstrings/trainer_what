@@ -1719,7 +1719,7 @@ The plan's §2 table lists every row.
 - **Two speed budgets are looser than the showcase spec:** long tasks of 80 ms or less (the spec says 50 ms), and blocking time of baseline + 100 ms (the spec says prototype + 50 ms).
 - **Layout shift is reported in CI, not judged,** until it passes three PR runs in a row.
 - **Search engines and automated tools see the still frames.** Lighthouse scores leave out the engine.
-- **The off switch** (`MARKETING_SHOWCASE=static`) works without a rebuild. In production it also needs a one-line `compose.yaml` change ([brain-showcase.md](brain-showcase.md)).
+- **The off switch** (`MARKETING_SHOWCASE=static`) works without a rebuild. In production, set it in `runtime.env` and re-apply ([brain-showcase.md](brain-showcase.md)).
 - **Copy derived or trimmed to fit the house limits** is listed in the PR. That includes the safety tooltip that now names the platform's rule, and the answer to "Can subscribers pay me today?" that no longer says "Today you can join".
 
 ## Not done / next
@@ -1737,7 +1737,6 @@ The plan's §2 table lists every row.
   - **Open checks:**
     - judging CLS in CI after three PR runs in a row;
     - judging the frame budgets on real hardware;
-    - the `compose.yaml` line for the off switch;
     - the brand check and the showcase check again after fix round 1 (`22d1a1a`: the walkthrough dots, and the board's shift on phones).
   - **Later:**
     - a founder note and a card-processing rate (owner defaults);

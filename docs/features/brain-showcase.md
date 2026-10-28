@@ -168,12 +168,13 @@ With either setting:
 
 **Checked locally.** After a `next start` restart with the variable set and no rebuild, the roots rendered `off`, no showcase island hydrated and no engine chunk was requested. WP1, WP4 and WP5 each checked this, on 27 and 28 October 2026.
 
-**Open: production wiring.**
-- The host runs `docker compose --env-file runtime.env` (`infra/digitalocean/host.py`). `runtime.env` only fills in the variables that `compose.yaml` names.
-- The `web` service names only `NODE_ENV`, `PUBLIC_APP_URL`, `PLATFORM_ROOT_DOMAIN`, `INTERNAL_PROXY_SECRET` and `API_INTERNAL_URL`, and the controller refuses `env_file`.
-- So setting the variable in `runtime.env` does not reach the site until `compose.yaml` gains `MARKETING_SHOWCASE: ${MARKETING_SHOWCASE:-}` under `web.environment`. That is the pattern `PLATFORM_ROOT_DOMAIN` already uses; `tests/test_web_address_deployment.py` pins that variable's two lines. An empty value means live.
+**Production wiring.**
+- The host runs `docker compose --env-file runtime.env` (`infra/digitalocean/host.py`), and `runtime.env` only fills in the variables that `compose.yaml` names.
+- The `web` service names `MARKETING_SHOWCASE: ${MARKETING_SHOWCASE:-}`. An empty value means live.
+- `tests/test_host_deployment.py` checks the rendered Compose configuration: the variable reaches `web`, empty by default.
+- The controller refuses `env_file`, so a variable that `compose.yaml` does not name never reaches the site.
 
-**Switching, once that line is in:**
+**Switching:**
 1. Set `MARKETING_SHOWCASE=static` in `runtime.env`, from the DigitalOcean console.
 2. Request "Re-apply runtime settings" on the Super admin "Host and backups" page, or run `hostops.py reapply` from the console ([infra-ops.md](infra-ops.md)). Either one recreates the serving release with the current `runtime.env`. A plain container restart does not re-read it.
 3. To go back, remove the line (or set it to `live`) and re-apply.
@@ -452,7 +453,6 @@ The two budgets looser than the showcase spec are deliberate. They are in the ow
 ## Open
 
 These are open as of 28 October 2026, at `848538b`.
-- **Static mode in production:** the `compose.yaml` line above.
 - **CLS is not judged in CI yet.** After the board fix the measured CLS is within 0.001, but CI judges it only after three PR runs in a row pass. Then set `SHOWCASE_JUDGE_CLS: "1"` on the CI step.
 - **The anatomy's mount.** It measured long tasks of 291 and 79 ms in WP7b's first run (the budget is 2 tasks of 80 ms or less). The fix round then changed the mount (`26fbe25`, `289ed10`, `e66afb8`). It now reads before it writes, inserts no node at mount or per frame, skips layout writes that change nothing, turns on before it measures, and mounts the figure in its own task. WP7b's second round measures the final tree.
 - **Frame budgets on real hardware,** above all the pinned anatomy's scroll paint. The sandbox measures a p95 of about 33 ms at 4× throttling, and its runs vary (see "Budgets").

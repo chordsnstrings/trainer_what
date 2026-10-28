@@ -312,7 +312,8 @@ export default async function Page({
             platform={await publicPlatform()}
             origin={origin}
             // MARKETING_SHOWCASE=static: every Brain showcase as its still
-            // frame, no engine (read per request; a restart applies it).
+            // frame, no engine (read per request; on the host, set it in
+            // runtime.env and re-apply: docs/features/brain-showcase.md).
             showcase={showcaseMode(process.env.MARKETING_SHOWCASE)}
           />
         );
