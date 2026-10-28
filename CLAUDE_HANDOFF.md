@@ -35,167 +35,49 @@
 - Saved as WIP commit `1aeba0a`.
 - **Not yet run:** a Next build of the engines in a page. That happens in WP4 and WP5.
 
-**Now running: part 2, workflow `wf_2044b74e-e8b`, launched 02:35 UTC on 28 Oct.**
-1. WP4 home and WP7b browser checks side by side. WP7b builds in its own worktree, so only one agent uses Next in the main tree.
-2. WP5 /trainer-brain and /demo.
-3. WP7a clean-up (full `npm test`).
-4. WP7b CI step.
-5. WP8 docs.
+**Now (14:30 UTC):** the final workflow `wf_ff90e0a4-317` (task `wyrekd8pl`) is running, in three phases:
+1. Review: four lenses (engines, honesty, accessibility, performance and infra) over `0b08671..HEAD`. Each reproduces its own findings.
+2. Fix pass:
+   - E: engines, plus the availability plumbing for meal photos;
+   - P: pages, global CSS, contracts copy, scripts.
+   - It covers the leftover list (`scratchpad/final-leftovers.md`) and the review findings.
+3. Docs refresh, alongside the milestone verification (PLAN §4.6) on a quiet machine:
+   - `npm run check`, with tesseract for the OCR tests;
+   - `brain-traces --check`;
+   - the showcase check twice;
+   - `test:browser`, the call check, brand, `test:marketing-motion` and the deployment tests;
+   - the static-mode rehearsal;
+   - screenshots.
 
-**Progress at 06:45 UTC:**
-- **WP4 home is done** (`0e836cc`).
-- **WP5 /trainer-brain and /demo are done** (`0dfc1dd`).
-- **WP7a is done:** dead code removed.
-  - `site.tsx` went from 1,335 to 885 lines; `marketing.css` is 2.1 KB smaller gzipped.
-  - Typecheck and build pass.
-  - Full `npm test`: 2,061/2,064. The 2 failures were OCR tests, because this container lacks `tesseract`, which CI installs; with it installed they pass 29/29.
-- **WP8 docs are done:** `docs/features/brain-showcase.md` is new; `marketing-site.md`, `marketing-motion.md`, `scroll-scenes.md`, `brand.md`, `dark-mode.md`, `PROJECT_MEMORY.md` (with the deploy reconciliation) and the revamp README are updated.
-- **WP7b round 1 is done.** Round 2 is running: the CI step is in `check.yml`, and the final runs are on the main tree.
-- **Fix round 1, F1, is done** (`22d1a1a`):
-  - the board reserves its lanes' room, so CLS on `/` at 390 px went from 0.15271 to 0.00040;
-  - the walkthrough dots' contrast is fixed; the brand check is back to its 36 pre-existing failures;
-  - `.mc-new` and `.mc-demo` are hidden in the still frame by design.
-- **Fix round 1, F2, is running:** the anatomy mount's long task and the still-frame control reset.
-- **Lead:**
-  - `compose.yaml` now passes `MARKETING_SHOWCASE` to `web`, so the off switch works in production through `runtime.env` plus a re-apply. WP8 found it was unwired.
-  - The compose render test pins it; the deployment suite passes 160 tests, 3 skipped.
-  - The comment and the docs say "re-apply", not "restart".
-- **Fix round 1 is done** (`wf_b98be2ed-50e`).
-  - F2: the anatomy mount's worst long task went from 291 ms to 68 ms or less at 4× CPU.
-  - F2: still-frame showcase controls keep their own look; `brain-stage.css` gained reset rules.
-  - F2 blamed the member-shell rule `details:has(…)::details-content` for whole-page restyles. Lead check (`scratchpad/hasexp/real.cjs`), on the real built CSS with the /trainer-brain snapshot: one insertion costs about 5 ms at 4× CPU with the rule, without it, or rewritten. Not reproduced on a still page, so it must be measured on the running page before any member-app CSS changes.
-- **Review workflow running:** `wf_aa89a290-849`, five dimensions, each with an adversarial verifier.
-- **Part 2 is complete** (`wf_2044b74e-e8b`); WP7b round 2 reported.
-  - **CI step:** "Brain showcases on /, /trainer-brain, /demo and /pricing" is in the `homepage-call` job, after the call check, on ports 3241/4241. The job limit went from 40 to 50 minutes.
-  - **Showcase check:** two final timed runs passed, in 375 s and 376 s.
-  - **Brand check:** 36 failures, identical to `4f35e5c`.
-  - **Motion check:** found a 0.048 CLS race on `/trainer-brain` at 1366 px. The lead applied WP7b's tested fix: a `rel=expect` marker at the hero's end, as on `/`. It gave 0 shifts in 40 loads; tests pass 33/33; documented in `marketing-motion.md`.
-  - **Reported over budget on a busy machine,** to measure again quietly at the milestone:
-    - field mount long task: 120 ms;
-    - `/` blocking time: 406–484 ms, against a 326 ms baseline plus 100;
-    - `/trainer-brain` playground p95: 83 ms at tier minimal.
-- **Review findings** (`wf_aa89a290-849`, stopped after the five finders): 62 findings, saved in `scratchpad/review-findings.json`.
-  - Pages and honesty, 14:
-    - blocker: `llms-full.txt` and the assistant facts drop "Never" from the never-list lines;
-    - the publish status is gated wrongly on payouts;
-    - unmatched free text in the playground falls back to "Squats felt easy" and is "sent", even for red flags;
-    - "checked against your test cases" is untrue for the first release;
-    - voice and nutrition say "Try it on yourself" while their providers are off.
-  - Engines, 16: for example the What-if STOP stamp leak, and the hero frozen after a hidden tab.
-  - Accessibility, 23: for example the receipt focus trap, 320 px reflow and forced colours.
-  - Performance, 6. PERF-1 is the root cause of the slow frames: the root-level `:root:has(...)` theme and shell rules restyle about 900 elements on every DOM insertion after scrolling. Field p95 goes from 16.8 to 66–117 ms, and the playground drops to 12 fps at 4× CPU. Deleting those rules gives 16.8 ms.
-  - Security, CI and tests, 3: all minor or nit.
-- **Fix round 2 is running** (`wf_f0fd9acb-b51`). Each finding is reproduced before it is fixed, and the result is reported per id.
-  - First, in parallel:
-    - D: replaces the root `:has()` rules with `<html>` classes, with no visual change across shells and themes;
-    - C: pages, copy and honesty.
-  - Then, in parallel: A1 (field, board, receipts) and B (anatomy, playground, data, render).
-  - Last: A2 (core, head, island, the showcase check, tests).
-  - Assignments are in `scratchpad/fix2-args.json`.
-- **Fix round 2, C (pages, copy, honesty), is done** (`6b50ea6`, `e1aa4bc`): all 13 of its findings confirmed; 11 fixed, 4 of them partly.
-  - **PG-1 blocker fixed:** the never-list lines are whole sentences that start with "Never".
-  - **Status gates follow the product's go-live checks:**
-    - publishing needs sign-ups, payments and the model, not payouts;
-    - teaching needs the model;
-    - the voice add-on needs voice and payments.
-  - **"Checked against your test cases" claims corrected:** the first "Waits for me" release goes live without a check.
-  - **/pricing:**
-    - states the price minimums from `MEMBERSHIP_MINIMUMS`;
-    - "How you earn" carries "Not on yet" chips;
-    - `llms-full.txt` and the facts carry the status and offer lines.
-  - **Checks:**
-    - a flag-matrix render scan: 337 renders, 0 problems;
-    - targeted tests 237/237; typecheck passes;
-    - the showcase check passes, with CLS 0.00039.
-  - The FYI copy list is in `scratchpad/fix2-C.json`.
-- **Fix round 2, D (root `:has()` rules), is done.** PERF-1 is fixed.
-  - The code landed in WIP commits `6b50ea6` and `b8f9def`.
-  - `components/root-marks.tsx` marks `<html>` with `data-shell`, `data-scheme` and `data-open` from each surface. It uses an inline SSR script and a layout effect, so client navigation is handled too. No stylesheet hangs `:has()` on `:root`, `html` or `body`, and a test guards it.
-  - **Performance at 4× CPU:** the field after a scroll went from p95 83 to 16.8 ms; a playground run from 100 to 16.7 ms; the playground mount from long tasks of `[161,76,139]` to none.
-  - **No visual change:** 130 before/after comparisons. 126 are pixel-identical and 4 differ only in relative-time text.
-  - **Dark and phone checks:** `test:dark` fails 48 identically before and after. `test:phone` had 11 failures before and 9 after; those 9 occur in both builds.
-  - **Tests:** 238/238 across 23 unit files, plus 82/82.
-  - **Left for A2, in the notes:** the consent bar's first appearance restyles the whole document once, and the watchdog never steps back up.
-  - **Docs to update:** `brand.md:362` and `dark-mode.md:108` still name the old selectors. The "paint" explanation for the playground and `/demo` slowness was wrong (it was `:has()`); correct it in `brain-showcase.md` and `COMPLETION_STAGES.md:34`.
-- **Fix round 2, A1 (field, board, receipts), is done** (report: `scratchpad/fix2-A1.json`). 20 of 21 items are fixed.
-  - **Fixed:**
-    - the receipt focus trap, inert page and Esc;
-    - the phone sheet is now a dialog;
-    - double-activation, the auto-demo yielding to the visitor, and the plans slider snap-back;
-    - right to left: the drawn layer and the arrow keys;
-    - nothing replays under reduced motion;
-    - forced colours;
-    - reflow at 320 px, including narrow-desktop clipping between 1181 and 1312 px;
-    - text spacing, with lanes rolling overflow into "+N";
-    - the readouts are no longer live regions;
-    - "How we count" is now a `details` element;
-    - board cards stay disabled in the still frame.
-  - **Partly fixed:** A11Y-7. The field's phone level radios stay 28 px wide, because there is no room in Kamran's gutter at 360 px.
-  - **Checks:** unit tests 78/78; typecheck passes. The showcase check passes, with CLS 0.00039 and field mount long tasks of 60 and 64 ms. Board CLS stays at 0.
-  - **Open:**
-    - at 1181–1312 px the hero media column is narrower than the field needs (about 700 px): no clipping, but the labels are ellipsized;
-    - in `?lang=ar`, the English sample strings' punctuation shows at the wrong end; suggested fix `unicode-bidi: plaintext`.
-  - **Owner FYI:** when Your Today and Paused are full they now show fewer tiles plus "+N". A11Y-7 suggests amending the plan to "44 px tall on phones".
-- **The container restarted at about 12:52 UTC.** C, D, A1 and B had finished. A2 had run for 7 minutes without editing anything, so its worktree was removed and the workflow resumed as task `wc8hgcv3w`; only A2 runs live.
-- **Fix round 2, B (anatomy, playground, data, render), is done** (report: `scratchpad/fix2-B.json`). 19 items fixed and 7 partly; each partly-fixed one is unfinished only in other owners' files.
-  - **Fixed:**
-    - the What-if stop leak and `aria-pressed`;
-    - Aisha's member line, and the gauge's rounding;
-    - right to left in the anatomy, and the Arabic STOP stamp overflow;
-    - focus after "Throw them all";
-    - attract silence;
-    - the `/demo` h2;
-    - landmarks;
-    - skip-state contrast;
-    - What-ifs reachable by keyboard while pinned;
-    - the anatomy scroll loop is gated (PERF-5).
-  - **Honesty:**
-    - free text never falls back to a sent sample: "No sample is close to that…";
-    - voice, nutrition and the model drive the specialists' statuses;
-    - the strip says "most of this", with a model-off variant;
-    - the Meal planner joins the specialists when nutrition is on.
-  - **Checks:** unit tests pass (anatomy-play 25/25, traces 15/15 and others); typecheck passes; the playground runs at p95 16.8 ms at 4× CPU; first-frame CSS is 17,687 of 18,432 B.
-- **Lead:** `publicAvailability().nutrition` now also needs `NUTRITION_SCOPE_APPROVED` in production, as activation does. Typecheck and `model-profiles` (8/8) pass.
-- **Left for the final pass, from the B and A1 notes:**
-  - the field's "Not on yet" shelf is hard-coded to Meal planner and Recovery (`field.render.js:169`);
-  - field node off-chips must fit;
-  - t4 and t5 receipts should show the prepared status;
-  - the field's lanes and board columns are still 8 regions on `/`;
-  - the field's Pause focus ring is clipped at 1280 px;
-  - playground runs of moments that are not on yet should show a "Not on yet" mark (design decision);
-  - meal photos have no availability flag of their own (`MEAL_PHOTOS_ENABLED`, `MODEL_VISION_ENABLED`);
-  - the hero media column at 1181–1312 px;
-  - Arabic punctuation in the English samples;
-  - the WP3b harness expectations;
-  - the docs list.
-- **Lead follow-ups done:** `registrationOpen` is passed to `llmsFullTxt` and `marketingAssistantFacts`; the traces' Examiner line now reads "Sending on its own needs a pass".
-- **Docs to update at records time:**
-  - PLAN §1.5's publish row and PLAN line 610;
-  - `marketing-site.md:1535` (walkthrough flags);
-  - `PROJECT_MEMORY.md:54` (publishing is blocked by the payments, model and legal checks, not payouts).
-- **Owner FYI, a decision:** "Teach your AI — free" still shows while the model is off, because PLAN ties it to sign-ups only.
-- **Phase 2 notes, pre-existing `/faq` copy:**
-  - "How does money reach me?" is in the present tense with no flag;
-  - "What does a subscriber get" mentions nutrition and voice with no flag;
-  - `PRICE_FAQ` omits the minimums.
-- **Next:**
-  - an adversarial review of the fix diff;
-  - the milestone verification on a quiet machine;
-  - a push without `[skip ci]`, CI to green, then merge, deploy and the live check.
-- **Left for the review and fix stage:**
-  - the field's plan slider snaps back if another control is touched within its 120 ms debounce;
-  - `/` total blocking time measured 444 ms on a loaded machine, against a 326 ms baseline plus a 100 ms allowance; measure again at the milestone;
-  - add a cross-reference in `kamran-assistant.md`.
+**Done today:**
+- **Part 2:** WP4 home, WP5 brain pages, WP7a clean-up, WP7b checks and the CI step, WP8 docs.
+- **Fix round 1:** the board's CLS, the anatomy mount, the control reset and the dot contrast.
+- **Review:** 62 findings.
+- **Fix round 2:** C copy and honesty, D root marks, A1 field, B anatomy and playground, A2 core and checks. All findings were handled. Reports are in `scratchpad/fix2-*.json`.
+- **Lead fixes:**
+  - the keyed fragment;
+  - honest copy while sign-ups are closed;
+  - the status panel's single column;
+  - the journey line;
+  - the `/trainer-brain` `rel=expect` marker;
+  - `MARKETING_SHOWCASE` passed through `compose.yaml`;
+  - `registrationOpen` passed to the llms text and the assistant facts;
+  - the Examiner line;
+  - public nutrition availability waits for the scope review in production.
 
-**Lead decision for the owner's FYI list:** the "Can subscribers pay me today?" answer no longer says "Today you can join". It now reads "With an account you can already set up your page and app, and teach and test your AI", which stays true while sign-ups are closed.
+**Then:**
+1. Push without `[skip ci]` and update the PR #105 body with the owner FYI copy list.
+2. CI to green; mark ready; squash-merge.
+3. Watch the deploy (`scripts/watch-release.sh`), then live-check the four pages.
+4. Records: the COMPLETION_STAGES entry, PROJECT_MEMORY, and this file.
 
-**Next:**
-- milestone verification (§4.6);
-- review workflow, then fixes;
-- PR #105 to green, merge, deploy (`scripts/watch-release.sh`) and a live check of the four pages;
-- records.
+**Deploy reconciliation:** this deploy rests on the owner's explicit 27 Oct instruction for phase 1, "checked and deployed" (recorded in `PROJECT_MEMORY.md` by WP8). It does not rest on the coding handoff.
 
-**Deploy reconciliation, to be recorded before merge:** this deploy rests on the owner's explicit 27 Oct instruction, "checked and deployed". It does not rest on the coding handoff.
+**Owner FYI decisions:**
+- "Teach your AI — free" still shows while the model is off.
+- Full lanes show fewer tiles plus "+N".
+- Field radios are 28 px wide on phones.
+- The watchdog's two-window rule may need tuning on real devices.
 
 **Waiting on the owner:** nothing. Delete the stray `/oq-daily.log` when convenient.
 
