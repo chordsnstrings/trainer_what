@@ -74,6 +74,12 @@
     - field mount long task: 120 ms;
     - `/` blocking time: 406–484 ms, against a 326 ms baseline plus 100;
     - `/trainer-brain` playground p95: 83 ms at tier minimal.
+- **Review at 08:40 UTC:**
+  - Three finders are done, with 53 findings: engines 16, pages and honesty 14 (one blocker), accessibility 23.
+  - The performance and security finders are still running.
+  - **Plan:** stop the workflow once all five finders report, and skip its separate verifiers to save about 2 hours.
+  - **Fix round 2:** three agents, split by file ownership. Each reproduces a finding before fixing it.
+  - **After that:** a final adversarial review of the fixed diff.
 - **Left for the review and fix stage:**
   - the field's plan slider snaps back if another control is touched within its 120 ms debounce;
   - `/` total blocking time measured 444 ms on a loaded machine, against a 326 ms baseline plus a 100 ms allowance; measure again at the milestone;
