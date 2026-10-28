@@ -788,9 +788,11 @@
 /* ---------- phones ---------- */
 @media (max-width: 760px) {
   /* The H1 in two fixed lines, sized so the first fits in the fallback
-     font too, so the field under it never moves when Inter loads. */
+     font too, so the field under it never moves when Inter loads. The
+     first line is about 10 em: it ends at least 4 px inside the screen
+     (at 9.6vw it reached the edge, and past it at 320 px on CI). */
   .mk-hm-hero h1 {
-    font-size: min(9.6vw, 40px);
+    font-size: min(calc((100vw - 20px) / 10), 40px);
     max-inline-size: none;
   }
   .mk-hm-l1,
