@@ -128,9 +128,13 @@
 }
 
 /* ---------- the stage (ink) ---------- */
+/* Rows pack at the top: a stage still arriving (the HTML can paint before
+   the diagram has all parsed) never stretches its rows to the minimum
+   height, so nothing moves up when the rest lands. */
 [data-showcase="play"] .bp-stage {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
+  align-content: start;
   gap: 12px;
   min-block-size: 560px;
   padding: 16px;
