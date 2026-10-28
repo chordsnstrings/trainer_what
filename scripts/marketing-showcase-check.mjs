@@ -162,7 +162,7 @@ const kb = (bytes) => round(bytes / 1024, 1);
  * was then entirely below the viewport).
  */
 function instrument() {
-  const sc = (window.__sc = { frames: [], shifts: [], long: [], events: [], log: [], near: {}, lcp: null });
+  const sc = (window.__sc = { frames: [], shifts: [], long: [], loaf: [], events: [], log: [], near: {}, lcp: null });
   try {
     performance.setResourceTimingBufferSize(2000);
   } catch {}
@@ -203,6 +203,8 @@ function instrument() {
     sc.shifts.push({ t: e.startTime, v: e.value, input: e.hadRecentInput, nodes: e.sources.map((s) => describe(s.node)) }),
   );
   observe("longtask", (e) => sc.long.push([e.startTime, e.duration]));
+  // Long animation frames name the scripts that ran in them: the engine's own long tasks.
+  observe("long-animation-frame", (e) => sc.loaf.push([e.startTime, e.duration, e.scripts.map((x) => x.sourceURL)]));
   observe("event", (e) => e.interactionId && sc.events.push({ name: e.name, t: e.startTime, d: e.duration, id: e.interactionId }), {
     durationThreshold: 16,
   });
@@ -1197,14 +1199,21 @@ await step("metrics", "metrics", async () => {
         if ((await scState(page, id))?.sc !== "on") await scrollToHost(page, id, kind === "anatomy" ? "start" : "center");
         await isOn(page, id);
         await page.waitForTimeout(1000);
-        // From the root coming near (the island loads nothing before the load event) to "on" + 1 s.
+        // The long tasks in which the engine's chunks ran (long animation
+        // frames name their scripts), from the root coming near (the island
+        // loads nothing before the load event) to "on" + 1 s.
+        const engineUrls = (await lateResources(page)).map((x) => x.url).filter((u) => !isCss(u));
         const tasks = await page.evaluate(
-          ([id, load]) => {
-            const from = Math.max(window.__sc.near[id] ?? 0, load);
-            const on = window.__sc.log.find((e) => e.host === id && e.name === "data-sc" && e.value === "on")?.t ?? from;
-            return window.__sc.long.filter(([t, d]) => t + d >= from && t <= on + 1000).map(([, d]) => Math.round(d));
+          ([id, load, urls]) => {
+            const sc = window.__sc;
+            const from = Math.max(sc.near[id] ?? 0, load);
+            const on = sc.log.find((e) => e.host === id && e.name === "data-sc" && e.value === "on")?.t ?? from;
+            const engine = sc.loaf.filter(([, , scripts]) => scripts.some((u) => urls.includes(u)));
+            return sc.long
+              .filter(([t, d]) => t + d >= from && t <= on + 1000 && engine.some(([ft, fd]) => ft < t + d && ft + fd > t))
+              .map(([, d]) => Math.round(d));
           },
-          [id, load.load],
+          [id, load.load, engineUrls],
         );
         r.mount.push({ kind, tasks });
         if (kind === "board") continue;
