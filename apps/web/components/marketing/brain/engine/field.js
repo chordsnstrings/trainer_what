@@ -121,7 +121,7 @@ function wireControls(box, p, k, root) {
     lock.classList.add("is-tip");
     clearTimeout(tip);
     tip = setTimeout(() => lock.classList.remove("is-tip"), 3200);
-    C.say(COPY.lockTip);
+    C.say(lock.querySelector(".mc-tip").textContent);
   });
   function paint(r) { r.style.setProperty("--fill", fill(d, +r.value) + "%"); }
   const sync = () => {
@@ -262,9 +262,10 @@ function mountField(root, o, p) {
   $$(".mc-lane").forEach((sec) => { lanes[sec.dataset.lane] = sec; lists[sec.dataset.lane] = sec.querySelector(".mc-tl"); });
   root.classList.add("sc-cv");
 
-  /* ---- reset the server-rendered result states, then play (a settled frame keeps them) */
+  /* ---- reset the server-rendered result states, then play (a settled frame keeps them).
+     Noura's tile keeps its slot in Training paused, hidden, until her stop lands it. */
   const resetFirst = () => {
-    $$(".mc-li.sc-res").forEach((e) => e.remove());
+    $$(".mc-li.sc-res").forEach((li) => li.classList.add("is-due"));
     frame.classList.remove("is-stop", "is-dim");
     $(".mc-in .mc-msg").classList.remove("is-hit", "mc-hitres");
     $$(".mc-hitres").forEach((e) => e.classList.remove("mc-hitres"));
@@ -409,8 +410,8 @@ function mountField(root, o, p) {
       cap.classList.add("is-read"); cap.classList.toggle("is-ai", !!o2.ai);
       if (o2.ai && !RM && C.tier.name != "minimal") {
         // the final line holds the layout (its basis tag shows in place); the live copy streams over it
-        cap.innerHTML = `<span class="mc-crf">${line}<span>${esc(text)}</span>${basis}</span><span class="mc-crl">${line}<span></span></span>`;
-        const tx = cap.querySelector(".mc-crl span");
+        cap.innerHTML = `<span class="mc-sf">${line}<span>${esc(text)}</span>${basis}</span><span class="mc-sl">${line}<span></span></span>`;
+        const tx = cap.querySelector(".mc-sl span");
         tx.append(document.createTextNode(""), h("span.sc-caret"));
         streams.push({ el: tx, text, t0: W, done: false });
       } else cap.innerHTML = line + esc(text) + basis;
@@ -457,6 +458,7 @@ function mountField(root, o, p) {
   let spot = 1;
   const laneOf = (id) => { const t = d.trace(id), r = decide(t, p.S, d); return t.decide == "learn" ? "waits" : r.lane; };
   const lisOf = (l) => [...lists[l].children].filter((li) => li.classList.contains("mc-li"));
+  const due = (li) => li.classList.contains("is-due"); // a reserved slot: not landed yet
   function place(l) {
     if (ph) return;
     let y = 0;
@@ -478,6 +480,7 @@ function mountField(root, o, p) {
       tl = tiles[id] = { li: list.firstElementChild, lane, n: 0 };
     } else { list.prepend(tl.li); tl.lane = lane; Y.delete(tl.li); }
     tl.n++;
+    tl.li.classList.remove("is-due");
     replay(tl.li, "is-land", sign);
     replay(lanes[lane], "is-flash2");
     if (id == "t10" && lane == "sent") spot++;
@@ -493,7 +496,8 @@ function mountField(root, o, p) {
       lis.forEach((li, i) => (li.hidden = i >= SHOW[l]));
       const more = n - Math.min(lis.length, SHOW[l]), mo = lists[l].querySelector(".mc-more");
       mo.hidden = more <= 0; mo.textContent = "+" + more;
-      sec.querySelector(".mc-last").textContent = lis[0] ? d.trace(lis[0].dataset.t).member : "—";
+      const last = lis.find((li) => !due(li));
+      sec.querySelector(".mc-last").textContent = last ? d.trace(last.dataset.t).member : "—";
       if (l == "waits") sec.querySelector(".mc-chk2 b").textContent = spot && tiles.t10 && tiles.t10.lane == "sent" ? spot : 0;
       place(l);
     }
@@ -501,7 +505,7 @@ function mountField(root, o, p) {
   }
   function rove() {
     for (const l in lists) {
-      const b = lisOf(l).filter((li) => !li.hidden).map((li) => li.firstElementChild);
+      const b = lisOf(l).filter((li) => !li.hidden && !due(li)).map((li) => li.firstElementChild);
       if (!b.some((x) => x.tabIndex == 0)) b.forEach((x, i) => (x.tabIndex = i ? -1 : 0));
     }
   }
@@ -983,21 +987,24 @@ function mountField(root, o, p) {
     if (!card) { card = h("div.mc-learncard", { "aria-hidden": "true" }); body.append(card); }
     replay($(".mc-lane[data-lane='waits'] .mc-ls"), "is-pulse");
     sub(subHTML(d.trace("t7")), 3600);
-    const html = (end) => `<p class="mc-lc-h"><span class="mc-ls">LS</span>${esc(Lc[0])}</p><p class="mc-lc-d">Draft: “Add <s>5 kg</s> <ins>${end ? "2.5 kg" : ""}</ins> next time.”</p>` +
-      `<p class="mc-lc-s${end}" data-s="1">${esc(Lc[1])}</p><p class="mc-lc-s mc-lc-ai${end}" data-s="2">Learner · <span>${end ? esc(BUB.learner) : ""}</span> ${U.basis(d, "tests")}</p>` +
+    // The typed edit and the Learner's line hold their final size (the final
+    // copy is hidden, the live one fills in over it), so no word moves.
+    const typed = "2.5 kg", learner = `Learner · <span>${esc(BUB.learner)}</span> ${U.basis(d, "tests")}`;
+    const html = (end) => `<p class="mc-lc-h"><span class="mc-ls">LS</span>${esc(Lc[0])}</p><p class="mc-lc-d">Draft: “Add <s>5 kg</s> <ins><span class="mc-sf">${typed}</span><span class="mc-sl"></span></ins> next time.”</p>` +
+      `<p class="mc-lc-s${end}" data-s="1">${esc(Lc[1])}</p><p class="mc-lc-s mc-lc-ai${end}" data-s="2"><span class="mc-sf">${learner}</span><span class="mc-sl">Learner · <span></span></span></p>` +
       `<p class="mc-lc-s${end}" data-s="3"><span class="mc-q">${esc(Lc[end ? 3 : 2])}</span></p><p class="mc-lc-s${end}" data-s="4"><span class="mc-ex">${esc(Lc[4])}</span> · Examiner: your AI answers your test cases, code marks them. <b>${end ? esc(Lc[5]) : ""}</b></p>`;
     // The card grows downwards from where its last line ends at the lane's foot, so nothing in it ever moves up.
     card.innerHTML = html(" is-up");
     card.style.top = Math.round(G.H - (ph ? 74 : 0) - card.offsetHeight) + "px";
     card.innerHTML = html("");
     card.classList.remove("is-up"); void card.offsetWidth; card.classList.add("is-up");
-    const ins = card.querySelector("ins"), sh = (i) => card.querySelector(`[data-s="${i}"]`).classList.add("is-up");
+    const ins = card.querySelector("ins .mc-sl"), sh = (i) => card.querySelector(`[data-s="${i}"]`).classList.add("is-up");
     const tz = tiles.t7 && tiles.t7.li; tz && tz.classList.add("is-edit");
-    "2.5 kg".split("").forEach((ch, i) => at(W + 500 + i * 83, () => (ins.textContent += ch)));
+    typed.split("").forEach((ch, i) => at(W + 500 + i * 83, () => (ins.textContent += ch)));
     at(W + 1100, () => { sh(1); setNode("privacy", "pass", { owner: own, val: "[client]" }); release("privacy", own, 3000); });
     at(W + 1500, () => {
       sh(2);
-      const tg = card.querySelector(".mc-lc-ai span");
+      const tg = card.querySelector(".mc-lc-ai .mc-sl span");
       tg.append(document.createTextNode(""), h("span.sc-caret"));
       streams.push({ el: tg, text: BUB.learner, t0: W, done: false });
       setNode("learner", "work", { owner: own });
@@ -1099,7 +1106,7 @@ function mountField(root, o, p) {
     focusControl(t) {
       const kind = t.decide;
       const el = kind == "plan" ? ctl.rng : kind == "topic" ? ctl.sw : kind == "floor" ? ctl.lock : $(".mc-lv [aria-checked='true']");
-      if (ph && sheet.contains(el)) openSheet(true);
+      if (ph && sheet.contains(el)) openSheet(true, el);
       el.focus();
       replay(kind == "plan" ? el.parentElement : el, "is-ping");
     },
@@ -1120,7 +1127,7 @@ function mountField(root, o, p) {
       sc.set("read", false);
     }
   }
-  function openSheet(on) {
+  function openSheet(on, to) {
     if (!ph || on == sheetOpen) return;
     sheetOpen = on;
     moreb.setAttribute("aria-expanded", on);
@@ -1131,7 +1138,7 @@ function mountField(root, o, p) {
       void sheet.offsetWidth; // the closed position first, so the slide-in runs
       sheet.classList.add("is-open"); back.classList.add("is-open");
       sc.set("read", true);
-      k.later(() => sheetOpen && sheet.querySelector("[data-close]").focus(), 30);
+      k.later(() => sheetOpen && (to || sheet.querySelector("[data-close]")).focus(), 30);
     } else {
       sheet.classList.remove("is-open"); back.classList.remove("is-open");
       k.later(() => { if (!sheetOpen) { sheet.hidden = true; back.remove(); } }, 300);
@@ -1164,7 +1171,7 @@ function mountField(root, o, p) {
     if (e.key == "Escape") { const hp = $(".mc-howp"); if (!hp.hidden) { hp.hidden = true; $(".mc-how").setAttribute("aria-expanded", "false"); } closeBin(); }
     const b = e.target.closest(".mc-tile, .mc-m");
     if (!b || !/^Arrow(Up|Down)$/.test(e.key) || b.closest(".mc-binlist")) return;
-    const list = [...b.closest("ul").querySelectorAll(b.classList.contains("mc-m") ? ".mc-m" : ".mc-li:not([hidden]) .mc-tile")];
+    const list = [...b.closest("ul").querySelectorAll(b.classList.contains("mc-m") ? ".mc-m" : ".mc-li:not([hidden]):not(.is-due) .mc-tile")];
     const i = list.indexOf(b), nb = list[clamp(i + (e.key == "ArrowDown" ? 1 : -1), 0, list.length - 1)];
     e.preventDefault(); list.forEach((x) => (x.tabIndex = -1)); nb.tabIndex = 0; nb.focus();
   });
@@ -1174,7 +1181,7 @@ function mountField(root, o, p) {
     binFrom = bin; // Esc or Done returns focus here
     const l = bin.dataset.bin;
     binBox = h("div.mc-binlist", { role: "dialog", "aria-label": COPY.lanes[l][0] });
-    binBox.innerHTML = `<p><b>${esc(COPY.lanes[l][0])}</b><button type="button" class="mc-x" data-binx>${esc(COPY.done)}</button></p><ul>${lisOf(l).map((li) => `<li><button type="button" class="mc-tile" data-t="${li.dataset.t}">${li.querySelector(".mc-tn").innerHTML}</button></li>`).join("")}</ul>`;
+    binBox.innerHTML = `<p><b>${esc(COPY.lanes[l][0])}</b><button type="button" class="mc-x" data-binx>${esc(COPY.done)}</button></p><ul>${lisOf(l).filter((li) => !due(li)).map((li) => `<li><button type="button" class="mc-tile" data-t="${li.dataset.t}">${li.querySelector(".mc-tn").innerHTML}</button></li>`).join("")}</ul>`;
     root.append(binBox);
     k.on(binBox, "click", (e) => { if (e.target.closest("[data-binx]")) closeBin(bin); });
     binBox.querySelector("button").focus();
@@ -1186,9 +1193,9 @@ function mountField(root, o, p) {
   let ro = null;
   function teardown() {
     dead = true;
+    rx && rx.close(true);
     sc.destroy();
     k.clear();
-    rx && rx.close(true);
     closeBin(null);
     if (sheet.parentElement == L.el) sheet.remove();
     back && back.remove();
@@ -1212,7 +1219,7 @@ function mountField(root, o, p) {
     k.add(() => { ro.disconnect(); clearTimeout(rz); });
     p.subs.add(resort);
     k.add(() => p.subs.delete(resort));
-    const own = () => { for (const li of $$(".mc-li")) tiles[li.dataset.t] = { li, lane: li.closest(".mc-lane").dataset.lane, n: 1 }; };
+    const own = () => { for (const li of $$(".mc-li")) tiles[li.dataset.t] = { li, lane: li.closest(".mc-lane").dataset.lane, n: due(li) ? 0 : 1 }; };
     if (RM) {
       root.classList.add("is-rm");
       resetFirst(); own(); staticFinal(); counts();

@@ -117,7 +117,7 @@ const supp = (S) => `<button type="button" class="mc-sw" role="switch" aria-chec
     it ("Platform safety rules", "{APP_NAME}. Can't switch off."). */
 const lock = (d, tip) => {
   const r = d.trace("t2").rule;
-  return `<button type="button" class="mc-lock" aria-describedby="${tip}" disabled>${U.icon("lock", 12)}${esc(COPY.lock)}<span class="mc-tip" role="tooltip" id="${tip}"><b>${esc(r.title)}</b> ${esc(r.source)} ${esc(COPY.stricter)}</span></button>`;
+  return `<button type="button" class="mc-lock" aria-describedby="${tip}" disabled>${U.icon("lock", 12)}${esc(COPY.lock)}<span class="mc-tip" role="tooltip" id="${tip}"><b>${esc(r.title)}</b><span class="sc-sr">. </span>${esc(r.source)} ${esc(COPY.stricter)}</span></button>`;
 };
 /** The receipts' call to action (receipt.js renders the same, from the same
     options). Inert here: the frame carries it so that a change to it, such as

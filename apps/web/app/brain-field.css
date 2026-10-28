@@ -798,6 +798,11 @@ html.sc-motion:not(.sc-late) [data-showcase][data-sc="pre"] .sc-node.mc-hitres {
 html.sc-motion:not(.sc-late) [data-showcase][data-sc="pre"] .mc-hitres::after {
   opacity: 0;
 }
+/* The stamp waits for its stop already faded out, so the engine starting
+   from this frame never shows it fading. */
+html.sc-motion:not(.sc-late) [data-showcase][data-sc="pre"] .mc-stamp {
+  opacity: 0;
+}
 [data-showcase="field"] .mc-tl {
   display: grid;
   gap: 4px;
@@ -1012,12 +1017,17 @@ html.sc-motion:not(.sc-late) [data-showcase][data-sc="pre"] .mc-hitres::after {
   background: var(--sc-text);
   color: var(--sc-on-ai);
   font: 500 11.5px/1.4 var(--sc-font);
+  text-align: start;
   white-space: normal;
   box-shadow: 0 8px 24px rgb(0 0 0 / 40%);
   opacity: 0;
   visibility: hidden;
   transition: opacity 0.14s;
   pointer-events: none;
+}
+/* the lock's tip names the rule, as its receipts do */
+[data-showcase] .mc-tip b {
+  display: block;
 }
 [data-showcase] .mc-chk:hover .mc-tip,
 [data-showcase] .mc-chk:focus-visible .mc-tip,

@@ -111,13 +111,13 @@
   animation: mc-pop 0.2s var(--sc-enter) 1;
 }
 
-/* ---------- nodes at work ---------- */
-[data-showcase] .mc-n[data-state="pass"] .mc-v,
-[data-showcase] .mc-n[data-state="sent"] .mc-v {
+/* ---------- nodes at work (.sc-cv: the engine draws this root) ---------- */
+[data-showcase].sc-cv .mc-n[data-state="pass"] .mc-v,
+[data-showcase].sc-cv .mc-n[data-state="sent"] .mc-v {
   color: var(--sc-pace);
 }
-[data-showcase] .mc-n[data-state="warn"] .mc-v,
-[data-showcase] .mc-n[data-state="waits"] .mc-v {
+[data-showcase].sc-cv .mc-n[data-state="warn"] .mc-v,
+[data-showcase].sc-cv .mc-n[data-state="waits"] .mc-v {
   color: var(--sc-waits);
 }
 [data-showcase] .mc-n.is-below .mc-gauge i {
@@ -214,9 +214,13 @@
   position: relative;
   display: block;
 }
-/* streamed words reserve their final size: the full text holds the box, the live copy streams over it */
+/* Streamed words reserve their final size: the final copy holds the box (a
+   basis tag in it shows in place), the live copy streams over it. */
 [data-showcase] .mc-sf {
   visibility: hidden;
+}
+[data-showcase] .mc-sf .sc-basis {
+  visibility: visible;
 }
 [data-showcase] .mc-sl {
   position: absolute;
@@ -288,6 +292,10 @@
 [data-showcase] .mc-li.is-land {
   animation: mc-land 0.28s var(--sc-enter) 1;
 }
+/* Noura's tile keeps its slot until her stop lands it */
+[data-showcase] .mc-li.is-due {
+  visibility: hidden;
+}
 [data-showcase] .mc-li.is-edit .mc-tile {
   border-color: var(--sc-pace);
   box-shadow: 0 0 0 2px rgb(213 242 74 / 22%);
@@ -356,9 +364,18 @@
 [data-showcase] .mc-lc-d s {
   color: #8a3b33;
 }
+/* the typed words and the Learner's line keep their final size as they arrive */
 [data-showcase] .mc-lc-d ins {
+  position: relative;
   text-decoration: none;
+  white-space: nowrap;
+}
+[data-showcase] .mc-lc-d ins .mc-sl {
+  inset-inline-end: auto;
   background: linear-gradient(transparent 55%, var(--sc-pace) 55%);
+}
+[data-showcase] .mc-lc-ai {
+  position: relative;
 }
 [data-showcase] .mc-lc-s {
   display: none;
@@ -369,7 +386,8 @@
   display: block;
   animation: mc-rise 0.22s var(--sc-enter) 1 both;
 }
-[data-showcase] .mc-lc-ai span {
+[data-showcase] .mc-lc-ai .mc-sl > span,
+[data-showcase] .mc-lc-ai .sc-basis {
   color: var(--sc-text);
 }
 [data-showcase] .mc-q.is-ok,
@@ -562,16 +580,6 @@
   }
   [data-showcase] .mc-cr.is-read {
     position: relative;
-  }
-  [data-showcase] .mc-crf {
-    visibility: hidden;
-  }
-  [data-showcase] .mc-crf .sc-basis {
-    visibility: visible;
-  }
-  [data-showcase] .mc-crl {
-    position: absolute;
-    inset: 0;
   }
   [data-showcase] .mc-learncard {
     inset-inline: 8px;
