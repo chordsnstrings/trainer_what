@@ -86,7 +86,7 @@ export async function mount(root, o) {
   const res = $(".bp-res"), ctls = $(".bp-ctls"), change = $(".bp-change"), again = $(".bp-again"), out = $(".bp-out"), chips = $(".bp-chips");
   const msgBox = () => $(".bp-msg");
   // What only the engine shows: none of it takes space in the frame.
-  const cv = h("canvas.bp-cv", { "aria-hidden": "true" }), allBox = h("div.bp-all", { hidden: true });
+  const cv = h("canvas.bp-cv", { "aria-hidden": "true", width: "0", height: "0" }), allBox = h("div.bp-all", { hidden: true });
   const noai = h("div.bp-noai", { hidden: true }, d.labels.noAi), stamp = h("div.bp-stamp", { hidden: true }, COPY.stop);
   const skip = h("a.bp-skip", { href: "#" + out.id, hidden: true }, COPY.skip);
   let sc = null, sub = null, dead = false;

@@ -118,7 +118,7 @@ test("every moment is a named button; the board sorts every moment by decide(); 
   for (const c of cards) assert.match(text(c.html), new RegExp(`^ ${d.trace(c.id).member} ${d.trace(c.id).chip.replace(/[?().]/g, "\\$&")} `), c.id);
   assert.ok(board.includes(`<p class="mb-tot">${esc(totals(d, S))}</p>`));
   // The frame, the rails and the canvas are a picture: the buttons carry the moments.
-  for (const m of ['<div class="mc-frame" aria-hidden="true">', '<svg class="mc-cv mc-rails" aria-hidden="true" focusable="false">', '<canvas class="mc-cv mc-cv2" aria-hidden="true">', '<p class="mc-sub" aria-hidden="true">'])
+  for (const m of ['<div class="mc-frame" aria-hidden="true">', '<svg class="mc-cv mc-rails" width="0" height="0" aria-hidden="true" focusable="false">', '<canvas class="mc-cv mc-cv2" width="0" height="0" aria-hidden="true">', '<p class="mc-sub" aria-hidden="true">'])
     assert.ok(field.includes(m), m);
   assert.ok(field.includes(`<p class="sc-sr">${SUMMARY}</p>`), "the screen-reader summary");
   // Controls are real controls: the level radios, the slider with its value text, the switch, the lock.
