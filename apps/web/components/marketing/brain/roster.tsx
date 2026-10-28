@@ -105,7 +105,7 @@ export function Roster({
         return (
           <section
             key={crew.id}
-            className="mk-tb-crew"
+            className="mk-tb-stack mk-tb-crew"
             aria-labelledby={"crew-" + crew.id}
           >
             <h3 id={"crew-" + crew.id}>
@@ -113,7 +113,7 @@ export function Roster({
               {crew.label && ` · ${crew.label}`}
             </h3>
             <p>{crew.body}</p>
-            <ul>
+            <ul className="mk-cards">
               {members.map((s) => {
                 const run = s.status === "not_on_yet" ? undefined : SHOWS[s.id];
                 const line = tip(d, s);

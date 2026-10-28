@@ -54,10 +54,13 @@
   background: var(--error-bg);
   color: var(--error);
 }
+.mk-tb-stack,
+.mk-tb-stack > * {
+  margin: 0;
+}
 .mk-tb-stack {
   display: grid;
   gap: 16px;
-  margin: 0;
 }
 .mk-tb-box .button {
   min-block-size: 44px;
@@ -121,18 +124,6 @@
 }
 
 /* ---------- inside: the roster, by crew ---------- */
-.mk-tb-crew {
-  display: grid;
-  gap: 12px;
-}
-.mk-tb-crew > :is(h3, p) {
-  margin: 0;
-}
-.mk-tb-crew ul {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
-  gap: 12px;
-}
 .mk-tb-crew li {
   align-content: start;
   justify-items: start;
