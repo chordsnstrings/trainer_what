@@ -53,13 +53,18 @@
 //     leaving with a receipt open leaves no overlay layer or scroll lock; a
 //     receipt open in the field's zoom at 844x390, turned to 390x844, is the
 //     phone's sheet, and closing it leaves no zoom and nothing inert.
-// 10. The /demo playground: knee, deload, low recovery, free text (a close
-//     sample, and none for "hello there"), a setting change and the keyboard.
+// 10. The /demo playground under the page's flags, in the closed pass (the AI
+//     model off) and again in the open pass (on): knee (code only, so it
+//     runs in both), deload (waits for you; with the model off its chip and
+//     card say not on yet and nothing runs), low recovery, free text (a close
+//     sample, and none for "hello there"), a setting change (the before/now
+//     line; with the model off, the creatine moment's supplements switch
+//     hands it to the Draft writer, not on yet, and back) and the keyboard.
 // 11. /trainer-brain: the pin (html.sc-pin, more than 3 viewports, steps
 //     advance), the pinned frame flush under the header at 1440, 1000 and
 //     390, flat plates under reduced motion and at 1440x650, and "See it
 //     work" runs its moment (a link to a moment the playground is not
-//     already showing: its first frame presses t1).
+//     already showing).
 // 12. Three rounds of / → /pricing → / → /trainer-brain → /demo → / by link
 //     clicks: no errors, every arrival reaches "on", and no more animation
 //     frame callbacks per frame in round 3 than in round 1.
@@ -348,11 +353,12 @@ async function mountAll(page) {
   return took;
 }
 /** Frames recorded from now for `ms`: count, gaps under 250 ms, work and callbacks per frame. */
-async function frames(page, ms) {
+/** The frames of the next `ms`, or until `until()` settles first (a playground run's end). */
+async function frames(page, ms, until) {
   const from = await page.evaluate(() => performance.now());
-  await page.waitForTimeout(ms);
+  await (until ? Promise.race([until().catch(() => {}), page.waitForTimeout(ms)]) : page.waitForTimeout(ms));
   return page.evaluate((from) => {
-    const f = window.__sc.frames.filter(([t]) => t >= from);
+    const to = performance.now(), f = window.__sc.frames.filter(([t]) => t >= from && t <= to);
     const gaps = [];
     for (let i = 1; i < f.length; i++) if (f[i][0] - f[i - 1][0] < 250) gaps.push(f[i][0] - f[i - 1][0]);
     return { count: f.length, gaps, work: f.map((x) => x[2]), callbacks: f.map((x) => x[1]) };
@@ -992,9 +998,9 @@ await step(9, "receipts and overlays", async () => {
   }
 });
 
-await step(10, "playground", async () => {
+/** Step 10 on one platform state: reads which moments run from the chips (data-off: not on yet here). */
+async function playground(label) {
   if (!PAGES.includes("/demo")) return;
-  const label = "10. /demo";
   const page = await open();
   await go(page, "/demo");
   const id = await hostOf(page, "play");
@@ -1012,18 +1018,29 @@ await step(10, "playground", async () => {
     await settlePlay(page, id);
     return lane();
   };
+  /** The result column of a moment that does not run here. */
+  const offCard = () =>
+    page.evaluate((id) => {
+      const r = document.getElementById(id).firstElementChild;
+      return { card: r.querySelector(".bp-offcard")?.textContent ?? "", due: !!r.querySelector(".bp-res.is-due"), steps: r.querySelectorAll(".bp-logs li").length };
+    }, id);
+  // Deload's Reply picker uses the AI model: its chip says whether the model is on here.
+  const model = !(await page.evaluate((id) => document.querySelector(`#${id} .bp-chip[data-t="t6"]`).hasAttribute("data-off"), id));
+  results.playground ??= {};
+  results.playground[label] = { model };
   const knee = await play("t2");
   const noai = await page.evaluate((id) => document.querySelector(`#${id} .bp-noai`)?.checkVisibility() ?? false, id);
   if (knee !== LANES.paused || !noai) fail(label, `knee: "${knee}", No AI called ${noai}`);
   const deload = await play("t6");
-  if (deload !== LANES.waits) fail(label, `deload: "${deload}"`);
+  if (model ? deload !== LANES.waits : deload !== null) fail(label, `deload: "${deload}"`);
+  if (!model) {
+    const c = await offCard();
+    if (!/Not on yet\..*Specialist not on yet: Reply picker\./.test(c.card) || c.steps) fail(label, `deload with the model off: ${JSON.stringify(c)}`);
+  }
   await settlePlay(page, id);
   await page.click(`#${id} .bp-chip[data-t="t3"]`);
   await page.waitForTimeout(300);
-  const low = await page.evaluate((id) => {
-    const r = document.getElementById(id).firstElementChild;
-    return { card: r.querySelector(".bp-offcard")?.textContent ?? "", due: !!r.querySelector(".bp-res.is-due"), steps: r.querySelectorAll(".bp-logs li").length };
-  }, id);
+  const low = await offCard();
   if (!/Not on yet/.test(low.card) || low.due || low.steps) fail(label, `low recovery: ${JSON.stringify(low)}`);
   // Free text: its keyword table loads when typing starts, so wait for the line.
   const ask = async (text) => {
@@ -1043,20 +1060,41 @@ await step(10, "playground", async () => {
   const none = await ask("hello there");
   await page.waitForTimeout(300);
   if (!/^No sample is close/.test(none) || (await pressed()) !== was) fail(label, `"hello there": "${none}", chip ${await pressed()} (no sample, nothing new plays)`);
-  await play("t1");
-  await page.$eval(`#${id} input[data-k="capPct"]`, (e) => {
-    e.value = "3";
-    e.dispatchEvent(new Event("input", { bubbles: true }));
-  });
-  await page.waitForTimeout(300);
-  const why = await page.evaluate((id) => document.querySelector(`#${id} .bp-why`)?.textContent.trim() ?? "", id);
-  if (!/^Before: .+ Now: /.test(why)) fail(label, `a setting change shows "${why}", not the before/now line`);
-  const enter = await play("t6", "Enter");
+  if (model) {
+    await play("t1");
+    await page.$eval(`#${id} input[data-k="capPct"]`, (e) => {
+      e.value = "3";
+      e.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await page.waitForTimeout(300);
+    const why = await page.evaluate((id) => document.querySelector(`#${id} .bp-why`)?.textContent.trim() ?? "", id);
+    if (!/^Before: .+ Now: /.test(why)) fail(label, `a setting change shows "${why}", not the before/now line`);
+  } else {
+    // Creatine runs on code alone; with supplement questions off it goes to the Draft writer, not on yet:
+    // the card and the announcement say so at once, and "Run it again" runs nothing.
+    const on = await play("t9");
+    const flip = async () => {
+      await settlePlay(page, id);
+      await page.click(`#${id} input[data-k="supplementsTopic"]`);
+      await page.waitForTimeout(700);
+    };
+    await flip();
+    const said = await page.evaluate(() => document.querySelector("[data-sc-live]")?.textContent ?? "");
+    await page.click(`#${id} .bp-again`);
+    await page.waitForTimeout(300);
+    const c = await offCard();
+    await flip();
+    const back = await lane();
+    if (on !== LANES.waits || !/Specialist not on yet: Draft writer\./.test(c.card) || c.steps || !/Not on yet/.test(said) || back !== LANES.waits)
+      fail(label, `creatine "${on}", supplements off ${JSON.stringify({ ...c, said })}, back on "${back}"`);
+  }
+  const enter = await play(model ? "t6" : "t9", "Enter");
   const space = await play("t2", "Space");
-  if (enter !== LANES.waits || space !== LANES.paused) fail(label, `keyboard: Enter on deload "${enter}", Space on knee "${space}"`);
+  if (enter !== LANES.waits || space !== LANES.paused) fail(label, `keyboard: Enter on ${model ? "deload" : "creatine"} "${enter}", Space on knee "${space}"`);
   if (page.errors.length) fail(label, page.errors.slice(0, 3).join(" | "));
   await close(page);
-});
+}
+await step(10, "playground", () => playground("10. /demo"));
 
 await step(11, "/trainer-brain", async () => {
   if (!PAGES.includes("/trainer-brain")) return;
@@ -1437,16 +1475,18 @@ await step("metrics", "metrics", async () => {
         await scrollTop(page, y);
         await page.waitForTimeout(600);
         if (kind === "play") {
-          // A run plays at 60 fps; at rest the playground breathes at 12 fps.
+          // A run plays at 60 fps, sampled from its start to its end; at rest the playground breathes at
+          // 12 fps. Knee runs on code alone, so it runs under every flag state (Omar's needs the AI model).
           await settlePlay(page, id).catch(() => {});
-          await page.click(`#${id} .bp-chip[data-t="t1"]`).catch(() => {});
+          await page.click(`#${id} .bp-chip[data-t="t2"]`).catch(() => {});
+          await page.waitForFunction((id) => document.querySelector(`#${id} .bp-res.is-due`), id, { timeout: 3000 }).catch(() => {});
         }
         await running(page, id, true, 3000);
-        const sample = async (name, ms) => {
-          const f = await frames(page, ms);
+        const sample = async (name, ms, until) => {
+          const f = await frames(page, ms, until);
           r.frames[name] = { gap: round(p95(f.gaps)), work: round(p95(f.work), 2), count: f.count, tier: (await scState(page, id)).tier };
         };
-        await sample(kind, kind === "play" ? 3000 : 4000);
+        await sample(kind, kind === "play" ? 3000 : 4000, kind === "play" ? () => settlePlay(page, id, 3000) : undefined);
         if (kind === "field") {
           // Partly under the sticky header: its top 100 px above the header's bottom.
           await page.evaluate((id) => {
@@ -1487,11 +1527,12 @@ await step("metrics", "metrics", async () => {
         if (body.includes("ba-burst")) r.receipt += size;
         else r.engine += size;
       }
-      // Input latency: a chip on /demo, the share slider on /pricing (Event Timing).
+      // Input latency: a chip on /demo (the knee: in the phone's first six, and code alone, so it runs
+      // under every flag state), the share slider on /pricing (Event Timing).
       if (path === "/demo" && first) {
         await settlePlay(page, first.id).catch(() => {});
         const from = await now(page);
-        await page.click(`#${first.id} .bp-chip[data-t="t6"]`);
+        await page.click(`#${first.id} .bp-chip[data-t="t2"]`);
         await page.waitForTimeout(600);
         r.input = await page.evaluate((from) => Math.max(0, ...window.__sc.events.filter((e) => e.t >= from).map((e) => e.d)), from);
       }
@@ -1619,9 +1660,10 @@ await step("metrics", "metrics", async () => {
 
 // ---------------------------------------------------------------------------
 // The open platform with Kamran's button on /.
-if (stub && (want(4) || want(8) || want(13))) {
+if (stub && (want(4) || want(8) || want(10) || want(13))) {
   stub.set("assistant");
   await step(4, "open pages (with 13)", () => pagePass("open", [390], ["ltr"]));
+  await step(10, "playground (open)", () => playground("10. /demo open"));
   await step(8, "Kamran", async () => {
     if (!PAGES.includes("/")) return;
     for (const viewport of [PHONE, { width: 360, height: 800 }]) {

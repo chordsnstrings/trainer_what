@@ -62,7 +62,26 @@
     - the field mount is over 80 ms in about a quarter of loads;
     - without JavaScript the root marks never apply, so the public pages' light styles are missing;
     - first paint on `/` is 150–400 ms later than the base at 4× CPU.
-- **Fix pass running since about 15:48:** E (engines) and P (pages and global). Then the docs and the milestone verification.
+- **Fix pass, P (pages and global), is done** (`41e269c`, `488b9d1`; report `scratchpad/final-P.json`). 12 items fixed, 2 partly, 1 deferred.
+  - **Payments answers:** "Can subscribers pay me today? Yes." now waits for the publish gates (sign-ups, payments and the model). There is a new "payments on, publishing not yet" answer.
+  - **Instagram answer:** reworded to "Once your page is live…".
+  - **Pricing:** the hero strip follows publishing and payouts. The voice add-on is gone from the trainer extras, leaving only the domain. Prepaid packs are stated.
+  - **Data answer:** taken from the 14 Oct terms.
+  - **`/demo` moments:** drawn from the traces, and they follow the flags.
+  - **Sample ledger:** made consistent.
+  - **Root marks without JavaScript:** a `<noscript>` fallback restores them.
+  - **Consent bar:** it no longer sets a root custom property on marketing pages.
+  - **Header:** `scroll-padding` on the public root, so the sticky header no longer hides focus. The A11Y-1 parts in the playground and the check are left for E.
+  - **Hero width (L11):** fixed.
+  - **Blocking time (L16):** the calculators' and domain startup work was cut; `/` TBT median 298 → 261 ms.
+  - **Deferred:** PERF-7, first paint. `content-visibility` measured no gain; the real lever is a separate marketing route group, which the catch-all lacks (it ships about 835 KB gzipped of JS on marketing pages). That is phase 2 or 3.
+  - **Checks:** typecheck passes; 304/304 unit tests; flag-matrix scan of 400 renders with 0 problems.
+  - **Showcase check:** fails 4 lines, all in E's playground, which was still in progress: lazy sheets move the playground output 9 px at 1440 with JavaScript off; an empty before/now line on a `/demo` setting change; the largest paint is the longer banner.
+  - **Owner decisions:**
+    - the prepaid-packs wording (computed, not yet approved);
+    - the data answer from the terms (legal or the owner should confirm);
+    - the "AI Coach Service Fee" is still unmentioned, under the no-AI-costs rule.
+- **E (engines) is still running.** Then the docs and the milestone verification. The milestone agent gets P's notes for E, such as the duplicate `.bp-diagram` scroll margin.
 
 **Done today:**
 - **Part 2:** WP4 home, WP5 brain pages, WP7a clean-up, WP7b checks and the CI step, WP8 docs.

@@ -107,7 +107,7 @@
 [data-showcase="field"] .mc-pause::after {
   content: "";
   position: absolute;
-  inset: -9px -4px;
+  inset: -10px -4px; /* from the padding box: 44px with the 1px borders */
 }
 [data-showcase="field"] .mc-pause[disabled] {
   opacity: 0.55;
@@ -1250,7 +1250,7 @@ html.sc-motion:not(.sc-late) [data-showcase][data-sc="pre"] .mc-stamp {
   }
   /* 44px of hit area inside the root's 8px top padding (it clips) */
   [data-showcase="field"] .mc-pause::after {
-    inset: -8px -4px -10px;
+    inset: -9px -4px -11px;
   }
   [data-showcase="field"] .mc-body {
     display: block;

@@ -404,7 +404,8 @@ export async function mount(root, o) {
     const sum = $(".bp-sum", ctls);
     if (sum && cur.controls.includes("level")) sum.textContent = d.labels.levels[S.level].summary;
     clearTimeout(deb);
-    deb = k.later(() => C.say(`${d.labels.lanes[r.lane]}${r.why ? ". " + r.why : ""}`), 400);
+    // A moment the change sends to a specialist not on yet shows the dashed card: say that, not a lane.
+    deb = k.later(() => C.say(r.off ? `${cur.chip}: ${COPY.off}` : `${d.labels.lanes[r.lane]}${r.why ? ". " + r.why : ""}`), 400);
   }
   function pickRadio(b) {
     [...b.parentElement.children].forEach((x) => { const on = x == b; x.setAttribute("aria-checked", String(on)); x.tabIndex = on ? 0 : -1; });

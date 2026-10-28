@@ -494,6 +494,8 @@ test("the AI model off: every moment one of its specialists plays is the dashed 
   assert.match(js, /if \(r\.off\) \{[^\n]*\n\s+resetStage\(t, 0, r\); dot = null;[\s\S]*?waiting\(d, r\)\.forEach\(\(sp\) => setNode\(sp, "focus"\)\);/);
   assert.match(js, /attract = true; run\(first\);/);
   assert.match(js, /totals\(d, S, true\)/);
+  // A setting that sends the moment to a specialist not on yet is announced as the card says, not as a lane.
+  assert.match(js, /C\.say\(r\.off \? `\$\{cur\.chip\}: \$\{COPY\.off\}` : `\$\{d\.labels\.lanes\[r\.lane\]\}/);
 });
 
 test("free text finds the closest sample through the local keyword table only: specific words first, nothing when no sample is close", () => {
