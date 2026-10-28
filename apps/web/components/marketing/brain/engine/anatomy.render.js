@@ -71,6 +71,8 @@ const COACH = [["reply_picker", "a rule fits"], ["draft_writer", "no rule fits"]
 /* Other members' moments (the ghost stacks): trace, moment, shown on phones. Each lights only its own
    node; the runtime runs them (data-run), and the still figure shows them unlit. */
 export const GHOSTS = [["t8", "week ends", 1], ["t2", "knee", 1], ["t4", "meal photo", 1], ["t9", "creatine", 0], ["t10", "first plan", 0]];
+/** The ghost stacks the page's flags let run: a moment not on yet never runs beside Omar's. Each keeps its place (g). */
+export const ghostsOf = (d) => GHOSTS.map(([id, moment, ph], g) => ({ id, moment, ph, g })).filter((x) => d.trace(x.id).status != "not_on_yet");
 
 /* ------------------------------------------------------------------ model */
 export const stepOf = (r, sp) => r.steps.find((s) => s.sp == sp);
@@ -171,7 +173,7 @@ export function plateHTML(d, M, p, i, S) {
 }
 export const stackHTML = (d, M, S) => M.plates.map((p, i) => plateHTML(d, M, p, i, S)).join("");
 function ghostHTML(d, S) {
-  return GHOSTS.map(([id, moment, ph], g) => {
+  return ghostsOf(d).map(({ id, moment, ph, g }) => {
     const t = d.trace(id), r = decide(t, S, d), pk = pick(t, d, S), stop = (stepOf(r, "safety") || {}).result == "hit", topic = (stepOf(r, "topics") || {}).result == "hit";
     return `<div class="ca-g" data-g="${g}"${ph ? "" : " data-desk"}><span class="ca-gl">${esc(t.member)} · ${esc(moment)}</span><div class="ca-gs">` +
       `<i data-k="m"></i><i data-k="c"${stop ? " data-hit" : topic ? " data-amber" : ""}><b>${stop ? "STOP · No AI called" : topic ? "Your topic" : ""}</b></i>` +

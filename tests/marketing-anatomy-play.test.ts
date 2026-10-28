@@ -113,6 +113,15 @@ test("(f): the seven coaching specialists code picks from, each with its moment;
   assert.ok(html.includes(String(d.labels.picks)), "Code picks the specialist. No AI chooses which AI runs.");
 });
 
+test("the ghost stacks run only moments that are on: one not on yet never runs beside Omar's, and no pill not on yet is tagged", () => {
+  const places = (html: string) => [...html.matchAll(/<div class="ca-g" data-g="(\d)"/g)].map((m) => +m[1]);
+  assert.deepEqual(places(render().html), [0, 1, 3, 4], "nutrition off: Priya's meal photo stays out; the others keep their places");
+  assert.deepEqual(places(render({ flags: { ...FLAGS, voice: true, nutrition: true } }).html), [0, 1, 2, 3, 4]);
+  assert.deepEqual(places(render({ flags: { ...FLAGS, model: false } }).html), [1, 3], "the AI model off: only code's moments, the knee stop and a topic");
+  const js = src(ENGINE + "anatomy.js");
+  assert.match(js, /const GP = ghostsOf\(d\)\.map\(/, "the runtime's tags follow the same list");
+  assert.match(js, /pill\.hasAttribute\("data-off"\)\) return;/);
+});
 test("its buttons wait for the engine: notes, What-ifs and Pause disabled in the first frame; Omar's reply pressed", () => {
   const { html } = render();
   const buttons = tags(html, /^<button/);

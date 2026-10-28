@@ -25,7 +25,7 @@ import raw from "../data/traces.client.json";
 import * as C from "./core.js";
 import { prepare } from "./data.js";
 import { defaults, pick } from "./decide.js";
-import { COPY, GHOSTS, LET, dark, model, stackHTML } from "./anatomy.render.js";
+import { COPY, LET, dark, ghostsOf, model, stackHTML } from "./anatomy.render.js";
 const { clamp } = C;
 
 const RX = 56, RZ = -32, PERSP = 1600;
@@ -444,12 +444,12 @@ function figure(root, d, S0, o, settled, say) {
   gscIntro = C.scene(root, { idle: 0 });
   const G0 = ghosts.map((g, i) => ({ g, t: i * 420, run: -1 }));
   // the pill a ghost member's moment uses, in the inspected Brain card (base trace only)
-  const GP = GHOSTS.map(([id]) => [pick(d.trace(id), d, S0), d.trace(id).member]);
+  const GP = ghostsOf(d).map(({ id }) => [pick(d.trace(id), d, S0), d.trace(id).member]);
   function byTag(i, on) {
     const [sp, who] = GP[i];
     if (!sp || !plates[5] || root.dataset.trace != "t1") return;
     const pill = plates[5].querySelector(`.ca-x .ca-sp[data-sp="${sp}"]`);
-    if (!pill || pill.hasAttribute("data-pick")) return;
+    if (!pill || pill.hasAttribute("data-pick") || pill.hasAttribute("data-off")) return;
     on ? pill.setAttribute("data-by", who) : pill.removeAttribute("data-by");
   }
   const tierGhosts = () => (C.tier.name == "minimal" ? 0 : C.tier.name == "lite" ? 2 : phone ? 3 : 5);

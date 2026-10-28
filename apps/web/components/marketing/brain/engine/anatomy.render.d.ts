@@ -30,6 +30,10 @@ export declare const COPY: {
 export declare const NOTES: Record<string, [string, string]>;
 /** A note's text under the page's flags: (f) counts the coaching specialists not on yet. */
 export declare function note(d: BrainData, k: string): string;
+/** Other members' moments: [trace, moment, shown on phones]. */
+export declare const GHOSTS: Array<[string, string, 0 | 1]>;
+/** The ghost stacks the page's flags let run (a moment not on yet never runs); g is each one's place. */
+export declare function ghostsOf(d: BrainData): Array<{ id: string; moment: string; ph: 0 | 1; g: number }>;
 /** One plate of the figure: (a)–(i). */
 export type Plate = { k: string; name: string; kind: "msg" | "check" | "ai"; state: string; stat?: string; say: string };
 /** The nine plates for a trace under the trainer's settings, the decision, and the specialist code picked. */
