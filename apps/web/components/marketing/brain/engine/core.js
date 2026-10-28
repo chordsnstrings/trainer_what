@@ -203,7 +203,7 @@ function judge() {
 const every = (s) => 1000 / Math.min(s.fps || 60, tier.spec.fps) - 4;
 function frame(t) {
   raf = 0;
-  const gap = last && !napped ? t - last : 0;
+  const gap = last && !napped ? t - last : 0, early = napped ? 16.7 : 0;
   if (!last) hold(500);
   last = t; napped = false;
   const t0 = now();
@@ -212,7 +212,8 @@ function frame(t) {
   let next = Infinity; // when the next subscriber is due
   for (const s of subs) {
     if (!s.awake || (s.sc && !s.sc.running)) continue;
-    if (s.t && t - s.t < every(s)) { next = Math.min(next, s.t + every(s)); continue; }
+    // after a nap, whatever is due within a frame runs now too: slow subscribers keep one nap
+    if (s.t && t - s.t < every(s) - early) { next = Math.min(next, s.t + every(s)); continue; }
     const dt = s.t ? Math.min(t - s.t, 100) : 16.7;
     s.t = t;
     if (s.fn(dt, t) === false) (s.awake = false), (s.t = 0);

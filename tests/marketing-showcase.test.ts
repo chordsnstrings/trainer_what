@@ -644,10 +644,19 @@ test("the engine core: Pause stays right through every pause reason, data-sc-run
   const t1 = performance.now();
   dom.frame(t1);
   assert.deepEqual([breaths, dom.scheduled(), root.hasAttribute("data-sc-run")], [1, 0, true], "napping: no frame requested, the root still runs");
+  // A second one, a frame later: one nap serves both.
+  let others = 0;
+  const other = slow.loop(() => {
+    others++;
+  }, 12);
+  assert.equal(dom.scheduled(), 1, "a new subscriber ends the nap");
+  dom.frame(t1 + 16.7);
+  assert.deepEqual([breaths, others, dom.scheduled()], [1, 1, 0]);
   await wait(100); // the nap ends when the next breath is due (79 ms on)
   assert.equal(dom.scheduled(), 1);
   dom.frame(t1 + 83.3);
-  assert.deepEqual([breaths, dom.scheduled()], [2, 0]);
+  assert.deepEqual([breaths, others, dom.scheduled()], [2, 2, 0], "the frame after a nap runs whatever is due within a frame");
+  other.stop();
   const fast = slow.loop(() => {});
   assert.equal(dom.scheduled(), 1, "a new 60 fps subscriber ends the nap");
   fast.stop();

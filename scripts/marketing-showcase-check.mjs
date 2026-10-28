@@ -76,10 +76,9 @@
 // time against scripts/marketing-showcase-baseline.json (measured on the
 // build before phase 1), long tasks from mounting (every long task from the
 // island's import, its performance mark, to "on" + 1 s), chip and slider
-// latency, engine
-// chunk sizes, shared JavaScript and global CSS against the baseline, and
-// the showcase HTML on /trainer-brain. SHOWCASE_RUNS loads per page (default
-// 1; 3 when judging), median. SHOWCASE_BASELINE_OUT=<file> writes the
+// latency, engine chunk sizes, shared JavaScript and global CSS against the
+// baseline, and the showcase HTML on /trainer-brain. SHOWCASE_RUNS loads per
+// page (default 1; 3 when judging), median. SHOWCASE_BASELINE_OUT=<file> writes the
 // metrics as a new baseline (measure it on the build before phase 1, 4f35e5c,
 // with SHOWCASE_CHECKS=metrics SHOWCASE_RUNS=5). SHOWCASE_CHECKS=1,4,metrics
 // runs a subset.
