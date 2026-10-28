@@ -28,6 +28,7 @@ const APP = "trainsyou";
 const availability = (frontier: boolean, payments = true) => ({
   model: true,
   nutrition: false,
+  mealPhotos: false,
   voice: false,
   customDomains: false,
   payments,

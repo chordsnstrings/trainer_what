@@ -20,6 +20,7 @@ const SEED_NAME = /\bSeed\b/;
 const flags = (on: boolean) => ({
   model: true,
   nutrition: on,
+  mealPhotos: on,
   voice: on,
   customDomains: on,
   payments: on,

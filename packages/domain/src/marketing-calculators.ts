@@ -1055,11 +1055,13 @@ export const DEFAULT_EARNINGS_INPUTS: EarningsInputs = {
   yourSessionRateAed: 250,
 };
 
+/** One formatter for every amount: making one is far slower than using it. */
+const AED_WHOLE = new Intl.NumberFormat("en-AE", {
+  style: "currency",
+  currency: "AED",
+  maximumFractionDigits: 0,
+});
 /** Whole dirhams for estimates ("AED 22,885"); amounts are in fils. */
 export function aedWhole(minor: number): string {
-  return new Intl.NumberFormat("en-AE", {
-    style: "currency",
-    currency: "AED",
-    maximumFractionDigits: 0,
-  }).format(Math.round(minor / 100));
+  return AED_WHOLE.format(Math.round(minor / 100));
 }

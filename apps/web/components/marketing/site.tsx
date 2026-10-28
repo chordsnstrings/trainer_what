@@ -841,10 +841,11 @@ function StandardPage({ page, platform, origin }: Ctx) {
 
 /** A complete marketing page: header, content, footer and JSON-LD. */
 export function MarketingSite({ page: registered, platform, origin, showcase = "live" }: Ctx) {
-  // Lines gated on availability (the "frontier model" wording) appear only
-  // while their flag is on: the same filter as the FAQ structured data and
+  // Lines gated on availability (the "frontier model" wording, the paid
+  // answers that wait for publishing) appear only while their gates are on:
+  // the same filter, with the same flags, as the FAQ structured data and
   // llms-full.txt.
-  const page = marketingPageFor(registered, platform.availability);
+  const page = marketingPageFor(registered, platform.availability, platform.registrationOpen);
   const cta = primaryCta(page, platform);
   const bespoke = BESPOKE[page.path];
   const jsonLd = marketingJsonLd(page, {
@@ -853,6 +854,7 @@ export function MarketingSite({ page: registered, platform, origin, showcase = "
     supportEmail: platform.supportEmail,
     followerModel: platform.followerModel,
     availability: platform.availability,
+    registrationOpen: platform.registrationOpen,
   });
   return (
     // data-mk-motion: the marketing motion switch (motion-mode.ts). While it

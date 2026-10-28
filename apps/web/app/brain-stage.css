@@ -741,7 +741,7 @@ html.sc-motion:not(.sc-late) [data-showcase][data-sc="pre"] .sc-res {
 /* ---------- forced colours (Windows contrast themes) drop fills: a chosen
    moment, setting or What-if keeps a system highlight ---------- */
 @media (forced-colors: active) {
-  [data-showcase] :is(.bp-chip, .bp-seg button, .ca-wb):is([aria-pressed="true"], [aria-checked="true"]) {
+  [data-showcase] :is(.bp-chip, .ca-wb)[aria-pressed="true"] {
     forced-color-adjust: none;
     border-color: Highlight;
     background: Highlight;

@@ -8,8 +8,11 @@ export type ShowcaseKind = "field" | "board" | "play" | "anatomy";
 export type ShowcaseMode = "live" | "static";
 /** From PublicPlatform.availability; recovery is fixed off in phase 1. model:
     the AI model is connected (showcaseOptions() always sets it; a fixture
-    without it counts as connected). */
-export type ShowcaseFlags = { payments: boolean; payouts: boolean; voice: boolean; nutrition: boolean; recovery: boolean; model?: boolean };
+    without it counts as connected). mealPhotos: meal photo estimates are on
+    (a fixture without it counts as off). publish: trainers can publish to
+    subscribers, every PUBLISH_GATES gate on (showcaseOptions() always sets
+    it; a fixture without it counts as payments and the model). */
+export type ShowcaseFlags = { payments: boolean; payouts: boolean; voice: boolean; nutrition: boolean; recovery: boolean; model?: boolean; mealPhotos?: boolean; publish?: boolean };
 export type ShowcaseOptions = {
   appName: string;
   /** teachCta(): "Teach your AI — free", or early access while sign-ups are closed. */
@@ -57,7 +60,7 @@ export type Specialist = {
   /** For "not_on_yet": the setting it waits for. */
   flag?: string;
   /** The flag (besides payments) an item needs to be on at all; not on yet while it is off. */
-  needs?: "nutrition" | "voice";
+  needs?: "nutrition" | "mealPhotos" | "voice";
   usesAi?: boolean;
   /** traces.json only: "identifier · repo path" (the trace test checks it). */
   code?: string;
@@ -83,7 +86,7 @@ export type Trace = {
   steps: Step[];
   lane: Lane;
   status: Status;
-  needs?: "nutrition" | "voice";
+  needs?: "nutrition" | "mealPhotos" | "voice";
   defaultOff?: boolean;
   [key: string]: unknown;
 };

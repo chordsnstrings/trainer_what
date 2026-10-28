@@ -28,7 +28,7 @@
      playground: an H3 under its own H2 or the band's (labelledBy), an H2
      where the page's H1 names it (heading: false and no labelledBy, /demo). */
 import { esc } from "./core.js";
-import { decide, defaults, isOff } from "./decide.js";
+import { decide, defaults } from "./decide.js";
 import * as U from "./ui.js";
 
 /** The root element's classes for each kind this module renders (render.ts). */
@@ -49,6 +49,9 @@ export const FIRST = "t1";
 /** "Your specialty" only reorders the chips (traces by number; the first 6 show on phones). */
 export const SPECS = [["strength", "Strength", [1, 6, 8, 2, 5, 10, 3, 9, 7, 4, 11, 12]], ["weight_loss", "Weight loss", [4, 10, 8, 9, 2, 1, 3, 6, 7, 5, 12, 11]],
   ["muscle_gain", "Muscle gain", [10, 1, 8, 9, 4, 6, 5, 2, 3, 7, 12, 11]], ["prenatal", "Pre- and postnatal", [11, 2, 12, 10, 5, 4, 9, 1, 8, 6, 3, 7]]];
+/** The first moment that runs under the page's flags: Omar's (FIRST), else the first chip that runs (the
+    knee stop while the AI model is off). A moment that does not run is never shown played. */
+export const firstOf = (d, S) => [FIRST, ...SPECS[0][2].map((i) => "t" + i)].find((id) => !decide(d.trace(id), S, d).off) || FIRST;
 /** The AI specialists code picks from, in the "Your Brain" shell. */
 export const COACH = ["reply_picker", "draft_writer", "plan_writer", "week_reviewer", "meal_photo", "voice_lines"];
 const KIND = { chat_action: "Chat · a rule fits", chat_review: "Chat · a rule fits", topic: "Chat · your topic", floor: "Chat", plan: "", meal: "Meal photo", voice: "Before a voice session", learn: "Chat · no rule fits", recovery: "Workout starts" };
@@ -66,7 +69,7 @@ const initials = (n) => n.split(/\s+/).map((x) => x[0]).join("").slice(0, 2).toU
 /** "Change and run again": only the settings this moment reads. u: the host id. */
 export function controlsHTML(d, t, S, u) {
   const L = d.labels, out = [];
-  const rng = (k, lab, min, max, v, unit = "%") => `<label class="bp-ctl"><span>${esc(lab)}</span><span class="bp-rng"><input type="range" data-k="${k}" min="${min}" max="${max}" step="1" value="${v}" aria-valuetext="${v}${unit}"><output>${v}${unit}</output></span></label>`;
+  const rng = (k, lab, min, max, v, unit = "%") => `<label class="bp-ctl"><span>${esc(lab)}</span><span class="bp-rng"><input type="range" data-k="${k}" min="${min}" max="${max}" step="1" value="${v}" aria-valuetext="${v}${unit}"><span aria-hidden="true">${v}${unit}</span></span></label>`;
   const sw = (k, lab, on, sub) => `<label class="bp-ctl bp-sw"><input type="checkbox" role="switch" data-k="${k}"${on ? " checked" : ""}><span>${esc(lab)}${sub ? `<small>${esc(sub)}</small>` : ""}</span></label>`;
   const seg = (k, lab, opts, v) => `<div class="bp-ctl"><span id="${u}-${k}">${esc(lab)}</span><div class="bp-seg" role="radiogroup" aria-labelledby="${u}-${k}">${opts.map(([val, txt]) => `<button type="button" role="radio" data-k="${k}" data-v="${val}" aria-checked="${String(val) == String(v)}" tabindex="${String(val) == String(v) ? 0 : -1}">${esc(txt)}</button>`).join("")}</div></div>`;
   for (const c of t.controls) {
@@ -89,9 +92,15 @@ export function controlsHTML(d, t, S, u) {
   }
   return out.join("") || `<p class="bp-sum">This moment has no setting to change. ${t.decide == "meal" ? "The member confirms every item." : "Try another moment."}</p>`;
 }
-/** The result column: the lane, what the member sees, what you see, your rule. */
+/** The specialists a moment's steps run that the page's flags leave not on yet. */
+export const waiting = (d, r) => [...new Set(r.steps.filter((s) => s.result != "skipped" && d.sp[s.sp] && d.sp[s.sp].status == "not_on_yet").map((s) => s.sp))];
+/** The result column: the lane, what the member sees, what you see, your rule. A moment that does not run
+    here (decide()'s off: Low recovery while its flag is off, or one whose specialist is not on yet) is the
+    dashed card: built and tested, not on yet. */
 export function resultHTML(d, t, r, prev) {
-  if (r.off) return `<div class="bp-offcard"><b>${esc(t.chip)}</b>${U.lane(d, "sent", "is-dashed")}<p>${esc(COPY.off)}</p><ul>${t.steps[1].detail.map((x) => `<li>${esc(x)}</li>`).join("")}</ul><p class="bp-note">${esc(d.labels.basis.tests)} · ${esc(d.labels.recoveryCaption)}</p></div>`;
+  if (r.off) return `<div class="bp-offcard"><b>${esc(t.chip)}</b>${U.lane(d, t.lane, "is-dashed")}<p>${esc(COPY.off)}</p>` +
+    (t.defaultOff ? `<ul>${t.steps[1].detail.map((x) => `<li>${esc(x)}</li>`).join("")}</ul><p class="bp-note">${esc(d.labels.basis.tests)} · ${esc(d.labels.recoveryCaption)}</p>`
+      : `<p class="bp-note">${esc(d.labels.status.not_on_yet)}: ${esc(waiting(d, r).map((sp) => d.sp[sp].name).join(", "))}.</p>`) + `</div>`;
   const changed = prev && prev != r.lane;
   return `<div class="bp-res-h">${esc(COPY.result)} · ${esc(t.member)}</div><div class="bp-lanewrap">${U.lane(d, r.lane)}${changed ? U.lane(d, prev, "is-ghost") : ""}</div>` +
     (r.why || changed ? `<p class="bp-why">${changed ? `Before: ${esc(d.labels.lanes[prev])}. Now: ${esc(d.labels.lanes[r.lane])}. ` : ""}${r.why ? "Why: " + esc(r.why) : ""}</p>` : "") +
@@ -109,7 +118,7 @@ export function hlText(txt, words) {
 /** The steps' "code picks" row, just before the one AI specialist it picked; isPick: that step. */
 export const picksRow = (d, i) => `<li class="sc-step bp-picks" data-i="${i}">${esc(d.labels.picks)}</li>`;
 export const isPick = (d, s) => s.sp in d.sp && d.sp[s.sp].kind == "ai" && s.sp != "learner";
-const chipHTML = (d, t, S, on) => `<button type="button" class="bp-chip" data-t="${d.short(t)}" aria-pressed="${on}"${isOff(t, S) ? " data-off" : ""}>${esc(t.chip)}${isOff(t, S) ? `<small>${esc(d.labels.status.not_on_yet)}</small>` : ""}</button>`;
+const chipHTML = (d, t, S, on, off = decide(t, S, d).off) => `<button type="button" class="bp-chip" data-t="${d.short(t)}" aria-pressed="${on}"${off ? " data-off" : ""}>${esc(t.chip)}${off ? `<small>${esc(d.labels.status.not_on_yet)}</small>` : ""}</button>`;
 
 /** The diagram: checks first, the shell code picks one specialist in, checks after, the lanes, what learns, the shelf, your rulebook. */
 function nodesHTML(d, S, t, r, a) {
@@ -140,7 +149,7 @@ function nodesHTML(d, S, t, r, a) {
 
 /** The root's inner HTML: the playground with its first moment played. */
 export function renderStatic(d, o) {
-  const S = defaults(d), t = d.trace(FIRST), r = decide(t, S, d), u = o.id;
+  const S = defaults(d), first = firstOf(d, S), t = d.trace(first), r = decide(t, S, d), u = o.id;
   // With attract, the engine plays this moment once: what it plays waits for it.
   const a = o.attract ? " sc-res" : "";
   const ord = SPECS[0][2], i0 = r.steps.findIndex((s) => isPick(d, s)), hl = o.heading === false && !o.labelledBy ? "h2" : "h3";
@@ -148,11 +157,11 @@ export function renderStatic(d, o) {
   const html = (o.heading === false ? "" : `<div class="bp-head"><h2 id="${u}-h">${esc(COPY.h2)}</h2><p>${esc(COPY.lede)}</p></div>`) +
     `<p class="bp-banner">${esc(d.labels.long)}</p><div class="bp-grid"><div class="bp-pick">` +
     `<label class="bp-lab"><span>${esc(COPY.specialty)}</span><select data-spec>${SPECS.map(([k, n]) => `<option value="${k}">${esc(n)}</option>`).join("")}</select></label>` +
-    `<div class="bp-chips" role="group" aria-label="${esc(COPY.moments)}">${ord.map((i) => chipHTML(d, d.trace("t" + i), S, "t" + i == FIRST)).join("")}</div>` +
+    `<div class="bp-chips" role="group" aria-label="${esc(COPY.moments)}">${ord.map((i) => chipHTML(d, d.trace("t" + i), S, "t" + i == first)).join("")}</div>` +
     `<button type="button" class="bp-more" aria-expanded="false">${esc(COPY.more)}</button>` +
     `<form class="bp-free"><label class="sc-sr" for="${u}-text">${esc(COPY.placeholder)}</label><textarea id="${u}-text" rows="2" maxlength="140" placeholder="${esc(COPY.placeholder)}"></textarea><button class="bp-btn bp-btn-p">${esc(COPY.run)}</button></form>` +
     `<p class="bp-closest"></p><button type="button" class="bp-btn bp-all-b">${U.icon("layers")}<span>${esc(COPY.all)}</span></button></div>` +
-    `<div class="bp-stage sc-stage"><div class="bp-top">${U.strip(d)}<button type="button" class="bp-pause" aria-pressed="false"><span data-label>${esc(COPY.pause)}</span><span class="bp-psz" aria-hidden="true">${esc(COPY.pause)}</span></button></div>` +
+    `<div class="bp-stage sc-stage"><div class="bp-top">${U.strip(d)}<button type="button" class="bp-pause"><span data-label>${esc(COPY.pause)}</span><span class="bp-psz" aria-hidden="true">${esc(COPY.pause)}</span></button></div>` +
     `<div class="bp-diagram"${o.attract ? " data-attract" : ""}>${nodesHTML(d, S, t, r, a)}</div>` +
     `<div class="bp-logd"><button type="button" class="bp-tg" aria-expanded="false" aria-controls="${u}-log">${esc(COPY.steps)}</button><div class="bp-log" id="${u}-log"><${hl}>${esc(COPY.panel)}</${hl}><div class="bp-logs"><ol${o.attract ? ' class="sc-res"' : ""}>${rows}</ol></div></div></div>` +
     `<div class="bp-foot"><span>${esc(d.labels.rates)}</span><span>${esc(d.labels.speed)}</span><details class="bp-how"><summary>${esc(COPY.how)}</summary><p class="bp-hownote">${esc(d.labels.howWeCount)}</p></details></div></div>` +

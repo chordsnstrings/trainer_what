@@ -76,21 +76,24 @@ const nextTask = () => (globalThis.scheduler && scheduler.yield ? scheduler.yiel
 export async function mount(root, o) {
   const d = prepare(raw, o), S0 = defaults(d), snap = root.innerHTML;
   const modes = MODES.map((q) => matchMedia(q));
-  let run = null, dead = false, again = 0, L = null;
+  // held: the visitor's Pause, kept across a change of mode (a flat run has no motion, and keeps it too)
+  let run = null, dead = false, again = 0, L = null, held = false;
   // The overlay layer holds only the live region here: it comes with the first announcement, since a node
   // inserted at mount restyles the whole page (figure()).
   const say = (msg) => { if (!L) L = C.layer(root); C.say(msg); };
   // The viewport crossed a line where the CSS pins or flattens (a phone
   // turned, a window resized): start again in the new mode, from the
-  // finished figure (no second intro).
+  // finished figure (no second intro), paused if the visitor had paused it
+  // (WCAG 2.2.2: their Pause holds through a turn to landscape and back).
   const restart = () => {
     clearTimeout(again);
     again = setTimeout(() => {
       if (dead) return;
+      if (run.held) held = run.held();
       run.stop();
       root.innerHTML = snap;
       STATES.forEach((a) => root.removeAttribute(a));
-      run = figure(root, d, S0, o, true, say);
+      run = figure(root, d, S0, o, true, say, held);
     }, 150);
   };
   await nextTask(); // the chunk and the trace data in one task, the figure in the next
@@ -121,7 +124,7 @@ export async function mount(root, o) {
     It reads first (style, geometry, scroll: one style and layout pass) and writes after. Text changes
     go through the text node's data: on these pages an inserted or removed node, anywhere, restyles the
     whole document (a global :has() rule; 35–60 ms at 4x CPU), so mounting inserts none of its own. */
-function figure(root, d, S0, o, settled, say) {
+function figure(root, d, S0, o, settled, say, held0 = false) {
   const $ = (s) => root.querySelector(s), $$ = (s) => [...root.querySelectorAll(s)];
   const frame = $(".ca-frame"), grid = $(".ca-grid"), scene = $(".ca-scene"), cam = $(".ca-cam"), stack = $(".ca-stack"), svg = $(".ca-svg"), book = $(".ca-book");
   const noteLis = $$(".ca-nl li"), dots = $$(".ca-dots i"), ghosts = $$(".ca-g"), nl = $(".ca-nl"), col = $(".ca-side"), pb = $(".ca-pause");
@@ -150,10 +153,12 @@ function figure(root, d, S0, o, settled, say) {
     collect();
     if (G) centres();
     root.dataset.trace = id + (level ? "l" + level : "");
-    $(".ca-card b").textContent = id == "t1" && !level ? `Answered ${M.t.member}` : `${M.t.member} · ${M.t.chip}`;
+    $(".ca-card b").textContent = id == "t1" && !level && !M.off ? `Answered ${M.t.member}` : `${M.t.member} · ${M.t.chip}`;
     const c = $(".ca-card .ca-lane");
-    c.dataset.lane = M.r.lane;
-    c.textContent = d.labels.lanes[M.r.lane];
+    // a moment that does not run here ends in no lane: a dashed "Not on yet" (anatomy.render.js)
+    M.off ? c.removeAttribute("data-lane") : (c.dataset.lane = M.r.lane);
+    c.classList.toggle("is-dashed", M.off);
+    c.textContent = M.off ? d.labels.status.not_on_yet : d.labels.lanes[M.r.lane];
     $(".ca-bcite mark").textContent = M.t.rule ? M.t.rule.title : "";
   }
 
@@ -377,6 +382,8 @@ function figure(root, d, S0, o, settled, say) {
     if (gscIntro) gscIntro.destroy();
   };
   const press = (w) => $$(".ca-wb").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.w == w)));
+  /** Where the moment on the plates ends, as said: its lane, or not on yet. */
+  const outcome = () => (M.off ? d.labels.status.not_on_yet : d.labels.lanes[M.r.lane]);
   /** Stops a What-if replay that is still running: its pulse and its stop go with it. */
   function endReplay() {
     if (!wtl) return;
@@ -391,13 +398,13 @@ function figure(root, d, S0, o, settled, say) {
     if (w == "base") {
       clearWhatIf();
       if (!flat) onScroll(true);
-      say(`${M.t.member}: ${d.labels.lanes[M.r.lane]}.`);
+      say(`${M.t.member}: ${outcome()}.`);
       return;
     }
     const [, , id, lvl] = COPY.whatIf.find((x) => x[0] == w);
     setTrace(id, lvl);
     wi = w;
-    say(`${M.t.member}: ${d.labels.lanes[M.r.lane]}.${M.stop ? " No AI called." : ""}`);
+    say(`${M.t.member}: ${outcome()}.${M.stop ? " No AI called." : ""}`);
     if (flat) return;
     gsc.play(); gscIntro.play(); // a What-if is the visitor asking for motion
     if (RM) { V = { ...V, e: 1, ex: Array(9).fill(1), lit: 9, k: -1, f: 0, end: 0, stop: M.stop ? 1 : 0, cam: 1 }; draw(); lightAll(); return; }
@@ -426,16 +433,16 @@ function figure(root, d, S0, o, settled, say) {
     arm();
     if (phone) $$(".ca-nb").forEach((b) => (b.tabIndex = -1));
     fromHash();
-    return { stop };
+    return { stop }; // no motion here: a held Pause waits for the next pinned run
   }
 
   /* ---------------- ghosts: other members' moments, one specialist each */
   // Pause follows the ambient scene through onState, as core's button() would, except that the label
   // changes in its text node: button() replaces the node at every change of reasons (a page restyle).
+  // Its label says what a press does, so it carries no aria-pressed (core.js button()).
   const label = pb.querySelector("[data-label]").firstChild, held = () => gsc.reasons.has("user") || gsc.reasons.has("idle");
   const pauseState = () => {
     const p = held();
-    pb.setAttribute("aria-pressed", String(p));
     if (label.data != (p ? COPY.play : COPY.pause)) label.data = p ? COPY.play : COPY.pause;
     pb.setAttribute("data-state", p ? "paused" : "playing");
   };
@@ -544,6 +551,9 @@ function figure(root, d, S0, o, settled, say) {
     if (key != curStep) { curStep = key; noteSet(s.notes, s.k >= 0 ? LET[s.k] : s.j ? "j" : "", s.dot); }
   }
   function noteSet(list, foc, dot) {
+    // Phones show only the step's notes (the others are clipped to 1 px): focus on a note that leaves moves to
+    // the step's note, or to the figure, so it never sits on a hidden one (the scroll moves the step).
+    const a = document.activeElement, was = phone && a && a.classList.contains("ca-nb") && root.contains(a) ? a : null;
     noteLis.forEach((li) => {
       const on = !!list && list.includes(li.dataset.k), b = li.querySelector("button");
       li.toggleAttribute("data-on", on);
@@ -551,6 +561,11 @@ function figure(root, d, S0, o, settled, say) {
       b.setAttribute("aria-current", on ? "step" : "false");
       if (phone) b.tabIndex = on ? 0 : -1;
     });
+    if (was && was.tabIndex < 0) {
+      const to = noteLis.find((li) => li.hasAttribute("data-focus")) || noteLis.find((li) => li.hasAttribute("data-on"));
+      if (!to) root.tabIndex = -1;
+      (to ? to.querySelector("button") : root).focus({ preventScroll: true });
+    }
     root.toggleAttribute("data-step", !!list);
     dots.forEach((x, i) => x.toggleAttribute("data-on", phone && i <= dot));
     // on the side column: the titles below the open note and a What-if group shown by focus slide by it
@@ -600,6 +615,7 @@ function figure(root, d, S0, o, settled, say) {
     held() ? gsc.play() : gsc.pause();
     held() ? gscIntro.pause() : gscIntro.play();
   });
+  if (held0) gsc.pause(), gscIntro.pause(); // the visitor's Pause from before a change of mode
   if (noIntro) { finish(G && G.y); fromHash(); }
   else {
     card0();
@@ -608,5 +624,5 @@ function figure(root, d, S0, o, settled, say) {
     io.observe(frame);
     k.add(() => io.disconnect());
   }
-  return { stop };
+  return { stop, held: () => gsc.reasons.has("user") };
 }

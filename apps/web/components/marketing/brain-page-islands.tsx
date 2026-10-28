@@ -25,7 +25,11 @@ const RULE_STATUS: Record<RuleState, string> = {
   edited: "Edited · confirmed",
   rejected: "Rejected · not used",
 };
-/** The trainer's other rules: each with its source and where it stands. */
+/**
+ * The trainer's other rules: each with its source and where it stands. Only
+ * confirmed rules drive decisions, so the deload rule the traces' "Skip my
+ * deload?" cites is confirmed, and the flagged draft is one no sample uses.
+ */
 const LEDGER: Array<{
   rule: string;
   source: string;
@@ -37,12 +41,12 @@ const LEDGER: Array<{
     state: "confirmed",
   },
   {
-    rule: "No equipment match → hand to me",
-    source: "Case 2",
+    rule: "Deload every 4th week",
+    source: "notes.pdf · reviewed",
     state: "confirmed",
   },
   {
-    rule: "Deload every 4th week",
+    rule: "Cardio before lifting → swap the order",
     source: "notes.pdf · reviewed",
     state: "flagged",
   },

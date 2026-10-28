@@ -25,22 +25,28 @@ export declare const COPY: {
   meanwhile: string;
   ghosts: string;
   sr: string;
+  /** sr, while Omar's moment does not run under the page's flags. */
+  srOff: string;
+  off: string;
+  nothing: string;
 };
 /** The margin notes (a)–(j): [title, text]; (f)'s text holds {off} (note() fills it). */
 export declare const NOTES: Record<string, [string, string]>;
-/** A note's text under the page's flags: (f) counts the coaching specialists not on yet. */
-export declare function note(d: BrainData, k: string): string;
+/** (f)–(i) while Omar's moment does not run under the page's flags: what happens once it is on. */
+export declare const NOTES_OFF: Record<string, string>;
+/** A note's text under the page's flags: (f) counts the coaching specialists not on yet; off: Omar's moment does not run. */
+export declare function note(d: BrainData, k: string, off?: boolean): string;
 /** Other members' moments: [trace, moment, shown on phones]. */
 export declare const GHOSTS: Array<[string, string, 0 | 1]>;
 /** The ghost stacks the page's flags let run (a moment not on yet never runs); g is each one's place. */
 export declare function ghostsOf(d: BrainData): Array<{ id: string; moment: string; ph: 0 | 1; g: number }>;
 /** One plate of the figure: (a)–(i). */
-export type Plate = { k: string; name: string; kind: "msg" | "check" | "ai"; state: string; stat?: string; say: string };
+export type Plate = { k: string; name: string; kind: "msg" | "check" | "ai"; state: string; stat?: string; say: string; off?: boolean };
 /** The nine plates for a trace under the trainer's settings, the decision, and the specialist code picked. */
 export declare function model(
   d: BrainData,
   t: Trace,
   S: Settings,
-): { t: Trace; r: Decision; stop: boolean; pick: string | null; tag: string; plates: Plate[] };
+): { t: Trace; r: Decision; off: boolean; stop: boolean; pick: string | null; tag: string; plates: Plate[] };
 /** The root's inner HTML; every inner id starts with the host id (o.id). */
 export declare function renderStatic(d: BrainData, o: RenderOptions): string;

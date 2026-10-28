@@ -43,10 +43,11 @@ export function withEarlyAccessContext(
 }
 
 const aed = aedWhole;
-const whole = (n: number) =>
-  new Intl.NumberFormat("en-AE", { maximumFractionDigits: 0 }).format(n);
-const pct = (n: number) =>
-  new Intl.NumberFormat("en-AE", { maximumFractionDigits: 2 }).format(n) + "%";
+// One formatter each, made once: making one costs far more than a format.
+const WHOLE = new Intl.NumberFormat("en-AE", { maximumFractionDigits: 0 });
+const PCT = new Intl.NumberFormat("en-AE", { maximumFractionDigits: 2 });
+const whole = (n: number) => WHOLE.format(n);
+const pct = (n: number) => PCT.format(n) + "%";
 
 function NumberField({
   label,

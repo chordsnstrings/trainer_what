@@ -11,6 +11,7 @@ import type { ReactNode } from "react";
 import {
   NEVER_LIST,
   NEVER_NOTE,
+  PUBLISH_GATES,
   STATUS_ITEMS,
   gatesState,
   sourceById,
@@ -94,20 +95,31 @@ export function StatusPanel({
 }
 
 /**
- * One line under a hero, before any AED figure: which of subscriber
- * payments and payouts is not on yet, with a link to the status panel, or
- * that both are live.
+ * One line under a hero, before any AED figure: what still keeps a
+ * subscriber's money from reaching the trainer, with a link to the status
+ * panel, or that it is all live. Subscribers pay a published page, so
+ * "live" also waits for publishing (PUBLISH_GATES); while payments are off
+ * the line names them, since publishing waits for them too.
  */
 export function StatusStrip({ platform, href = "#status" }: { platform: PublicPlatform; href?: string }) {
   const { payments, payouts } = platform.availability;
-  if (payments && payouts)
+  const publish = gatesOn(platform, PUBLISH_GATES);
+  if (publish && payouts)
     return (
       <p className="mk-pf-strip mk-pf-strip-live">
         <Check size={18} aria-hidden="true" />
         <span>Subscriber payments and payouts are live.</span>
       </p>
     );
-  const off = !payments && !payouts ? "Subscriber payments and payouts are" : !payments ? "Subscriber payments are" : "Payouts are";
+  const off = !payments
+    ? payouts
+      ? "Subscriber payments are"
+      : "Subscriber payments and payouts are"
+    : !publish
+      ? payouts
+        ? "Publishing your page is"
+        : "Publishing your page and payouts are"
+      : "Payouts are";
   return (
     <p className="mk-pf-strip">
       <Minus size={18} aria-hidden="true" />

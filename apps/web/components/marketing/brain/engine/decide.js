@@ -22,6 +22,8 @@ export function defaults(d, flags = d.flags) {
 export const laneText = (d, lane) => d.labels.lanes[lane] || lane;
 /** True for traces that must not play (t3 while its flag is off). */
 export const isOff = (t, s) => !!t.defaultOff && !(s && s.recoveryFlag);
+/** A step that runs a specialist the page's flags leave not on yet (prepare()). */
+const waits = (d, x) => x.result != "skipped" && !!d.sp[x.sp] && d.sp[x.sp].status == "not_on_yet";
 /** The one specialist code picked (id), or null when no AI is called. */
 export function pick(t, d, s) {
   const r = s ? decide(t, s, d) : t;
@@ -89,11 +91,15 @@ const swap = (st, sp, patch) => st.map((x) => (x.sp == sp ? { ...x, ...patch } :
 const vr = (t, key) => (t.variants || []).find((v) => key in v.when) || {};
 const member = (text) => ({ verbatim: true, parts: [{ by: "platform", text }] });
 /** Pure: the lane and the steps for a trace under the given settings.
-    Returns {lane, why, steps, memberSees, trainerSees, sure, reasons, tag, off}. */
+    Returns {lane, why, steps, memberSees, trainerSees, sure, reasons, tag, off}.
+    off: it does not run here: t3 while its flag is off, or a moment one of
+    whose steps (under these settings) runs a specialist the page's flags
+    leave not on yet. The playground and the anatomy show it built and
+    tested, never played; the field and the board keep their sample hour. */
 export function decide(t, s, d) {
   const r = { lane: t.lane, why: null, steps: t.steps, memberSees: t.memberSees, trainerSees: t.trainerSees,
     sure: t.sure ? { display: t.sure.display, score: t.sure.score, bar: Math.round(t.sure.threshold * 100) } : null,
-    reasons: t.reasons || null, tag: t.tileTag || null, note: t.laneNote || null, off: isOff(t, s) };
+    reasons: t.reasons || null, tag: t.tileTag || null, note: t.laneNote || null, off: false };
   const k = t.decide, lv = d.labels.levels;
   if (k == "chat_action") {
     const i = t.inputs, inc = (i.increaseKg / i.loadKg) * 100, capOk = inc <= s.capPct, rirOk = i.rir >= s.minRir;
@@ -177,13 +183,22 @@ export function decide(t, s, d) {
       : band == "high" ? `${v}% is not low or moderate. The workout runs as planned.`
       : band == "moderate" ? `${v}% is moderate. Your moderate rule: volume −${rule[1]}%.` : null;
   }
+  r.off = isOff(t, s) || (!t.defaultOff && r.steps.some((x) => waits(d, x)));
   return r;
 }
-/** "In this sample: …" from the lanes of every playable trace. */
-export function totals(d, s) {
+/** "In this sample: …" from the lanes of every playable trace. ready: the
+    playground's twelve, where a moment that does not run here (decide()'s
+    off) counts as not on yet instead of in its lane. */
+export function totals(d, s, ready = false) {
   const n = { sent: 0, member: 0, waits: 0, paused: 0, learn: 0 };
-  for (const t of d.traces) if (!isOff(t, s)) n[decide(t, s, d).lane]++;
+  let off = 0;
+  for (const t of d.traces) {
+    if (!ready && isOff(t, s)) continue;
+    const r = decide(t, s, d);
+    if (ready && r.off) off++;
+    else n[r.lane]++;
+  }
   const p = (x, w) => `${x} ${w}${x == 1 ? "" : "s"}`;
-  return `In this sample: ${n.sent} within your rules · ${p(n.member, "member check")} · ${n.waits} waited · ${n.paused} paused · ${p(n.learn, "new rule")}`;
+  return `In this sample: ${n.sent} within your rules · ${p(n.member, "member check")} · ${n.waits} waited · ${n.paused} paused · ${p(n.learn, "new rule")}${off ? ` · ${off} not on yet` : ""}`;
 }
 

@@ -39,6 +39,7 @@ const ready: PublicPlatform = {
   availability: {
     model: true,
     nutrition: false,
+    mealPhotos: false,
     voice: false,
     customDomains: false,
     payments: true,

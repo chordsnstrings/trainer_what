@@ -4,9 +4,10 @@
  "basisCommit": "3d6b9bd (same apps/packages as this checkout)",
  "labels": {
   "chip": "Sample · scripted · no AI model called",
-  "long": "Sample moments. Code steps use the app's own limits on sample data. AI steps replay answers from test runs, or are marked illustrative. No AI model is called on this page.",
+  "long": "Sample moments. Code steps use the app's own limits on sample data. AI steps replay answers from test runs or the app's tests, or are marked illustrative. No AI model is called on this page.",
   "subscribers": "Subscribers can't join yet: subscriber payments are not on. You can run most of this on yourself with Try my AI.",
   "subscribersNoModel": "Subscribers can't join yet: subscriber payments are not on.",
+  "subscribersNoPublish": "Subscribers can't join yet: publishing is not on yet.",
   "rates": "A mix chosen to show every path. Not real rates.",
   "speed": "Slowed down so you can follow it.",
   "noAi": "No AI called",
@@ -256,7 +257,7 @@
    "status": "try_yourself",
    "code": "meal_photo · apps/api/src/meal-capture.ts",
    "statusTip": "Needs nutrition access, even in Try my AI. Real subscribers: not on yet.",
-   "needs": "nutrition"
+   "needs": "mealPhotos"
   },
   {
    "id": "voice_lines",
@@ -899,7 +900,7 @@
    "weight": 3,
    "subtitle": "Priya: meal photo → Meal photo reader: 4 items, all unsure → Priya confirms",
    "sureNote": "No score. Every item is marked unsure, and Priya checks each one before anything is saved.",
-   "needs": "nutrition"
+   "needs": "mealPhotos"
   },
   {
    "id": "t5-voice-session",

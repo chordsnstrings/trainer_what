@@ -148,7 +148,7 @@ function field(d, o) {
   return `<p class="sc-sr">${esc(COPY.sr)}</p>` +
     `<div class="mc-head"><p class="mc-eyebrow">${esc(d.labels.eyebrow)}</p><span class="mc-reading" hidden>${esc(COPY.reading)}</span>` +
     `<span class="mc-legend" aria-hidden="true"><span><i class="mc-lp"></i>${esc(COPY.legend[0])}</span><span><i class="mc-lq"></i>${esc(COPY.legend[1])}</span><span><i class="mc-lg"></i>${esc(COPY.legend[2])}</span></span>` +
-    `<button type="button" class="mc-pause" aria-pressed="false" disabled><span class="mc-ip">${U.icon("pause", 12)}</span><span class="mc-ipl">${U.icon("play", 12)}</span><span data-label>${esc(COPY.pause)}</span><span class="mc-psz" aria-hidden="true">${esc(COPY.pause)}</span><span class="mc-psz mc-psz2" aria-hidden="true">${esc(COPY.playField)}</span></button></div>` +
+    `<button type="button" class="mc-pause" disabled><span class="mc-ip">${U.icon("pause", 12)}</span><span class="mc-ipl">${U.icon("play", 12)}</span><span data-label>${esc(COPY.pause)}</span><span class="mc-psz" aria-hidden="true">${esc(COPY.pause)}</span><span class="mc-psz mc-psz2" aria-hidden="true">${esc(COPY.playField)}</span></button></div>` +
     (d.labels.subscribers ? `<div class="sc-strip mc-strip"><span>${esc(d.labels.subscribers)}</span></div>` : "") +
     `<div class="mc-body"><svg class="mc-cv mc-rails" aria-hidden="true" focusable="false"></svg><canvas class="mc-cv mc-cv2" aria-hidden="true"></canvas>` +
     `<ul class="mc-mem" aria-label="${esc(COPY.members)}">${members}</ul>` +

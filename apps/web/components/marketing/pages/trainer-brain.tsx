@@ -136,7 +136,8 @@ function laneOf(bullet: string): { lane: Lane; name: string; rest: string } {
 /**
  * One sample decision traced back to what the trainer taught: the change,
  * the rule it applied, where the rule came from and the release it is in
- * (concept A's "What it is").
+ * (concept A's "What it is"). It is the traces' "Squats felt easy" (the
+ * anatomy's moment): the same jump under the same rule and limits.
  */
 function TraceChain() {
   const steps: Array<{ key: string; value: ReactNode }> = [
@@ -151,12 +152,12 @@ function TraceChain() {
     },
     {
       key: "Your rule",
-      value: <code>2 easy sessions at 3+ RIR → +2.5 kg</code>,
+      value: <code>Every set at 2+ RIR → +2.5 kg, up to 5%</code>,
     },
     {
       key: "Source",
       value:
-        "Interview · 12 Oct · “If two sessions move fast, I add a small jump.”",
+        "Interview · 12 Oct · “If every set leaves two reps in reserve, I add a small jump.”",
     },
     {
       key: "Release",

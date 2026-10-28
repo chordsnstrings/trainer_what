@@ -700,9 +700,6 @@ span.mk-pr-out {
   align-content: start;
   box-shadow: none;
 }
-.mk-pr-cards .mk-pf-chip {
-  justify-self: start;
-}
 .mk-pr-cards h2 {
   margin: 0;
   font-size: 20px;

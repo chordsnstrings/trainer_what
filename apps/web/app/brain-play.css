@@ -502,7 +502,7 @@
   block-size: 44px;
   accent-color: var(--sc-ink);
 }
-[data-showcase="play"] .bp-rng output {
+[data-showcase="play"] .bp-rng span {
   min-inline-size: 40px;
   font: 600 13px/1 var(--sc-mono);
   text-align: end;
@@ -538,6 +538,15 @@
   border-color: var(--sc-ink);
   background: var(--sc-ink);
   color: var(--sc-paper);
+}
+/* After the rule above (same specificity): forced colours mark the choice (brain-stage.css). */
+@media (forced-colors: active) {
+  [data-showcase="play"] .bp-seg button[aria-checked="true"] {
+    forced-color-adjust: none;
+    border-color: Highlight;
+    background: Highlight;
+    color: HighlightText;
+  }
 }
 [data-showcase="play"] .bp-sum {
   margin: 0;
@@ -632,7 +641,8 @@ html.sc-motion:not(.sc-late) [data-showcase="play"][data-sc="pre"] [data-attract
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: start;
   }
-  [data-showcase="play"] .bp-free textarea {
+  [data-showcase="play"] .bp-free textarea,
+  [data-showcase="play"] .bp-pause {
     min-block-size: 44px;
   }
   [data-showcase="play"] .bp-stage {

@@ -47,6 +47,24 @@ export const STATUS_ITEMS: StatusItem[] = [
   { text: "Voice add-on for subscribers", gates: ["voice", "payments"] },
 ];
 
+/** A "Not on yet" chip on a block: what it names and the gates it waits for. */
+export type BlockChip = { what: string; gates: StatusGate[] };
+/**
+ * The chips on /pricing's blocks, by registry section (pages/pricing.tsx).
+ * llms-full.txt and the assistant facts print them with the block's text,
+ * so a line about payouts never reads as live while payouts are off.
+ */
+export const PRICING_CHIPS: Record<"how" | "example" | "payouts" | "glance", BlockChip[]> = {
+  how: [
+    { what: "subscriber payments", gates: ["payments"] },
+    { what: "payouts", gates: ["payouts"] },
+  ],
+  example: [{ what: "subscriber payments", gates: ["payments"] }],
+  payouts: [{ what: "payouts", gates: ["payouts"] }],
+  // The Optional card: a domain is bought by card, so it waits for payments too.
+  glance: [{ what: "your own domain", gates: ["customDomains", "payments"] }],
+};
+
 /** The platform flags a status reads; llms-full.txt may not know whether sign-ups are open. */
 export type StatusFlags = {
   registrationOpen?: boolean;

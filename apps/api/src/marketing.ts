@@ -44,14 +44,21 @@ export function publicAvailability(config: RuntimeConfig = runtimeConfig()) {
   const status = Object.fromEntries(
     integrationStatus().map((p) => [p.id, p.configured && p.approved]),
   );
+  // Production also waits for the scope review, as activation does
+  // (nutrition.ts, entitlements.ts complimentaryNutritionApproved).
+  const nutrition =
+    !!status.model &&
+    config.NUTRITION_ENABLED === "true" &&
+    (!strictSecurity() || config.NUTRITION_SCOPE_APPROVED === "true");
   return {
     model: !!status.model,
-    // Production also waits for the scope review, as activation does
-    // (nutrition.ts, entitlements.ts complimentaryNutritionApproved).
-    nutrition:
-      !!status.model &&
-      config.NUTRITION_ENABLED === "true" &&
-      (!strictSecurity() || config.NUTRITION_SCOPE_APPROVED === "true"),
+    nutrition,
+    // Meal photo estimates: nutrition, plus their own switches and a model
+    // that reads images (meal-capture.ts photosEnabled).
+    mealPhotos:
+      nutrition &&
+      config.MEAL_PHOTOS_ENABLED === "true" &&
+      config.MODEL_VISION_ENABLED === "true",
     voice: !!status.voice,
     customDomains: !!status.domains,
     payments: !!status.stripe,

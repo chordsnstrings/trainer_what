@@ -222,6 +222,7 @@ test("the brand line is the closing heading on every marketing page; a renamed p
     availability: {
       model: true,
       nutrition: false,
+      mealPhotos: false,
       voice: false,
       customDomains: false,
       payments: true,

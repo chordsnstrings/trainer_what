@@ -71,12 +71,31 @@ export function rootMarkScript(attribute: RootMarkAttribute, token: string) {
 const subscribeNothing = () => () => {};
 
 /**
+ * What a mark does to the document, for a page read without JavaScript,
+ * where its script never runs: the stylesheets' own rules for the mark
+ * (globals.css, workspace-system.css, appearance.css) with :root in place
+ * of the mark, which tests/root-marks.test.ts keeps equal. The member shell
+ * and the open sheets need JavaScript anyway.
+ */
+export const ROOT_MARK_WITHOUT_SCRIPT: Readonly<Record<string, string>> = {
+  "data-shell public":
+    ":root{background:var(--ty-white);color-scheme:light;scroll-padding-block-start:82px}" +
+    "@media (max-width:1150px){:root{scroll-padding-block-start:77px}}" +
+    "@media (max-width:760px){:root{scroll-padding-block-start:73px}}",
+  "data-shell workspace": ":root{background:#ffffff;color-scheme:light}",
+  "data-scheme system":
+    "@media (prefers-color-scheme:dark){:root{background:var(--dark-paper);color-scheme:dark}}",
+  "data-scheme dark": ":root{background:var(--dark-paper);color-scheme:dark}",
+};
+
+/**
  * A surface's mark, from the first paint: the server's HTML carries it as
  * an inline script (run while the page parses, before anything below it
- * paints); once hydrated the script element goes and the layout effect
- * holds the mark, releasing it when the surface goes (a client-side
- * navigation to another kind of page). Mounted on the client, it renders
- * nothing. Put it first inside the surface's root element.
+ * paints), and its rules in a <noscript> for a page read without
+ * JavaScript; once hydrated both elements go and the layout effect holds
+ * the mark, releasing it when the surface goes (a client-side navigation
+ * to another kind of page). Mounted on the client, it renders nothing. Put
+ * it first inside the surface's root element.
  */
 export function RootMark({
   attribute,
@@ -91,9 +110,15 @@ export function RootMark({
     () => false,
     () => true,
   );
+  const rules = ROOT_MARK_WITHOUT_SCRIPT[`${attribute} ${token}`];
   return fromServer ? (
-    <script
-      dangerouslySetInnerHTML={{ __html: rootMarkScript(attribute, token) }}
-    />
+    <>
+      <script
+        dangerouslySetInnerHTML={{ __html: rootMarkScript(attribute, token) }}
+      />
+      {rules && (
+        <noscript dangerouslySetInnerHTML={{ __html: `<style>${rules}</style>` }} />
+      )}
+    </>
   ) : null;
 }

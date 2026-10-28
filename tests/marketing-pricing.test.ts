@@ -47,6 +47,7 @@ const platform = (state: State): PublicPlatform => ({
   availability: {
     model: true,
     nutrition: false,
+    mealPhotos: false,
     voice: state === "on",
     customDomains: state === "on",
     payments: state === "payments" || state === "on",

@@ -49,6 +49,7 @@ const platform = (state: State, changes: Partial<PublicPlatform> = {}): PublicPl
   availability: {
     model: true,
     nutrition: state === "on",
+    mealPhotos: state === "on",
     voice: state === "on",
     customDomains: false,
     payments: state === "payments" || state === "on",

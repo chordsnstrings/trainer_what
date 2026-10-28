@@ -115,7 +115,13 @@ export function Roster({
             <p>{crew.body}</p>
             <ul className="mk-cards">
               {members.map((s) => {
-                const run = s.status === "not_on_yet" ? undefined : SHOWS[s.id];
+                // "See it work" plays a moment that runs under the page's
+                // flags (its status as the playground reads it): with the AI
+                // model off, Memory's moment (Omar's reply) is not on yet,
+                // so Memory shows no link.
+                const show = SHOWS[s.id];
+                const run =
+                  s.status !== "not_on_yet" && show && d.trace(show).status !== "not_on_yet" ? show : undefined;
                 const line = tip(d, s);
                 // Shape tells the kind apart, as on the showcases' nodes:
                 // round for an AI specialist, square for code.

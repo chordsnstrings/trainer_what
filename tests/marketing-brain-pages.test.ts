@@ -18,6 +18,7 @@ import { decide, defaults, isOff } from "../apps/web/components/marketing/brain/
 import { prepare } from "../apps/web/components/marketing/brain/engine/data.js";
 import type { Lane, RawBrainData, ShowcaseFlags } from "../apps/web/components/marketing/brain/engine/types";
 import { SHOWS } from "../apps/web/components/marketing/brain/roster.tsx";
+import { showcaseOptions } from "../apps/web/components/marketing/brain/options.ts";
 import { COMPARE_POINTS } from "../apps/web/components/marketing/brain-page-islands.tsx";
 import { MarketingSite } from "../apps/web/components/marketing/site.tsx";
 import { TEACH_CTA_PATHS } from "../apps/web/components/marketing/page-parts.tsx";
@@ -41,6 +42,7 @@ const platform = (state: State, changes: Partial<PublicPlatform> = {}): PublicPl
   availability: {
     model: true,
     nutrition: state === "on",
+    mealPhotos: state === "on",
     voice: state === "on",
     customDomains: false,
     payments: state === "payments" || state === "on",
@@ -90,13 +92,8 @@ function element(html: string, open: RegExp | string): string {
 const t = (s: string) => brandText(s, APP);
 const src = (path: string) => readFileSync(new URL("../" + path, import.meta.url), "utf8");
 const TRACES = JSON.parse(src("apps/web/components/marketing/brain/data/traces.client.json")) as RawBrainData;
-const flagsOf = (p: PublicPlatform): ShowcaseFlags => ({
-  payments: p.availability.payments,
-  payouts: p.availability.payouts,
-  voice: p.availability.voice,
-  nutrition: p.availability.nutrition,
-  recovery: false,
-});
+/** The flags a page passes its showcases (the model, meal photos and publishing included). */
+const flagsOf = (p: PublicPlatform): ShowcaseFlags => showcaseOptions(p, { label: "", href: "" }).flags;
 /** The traces as a page renders them: the platform's name and flags. */
 const data = (p: PublicPlatform) => prepare(TRACES, { appName: p.name, flags: flagsOf(p) });
 const LANES = TRACES.labels.lanes as Record<Lane, string>;
@@ -223,6 +220,16 @@ test("See it work plays, in the playground on the same page, a moment the specia
   const runs = d.specialists.filter((s) => s.status !== "not_on_yet" && SHOWS[s.id]);
   assert.equal(links.length, runs.length);
   assert.ok(runs.length >= 14, "voice and nutrition off: the Voice lines, Meal photo reader and Set logger link nowhere");
+  // The AI model off (or the API unreachable): a link only where the moment runs too. Every AI moment is not on
+  // yet, so Memory, Rule finder, Checker, Confidence, Lane gate and Today show no link; the stops still play (ENG-6).
+  const off = platform("off", { availability: { ...p.availability, model: false } }), dOff = data(off);
+  const offLinks = [...element(render(BRAIN, off), 'id="inside"').matchAll(/data-run="(t\d+)"/g)].map((m) => m[1]);
+  assert.ok(offLinks.length && offLinks.every((id) => dOff.trace(id).status !== "not_on_yet"), offLinks.join());
+  assert.deepEqual(
+    offLinks,
+    dOff.specialists.filter((s) => s.status !== "not_on_yet" && SHOWS[s.id] && dOff.trace(SHOWS[s.id]).status !== "not_on_yet").map((s) => SHOWS[s.id]),
+  );
+  assert.deepEqual(offLinks, ["t2", "t9"], "Safety rules and Your topics");
   const play = element(html, '<div id="sc-play" class="sc-host">');
   for (const [, href, run] of links) {
     // The band that holds the playground: its heading stays in view.
@@ -280,10 +287,11 @@ test("the showcases: labelled by the page's headings, the sample labels, a named
       assert.ok(decode(root).includes(TRACES.labels.chip), state);
       assert.equal(decode(root).includes(TRACES.labels.subscribers!), !p.availability.payments, state);
     }
-    assert.match(anatomy, /<button type="button" class="ca-pause" aria-pressed="false" disabled>[\s\S]*?<span data-label>Pause<\/span><\/button>/);
+    // Pause names what a press does, so it is no toggle: no aria-pressed (A11Y-11).
+    assert.match(anatomy, /<button type="button" class="ca-pause" disabled>[\s\S]*?<span data-label>Pause<\/span><\/button>/);
     for (const [root] of plays) {
       assert.ok(decode(root).includes(TRACES.labels.long));
-      assert.match(root, /<button disabled type="button" class="bp-pause" aria-pressed="false"><span data-label>Pause<\/span>/);
+      assert.match(root, /<button disabled type="button" class="bp-pause"><span data-label>Pause<\/span>/);
       const chips = [...root.matchAll(/class="bp-chip" data-t="(t\d+)"[^>]*>([^<]+)/g)].map((m) => [m[1], m[2]]);
       assert.deepEqual(
         chips.map((c) => c[0]).sort(),

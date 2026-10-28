@@ -31,6 +31,7 @@ export type Decision = {
   reasons: string[] | null;
   tag: string | null;
   note: string | null;
+  /** It does not run here: t3 while its flag is off, or a step runs a specialist not on yet under the page's flags. */
   off: boolean;
 };
 export declare function defaults(d: BrainData | object, flags?: Partial<ShowcaseFlags> | null): Settings;
@@ -44,4 +45,5 @@ export declare function planScore(
   s: Settings,
 ): { score: number; pct: number; bar: number; confident: boolean; auto: boolean; reasons: string[]; display: string };
 export declare function decide(t: Trace, s: Settings, d: BrainData): Decision;
-export declare function totals(d: BrainData, s: Settings): string;
+/** ready: the playground's count, where a moment that does not run here counts as not on yet. */
+export declare function totals(d: BrainData, s: Settings, ready?: boolean): string;

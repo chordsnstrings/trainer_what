@@ -102,7 +102,7 @@ test("(f): the seven coaching specialists code picks from, each with its moment;
   assert.match(grid(html), /<b>Meal planner<\/b><small>Not on yet<\/small>/);
   for (const s of d.specialists.filter((x) => x.crew == "coach")) assert.equal(off(html).includes(s.id), s.status == "not_on_yet", s.id);
   // Every flag on: nothing marked; the Meal planner has no sample moment.
-  const all = render({ flags: { ...FLAGS, voice: true, nutrition: true } }).html;
+  const all = render({ flags: { ...FLAGS, voice: true, nutrition: true, mealPhotos: true } }).html;
   assert.deepEqual(pills(all), seven.map((s) => s + ":ai"));
   assert.doesNotMatch(all, /data-off/);
   assert.match(grid(all), /<b>Meal planner<\/b><\/span>/);
@@ -116,7 +116,8 @@ test("(f): the seven coaching specialists code picks from, each with its moment;
 test("the ghost stacks run only moments that are on: one not on yet never runs beside Omar's, and no pill not on yet is tagged", () => {
   const places = (html: string) => [...html.matchAll(/<div class="ca-g" data-g="(\d)"/g)].map((m) => +m[1]);
   assert.deepEqual(places(render().html), [0, 1, 3, 4], "nutrition off: Priya's meal photo stays out; the others keep their places");
-  assert.deepEqual(places(render({ flags: { ...FLAGS, voice: true, nutrition: true } }).html), [0, 1, 2, 3, 4]);
+  assert.deepEqual(places(render({ flags: { ...FLAGS, voice: true, nutrition: true, mealPhotos: true } }).html), [0, 1, 2, 3, 4]);
+  assert.deepEqual(places(render({ flags: { ...FLAGS, voice: true, nutrition: true } }).html), [0, 1, 3, 4], "meal photos have their own switches");
   assert.deepEqual(places(render({ flags: { ...FLAGS, model: false } }).html), [1, 3], "the AI model off: only code's moments, the knee stop and a topic");
   const js = src(ENGINE + "anatomy.js");
   assert.match(js, /const GP = ghostsOf\(d\)\.map\(/, "the runtime's tags follow the same list");
@@ -130,7 +131,46 @@ test("its buttons wait for the engine: notes, What-ifs and Pause disabled in the
   const whatIf = buttons.filter((b) => /ca-wb/.test(b)).map((b) => b.match(/data-w="(\w+)" aria-pressed="(\w+)"/)!.slice(1).join("="));
   assert.deepEqual(whatIf, ["knee=false", "plan=false", "level1=false", "base=true"]);
   assert.match(html, /<div class="ca-wi" role="group" aria-label="Try another moment">/);
-  assert.match(html, /<button type="button" class="ca-pause" aria-pressed="false" disabled>/);
+  // Pause names what a press does ("Pause" or "Play"), so it is no toggle: no aria-pressed (A11Y-11).
+  assert.match(html, /<button type="button" class="ca-pause" disabled>/);
+  assert.doesNotMatch(src(ENGINE + "anatomy.js"), /pb\.setAttribute\("aria-pressed"/);
+});
+
+test("the AI model off: Omar's moment is not on yet, and the figure says so: no pick, no lane, (f) to (j) said as once it is on", () => {
+  const { d, html } = render({ flags: { ...FLAGS, model: false } }), S = defaults(d), M = model(d, d.trace("t1"), S);
+  assert.ok(M.off && M.pick == null && d.trace("t1").status == "not_on_yet");
+  assert.equal(M.plates.map((p) => p.k + ":" + p.state).join(" "), "a:pass b:pass c:pass d:pass e:pass f:skip g:skip h:skip i:skip");
+  // Never a picked pill that is not on yet (ENG-3), and no lane: (h) and the card are a dashed "Not on yet".
+  assert.equal(tags(html, /data-pick/).length, 0);
+  assert.equal((html.match(/<span class="sc-lane ca-lane is-dashed">Not on yet<\/span>/g) || []).length, 2, "(h) and the reply card");
+  assert.doesNotMatch(html, /data-lane="sent"|Sent on its own|Answered Omar/);
+  assert.match(html, /<b>Omar · Squats felt easy<\/b>/);
+  assert.match(html, /Built and tested\. Not on yet\./);
+  assert.ok(html.includes(esc(COPY.srOff)));
+  for (const k of ["f", "g", "h", "i", "j"]) assert.match(note(d, k, true), /once it is on/i, k);
+  assert.match(note(d, "f", true), /^Seven coaching specialists\. None is on yet\. Code picks one from the kind of moment\. A rule fits, so it would be the Reply picker, once it is on\./);
+  assert.ok(html.includes(esc(note(d, "h", true))), "the notes say it");
+  // The What-ifs whose moment does not run say so; the knee stop (code only) still runs.
+  const wi = tags(html, /class="ca-wb"/).map((t) => t.match(/data-w="(\w+)"/)![1] + (/ data-off/.test(t) ? ":off" : ""));
+  assert.deepEqual(wi, ["knee", "plan:off", "level1:off", "base"]);
+  assert.match(html, /What if it’s a plan change\?<small> · Not on yet<\/small>/);
+  // With the model on, nothing of this.
+  const on = render().html;
+  assert.doesNotMatch(on, /data-off[^>]*>What if|is-dashed|Once it is on/);
+  // The runtime keeps it: the card and every announcement read not on yet, never a lane.
+  const js = src(ENGINE + "anatomy.js");
+  assert.match(js, /c\.classList\.toggle\("is-dashed", M\.off\)/);
+  assert.match(js, /const outcome = \(\) => \(M\.off \? d\.labels\.status\.not_on_yet : d\.labels\.lanes\[M\.r\.lane\]\)/);
+});
+
+test("a change of mode keeps the visitor's Pause (WCAG 2.2.2), and focus never stays on a note the phone step hides", () => {
+  const js = src(ENGINE + "anatomy.js");
+  // restart(): the pinned run's own Pause is read before it stops, kept through a flat run, and handed on.
+  assert.match(js, /if \(run\.held\) held = run\.held\(\);\s+run\.stop\(\);[\s\S]*?run = figure\(root, d, S0, o, true, say, held\);/);
+  assert.match(js, /if \(held0\) gsc\.pause\(\), gscIntro\.pause\(\);/);
+  assert.match(js, /return \{ stop, held: \(\) => gsc\.reasons\.has\("user"\) \};/);
+  // noteSet(): a focused note that leaves the step hands focus to the step's note, or to the figure.
+  assert.match(js, /if \(was && was\.tabIndex < 0\) \{[\s\S]*?\.focus\(\{ preventScroll: true \}\);/);
 });
 
 test("honesty: sample labels, the status strip by payments state, the platform's safety rules, no placeholder, internals, links or images", () => {
@@ -171,8 +211,9 @@ test("the copy's claims hold in the product: nine kinds, 28 days, +2.5 kg is 4.2
   const f = (flags: Partial<ShowcaseOptions["flags"]>) => note(render({ flags: { ...FLAGS, ...flags } }).d, "f");
   assert.equal(coach.filter((s) => s.status == "not_on_yet").length, 3, "voice and nutrition off: Meal planner, Meal photo reader, Voice lines");
   assert.match(note(d, "f"), /^Seven coaching specialists\. Three are not on yet\. Code picks one/);
-  assert.match(f({ nutrition: true }), /^Seven coaching specialists\. One is not on yet\. Code picks/);
-  assert.match(f({ nutrition: true, voice: true }), /^Seven coaching specialists\. Code picks/);
+  assert.match(f({ nutrition: true, mealPhotos: true }), /^Seven coaching specialists\. One is not on yet\. Code picks/);
+  assert.match(f({ nutrition: true }), /^Seven coaching specialists\. Two are not on yet\. Code picks/, "meal photos have their own switches");
+  assert.match(f({ nutrition: true, mealPhotos: true, voice: true }), /^Seven coaching specialists\. Code picks/);
   assert.match(f({ model: false }), /^Seven coaching specialists\. None is on yet\. Code picks/);
   assert.ok(render().html.includes(esc(note(d, "f"))), "the notes and plate (f) say it");
   assert.match(NOTES.f[1], /so it’s the Reply picker/);
@@ -329,9 +370,16 @@ test("the shared stage sheet: a step not reached dims its frame and glyphs, neve
     assert.equal(value(rule(sel), "opacity"), undefined, `${sel}: text keeps its contrast`);
   }
   assert.equal(value(rule('[data-showcase] .sc-node[data-state="skip"]'), "border-style"), "dashed");
-  const fc = stage.find((r) => r.context.includes("@media (forced-colors: active)") && /\.bp-chip/.test(r.selector) && /\.ca-wb/.test(r.selector) && /aria-pressed="true"/.test(r.selector) && /aria-checked="true"/.test(r.selector));
-  assert.ok(fc, "chips, segments and What-ifs");
+  const FORCED = "@media (forced-colors: active)";
+  const fc = stage.find((r) => r.context.includes(FORCED) && /\.bp-chip/.test(r.selector) && /\.ca-wb/.test(r.selector) && /aria-pressed="true"/.test(r.selector));
+  assert.ok(fc, "chips and What-ifs");
   assert.deepEqual(["forced-color-adjust", "background", "color"].map((p) => value(fc, p)), ["none", "Highlight", "HighlightText"]);
+  // The chosen segment: its own rule in brain-play.css, after the authored one of the same specificity (A11Y-4: the
+  // stage sheet's rule lost to it, so a dark contrast theme showed the chosen level unmarked).
+  const play = cssRules(src("apps/web/app/brain-play.css")), seg = '[data-showcase="play"] .bp-seg button[aria-checked="true"]';
+  const base = play.findIndex((r) => r.selectors.includes(seg) && !r.context.length), forced = play.findIndex((r) => r.selectors.includes(seg) && r.context.includes(FORCED));
+  assert.ok(base >= 0 && forced > base, "the forced-colours segment rule follows the authored one");
+  assert.deepEqual(["forced-color-adjust", "background", "color", "border-color"].map((p) => value(play[forced], p)), ["none", "Highlight", "HighlightText", "Highlight"]);
 });
 test("the playground renders the root's inner HTML: every inner id carries the host id, every reference resolves, no live region of its own", () => {
   for (const patch of [{}, { heading: false, labelledBy: "demo-h" }, { attract: true }]) {
@@ -360,7 +408,7 @@ test("the playground renders the root's inner HTML: every inner id carries the h
   assert.match(renderShowcase("play", { ...playOptions(), kind: "play", id: "sc-play" }, "static"), /^<section class="bp" data-showcase="play" data-sc="off" data-nosnippet>/);
 });
 
-test("12 chips in the specialty's order, each a named button; Low recovery dashed and not on yet; everything waits, disabled, for the engine", () => {
+test("12 chips in the specialty's order, each a named button; a moment that does not run here dashed and not on yet; everything waits, disabled, for the engine", () => {
   const { d, html } = playRender();
   const chips = [...html.matchAll(/<button disabled type="button" class="bp-chip" data-t="(t\d+)" aria-pressed="(true|false)"( data-off)?>(.*?)<\/button>/g)];
   assert.deepEqual(chips.map((m) => m[1]), play.SPECS[0][2].map((i) => "t" + i), "Strength's order");
@@ -368,16 +416,21 @@ test("12 chips in the specialty's order, each a named button; Low recovery dashe
     const t = d.trace(id);
     assert.equal(name, esc(t.chip) + (off ? `<small>${(d.labels.status as Record<string, string>).not_on_yet}</small>` : ""), id);
     assert.equal(pressed, String(id == play.FIRST), `${id}: only the first frame's moment is pressed`);
-    assert.equal(!!off, isOff(t, defaults(d)), `${id}: dashed only while it cannot play`);
+    assert.equal(!!off, decide(t, defaults(d), d).off, `${id}: dashed only while it cannot play`);
   }
-  assert.deepEqual(chips.filter((m) => m[3]).map((m) => m[1]), ["t3"]);
+  // Low recovery (its flag), the voice session and the meal photo (their specialists wait for voice and meal photos).
+  assert.deepEqual(chips.filter((m) => m[3]).map((m) => m[1]), ["t5", "t3", "t4"]);
+  assert.ok(isOff(d.trace("t3"), defaults(d)));
   for (const [, , order] of play.SPECS) assert.deepEqual([...order].sort((a, b) => a - b), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
   assert.deepEqual(play.SPECS.map(([, name]) => name), ["Strength", "Weight loss", "Muscle gain", "Pre- and postnatal"]);
   // Controls wait for the engine (it enables what it wires); the call to action is a plain link.
   const controls = tags(html, /^<(button|select|textarea|input)\b/);
   assert.ok(controls.length > 25, `${controls.length} controls`);
   for (const c of controls) assert.match(c, /^<\w+ disabled[ >]/, c);
-  assert.match(html, /<button disabled type="button" class="bp-pause" aria-pressed="false"><span data-label>Pause<\/span><span class="bp-psz" aria-hidden="true">Pause<\/span><\/button>/, "a named Pause button, one width for Pause and Play");
+  assert.match(html, /<button disabled type="button" class="bp-pause"><span data-label>Pause<\/span><span class="bp-psz" aria-hidden="true">Pause<\/span><\/button>/, "a named Pause button, one width for Pause and Play");
+  // A slider speaks its value (aria-valuetext); its readout is hidden from assistive tech, never a second live region (A11Y-7).
+  assert.doesNotMatch(html, /<output/);
+  assert.doesNotMatch(src(ENGINE + "play.render.js"), /<output/);
 });
 
 test("the first frame is the first moment played: its nodes, code picks then each step, its result and settings; every moment's result is decide()'s lane", () => {
@@ -399,20 +452,47 @@ test("the first frame is the first moment played: its nodes, code picks then eac
   assert.equal(tags(html, /role="radio" data-k="level"/).length, 3);
   assert.match(html, /<input disabled type="range" data-k="capPct" min="1" max="10" step="1" value="5" aria-valuetext="5%">/);
   assert.match(html, /<input disabled type="range" data-k="minRir" min="1" max="10" step="1" value="2" aria-valuetext="2">/);
-  // Every moment lands in its lane; Low recovery is the dashed card from the tests, with no run.
+  // Every moment lands in its lane, except one that does not run here: the dashed card, built and tested, no run
+  // (L9: Low recovery while its flag is off; the voice session and the meal photo while their specialists wait).
   for (const [id, lane] of Object.entries(LANES)) {
     const t = d.trace(id), r = decide(t, S, d);
     assert.equal(r.lane, lane, id);
-    assert.ok(play.resultHTML(d, t, r).includes(`<span class="sc-lane " data-lane="${lane}">${esc((d.labels.lanes as Record<string, string>)[lane])}</span>`), id);
+    const html = play.resultHTML(d, t, r);
+    if (r.off) assert.match(html, /^<div class="bp-offcard"><b>[^<]+<\/b><span class="sc-lane is-dashed" data-lane="\w+">.*<p>Built and tested\. Not on yet\.<\/p><p class="bp-note">Not on yet: [^<]+\.<\/p><\/div>$/, id);
+    else assert.ok(html.includes(`<span class="sc-lane " data-lane="${lane}">${esc((d.labels.lanes as Record<string, string>)[lane])}</span>`), id);
   }
+  assert.deepEqual(Object.keys(LANES).filter((id) => decide(d.trace(id), S, d).off), ["t4", "t5"]);
+  assert.match(play.resultHTML(d, d.trace("t5"), decide(d.trace("t5"), S, d)), /Not on yet: Voice lines, Set logger\./);
   const t3 = d.trace("t3"), r3 = decide(t3, S, d);
   assert.ok(r3.off);
-  assert.match(play.resultHTML(d, t3, r3), /^<div class="bp-offcard"><b>Low recovery<\/b><span class="sc-lane is-dashed" data-lane="sent">.*<p>Built and tested\. Not on yet\.<\/p>/);
-  // "Throw them all" ends on the totals line.
+  assert.match(play.resultHTML(d, t3, r3), /^<div class="bp-offcard"><b>Low recovery<\/b><span class="sc-lane is-dashed" data-lane="sent">.*<p>Built and tested\. Not on yet\.<\/p><ul>/);
+  // "Throw them all" ends on the totals line: the moments that run, and how many are not on yet.
   assert.equal(totals(d, S), (d.labels.totals as Record<string, string>).recoveryOff);
+  assert.equal(totals(d, S, true), "In this sample: 2 within your rules · 0 member checks · 3 waited · 3 paused · 1 new rule · 3 not on yet");
   // A setting changed: the diff line names the lane before and after.
   const capped = decide(d.trace("t1"), { ...S, capPct: 3 }, d);
   assert.match(play.resultHTML(d, d.trace("t1"), capped, "sent"), /<p class="bp-why">Before: Sent on its own, within your rules\. Now: Waits for you\. Why: 2\.5 kg is 4\.2%, over your 3% cap\./);
+});
+
+test("the AI model off: every moment one of its specialists plays is the dashed card, the frame plays the knee stop, Throw them all counts what runs", () => {
+  const { d, html } = playRender({ flags: { ...FLAGS, model: false } });
+  const S = defaults(d);
+  assert.equal(play.firstOf(d, S), "t2", "the first chip that runs: Noura's knee, a stop with no AI called");
+  assert.match(html, /class="bp-chip" data-t="t2" aria-pressed="true">/);
+  assert.match(html, /class="bp-chip" data-t="t1" aria-pressed="false" data-off>Squats felt easy<small>Not on yet<\/small>/);
+  assert.match(html, /<div class="bp-res-h">Result · Noura<\/div><div class="bp-lanewrap"><span class="sc-lane " data-lane="paused">/);
+  assert.doesNotMatch(html, /data-lane="sent" data-hot|<span class="bp-kind">Chat · a rule fits/);
+  const off = Object.keys(LANES).filter((id) => decide(d.trace(id), S, d).off);
+  assert.deepEqual(off, ["t1", "t4", "t5", "t6", "t7", "t8", "t10"]);
+  assert.match(play.resultHTML(d, d.trace("t1"), decide(d.trace("t1"), S, d)), /<p class="bp-note">Not on yet: Reply picker\.<\/p>/);
+  assert.equal(totals(d, S, true), "In this sample: 0 within your rules · 0 member checks · 1 waited · 3 paused · 0 new rules · 8 not on yet");
+  // Under the settings, too: supplements drafted for you need the Draft writer, which waits for the model.
+  assert.ok(!decide(d.trace("t9"), S, d).off && decide(d.trace("t9"), { ...S, supplementsTopic: false }, d).off);
+  // The runtime plays nothing for them, and attract plays the first moment that runs.
+  const js = src(ENGINE + "play.js");
+  assert.match(js, /if \(r\.off\) \{[^\n]*\n\s+resetStage\(t, 0, r\); dot = null;[\s\S]*?waiting\(d, r\)\.forEach\(\(sp\) => setNode\(sp, "focus"\)\);/);
+  assert.match(js, /attract = true; run\(first\);/);
+  assert.match(js, /totals\(d, S, true\)/);
 });
 
 test("free text finds the closest sample through the local keyword table only: specific words first, nothing when no sample is close", () => {

@@ -33,7 +33,7 @@ import * as C from "./core.js";
 import { prepare } from "./data.js";
 import { decide, defaults, pick, totals } from "./decide.js";
 import * as U from "./ui.js";
-import { COPY, FIRST, SPECS, controlsHTML, hlText, isPick, kindTag, msgHTML, picksRow, resultHTML, stateOf, sureVal } from "./play.render.js";
+import { COPY, SPECS, controlsHTML, firstOf, hlText, isPick, kindTag, msgHTML, picksRow, resultHTML, stateOf, sureVal, waiting } from "./play.render.js";
 const { h, esc } = C;
 
 const COL = { text: "#F3F4F0", line: "#3A3F39", lime: "#D5F24A", ink: "#171917", red: "#F08A80", amber: "#E0B25C", green: "#7FCB9F" };
@@ -220,7 +220,9 @@ export async function mount(root, o) {
   /* ---------------- a run */
   // cur: the moment on stage; R: its decision when it last played (null while attract waits to play it);
   // own: the visitor started the run on stage (only then is its result announced).
-  let cur = d.trace(FIRST), R = null, before = null, busy = false, attract = false, touched = false, stale = false, deb = 0, pend = null, own = false;
+  // first: the moment the frame shows played (Omar's, unless it does not run under the page's flags)
+  const first = firstOf(d, S);
+  let cur = d.trace(first), R = null, before = null, busy = false, attract = false, touched = false, stale = false, deb = 0, pend = null, own = false;
   /* The steps, newest last, scrolled into view (scrolling moves nothing). A
      streamed row holds its final words (unseen) while the live copy types
      over them, so no row ever grows; the caret is a new box at each step
@@ -292,10 +294,10 @@ export async function mount(root, o) {
     const old = cur == t && R ? R.steps : [];
     cur = t; R = r; stale = false;
     [kindEl, logOl, change].forEach((e) => e.classList.remove("is-due"));
-    if (r.off) { // Low recovery while its flag is off: no run, no pulse, the dashed card from the tests
+    if (r.off) { // it does not run here (Low recovery while its flag is off, a specialist not on yet): no run, no pulse, the dashed card
       resetStage(t, 0, r); dot = null;
       msgBox().outerHTML = msgHTML(t); need();
-      setNode("recovery", "focus");
+      waiting(d, r).forEach((sp) => setNode(sp, "focus"));
       showResult(resultHTML(d, t, r));
       C.say(`${note}${t.chip}: ${COPY.off}`);
       return Promise.resolve();
@@ -435,7 +437,7 @@ export async function mount(root, o) {
           (off ? `<span class="sc-offchip">${esc(d.labels.status.not_on_yet)}</span>` : U.lane(d, r.lane, "is-wait")) + `</button>`;
       }).join("") +
       // the totals keep their line from the start, and show when the last stack lands
-      `</div><p class="bp-totals is-due">${esc(totals(d, S))}</p>`;
+      `</div><p class="bp-totals is-due">${esc(totals(d, S, true))}</p>`;
     dia.hidden = true; allBox.hidden = false;
     // phones: the button sits above the stage, so bring the twelve stacks up
     const low = C.phone() && stage.getBoundingClientRect().top > innerHeight * 0.4;
@@ -459,7 +461,7 @@ export async function mount(root, o) {
       tl.at(e, () => m.querySelector(".sc-lane").classList.remove("is-wait"));
       endAt = Math.max(endAt, e);
     });
-    tl.at(endAt + 200, () => { $(".bp-totals", allBox).classList.remove("is-due"); C.say(totals(d, S)); });
+    tl.at(endAt + 200, () => { $(".bp-totals", allBox).classList.remove("is-due"); C.say(totals(d, S, true)); });
     let done;
     const p = new Promise((r) => (done = r));
     allEnd = done;
@@ -513,7 +515,7 @@ export async function mount(root, o) {
       const io = new IntersectionObserver((es) => {
         if (!es.some((e) => e.isIntersecting && e.intersectionRect.height >= Math.min(e.boundingClientRect.height * 0.45, innerHeight * 0.5))) return;
         io.disconnect();
-        k.later(() => { if (pend && !touched && mode == "one") { attract = true; run(FIRST); } }, 700);
+        k.later(() => { if (pend && !touched && mode == "one") { attract = true; run(first); } }, 700);
       }, { threshold: Array.from({ length: 21 }, (_, i) => i / 20) });
       io.observe(stage);
       k.add(() => io.disconnect());

@@ -15,8 +15,8 @@
 import { SETUP_STEPS, SETUP_BRAIN_MINIMUM } from "./coach-setup.ts";
 import { SITE_BUILDER_MODULES, SITE_BUILDER_PRESET_COUNT } from "./site-builder.ts";
 import { BRAND_COPY } from "./brand.ts";
-import { HOME_OFFER, NEVER_LIST, NEVER_NOTE, PROOF_LINKS } from "./marketing-proof.ts";
-import { MEMBERSHIP_MINIMUMS } from "./membership-pricing.ts";
+import { HOME_OFFER, NEVER_LIST, NEVER_NOTE, PROOF_LINKS, PUBLISH_GATES } from "./marketing-proof.ts";
+import { MEMBERSHIP_MINIMUMS, prepayQuote } from "./membership-pricing.ts";
 import type {
   AvailabilityLine,
   MarketingCard,
@@ -29,6 +29,11 @@ import type {
 const UPDATED = "2026-09-28";
 /** Whole dirhams from fils, as copy prints a price: 19900 → "199". */
 const dirhams = (fils: number) => String(fils / 100);
+/** The prepaid packs every monthly offer sells at checkout, with their discounts (prepayQuote). */
+const PREPAY = {
+  six: { months: 6, pct: prepayQuote(MEMBERSHIP_MINIMUMS.training, 6).discountBps / 100 },
+  twelve: { months: 12, pct: prepayQuote(MEMBERSHIP_MINIMUMS.training, 12).discountBps / 100 },
+};
 const RETRIEVED = "2026-09-28";
 
 export const MARKETING_SOURCES: MarketingSource[] = [
@@ -693,21 +698,22 @@ const MY_AI_TRAINED_FAQ: MarketingFaq = {
 };
 /**
  * The answer while subscriber payments and the coaching assistant are off;
- * AVAILABILITY_LINES carries the answers once they are on. One answer on
- * every page that asks it (/ and /pricing), so their FAQ structured data
- * never disagrees.
+ * AVAILABILITY_LINES carries the answers once they are on: "Yes" only once
+ * a page can be published (PUBLISH_GATES), since subscribers pay a
+ * published page. One answer on every page that asks it (/ and /pricing),
+ * so their FAQ structured data never disagrees.
  */
 const PAY_TODAY_FAQ: MarketingFaq = {
   q: "Can subscribers pay me today?",
   a: "Not yet. Subscriber payments are not on yet, and publishing your page waits for them. With an account you can already set up your page and app.",
 };
 /**
- * The answer while subscriber payments are off; AVAILABILITY_LINES carries
- * the full answer once they are on.
+ * The answer until a page can be published (PUBLISH_GATES);
+ * AVAILABILITY_LINES carries the present-tense answer once it can.
  */
 const INSTAGRAM_FAQ: MarketingFaq = {
   q: "How do my Instagram followers become subscribers?",
-  a: "Share your coaching link in your bio and Stories. Followers open your branded page, choose your offer and, once subscriber payments are on, pay in AED. The follower calculator headlines a strong case: a best case, not typical. Cautious and typical results show too.",
+  a: "Share your coaching link in your bio and Stories. Once your page is live, followers open it, choose your offer and pay in AED. The follower calculator headlines a strong case: a best case, not typical. Cautious and typical results show too.",
 };
 /**
  * Lines shown only while an availability flag is on (marketingPageFor): the
@@ -761,7 +767,7 @@ export const AVAILABILITY_LINES: readonly AvailabilityLine[] = [
   },
   {
     // Payments still off, the coaching assistant on: teaching and testing
-    // work today. Listed before the payments answer, which replaces it.
+    // work today. Listed before the answers below, which replace it.
     when: "model",
     faq: {
       q: PAY_TODAY_FAQ.q,
@@ -769,14 +775,48 @@ export const AVAILABILITY_LINES: readonly AvailabilityLine[] = [
     },
   },
   {
-    // The answer to "Can subscribers pay me today?" once subscriber
-    // payments are on, wherever the question appears (/ and /pricing).
-    when: "payments",
+    // Payments on while publishing still waits for another go-live check:
+    // sign-ups (in production the legal check) or the coaching assistant.
+    // A caller that does not say whether sign-ups are open gets this one.
+    when: ["payments"],
+    faq: {
+      q: PAY_TODAY_FAQ.q,
+      a: "Not yet. Subscriber payments are on, but publishing your page is not on yet. With an account you can already set up your page and app.",
+    },
+  },
+  {
+    when: ["payments", "model"],
+    faq: {
+      q: PAY_TODAY_FAQ.q,
+      a: "Not yet. Subscriber payments are on, but publishing your page is not on yet. With an account you can already set up your page and app, and teach and test your AI.",
+    },
+  },
+  {
+    // Once a page can be published, wherever the question appears (/ and
+    // /pricing).
+    when: PUBLISH_GATES,
     faq: { q: PAY_TODAY_FAQ.q, a: "Yes. Subscribers pay you by card in AED." },
   },
   {
-    when: "payments",
+    when: PUBLISH_GATES,
     faq: { q: INSTAGRAM_FAQ.q, a: "You share your coaching link in your bio and Stories. Followers open your branded page, choose your offer and pay in AED. The follower calculator headlines a strong case: a best case, not typical. Cautious and typical results show too. An estimate, not a promise." },
+  },
+  {
+    // /faq: money reaches the trainer once both are on.
+    when: ["payments", "payouts"],
+    faq: {
+      q: "How does money reach me?",
+      a: "Subscribers pay by card in AED through Stripe. After reconciliation, your earnings are paid monthly to your verified UAE bank account, with a statement from gross to net.",
+    },
+  },
+  {
+    // /faq: every option a subscriber can add is on (the voice add-on and
+    // paid sessions are bought by card).
+    when: ["nutrition", "voice", "payments"],
+    faq: {
+      q: "What does a subscriber get for their money?",
+      a: "A personalised, day-by-day plan in your method, guided workouts that adapt as they train, chat with you and a labelled digital coach, and optionally nutrition, voice and one-to-one sessions.",
+    },
   },
 ];
 const TECH_FAQ: MarketingFaq = {
@@ -1128,9 +1168,12 @@ export const MARKETING_CONTENT: MarketingPage[] = [
       {
         id: "moments",
         heading: "The 12 sample moments",
+        // The page lists each moment's outcome instead (pages/demo.tsx),
+        // from the traces and the platform's flags; this text holds for
+        // every flag state, for llms-full.txt.
         body: [
-          "With the sample settings, “Squats felt easy”, “Voice session” and “First plan” are sent on their own, within your rules. “Skip my deload?”, “Week is over” and “Creatine question” wait for you.",
-          "“My knee popped”, “22 weeks pregnant” and “Chest pain (Arabic)” pause training. “Meal photo” asks the member to confirm, “You edit a reply” suggests a new rule, and “Low recovery” is not on yet.",
+          "Each moment ends one of five ways: sent on its own within your rules, waits for you, training paused, the member confirms, or a new rule for you.",
+          "Change a setting and the same moment can end another way. A moment that needs something not on yet says so.",
         ],
       },
     ],
@@ -1990,7 +2033,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
             title: "What we take",
             body: "Our share per paying subscriber: 25%, 20%, 15% or 10%. Card processing is itemised on your statement.",
           },
-          { title: "Optional", body: "Your own domain, priced before you buy, and add-ons you choose." },
+          { title: "Optional", body: "Your own domain, priced before you buy." },
         ],
       },
       {
@@ -2064,21 +2107,26 @@ export const MARKETING_CONTENT: MarketingPage[] = [
     faqs: [
       FREE_FAQ,
       {
-        // The lowest prices are the ones activation enforces (assertOfferPrice).
+        // The lowest prices are the ones activation enforces (assertOfferPrice);
+        // the prepaid packs and their discounts are checkout's (prepayQuote).
         q: "Who sets the price?",
-        a: `You do: the price in AED, from ${dirhams(MEMBERSHIP_MINIMUMS.training)} a month (${dirhams(MEMBERSHIP_MINIMUMS.nutrition)} with nutrition or voice included, ${dirhams(MEMBERSHIP_MINIMUMS.complete)} with both), the programme length, monthly or upfront billing, trials and promotions. Our share of subscription revenue for each group of subscribers is 25%, 20%, 15% or 10%.`,
+        a: `You do: the price in AED, from ${dirhams(MEMBERSHIP_MINIMUMS.training)} a month (${dirhams(MEMBERSHIP_MINIMUMS.nutrition)} with nutrition or voice included, ${dirhams(MEMBERSHIP_MINIMUMS.complete)} with both), the programme length, monthly or upfront billing, trials and promotions. Monthly offers also let subscribers prepay ${PREPAY.six.months} or ${PREPAY.twelve.months} months at ${PREPAY.six.pct}% or ${PREPAY.twelve.pct}% off.`,
       },
       {
         q: "What will I pay?",
-        a: "Nothing to join or set up. Once subscribers pay: commission on subscription revenue by band and payment processing. Optional services you choose, such as the voice add-on or your own domain, are extra. Every item appears on your monthly statement.",
+        a: "Nothing to join or set up. Once subscribers pay: commission on subscription revenue by band and payment processing. Your own domain, if you choose one, is extra. Every item appears on your monthly statement.",
       },
       {
         q: "How does commission work with different prices?",
         a: "Each paying subscriber holds a position from their first payment. The band rate for that position applies to that subscriber’s charges.",
       },
       {
+        // From the terms (docs/legal/uae-2026-10/terms-2026-10-14.en.md):
+        // each party keeps its rights in what it provides, with no ownership
+        // of a trainer's methods and no right to sell client information;
+        // closing a workspace must look after existing clients.
         q: "Who owns my subscribers’ data, and what if I leave?",
-        a: "Your method stays private to your workspace. You and your subscribers can download your data and request deletion.",
+        a: "You keep your rights in what you provide, and subscribers keep theirs: we never own your method or sell client information. If you leave, you can download your data and close your workspace once your existing subscribers are looked after.",
       },
       PAY_TODAY_FAQ,
     ],
@@ -2359,12 +2407,12 @@ export const MARKETING_CONTENT: MarketingPage[] = [
       FOLLOWERS_FAQ,
       {
         q: "What does a subscriber get for their money?",
-        a: "A personalised, day-by-day plan in your method, guided workouts that adapt as they train, chat with you and a labelled digital coach, and optionally nutrition, voice and one-to-one sessions.",
+        a: "A personalised, day-by-day plan in your method, guided workouts that adapt as they train, chat with you and a labelled digital coach, and optionally nutrition, voice and one-to-one sessions once each is on.",
       },
       PRICE_FAQ,
       {
         q: "How does money reach me?",
-        a: "Subscribers pay by card in AED through Stripe. After reconciliation, your earnings are paid monthly to your verified UAE bank account, with a statement from gross to net.",
+        a: "Once subscriber payments and payouts are on, subscribers pay by card in AED through Stripe, and after reconciliation your earnings are paid monthly to your verified UAE bank account, with a statement from gross to net.",
       },
       {
         q: "Is cancellation the same as a refund?",
@@ -3209,7 +3257,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         heading: "Include commission and costs",
         body: [
           "Commission is a share of subscription revenue in marginal bands: 25% for your first 100 paying subscribers, 20% for the next 200, 15% up to 1,000 and 10% beyond. Each band keeps its own rate, so growing never raises the rate on earlier subscribers.",
-          "Your statement also lists payment processing and any optional services you choose, such as the voice add-on or your own domain. Use the earnings calculator to see what remains before these costs at your price."
+          "Your statement also lists payment processing and your own domain, if you choose one. Use the earnings calculator to see what remains before these costs at your price."
         ]
       },
       {

@@ -1,6 +1,7 @@
 // The Brain showcases' options, from the platform facts
 // (docs/marketing-revamp-2026-10-26/phase1/PLAN.md §1.5). The server render
 // and the island receive the same object.
+import { PUBLISH_GATES, gatesState } from "@trainer/contracts";
 import type { Cta } from "../frame";
 import type { PublicPlatform } from "../platform";
 import type { ShowcaseMode, ShowcaseOptions } from "./engine/types";
@@ -11,7 +12,9 @@ import type { ShowcaseMode, ShowcaseOptions } from "./engine/types";
  * `extra` adds heading, labelledBy or attract; the name, the call to action
  * and the flags always come from the platform. Recovery stays off in phase 1
  * (the owner's default), whatever the platform says. While the AI model is
- * off, every specialist that uses it is not on yet (prepare()).
+ * off, every specialist that uses it is not on yet (prepare()); nothing is
+ * live for subscribers until trainers can publish (publish: every
+ * PUBLISH_GATES gate on, sign-ups included, as the status panel reads them).
  */
 export function showcaseOptions(
   platform: PublicPlatform,
@@ -28,7 +31,9 @@ export function showcaseOptions(
       payouts: a.payouts,
       voice: a.voice,
       nutrition: a.nutrition,
+      mealPhotos: a.mealPhotos,
       model: a.model,
+      publish: gatesState(platform, PUBLISH_GATES) === true,
       recovery: false,
     },
   };

@@ -13,7 +13,16 @@
 import Link from "next/link";
 import { ArrowRight, Check, Info } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
-import { MEMBERSHIP_MINIMUMS, type MarketingPage, type MarketingSection } from "@trainer/contracts";
+import {
+  MEMBERSHIP_MINIMUMS,
+  PREPAY_REFUND_DAYS,
+  PRICING_CHIPS,
+  TEACH_GATES,
+  prepayQuote,
+  type BlockChip,
+  type MarketingPage,
+  type MarketingSection,
+} from "@trainer/contracts";
 import { BANDS } from "@trainer/domain";
 import {
   DEFAULT_EARNINGS_INPUTS,
@@ -34,16 +43,23 @@ import {
   secondaryCta,
   type Ctx,
 } from "../page-parts";
-import { EstimateLabel, NotOnYet, SampleLabel, SourceBadge, StatusPanel, StatusStrip } from "../proof";
+import { EstimateLabel, NotOnYet, SampleLabel, SourceBadge, StatusPanel, StatusStrip, gatesOn } from "../proof";
+import type { PublicPlatform } from "../platform";
 import { ShareSlider, TakeHome } from "../pricing-islands";
 
-const whole = (n: number) => new Intl.NumberFormat("en-AE", { maximumFractionDigits: 0 }).format(n);
+const WHOLE = new Intl.NumberFormat("en-AE", { maximumFractionDigits: 0 });
+const whole = (n: number) => WHOLE.format(n);
 /** The lowest monthly price of a training membership, in whole dirhams. */
 const MIN_PRICE_AED = MEMBERSHIP_MINIMUMS.training / 100;
 /** The calculators' ranges, and the subscriber counts the share slider jumps to. */
 const MAX_PRICE_AED = 999;
 const MAX_SUBSCRIBERS = 1500;
 const JUMPS = [100, 300, 1000, 1500];
+/** The prepaid packs checkout sells on every monthly offer (prepayQuote): their length and discount. */
+const PACKS = ([6, 12] as const).map((months) => ({
+  months,
+  pct: prepayQuote(MEMBERSHIP_MINIMUMS.training, months).discountBps / 100,
+}));
 /** The worked example: 150 paying subscribers at the lowest price, against an AED 250 session. */
 export const PRICING_EXAMPLE = { subscribers: 150, priceAed: MIN_PRICE_AED, sessionRateAed: 250 };
 
@@ -141,17 +157,33 @@ function StatementRow({ label, value, kind }: { label: string; value: string; ki
 
 /**
  * Under every AED amount you keep while subscriber payments are off; it
- * invites the visitor to set up now only while sign-ups are open.
+ * invites the visitor to set up now only while sign-ups are open, and to
+ * teach their AI only while the coaching assistant is on.
  */
-function PaymentsNote({ registrationOpen }: { registrationOpen: boolean }) {
+function PaymentsNote({ platform }: { platform: PublicPlatform }) {
+  const now = !platform.registrationOpen
+    ? ""
+    : gatesOn(platform, TEACH_GATES)
+      ? " Set up and teach your AI now."
+      : " Set up your page and app now.";
   return (
     <p className="mk-pr-note">
       <Info size={18} aria-hidden="true" />
-      <span>
-        Subscriber payments are not on yet.{registrationOpen ? " Set up and teach your AI now." : ""}
-      </span>
+      <span>Subscriber payments are not on yet.{now}</span>
     </p>
   );
+}
+
+/** A block's "Not on yet" chips (PRICING_CHIPS) in one row; nothing once every one is on. */
+function BlockChips({ chips, platform }: { chips: BlockChip[]; platform: PublicPlatform }) {
+  const off = chips.filter((chip) => !gatesOn(platform, chip.gates));
+  return off.length > 0 ? (
+    <div className="mk-pr-chips">
+      {off.map((chip) => (
+        <NotOnYet key={chip.what} on={false} what={chip.what} />
+      ))}
+    </div>
+  ) : null;
 }
 
 /** Our share by band as falling stairs, from the ledger's bands. */
@@ -296,7 +328,7 @@ function sectionOf(page: MarketingPage, id: string): MarketingSection {
 export function PricingPage({ page, platform }: Ctx) {
   const t = pageText(platform);
   const cta = primaryCta(page, platform);
-  const { payments, payouts, voice, customDomains } = platform.availability;
+  const { payments, payouts } = platform.availability;
   const [how, glance, bands, example, hours, statement, billing, payout, status] = [
     "how",
     "glance",
@@ -333,12 +365,7 @@ export function PricingPage({ page, platform }: Ctx) {
                 </p>
               )}
               <p>{t(card.body)}</p>
-              {card.title === "Optional" && (!customDomains || !voice) && (
-                <div className="mk-pr-chips">
-                  <NotOnYet on={customDomains} what="your own domain" />
-                  <NotOnYet on={voice} what="voice add-on" />
-                </div>
-              )}
+              {card.title === "Optional" && <BlockChips chips={PRICING_CHIPS.glance} platform={platform} />}
             </article>
           ))}
         </div>
@@ -390,12 +417,12 @@ export function PricingPage({ page, platform }: Ctx) {
       <Band section={example} tone="wash">
         <div className="mk-pr-head-row">
           <BandHead id={example.id} eyebrow="Worked example" heading={t(example.heading)} lede={example.note && t(example.note)} />
-          <NotOnYet on={payments} what="subscriber payments" />
+          <BlockChips chips={PRICING_CHIPS.example} platform={platform} />
         </div>
         <div className="mk-pr-split">
           <div className="mk-pr-stack">
             <WorkedExample />
-            {!payments && <PaymentsNote registrationOpen={platform.registrationOpen} />}
+            {!payments && <PaymentsNote platform={platform} />}
           </div>
           <div className="mk-pr-stack">
             <div className="mk-pr-tool">
@@ -414,12 +441,17 @@ export function PricingPage({ page, platform }: Ctx) {
                 maxSubscribers={MAX_SUBSCRIBERS}
                 sessionRateAed={PRICING_EXAMPLE.sessionRateAed}
               />
-              {/* The lowest prices activation accepts (assertOfferPrice). */}
+              {/* The lowest prices activation accepts (assertOfferPrice), and
+                  the packs checkout sells beside every monthly offer, whose
+                  share is held through their refund window. */}
               <p className="mk-pr-fine">
                 Prices start at {aed(MEMBERSHIP_MINIMUMS.training)} a month, {aed(MEMBERSHIP_MINIMUMS.nutrition)} with
-                nutrition or voice included and {aed(MEMBERSHIP_MINIMUMS.complete)} with both.
+                nutrition or voice included and {aed(MEMBERSHIP_MINIMUMS.complete)} with both. On a monthly offer,
+                subscribers can also prepay {PACKS[0].months} or {PACKS[1].months} months at {PACKS[0].pct}% or{" "}
+                {PACKS[1].pct}% off; your share of a pack is held until its {PREPAY_REFUND_DAYS}-day refund window
+                closes.
               </p>
-              {!payments && <PaymentsNote registrationOpen={platform.registrationOpen} />}
+              {!payments && <PaymentsNote platform={platform} />}
             </div>
             <Link className="text-link mk-link" href="/earnings-calculator">
               Add nutrition, voice and sessions <ArrowRight size={15} aria-hidden="true" />
@@ -472,12 +504,7 @@ export function PricingPage({ page, platform }: Ctx) {
       <Band tone="white">
         <div className="mk-cards mk-pr-cards">
           <SectionCard section={how} t={t}>
-            {(!payments || !payouts) && (
-              <div className="mk-pr-chips">
-                <NotOnYet on={payments} what="subscriber payments" />
-                <NotOnYet on={payouts} what="payouts" />
-              </div>
-            )}
+            <BlockChips chips={PRICING_CHIPS.how} platform={platform} />
           </SectionCard>
           <SectionCard section={billing} t={t}>
             <ul className="mk-pr-tags" aria-label="Billing options">
@@ -487,7 +514,7 @@ export function PricingPage({ page, platform }: Ctx) {
             </ul>
           </SectionCard>
           <SectionCard section={payout} t={t}>
-            <NotOnYet on={payouts} what="payouts" />
+            <BlockChips chips={PRICING_CHIPS.payouts} platform={platform} />
           </SectionCard>
         </div>
       </Band>

@@ -1006,16 +1006,19 @@ test("the options come from the platform: its name, the page's call to action, t
   const platform = {
     name: "Acme",
     registrationOpen: true,
-    availability: { model: true, nutrition: true, voice: false, customDomains: false, payments: true, payouts: false, whoop: true, zepp: false, instagram: false, frontier: true },
+    availability: { model: true, nutrition: true, mealPhotos: false, voice: false, customDomains: false, payments: true, payouts: false, whoop: true, zepp: false, instagram: false, frontier: true },
   } as unknown as PublicPlatform;
   const cta = { label: "Teach your AI — free", href: "/signup" };
   assert.deepEqual(showcaseOptions(platform, cta), {
     appName: "Acme",
     cta,
-    flags: { payments: true, payouts: false, voice: false, nutrition: true, model: true, recovery: false },
+    flags: { payments: true, payouts: false, voice: false, nutrition: true, mealPhotos: false, model: true, publish: true, recovery: false },
   });
   // The AI model off: its specialists are not on yet (prepare()).
-  assert.equal(showcaseOptions({ ...platform, availability: { ...platform.availability, model: false } } as PublicPlatform, cta).flags.model, false);
+  const at = (patch: object, open = true) => showcaseOptions({ ...platform, registrationOpen: open, availability: { ...platform.availability, ...patch } } as PublicPlatform, cta).flags;
+  assert.equal(at({ model: false }).model, false);
+  // Publishing waits for every PUBLISH_GATES gate: sign-ups, subscriber payments and the model (HON-3).
+  assert.deepEqual([at({}, false).publish, at({ payments: false }).publish, at({ model: false }).publish, at({ mealPhotos: true }).mealPhotos], [false, false, false, true]);
   const extra = showcaseOptions(platform, cta, { heading: false, labelledBy: "h", appName: "Other", flags: { ...FLAGS, recovery: true } });
   assert.equal(extra.appName, "Acme");
   assert.equal(extra.flags.recovery, false);

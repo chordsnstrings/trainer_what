@@ -38,26 +38,31 @@ export function stripForClient(full) {
 /** The traces for one page: a deep copy (the input is never changed, so one
     render's name and flags never leak into the next), the platform name in
     place of {APP_NAME}, and every status as the page's flags make it:
-    - not on yet: whatever needs a flag that is off (nutrition, voice) and,
-      while the AI model is off, every specialist that uses it and every
-      moment one of them plays;
-    - otherwise "Try it on yourself" while subscriber payments are off (the
-      status strip says so, and without the model says no more), live once
-      they are on.
-    A missing model flag counts as on: showcaseOptions() always passes it. */
+    - not on yet: whatever needs a flag that is off (nutrition, meal photos,
+      voice) and, while the AI model is off, every specialist that uses it
+      and every moment one of them plays;
+    - otherwise "Try it on yourself" until trainers can publish to
+      subscribers (publish: sign-ups, subscriber payments and the model, as
+      PUBLISH_GATES), live once they can. Until then the status strip says
+      why subscribers can't join: payments while they are off (and, with the
+      model, that the rest runs in Try my AI), else publishing.
+    A missing model flag counts as on, a missing publish flag as payments and
+    the model: showcaseOptions() always passes both. */
 export function prepare(raw, o) {
-  const d = clone(dataOf(raw)), f = o.flags, noModel = f.model === false;
+  const d = clone(dataOf(raw)), f = o.flags, noModel = f.model === false, publish = f.publish ?? (!!f.payments && !noModel);
   strings(d, (s) => s.split("{APP_NAME}").join(o.appName));
   const ai = new Set(d.specialists.filter((s) => s.kind == "ai" || s.usesAi).map((s) => s.id));
   const off = (x, sps) => (x.needs && !f[x.needs]) || (noModel && sps.some((sp) => ai.has(sp)));
   for (const x of [...d.specialists, ...d.traces]) {
     if (x.status == "not_on_yet") continue;
     if (off(x, x.steps ? x.steps.map((s) => s.sp) : [x.id])) (x.status = "not_on_yet"), delete x.statusTip;
-    else if (f.payments && x.status == "try_yourself") (x.status = "live"), delete x.statusTip;
+    else if (publish && x.status == "try_yourself") (x.status = "live"), delete x.statusTip;
   }
-  if (f.payments) delete d.labels.subscribers;
-  else if (noModel) d.labels.subscribers = d.labels.subscribersNoModel;
-  delete d.labels.subscribersNoModel;
+  const L = d.labels;
+  if (publish) delete L.subscribers;
+  else if (f.payments) L.subscribers = L.subscribersNoPublish;
+  else if (noModel) L.subscribers = L.subscribersNoModel;
+  delete L.subscribersNoModel, delete L.subscribersNoPublish;
   d.flags = { ...f };
   return index(d);
 }

@@ -86,7 +86,7 @@ test("schema and roster: 25 specialists (14 AI, 11 code steps), 12 traces, every
     c.ok(["live", "try_yourself", "not_on_yet"].includes(s.status), `${s.id} status`);
     if (s.status === "try_yourself") c.ok(typeof s.statusTip === "string", `${s.id} statusTip`);
     if (s.status === "not_on_yet") c.ok(typeof s.flag === "string", `${s.id} flag`);
-    if (s.needs) c.ok(s.status === "try_yourself" && ["voice", "nutrition"].includes(s.needs), `${s.id} needs`);
+    if (s.needs) c.ok(s.status === "try_yourself" && ["voice", "nutrition", "mealPhotos"].includes(s.needs), `${s.id} needs`);
     c.ok(!/sure score|rep counter/i.test(JSON.stringify(s)), `${s.id} old names`);
   }
   c.ok(d.sp.examiner.usesAi === true && d.sp.examiner.kind === "check", "Examiner: code step that uses your AI");
@@ -123,9 +123,9 @@ test("schema and roster: 25 specialists (14 AI, 11 code steps), 12 traces, every
         t.steps.every((s: any) => !(s.sp in d.sp && d.sp[s.sp].kind === "ai")) && t.steps.some((s: any) => s.sp === "any_ai" && s.result === "skipped"),
         `${k}: safety stop calls no AI`,
       );
-    if (t.needs) c.ok(t.status === "try_yourself" && ["voice", "nutrition"].includes(t.needs), `${k} needs`);
+    if (t.needs) c.ok(t.status === "try_yourself" && ["voice", "nutrition", "mealPhotos"].includes(t.needs), `${k} needs`);
   }
-  for (const key of ["eyebrow", "picks", "noChatScore", "howWeCount", "totals", "levels", "planSetting", "spotCheck", "supplements", "recoveryCaption", "chip", "long", "subscribers", "subscribersNoModel", "rates", "speed", "noAi", "basis", "status", "kind", "lanes"])
+  for (const key of ["eyebrow", "picks", "noChatScore", "howWeCount", "totals", "levels", "planSetting", "spotCheck", "supplements", "recoveryCaption", "chip", "long", "subscribers", "subscribersNoModel", "subscribersNoPublish", "rates", "speed", "noAi", "basis", "status", "kind", "lanes"])
     c.ok(key in d.labels, `labels.${key}`);
   c.done(500);
 });
@@ -146,9 +146,10 @@ test("the honesty strings are exact (SHOWCASE_DESIGN.md §1.5)", () => {
   c.eq(d.labels.chip, "Sample · scripted · no AI model called", "chip");
   c.eq(d.labels.subscribers, "Subscribers can't join yet: subscriber payments are not on. You can run most of this on yourself with Try my AI.", "status strip");
   c.eq(d.labels.subscribersNoModel, "Subscribers can't join yet: subscriber payments are not on.", "status strip without the AI model");
+  c.eq(d.labels.subscribersNoPublish, "Subscribers can't join yet: publishing is not on yet.", "status strip while payments are on but trainers can't publish");
   c.eq(d.labels.eyebrow, "A SAMPLE HOUR OF YOUR BRAIN", "eyebrow");
   c.eq(d.labels.rates, "A mix chosen to show every path. Not real rates.", "rates");
-  c.eq(d.labels.long, "Sample moments. Code steps use the app's own limits on sample data. AI steps replay answers from test runs, or are marked illustrative. No AI model is called on this page.", "banner");
+  c.eq(d.labels.long, "Sample moments. Code steps use the app's own limits on sample data. AI steps replay answers from test runs or the app's tests, or are marked illustrative. No AI model is called on this page.", "banner");
   c.eq(d.labels.basis, { recorded: "From a test run", tests: "From the app's tests", illustrative: "Illustrative", computed: "Worked out by the app's own rules" }, "basis tags");
   c.eq(d.labels.picks, "Code picks the specialist. No AI chooses which AI runs.", "picks");
   c.eq(d.labels.noChatScore, "Chat replies have no score. They must cite your rule.", "noChatScore");
@@ -477,7 +478,7 @@ test("every visible string of the client copy passes the marketing copy scans", 
   })(client, "");
 });
 
-test("the strip and every status follow the flags (prepare): payments, voice, nutrition and the AI model", () => {
+test("the strip and every status follow the flags (prepare): payments, publishing, voice, nutrition, meal photos and the AI model", () => {
   const raw: any = JSON.parse(clientText);
   const at = (flags: object) => prepare(raw, { appName: "trainsyou", flags: { ...OFF, ...flags } }) as any;
   const ids = (x: any, status: string) => [...x.specialists, ...x.traces].filter((s: any) => s.status === status).map((s: any) => s.id.split("-")[0]).sort();
@@ -504,13 +505,24 @@ test("the strip and every status follow the flags (prepare): payments, voice, nu
   assert.deepEqual(ids(paid, "try_yourself"), []);
   assert.deepEqual(ids(paid, "not_on_yet"), ids(off, "not_on_yet"));
   words(paid);
-  // Voice and nutrition on: their specialists and moments join, tried on yourself until payments are on.
-  const early = at({ voice: true, nutrition: true });
+  // Voice, nutrition and meal photos on: their specialists and moments join, tried on yourself until payments are on.
+  const early = at({ voice: true, nutrition: true, mealPhotos: true });
   assert.deepEqual(ids(early, "not_on_yet"), ["recovery", "t3"]);
   assert.deepEqual(ids(early, "try_yourself"), [...ids(off, "try_yourself"), ...NEEDS].sort());
   words(early);
-  assert.deepEqual(ids(at({ payments: true, voice: true, nutrition: true }), "not_on_yet"), ["recovery", "t3"]);
+  assert.deepEqual(ids(at({ payments: true, voice: true, nutrition: true, mealPhotos: true }), "not_on_yet"), ["recovery", "t3"]);
   assert.deepEqual(ids(at({ payments: true, voice: true }), "not_on_yet"), ["meal_photo", "meal_planner", "recovery", "t3", "t4"]);
+  // Meal photos have their own switches (MEAL_PHOTOS_ENABLED, MODEL_VISION_ENABLED): nutrition alone leaves them off.
+  assert.deepEqual(ids(at({ voice: true, nutrition: true }), "not_on_yet"), ["meal_photo", "recovery", "t3", "t4"]);
+  // Payments on while trainers can't publish (sign-ups closed, or the model off): nothing is live for
+  // subscribers, every status stays as with payments off, and the strip says publishing is not on yet (HON-3).
+  const unpublished = at({ payments: true, publish: false });
+  assert.equal(unpublished.labels.subscribers, d.labels.subscribersNoPublish);
+  assert.match(strip(unpublished), /class="sc-subs">Subscribers can&#39;t join yet: publishing is not on yet\.<\/span>/);
+  assert.equal(unpublished.labels.subscribersNoPublish, undefined, "never shown as its own line");
+  assert.deepEqual([ids(unpublished, "try_yourself"), ids(unpublished, "not_on_yet")], [ids(off, "try_yourself"), ids(off, "not_on_yet")]);
+  words(unpublished);
+  assert.equal(at({ payments: true, publish: true }).labels.subscribers, undefined);
   // The AI model off: every specialist that uses it and every moment one of them plays is not on yet, whatever
   // else is on; code steps and the safety stops stay; the strip says only that payments are off.
   for (const flags of [{ model: false }, { model: false, payments: true, voice: true, nutrition: true }]) {
@@ -524,7 +536,8 @@ test("the strip and every status follow the flags (prepare): payments, voice, nu
   }
   assert.equal(at({ model: false }).labels.subscribers, d.labels.subscribersNoModel);
   assert.match(strip(at({ model: false })), /class="sc-subs">Subscribers can&#39;t join yet: subscriber payments are not on\.<\/span>/);
-  assert.equal(at({ model: false, payments: true }).labels.subscribers, undefined);
+  assert.equal(at({ model: false, payments: true }).labels.subscribers, d.labels.subscribersNoPublish, "without the model nobody can publish");
+  assert.equal(at({ model: false, payments: true, publish: false }).trace("t2").status, "live", "the code-only stops stay live: real safety rules");
   // A fixture without the model flag counts it on (showcaseOptions() always passes it).
   const statuses = (x: any) => JSON.stringify({ ...x, flags: null });
   assert.equal(statuses(at({ model: true })), statuses(off));

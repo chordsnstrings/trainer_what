@@ -14,7 +14,8 @@
      an open receipt or sheet, the overlay layer; the settings the field and
      the board share are counted and dropped with the last of them;
    - no debug switch, no test handle on the root;
-   - reduced motion starts on "Play the field" with aria-pressed="true";
+   - reduced motion starts on "Play the field" (a Pause control's label says
+     what a press does: no aria-pressed);
    - the board sets its own data-sc="on" and has no live region (say());
    - the phone settings sheet and receipts mount in the overlay layer;
    - nothing moves in layout once it plays: lane tiles sit in their lists
@@ -1346,7 +1347,7 @@ function mountField(root, o, p) {
       root.classList.add("is-rm");
       resetFirst(); own(); staticFinal(); counts();
       sc.button(pb, { pause: COPY.pause, play: COPY.playField });
-      sc.pause(); // a still frame until the visitor asks: "Play the field", aria-pressed="true"
+      sc.pause(); // a still frame until the visitor asks: "Play the field"
       let acc = 2500;
       sc.loop((dt) => { acc += dt; T += dt; W += dt; while (Q.length && Q[0][0] <= W) Q.shift()[1](); if (acc >= 2500) { acc = 0; rmStep(); } draw(); }, 10);
       draw();

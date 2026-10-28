@@ -18,11 +18,12 @@ import {
 } from "../../../../packages/domain/src/marketing-calculators";
 import { MOTION, useSettle, type SettleTarget } from "./motion";
 
-const whole = (n: number) =>
-  new Intl.NumberFormat("en-AE", { maximumFractionDigits: 0 }).format(n);
+// One formatter each, made once: making one costs far more than a format.
+const WHOLE = new Intl.NumberFormat("en-AE", { maximumFractionDigits: 0 });
+const SHARE = new Intl.NumberFormat("en-AE", { maximumFractionDigits: 1 });
+const whole = (n: number) => WHOLE.format(n);
 /** Our share to one decimal ("21.7%"), from the estimate's own percentage. */
-export const sharePct = (pct: number) =>
-  new Intl.NumberFormat("en-AE", { maximumFractionDigits: 1 }).format(pct) + "%";
+export const sharePct = (pct: number) => SHARE.format(pct) + "%";
 
 /** The compact calculator's rule: one monthly price, no nutrition, voice or sessions. */
 export const takeHome = (subscribers: number, priceAed: number, sessionRateAed = 0) =>

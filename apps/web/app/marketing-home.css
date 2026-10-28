@@ -51,8 +51,10 @@
   margin-block-start: 16px;
 }
 @media (min-width: 1181px) {
+  /* The field needs 720px for every label whole; below about 1370px the
+     copy gives up the difference (its calls to action may wrap). */
   .mk-hm-hero-grid {
-    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    grid-template-columns: minmax(0, 5fr) minmax(720px, 7fr);
     grid-template-rows: 1fr repeat(5, auto) 1fr;
     grid-template-areas: ". media" "eyebrow media" "h1 media" "lede media" "cta media" "micro media" ". media";
     column-gap: 24px;
@@ -106,12 +108,6 @@
 }
 
 /* ---------- bands ---------- */
-/* An in-page link ("Skip the figure", "What works today") lands its target
-   below the sticky header, 74px at its tallest. */
-.mk-home-band,
-.mk-pf-status {
-  scroll-margin-block-start: 74px;
-}
 .mk-hm-rule {
   border-block-start: 1px solid var(--mk-line);
 }
