@@ -65,6 +65,15 @@
   - F2: still-frame showcase controls keep their own look; `brain-stage.css` gained reset rules.
   - F2 blamed the member-shell rule `details:has(…)::details-content` for whole-page restyles. Lead check (`scratchpad/hasexp/real.cjs`), on the real built CSS with the /trainer-brain snapshot: one insertion costs about 5 ms at 4× CPU with the rule, without it, or rewritten. Not reproduced on a still page, so it must be measured on the running page before any member-app CSS changes.
 - **Review workflow running:** `wf_aa89a290-849`, five dimensions, each with an adversarial verifier.
+- **Part 2 is complete** (`wf_2044b74e-e8b`); WP7b round 2 reported.
+  - **CI step:** "Brain showcases on /, /trainer-brain, /demo and /pricing" is in the `homepage-call` job, after the call check, on ports 3241/4241. The job limit went from 40 to 50 minutes.
+  - **Showcase check:** two final timed runs passed, in 375 s and 376 s.
+  - **Brand check:** 36 failures, identical to `4f35e5c`.
+  - **Motion check:** found a 0.048 CLS race on `/trainer-brain` at 1366 px. The lead applied WP7b's tested fix: a `rel=expect` marker at the hero's end, as on `/`. It gave 0 shifts in 40 loads; tests pass 33/33; documented in `marketing-motion.md`.
+  - **Reported over budget on a busy machine,** to measure again quietly at the milestone:
+    - field mount long task: 120 ms;
+    - `/` blocking time: 406–484 ms, against a 326 ms baseline plus 100;
+    - `/trainer-brain` playground p95: 83 ms at tier minimal.
 - **Left for the review and fix stage:**
   - the field's plan slider snaps back if another control is touched within its 120 ms debounce;
   - `/` total blocking time measured 444 ms on a loaded machine, against a 326 ms baseline plus a 100 ms allowance; measure again at the milestone;
