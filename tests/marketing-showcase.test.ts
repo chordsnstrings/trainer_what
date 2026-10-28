@@ -688,7 +688,10 @@ test("the engine core: Pause stays right through every pause reason, data-sc-run
     frames(2100, 33.4); // most frames miss one
     assert.deepEqual(changes, ["lite"], "a slow window steps down");
     restart();
-    dom.fire("scroll"); // a scroll starts: 300 ms not judged (the consent bar's restyle)
+    dom.fire("scroll"); // a scroll starts: 300 ms not judged
+    frames(280, 70);
+    dom.html.setAttribute("style", "--consent-bar-block-size: 80px"); // <html> changes (the consent bar opens): 300 ms not judged
+    await Promise.resolve();
     frames(280, 70);
     frames(4100, 16.7);
     assert.deepEqual(changes, ["lite", "full"], "two good windows step back up");
