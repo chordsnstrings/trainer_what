@@ -2,49 +2,57 @@
 
 ## Work in progress
 
-### Status on 27 October 2026, late evening (Claude)
+### Status on 28 October 2026 (Claude): phase 1 of the marketing revamp, part 1 done, part 2 starting
 
-**The owner chose the recommendation: "Go with your recommendation".**
+**The owner chose the recommendation** ("Go with your recommendation", 27 Oct):
 - **What gets built:** Concept A "Live Brain", plus C's "Anatomy of one decision" on /trainer-brain, C's Never list and source badges, and B's pricing page and calculators.
 - **Defaults accepted:**
   - publish "14 AI specialists and 11 code steps" with "How we count";
-  - the specialist names as designed;
-  - Recovery rule and Meal planner shown "Not on yet";
-  - no founder note and no card-processing rate yet;
-  - the proposed copy for these pages;
-  - the showcase motion exception: continuous canvas motion inside `[data-showcase]`, which follows reduced motion.
+  - names as designed;
+  - Recovery rule and Meal planner "Not on yet";
+  - no founder note and no card-processing rate.
 - **Rollout:**
-  - phase 1: home, /trainer-brain, /demo, /pricing, as their own PR, checked and deployed;
+  - phase 1: home, /trainer-brain, /demo and /pricing, as their own PR, checked and deployed;
   - phase 2: every other page;
-  - phase 3: Arabic, tracking and an A/B test.
-- **Done:** records PR #104 merged as `4f35e5c`. The branch was restarted from it for phase 1.
-- **Plan done** (`wf_cb04287e-c71`, 7 agents) and saved: `docs/marketing-revamp-2026-10-26/phase1/PLAN.md`, with the maps and the plan review.
-  - **Engine:** the verified prototype engine ported as `.js` modules with `.d.ts` files under `apps/web/components/marketing/brain/`.
-  - **Rendering:** the server renders the first frame; a client island loads the motion after `load`, idle and nearness.
-  - **Honesty:** the traces are tested against the real domain functions in `npm test`.
-  - **Call to action:** "Teach your AI — free" on the four pages only.
-  - **Off switch:** `MARKETING_SHOWCASE=static`.
-  - **Robots:** they get the still frame; the override is `?sc=on`.
-- **Draft PR #105** is open on this branch.
-- **The container restarted at about 23:00 UTC on 27 Oct.** The working tree survived.
-  - WP0 (foundations) and WP1 (Brain core: traces test 14/14, showcase test 15/15, build and probe passing) were done, uncommitted. Their reports are in the scratchpad as `report-wp0.md` and `report-wp1.md`.
-  - A tree backup is in the scratchpad: `backup/phase1-tracked.patch` and `backup/phase1-untracked.tgz`.
-  - WP6 (pricing) was interrupted while verifying.
-- **A second restart came at about 23:55 UTC.** WP6 (pricing) had finished:
-  - `tests/marketing-pricing.test.ts` 8/8;
-  - the calculators match `estimateEarnings` exactly;
-  - CLS 0, no overflow, build passing;
-  - report in `report-wp6.md`.
-  - **Follow-up for WP4:** the "Can subscribers pay me today?" answer must follow the registration flag, because "Today you can join" is untrue while sign-ups are closed.
-- **Autosave:** `scratchpad/autosave.sh` commits and pushes the tree every 8 minutes as `WIP autosave … [skip ci]`. Restart it after any container restart.
-- **Now running:** `wf_e889164e-24d`: WP2 field (resumed), WP3a anatomy and WP3b playground, two at a time, with no Next builds.
-- **Superseded:** `wf_83e62d78-b94`: WP6 resumes and WP2 (the home field engine) runs alongside it.
-  - Then WP3a (anatomy) and WP3b (playground).
-  - Each round is committed and pushed after it is checked.
-- **Superseded:** build part 1, `wf_dd1f463e-103`: WP0 (foundations, no rendered change) → WP1 (Brain core, data and tests) → WP6 (pricing) → WP2 field, WP3a anatomy and WP3b playground engines, without Next builds.
-  - The four page registry entries are prepared as patches in the session scratchpad (`phase1-entries/`).
-- **Next:** part 2 (WP4 home, WP5 Trainer Brain and Demo, WP7a clean-up, WP7b browser checks and the CI step), then milestone verification, review, PR to green, merge, deploy, live check and records.
-- Delete the stray `/oq-daily.log` when convenient.
+  - phase 3: Arabic, tracking and A/B.
+
+**Spec:** `docs/marketing-revamp-2026-10-26/phase1/PLAN.md`.
+
+**Branch and PR:** `claude/repository-overview-osejlw`, draft PR #105.
+- In-progress work is saved as `WIP … [skip ci]` commits through `scratchpad/wip-commit.sh`.
+- The 2-hour autosave loop has ended and is not restarted.
+
+**Done (part 1, workflows `wf_dd1f463e-103`, `wf_83e62d78-b94` and `wf_e889164e-24d`).** Reports are in the session scratchpad as `report-wp*.md`.
+- **WP0 foundations:** proof parts, stylesheets, contracts and the call to action.
+- **WP1 Brain core:** traces tested against the real domain functions, render/runtime split and the island. `marketing-brain-traces` 14/14, `marketing-showcase` 15/15.
+- **WP6 /pricing:** `marketing-pricing` 8/8; the calculators equal `estimateEarnings`; CLS 0.
+- **WP2 home field, board and receipt:** `marketing-field` 8/8.
+  - At 4× CPU throttle, p95 frame time is 16.8 ms at 390 px and 16.7 ms at 1440 px; CLS 0.00025.
+  - Small copy change: the safety tooltip names the platform's rule.
+- **WP3a anatomy:** pinned, flat, reduced-motion and no-JavaScript paths pass.
+- **WP3b playground:** all 12 moments land in the lane `decide()` gives; CLS 0; p95 16.8 ms at 4× throttle; `marketing-anatomy-play` 23/23.
+- First-frame Brain CSS is 16.81 of 18 KB.
+- Saved as WIP commit `1aeba0a`.
+- **Not yet run:** a Next build of the engines in a page. That happens in WP4 and WP5.
+
+**Now running: part 2, workflow `wf_2044b74e-e8b`, launched 02:35 UTC on 28 Oct.**
+1. WP4 home and WP7b browser checks side by side. WP7b builds in its own worktree, so only one agent uses Next in the main tree.
+2. WP5 /trainer-brain and /demo.
+3. WP7a clean-up (full `npm test`).
+4. WP7b CI step.
+5. WP8 docs.
+
+**Lead decision for the owner's FYI list:** the "Can subscribers pay me today?" answer no longer says "Today you can join". It now reads "With an account you can already set up your page and app, and teach and test your AI", which stays true while sign-ups are closed.
+
+**Next:**
+- milestone verification (§4.6);
+- review workflow, then fixes;
+- PR #105 to green, merge, deploy (`scripts/watch-release.sh`) and a live check of the four pages;
+- records.
+
+**Deploy reconciliation, to be recorded before merge:** this deploy rests on the owner's explicit 27 Oct instruction, "checked and deployed". It does not rest on the coding handoff.
+
+**Waiting on the owner:** nothing. Delete the stray `/oq-daily.log` when convenient.
 
 ### Home page as the owner's HTML design: live since 22:47 UTC on 25 October 2026 (Claude, checked 04:10 UTC on 26 Oct)
 
