@@ -771,6 +771,13 @@
   background: var(--sc-text);
   color: var(--sc-on-ai);
 }
+/* "Not on yet": the stage's muted ink, not the page's (3:1 on the stage). */
+[data-showcase="anatomy"] .ca-wb small {
+  color: var(--sc-muted);
+}
+[data-showcase="anatomy"] .ca-wb[aria-pressed="true"] small {
+  color: inherit;
+}
 [data-showcase="anatomy"] .ca-wb[disabled],
 [data-showcase="anatomy"] .ca-pause[disabled] {
   opacity: 0.55;
@@ -1313,6 +1320,16 @@
     align-self: start;
     margin-block-start: 8px;
     background: var(--sc-stage);
+  }
+  /* "Not on yet" takes a second line in its button, so with the model off
+     the What-ifs keep the three lines row 4 holds (they needed four). */
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-wb small {
+    display: block;
+    font-size: 10.5px;
+    line-height: 1.15;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-wb small span {
+    display: none;
   }
   html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-foot {
     grid-row: 5;

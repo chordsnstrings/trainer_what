@@ -492,12 +492,14 @@ async function consentAnswerChecks(page, label, answer) {
  * and closed or hidden content left out). C1's target is 400; the approved
  * copy measures more, so the measured figure is the budget (the plan's rule;
  * it is recorded in docs/features/marketing-site.md, and copy is never cut
- * without the owner): 624 on 28 October 2026 with sign-ups open, as this
- * check's seeded platform has them (610 with them closed). The H2s are the
+ * without the owner): 629 on 28 October 2026 with sign-ups open, as this
+ * check's seeded platform has them. It was 624 (610 with sign-ups closed)
+ * until the Never list gained "Never hide pain or red flags from you." and
+ * other small edits (+5); the closed figure was not measured again. The H2s are the
  * registry's sections (resort, how, subscribers, control, economics,
  * followers, proof), the FAQ band and the closing panel.
  */
-const HOME_WORDS = 624;
+const HOME_WORDS = 629;
 const HOME_H2 = 9;
 
 /**

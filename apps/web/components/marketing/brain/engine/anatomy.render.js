@@ -227,8 +227,9 @@ export function renderStatic(d, o) {
   const head = o.heading === false ? "" : `<header class="ca-head"><p class="ca-eb">${esc(COPY.eyebrow)}</p><h2 class="ca-h2" id="${id}-title">${esc(COPY.h2)}</h2><p class="ca-lede">${esc(COPY.lede)}</p></header>`;
   const notes = LET.split("").map((k) => `<li data-k="${k}" id="${id}-${k}"><button type="button" class="ca-nb" data-k="${k}" disabled><span class="ca-l">(${k})</span><b>${esc(NOTES[k][0])}</b></button><div class="ca-nt"><p>${esc(note(d, k, M.off))}${k == "f" ? `<em>${esc(d.labels.picks)}</em><small>${esc(COPY.ghosts)}</small>` : ""}</p></div></li>`).join("");
   // A What-if whose moment does not run here says so; it still plays the figure, not on yet.
+  // The dot is only the separator: pinned on phones the suffix takes its own line without it.
   const whatIf = COPY.whatIf.map(([k, l, wid, lv]) => { const off = decide(d.trace(wid), lv ? { ...S, level: lv } : S, d).off;
-    return `<button type="button" class="ca-wb" data-w="${k}" aria-pressed="false"${off ? " data-off" : ""} disabled>${esc(l)}${off ? `<small> · ${notYet}</small>` : ""}</button>`; }).join("") +
+    return `<button type="button" class="ca-wb" data-w="${k}" aria-pressed="false"${off ? " data-off" : ""} disabled>${esc(l)}${off ? `<small> <span aria-hidden="true">·</span> ${notYet}</small>` : ""}</button>`; }).join("") +
     `<button type="button" class="ca-wb" data-w="base" aria-pressed="true" disabled>${esc(COPY.back)}</button>`;
   return `<div class="ca-frame"><div class="ca-grid">` +
     `<div class="ca-scene" dir="ltr" aria-hidden="true">` +

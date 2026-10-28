@@ -153,7 +153,7 @@ test("the AI model off: Omar's moment is not on yet, and the figure says so: no 
   // The What-ifs whose moment does not run say so; the knee stop (code only) still runs.
   const wi = tags(html, /class="ca-wb"/).map((t) => t.match(/data-w="(\w+)"/)![1] + (/ data-off/.test(t) ? ":off" : ""));
   assert.deepEqual(wi, ["knee", "plan:off", "level1:off", "base"]);
-  assert.match(html, /What if it’s a plan change\?<small> · Not on yet<\/small>/);
+  assert.match(html, /What if it’s a plan change\?<small> <span aria-hidden="true">·<\/span> Not on yet<\/small>/);
   // With the model on, nothing of this.
   const on = render().html;
   assert.doesNotMatch(on, /data-off[^>]*>What if|is-dashed|Once it is on/);

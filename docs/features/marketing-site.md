@@ -1579,6 +1579,7 @@ Title "Free-to-join AI trainer platform for UAE coaches", with the eyebrow "FOR 
    - The DOM order is the same at every width: H1, field, lede, buttons. Wide screens place the field in the second column with grid areas, never CSS `order`. Tablets from 761 to 1180 px stack in DOM order.
    - From 1181 px the hero grid is `minmax(0, 5fr) minmax(720px, 7fr)` (final fix pass, L11). The field keeps the 720 px its desktop layout needs, so no node label is cut, and below about 1,370 px the copy column gives up the difference. Measured: 0 ellipsized labels at 1181, 1240, 1280, 1312, 1366 and 1440 px, and the call to action on the first screen at 1280×720 and 1181×720.
    - `<link rel="expect" href="#mk-hero-end" blocking="render">`: the first paint waits until the hero's last child is parsed, the field's first frame included.
+   - On phones the H1 is `min(calc((100vw - 20px) / 10), 40px)` (`marketing-home.css`, 28 October 2026). Its first line, "Teach your AI.", is about 10 em wide in the fallback font. In CI the web font did not load and that line ended at 321.8 px on a 320 px screen, so the page scrolled sideways by 2 px; the showcase check (step 4) failed while local runs passed. The size leaves at least 4 px inside the screen in either font: 30 instead of 30.7 px at 320, 37 instead of 37.4 px at 390.
 2. **"Change a setting. Watch it re-sort."** (`#resort`, paper): the board, labelled by the band's H2, and "Throw a moment at your Brain" → `/demo`.
 3. **"How it works"** (white): three numbered steps from the registry, then "Setup to payday · 8 steps". The third, "You decide", reads "Replies wait for you. Your choice: approved reply fits → sent on its own. Pain → paused." (fix round 2: level 1 starts in "Waits for me").
    - That is the `/how-it-works` steps as an ARIA tabs stepper with a roving tabindex. Left and Right move between tabs, with wrap; Home and End jump; Previous and "Next step" step. Up and Down are not captured.
@@ -1680,13 +1681,14 @@ Title "Free-to-join AI trainer platform for UAE coaches", with the eyebrow "FOR 
 
 The SEO-depth floor is 350 registry words. `/demo` is 8 over it, so any cut there needs a replacement line.
 
-**Home word budget: 624.**
+**Home word budget: 629** (624 until 28 October 2026).
 - **How it counts:** visible words in `main`, as C1 counts them. It leaves out the showcases (`[data-showcase]`), the sample screens (`[data-sample-ui]`), the follower calculator (`.mk-home-calc`), screen-reader text, and closed or hidden content.
 - **C1's target was 400.** The approved copy measures more, and copy is not cut without the owner. So the plan's rule applies: the measured figure is the budget.
 - **Measured** by `scripts/brand-check.mjs` on 28 October 2026:
   - 624 with sign-ups open, as the brand check's platform has them;
   - 610 with them closed;
   - the old home measured 447.
+- **Re-measured at the milestone verification, 28 October 2026: 629 with sign-ups open.** Fix round 2 added "Never hide pain or red flags from you." to "What your AI will never do" (+8 words), and other small edits took 3 off. Under the same rule, 629 is the budget. The closed-sign-ups figure was not measured again.
 - `HOME_WORDS` in `brand-check.mjs` holds it.
 - **H2 cap: 9.** That is the seven registry sections, the FAQ band and the closing panel (`HOME_H2`).
 

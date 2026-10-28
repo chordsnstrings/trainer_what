@@ -2,177 +2,33 @@
 
 ## Work in progress
 
-### Status on 28 October 2026 (Claude): phase 1 of the marketing revamp, part 1 done, part 2 starting
+### Status at 23:40 UTC on 28 October 2026 (Claude): marketing revamp phase 1, final commit before merge
 
-**The owner chose the recommendation** ("Go with your recommendation", 27 Oct):
-- **What gets built:** Concept A "Live Brain", plus C's "Anatomy of one decision" on /trainer-brain, C's Never list and source badges, and B's pricing page and calculators.
-- **Defaults accepted:**
-  - publish "14 AI specialists and 11 code steps" with "How we count";
-  - names as designed;
-  - Recovery rule and Meal planner "Not on yet";
-  - no founder note and no card-processing rate.
-- **Rollout:**
-  - phase 1: home, /trainer-brain, /demo and /pricing, as their own PR, checked and deployed;
-  - phase 2: every other page;
-  - phase 3: Arabic, tracking and A/B.
+**What it is:** phase 1 of the marketing revamp (`/`, `/trainer-brain`, `/demo`, `/pricing`), as the owner chose on 27 Oct ("Go with your recommendation"; each phase is its own PR, "checked and deployed"). It is in PR #105 from `claude/repository-overview-osejlw`. The full stage record, with every check run, is the 28 October entry in `docs/COMPLETION_STAGES.md`.
 
-**Spec:** `docs/marketing-revamp-2026-10-26/phase1/PLAN.md`.
+**Finished:**
+- the build, both fix rounds, the final review and fix passes, the docs, and the milestone verification;
+- CI on `e2a8cef` (run 40781841666): all 8 jobs green, including the showcase step.
 
-**Branch and PR:** `claude/repository-overview-osejlw`, draft PR #105.
-- In-progress work is saved as `WIP … [skip ci]` commits through `scratchpad/wip-commit.sh`.
-- The 2-hour autosave loop has ended and is not restarted.
+**Now:**
+- **The final commit** (one normal push, not `[skip ci]`):
+  - with the AI model off, the pinned anatomy's "Not on yet" takes a second line on phones, so the What-ifs no longer cover the caption. The label uses the stage's muted colour (the page's grey was 3.0:1 on the stage);
+  - the home word budget is 629 (the measured count, per PLAN §4.3);
+  - docs for the late CI fixes, and these records.
+- **Its checks:**
+  - unit tests 59/59;
+  - a build and a probe at six phone widths in both states: the closed layout matches the open one and nothing overlaps;
+  - the full showcase check is running locally (`scratchpad/mv/showcase-11.log`).
 
-**Done (part 1, workflows `wf_dd1f463e-103`, `wf_83e62d78-b94` and `wf_e889164e-24d`).** Reports are in the session scratchpad as `report-wp*.md`.
-- **WP0 foundations:** proof parts, stylesheets, contracts and the call to action.
-- **WP1 Brain core:** traces tested against the real domain functions, render/runtime split and the island. `marketing-brain-traces` 14/14, `marketing-showcase` 15/15.
-- **WP6 /pricing:** `marketing-pricing` 8/8; the calculators equal `estimateEarnings`; CLS 0.
-- **WP2 home field, board and receipt:** `marketing-field` 8/8.
-  - At 4× CPU throttle, p95 frame time is 16.8 ms at 390 px and 16.7 ms at 1440 px; CLS 0.00025.
-  - Small copy change: the safety tooltip names the platform's rule.
-- **WP3a anatomy:** pinned, flat, reduced-motion and no-JavaScript paths pass.
-- **WP3b playground:** all 12 moments land in the lane `decide()` gives; CLS 0; p95 16.8 ms at 4× throttle; `marketing-anatomy-play` 23/23.
-- First-frame Brain CSS is 16.81 of 18 KB.
-- Saved as WIP commit `1aeba0a`.
-- **Not yet run:** a Next build of the engines in a page. That happens in WP4 and WP5.
+**Next:**
+1. Push, then get CI green on the final head.
+2. Fill the checks into the PR body (`scratchpad/pr105-body.md`), mark the PR ready, and squash-merge.
+3. Watch `main`'s run and the deploy (`scripts/watch-release.sh`), then live-check the four pages.
+4. Record the merge SHA and the live check in a follow-up docs PR (`COMPLETION_STAGES.md` and this section).
 
-**Now (14:30 UTC):** the final workflow `wf_ff90e0a4-317` (task `wyrekd8pl`) is running, in three phases:
-1. Review: four lenses (engines, honesty, accessibility, performance and infra) over `0b08671..HEAD`. Each reproduces its own findings.
-2. Fix pass:
-   - E: engines, plus the availability plumbing for meal photos;
-   - P: pages, global CSS, contracts copy, scripts.
-   - It covers the leftover list (`scratchpad/final-leftovers.md`) and the review findings.
-3. Docs refresh, alongside the milestone verification (PLAN §4.6) on a quiet machine:
-   - `npm run check`, with tesseract for the OCR tests;
-   - `brain-traces --check`;
-   - the showcase check twice;
-   - `test:browser`, the call check, brand, `test:marketing-motion` and the deployment tests;
-   - the static-mode rehearsal;
-   - screenshots.
+**Deploy reconciliation:** this deploy rests on the owner's explicit 27 Oct instruction for phase 1, "checked and deployed" (`docs/PROJECT_MEMORY.md`). It does not rest on the coding handoff. The normal gates apply: green CI on the final head and on `main`'s run.
 
-**Progress at 16:25 UTC:**
-- **Final review done:** 36 findings, each reproduced by its reviewer.
-  - **Honesty: 11 (3 major).**
-  - **Engines: 6 (3 major).**
-  - **Accessibility: 12 (3 major).**
-    - the sticky header hides keyboard focus;
-    - Tab skips the board and most of the playground;
-    - the field drops focus from a lane tile.
-  - **Performance and infra: 7 (2 major).**
-    - the consent bar's root custom property restyles the whole document;
-    - the field mount is over 80 ms in about a quarter of loads;
-    - without JavaScript the root marks never apply, so the public pages' light styles are missing;
-    - first paint on `/` is 150–400 ms later than the base at 4× CPU.
-- **Fix pass, P (pages and global), is done** (`41e269c`, `488b9d1`; report `scratchpad/final-P.json`). 12 items fixed, 2 partly, 1 deferred.
-  - **Payments answers:** "Can subscribers pay me today? Yes." now waits for the publish gates (sign-ups, payments and the model). There is a new "payments on, publishing not yet" answer.
-  - **Instagram answer:** reworded to "Once your page is live…".
-  - **Pricing:** the hero strip follows publishing and payouts. The voice add-on is gone from the trainer extras, leaving only the domain. Prepaid packs are stated.
-  - **Data answer:** taken from the 14 Oct terms.
-  - **`/demo` moments:** drawn from the traces, and they follow the flags.
-  - **Sample ledger:** made consistent.
-  - **Root marks without JavaScript:** a `<noscript>` fallback restores them.
-  - **Consent bar:** it no longer sets a root custom property on marketing pages.
-  - **Header:** `scroll-padding` on the public root, so the sticky header no longer hides focus. The A11Y-1 parts in the playground and the check are left for E.
-  - **Hero width (L11):** fixed.
-  - **Blocking time (L16):** the calculators' and domain startup work was cut; `/` TBT median 298 → 261 ms.
-  - **Deferred:** PERF-7, first paint. `content-visibility` measured no gain; the real lever is a separate marketing route group, which the catch-all lacks (it ships about 835 KB gzipped of JS on marketing pages). That is phase 2 or 3.
-  - **Checks:** typecheck passes; 304/304 unit tests; flag-matrix scan of 400 renders with 0 problems.
-  - **Showcase check:** fails 4 lines, all in E's playground, which was still in progress: lazy sheets move the playground output 9 px at 1440 with JavaScript off; an empty before/now line on a `/demo` setting change; the largest paint is the longer banner.
-  - **Owner decisions:**
-    - the prepaid-packs wording (computed, not yet approved);
-    - the data answer from the terms (legal or the owner should confirm);
-    - the "AI Coach Service Fee" is still unmentioned, under the no-AI-costs rule.
-- **Fix pass, E (engines), is done** (report `scratchpad/final-E.json`, up to `41e3a4c`): 33 of 38 items fixed, 3 partly fixed (L15, A11Y-10, L16 shared), 2 not reproduced (L6, L14).
-  - Pause has no `aria-pressed` anywhere.
-  - Shelf and statuses:
-    - the field shelf follows the flags;
-    - off-chips fit;
-    - receipts show the prepared status;
-    - a new `mealPhotos` availability flag drives the meal-photo specialist and moment.
-  - Not-on-yet moments in the playground show "Built and tested. Not on yet.", and the totals count them. With the model off, the anatomy shows "Not on yet" instead of sending.
-  - Statuses follow publishing (sign-ups, payments and the model), with a new strip line: "Subscribers can't join yet: publishing is not on yet."
-  - Accessibility and layout:
-    - lanes are no longer landmarks;
-    - bins are named;
-    - focus holds while the field animates;
-    - the sheet handles Esc and fits at 400% zoom;
-    - a turned phone handles an open receipt;
-    - Tab reaches the board and the playground.
-  - Engine behaviour:
-    - the watchdog judges per tier, so a 30 fps cap is not read as slowness;
-    - the Arabic sample text keeps its punctuation in place;
-    - the scroll scenes use the new crawler pattern;
-    - the check's steps were fixed.
-  - **Checks:**
-    - full `npm test` 2,093/2,094 with 1 skipped and 0 failing; typecheck passes;
-    - the showcase check passes on build 5;
-    - metrics: field mount long tasks `[51,60]`, anatomy `[50]`, frames p95 16.7–16.8 ms, engine chunks within budget.
-  - **Left:**
-    - the anatomy mount is over 80 ms in 2 of 7 loads at 4× CPU, which is GPU-less here; to measure on real hardware;
-    - phone hit areas: the field's level radios are 28 px wide and the anatomy notes 22 px tall. Both pass WCAG 2.5.8; PLAN §4.4 is to be amended;
-    - while open, the consent bar covers the anatomy's Pause;
-    - one intermittent 8 px overflow at 320 px comes from the header's `nav.mk-mobile-nav`.
-- **Docs refresh is done** (`06f2654`, `80469bc`). It updated 13 files to describe what shipped: `brain-showcase.md`, `marketing-site.md`, `marketing-motion.md`, `scroll-scenes.md`, `brand.md`, `dark-mode.md`, `analytics-consent.md`, `kamran-assistant.md`, `PROJECT_MEMORY.md`, `COMPLETION_STAGES.md` (factual lines only), the revamp README, and dated corrections in PLAN and SHOWCASE_DESIGN.
-- **Milestone verification is still running** at 21:05.
-  - Fixes so far:
-    - `451080b`: with the model off, the playground's safety-lock still frame moved 9 px when the lazy sheet arrived;
-    - `3ac6da5`: a `/demo` frame painted mid-parse stretched the playground rows, a load shift at 1366 px (CLS up to 0.025 in 4 of 14 loads, now 0 of 20).
-  - **CI started early:** the lead pushed a commit without `[skip ci]` at 21:05, so PR #105's checks run alongside the milestone's last checks.
-  - **CI on `5cd8e2d`: the new showcase step failed `homepage-call`** (run 40768666839). Four failures:
-    - 320 px horizontal overflow on `/`, 2 px in both left-to-right and right-to-left;
-    - 320 px overflow on `/demo` right to left, 8 px;
-    - the largest paint on `/demo` at 390 px (open) is the longer `.bp-banner` instead of the H1 or lede.
-  - **The lead found the cause of the overflow:**
-    - the playground's runtime `<canvas class="bp-cv">` has its default 300 px intrinsic width until `C.fit` sizes it (about 0.5 s), so it reaches 328 px at 320;
-    - the field's first-frame canvas and SVG rails (`.mc-cv`) have the same intrinsic 300 px box.
-  - **Lead fixes (`386cabd`, `da806d9`):**
-    - the field's rails and canvas and the playground's canvas carry `width="0" height="0"` until fitted;
-    - the `/demo` banner renders as two blocks, so the H1 is the largest paint at 390 and 1440 px.
-  - **Lead checks on a worktree build:**
-    - transient overflow at 320 px: 0 px in 8 sampled runs, at 1× and 4× CPU;
-    - `npm run test:marketing-showcase`: passed, full run 7 min 7 s;
-    - 85 + 69 targeted tests pass; typecheck passes.
-  - **CI on `a9b9f4d`:** the `/demo` overflow and largest-paint failures are fixed. Only "4. closed 320 ltr/rtl /: horizontal overflow of 2px" remains.
-    - It does not reproduce locally, with the CI font set, the headless shell, mobile emulation, blocked web fonts or the consent bar.
-    - `123a761` makes the check name the elements that stick out on failure.
-    - **CI named the cause:** `span.mk-hm-l1`, the first line of the home H1, at [16, 321.8] in CI. Locally it ends at about 287; in CI the H1 is drawn in the fallback font, about 13% wider. The consent bar (fixed, `inset-inline: 0`) only stretched with the widened layout viewport.
-    - **Fix (`8e3dd8a`):** on phones the H1 is `min(calc((100vw - 20px) / 10), 40px)`, which leaves at least 4 px inside the screen even in the fallback font. Visual change: 30 vs 30.7 px at 320, 37 vs 37.4 px at 390.
-      - Measured overflow: 0 at 320, 360, 375, 390, 430 and 760 px, left to right and right to left.
-      - Screenshots checked at 390 and 320.
-      - Tests: 52/52.
-  - **CI on `123a761`, application job:** `tests/trainer-preview.test.ts` died with a Node 24.19 V8 fatal error ("Check failed: jit_page_->allocations_.erase(addr) == 1" in `UnregisterWasmAllocation`, during PGlite's WebAssembly) after 5 passing tests. It is a runtime crash, not this PR's code: the file passes 6/6 locally and passed on `5cd8e2d`. The run on `e2a8cef` re-runs it.
-  - **CI on `5cd8e2d`, every other job green:** application (`npm run check`, the browser checks and more), postgres-and-container, subscriber-ui, ux-spacing, daily-workflows, compose-topology and wildcard-edge.
-
-**Done today:**
-- **Part 2:** WP4 home, WP5 brain pages, WP7a clean-up, WP7b checks and the CI step, WP8 docs.
-- **Fix round 1:** the board's CLS, the anatomy mount, the control reset and the dot contrast.
-- **Review:** 62 findings.
-- **Fix round 2:** C copy and honesty, D root marks, A1 field, B anatomy and playground, A2 core and checks. All findings were handled. Reports are in `scratchpad/fix2-*.json`.
-- **Lead fixes:**
-  - the keyed fragment;
-  - honest copy while sign-ups are closed;
-  - the status panel's single column;
-  - the journey line;
-  - the `/trainer-brain` `rel=expect` marker;
-  - `MARKETING_SHOWCASE` passed through `compose.yaml`;
-  - `registrationOpen` passed to the llms text and the assistant facts;
-  - the Examiner line;
-  - public nutrition availability waits for the scope review in production.
-
-**Then:**
-1. Push without `[skip ci]` and update the PR #105 body with the owner FYI copy list.
-2. CI to green; mark ready; squash-merge.
-3. Watch the deploy (`scripts/watch-release.sh`), then live-check the four pages.
-4. Records: the COMPLETION_STAGES entry, PROJECT_MEMORY, and this file.
-
-**Deploy reconciliation:** this deploy rests on the owner's explicit 27 Oct instruction for phase 1, "checked and deployed" (recorded in `PROJECT_MEMORY.md` by WP8). It does not rest on the coding handoff.
-
-**Owner FYI decisions:**
-- "Teach your AI — free" still shows while the model is off.
-- Full lanes show fewer tiles plus "+N".
-- Field radios are 28 px wide on phones.
-- The watchdog's two-window rule may need tuning on real devices.
-
-**Waiting on the owner:** nothing. Delete the stray `/oq-daily.log` when convenient.
+**Waiting on the owner:** nothing. The FYI decisions are in the PR body and the stage entry. Delete the stray `/oq-daily.log` when convenient.
 
 ### Home page as the owner's HTML design: live since 22:47 UTC on 25 October 2026 (Claude, checked 04:10 UTC on 26 Oct)
 

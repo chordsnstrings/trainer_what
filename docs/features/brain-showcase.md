@@ -26,7 +26,7 @@ The spec is `docs/marketing-revamp-2026-10-26/phase1/PLAN.md` §1. This page rec
   - subscriber payments off, AI model off: "Subscribers can't join yet: subscriber payments are not on.";
   - subscriber payments on, publishing not on (sign-ups closed or the model off): "Subscribers can't join yet: publishing is not on yet.";
 - a basis on each AI step: "From a test run", "From the app's tests", "Illustrative" or "Worked out by the app's own rules";
-- the playground's banner: "Sample moments. Code steps use the app's own limits on sample data. AI steps replay answers from test runs or the app's tests, or are marked illustrative. No AI model is called on this page." The `/trainer-brain` play note and the `/demo` answer "Is this a real AI response?" carry the same sentence (the review's HON-8: three steps are tagged "From the app's tests");
+- the playground's banner: "Sample moments. Code steps use the app's own limits on sample data. AI steps replay answers from test runs or the app's tests, or are marked illustrative. No AI model is called on this page." It shows as two blocks, the first two sentences and the rest. The `/trainer-brain` play note and the `/demo` answer "Is this a real AI response?" carry the same sentence (the review's HON-8: three steps are tagged "From the app's tests");
 - "Not on yet" on every specialist and moment the page's flags leave off ("Flags"). The Recovery rule and Low recovery (t3) are always off in phase 1.
 
 **Kept out of search and structured data.**
@@ -251,7 +251,7 @@ The `flag` field names what each off item waits for: `WHOOP_TRAINING_APPROVED` f
   - plates (f) to (i) read "Not on yet" or "Not reached", and plate (i) "Nothing is sent while it is not on yet.";
   - the card reads "Omar · Squats felt easy", with a dashed "Not on yet" in place of the lane;
   - notes (f) to (j) say what happens "once it is on", and (f)'s count reads "None is on yet.";
-  - a What-if whose moment does not run adds " · Not on yet" to its button.
+  - a What-if whose moment does not run adds " · Not on yet" to its button. Pinned on phones the suffix takes a second line in the button, without the dot, so the What-ifs keep the three lines row 4 holds (four at 340 px and less, as with the model on). On one line they needed a fourth, and "Omar's reply" covered the caption (28 October 2026; `.ca-wb small` in the phone pin block, the dot is an `aria-hidden` span).
 - **The anatomy's ghost stacks** run only moments that are on, and no pill that is not on yet gets a member tag.
 
 **The field and the board keep their sample hour.** Every moment still plays its sample there, but its receipt says so: a "Not on yet" chip in the header beside the lane its sample plays to, and the status line in its last section (L4).
@@ -315,6 +315,8 @@ Desktop controls are unchanged at 20–38 px.
   - ink text on every lane colour 4.5:1 or more.
 
   The same test fails on any dark background outside `[data-showcase]`. Skipped nodes and steps keep their text at the muted colour and dim only their icons (7.82:1 at the least, measured in fix round 2).
+  The test reads the `--sc-*` tokens, so an inherited page colour slips past it: the app's global `small` (`--muted`, `#616660`) measured 3.0:1 on the stage in the anatomy's "Not on yet". Text on the stage takes an `--sc-*` colour; that suffix now uses `--sc-muted` (about 8:1), and `inherit` on a pressed button (28 October 2026).
+- **Canvases and SVG layers start at `width="0" height="0"`** (the field's rails and canvas, the playground's canvas) until the engine sizes them. Without the attributes they have the default 300 × 150 box, wider than a 320 px screen's content, and `/demo` scrolled sideways by 8 px for about half a second in CI (28 October 2026).
 - **Tokens.** `--sc-*` tokens are defined once, in `brain-stage.css`. `--sc-ease`, `--sc-enter` and `--sc-spring` point at the matching `--mk-*` tokens, and no showcase sheet defines a `--mk-*` token. `--sc-mono` is the system monospace stack, so there are no new font files.
 - **Scoping.** Every rule sits under `[data-showcase]` (the overlay layer included) or an `html.sc-*` state. Page sheets use their own prefixes: `.mk-hm-`, `.mk-tb-`, `.mk-dm-`, `.mk-pr-` and `.mk-pf-`. There is no CSS nesting, and the properties are logical throughout.
 - **What moves.** Only `opacity`, transforms and `stroke-dashoffset` animate, and nothing is `infinite`.
@@ -424,7 +426,7 @@ The long-task budget looser than the showcase spec is deliberate. It is in the o
   1. JavaScript off: the first screen, and the lazy sheets moving no box at 390 and 1440 (on a second try as well);
   2. the largest paint is the H1 or the lede, at 390 and 1440;
   3. CLS, reported only;
-  4. overflow, duplicate ids and errors, at 320, 360, 390 and 1440 wide, left to right and right to left;
+  4. overflow, duplicate ids and errors, at 320, 360, 390 and 1440 wide, left to right and right to left. On a failure it names the elements that stick out past the screen and are not clipped, with their left and right edges: that is how CI's 2 px at 320 px was traced to the home H1's first line in the fallback font ([marketing-site.md](marketing-site.md), "Hero");
   5. the lifecycle and fallbacks;
   6. frames and every pause reason; after Pause the control reads "Play…" with no `aria-pressed`;
   7. the watchdog;
@@ -468,13 +470,17 @@ The long-task budget looser than the showcase spec is deliberate. It is in the o
 
 **Results so far** (all local Chromium in this sandbox; nothing here is a CI or real-hardware result).
 - WP7b's full run on `0dfc1dd`: exit 0, 0 failures, 6 min 5 s.
-- Fix round 2 (A2), three full runs on `c91de92`: 1 or 2 failures each, both since dealt with. The anatomy's Pause still wrote `aria-pressed` (fixed in the final pass, L1). One run overflowed by 8 px at `/demo` 320; the final pass traced it to the header's `nav.mk-mobile-nav`, outside the showcases (see "Open"). Step 7 stepped down in 2.5 s; step 12 counted one callback per frame in every round.
+- Fix round 2 (A2), three full runs on `c91de92`: 1 or 2 failures each, both since dealt with. The anatomy's Pause still wrote `aria-pressed` (fixed in the final pass, L1). One run overflowed by 8 px at `/demo` 320; the final pass traced it to the header's `nav.mk-mobile-nav`, outside the showcases (corrected 28 October: CI traced it to the playground canvas's default 300 px width, now fixed; "Styles"). Step 7 stepped down in 2.5 s; step 12 counted one callback per frame in every round.
 - The final fix pass, 28 October:
   - P's full run on `488b9d1`, while E's playground work was still in progress: exit 1, with 4 failures, all in the playground. The lazy sheets moved `.bp-out`, `.bp-change` and `.bp-set` by 9 px at 1440 with JavaScript off on `/trainer-brain` and `/demo`; a `/demo` setting change showed an empty before/now line; and in the open pass at 390 the largest paint on `/demo` was the longer `p.bp-banner`. Everything else passed.
   - E's last judged runs, on worktree builds made at 17:05 and 17:21 UTC: steps 3, 4, 6, 9, 10 (both passes), 11 and 16 passed at 17:11, and step 10 passed again beside the metrics at 17:26. They did not include steps 1, 5, 7, 8, 12, 14 or 15.
   - E's two metrics runs passed (reported figures in "Budgets").
   - E's full `npm test` at the end of the pass: 2,094 tests, 2,093 passed, 1 skipped, 0 failed (22 min 43 s).
-- **Not recorded here:** one full run of all sixteen steps on the final tree. That belongs to the milestone verification (PLAN §4.6), which was running alongside this docs pass; `CLAUDE_HANDOFF.md` and `docs/COMPLETION_STAGES.md` record its result.
+- **The milestone verification** (PLAN §4.6, 28 October): the full check passed on `da806d9` twice (421 s and 414 s) and on `218ea40` (402 s). The full record is in `docs/COMPLETION_STAGES.md`.
+- **CI, PR #105** (the `homepage-call` step, closed platform):
+  - on `5cd8e2d` it failed 4 lines: `/` overflowed 2 px at 320 in both directions; `/demo` overflowed 8 px at 320 right to left (the playground canvas's default 300 px width); and `/demo`'s largest paint at 390 was the banner. Fixed by the canvas and SVG size attributes ("Styles") and by drawing the banner as two blocks, its first two sentences and the rest, so the H1 is the largest paint at 390 and 1440;
+  - on `a9b9f4d` only `/`'s 2 px remained. It never reproduced locally. Step 4 then named `span.mk-hm-l1` at [16, 321.8]: the H1 in the fallback font. Fixed in the home CSS;
+  - on `e2a8cef` the step passed in 6 min 26 s.
 - The fallbacks, measured by WP7b from `data-sc-ready`:
 
   | Case | Result |
@@ -572,8 +578,7 @@ The long-task budget looser than the showcase spec is deliberate. It is in the o
 
 ## Open
 
-These are open as of 28 October 2026, at `41e3a4c`.
-- **The full browser check on the final tree.** It belongs to the milestone verification ("Checks", "Results so far").
+These are open as of 28 October 2026, at `41e3a4c` (the first item, the full check on the final tree, has since passed: "Results so far").
 - **CLS is not judged in CI yet.** The measured CLS is within 0.001, but CI judges it only after three PR runs in a row pass. Then set `SHOWCASE_JUDGE_CLS: "1"` on the CI step.
 - **The anatomy's mount at 4× CPU.** It went over budget in about 2 of 7 loads in this GPU-less container: [86, 117] and [91, 92] in E's seven-load run. What remains is the page restyle forced inside `figure()`, plus the rendering task after it: over 8 profiled loads, `figure()` took 54–84 ms after its yield, 18–42 ms of it style and layout forced by `data-sc="on"`, and the next rendering task 63–85 ms of page restyle and paint. Moving the style flush into a task of its own would paint an in-between "on" frame before the figure's writes, so it was not done. Measure again on GPU hardware or a quiet machine before changing more. With more than one load, the metrics judge mounts and frames from the first load only, so one outlier can pass or fail a run by chance.
 - **Frame budgets on real hardware,** above all the pinned anatomy's scroll ("What waits for real hardware").
@@ -581,7 +586,7 @@ These are open as of 28 October 2026, at `41e3a4c`.
 - **The playground's scroll and focus (E's files).**
   - `.bp-diagram` keeps `scroll-margin-block-start: calc(var(--sc-top) + 8px)` (`brain-play.css`, and again in `play.run.css`), which now adds to the public root's scroll padding: `play.js`'s scroll to the diagram lands about 164 px down instead of 82. Dropping the margin also saves first-frame bytes.
   - The rest of the final review's A11Y-1: the playground's focus moves with `preventScroll` (`play.js`), and the check has no Shift+Tab walk.
-- **Other owners' areas.** While the consent bar is open it covers the anatomy's Pause at 1440×900 and on phones. The one 8 px overflow at `/demo` 320 came from the header's `nav.mk-mobile-nav`.
+- **Other owners' areas.** While the consent bar is open it covers the anatomy's Pause at 1440×900 and on phones. (Corrected 28 October: the 8 px overflow at `/demo` 320 was the playground canvas's default width, not the header's `nav.mk-mobile-nav`; fixed, "Styles".)
 - **For the lead or the owner.**
   - With the model off, 5 of the 6 chips a phone shows in the playground read "Not on yet" (t1, t6, t8, t5 and t10); only the knee runs. That is accurate. Ordering runnable moments first would change the specialty's order, which tests pin.
   - Full lanes show fewer tiles plus "+N" (a design change from the storyboard).
