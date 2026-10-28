@@ -84,7 +84,7 @@ function trap(box, e) {
     the pointer and assistive tech. Returns the undo. */
 function inertOutside(el) {
   const set = [];
-  for (let n = el; n.parentElement && n != document.body; n = n.parentElement)
+  for (let n = el; n.parentElement && n.parentElement != document.documentElement; n = n.parentElement)
     for (const s of n.parentElement.children) if (s != n && !s.inert && s.tagName != "SCRIPT") s.inert = true, set.push(s);
   return () => set.forEach((s) => (s.inert = false));
 }

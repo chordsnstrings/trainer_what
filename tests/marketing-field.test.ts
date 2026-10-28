@@ -96,11 +96,15 @@ test("every moment is a named button; the board sorts every moment by decide(); 
   for (const r of rows) {
     const t = d.trace(r.id), name = text(r.html).trim();
     assert.ok(name.startsWith(t.member + " ") && name.endsWith(`— ${t.chip}. See each step.`), `${r.id}: "${name}"`);
+    // A short list of buttons: every member is its own tab stop (no roving tabindex without a composite role).
+    assert.doesNotMatch(r.html.slice(0, r.html.indexOf(">")), /tabindex/, `${r.id}: a tab stop`);
   }
   for (const r of buttons(field, "mc-tile")) assert.ok(text(r.html).startsWith(" " + d.trace(r.id).member + " · "), r.id);
   // The board: one card per moment, in the column decide() gives it, counted; the totals line.
   const cards = buttons(board, "mb-b");
   assert.deepEqual(cards.map((c) => c.id).sort(), [...playable].sort());
+  // Their receipts need the engine: until it arms them (and without it) the cards are disabled, like every other control.
+  for (const c of cards) assert.match(c.html, /^<button type="button" class="mb-b" data-t="t\d+" disabled>/, c.id);
   for (const lane of ["sent", "waits", "paused", "member", "learn"]) {
     const col = element(board, board.indexOf(`<section class="mb-col" data-lane="${lane}"`));
     const ids = [...col.matchAll(/<li class="mb-c" data-t="(t\d+)">/g)].map((m) => m[1]);
@@ -118,6 +122,9 @@ test("every moment is a named button; the board sorts every moment by decide(); 
   for (const html of [field, board]) {
     assert.equal((html.match(/<button type="button" role="radio" aria-checked="(true|false)"/g) || []).length, 3);
     assert.match(html, /<input type="range" min="50" max="99" step="1" value="80" aria-valuetext="80%"/);
+    // The slider speaks its value; the readout beside it is no second (polite, live) region.
+    assert.match(html, /aria-valuetext="80%"[^>]*disabled><span aria-hidden="true">80%<\/span>/);
+    assert.doesNotMatch(html, /<output|aria-live|role="status"/, "the engine's one live region is in the overlay layer");
     assert.match(html, /<button type="button" class="mc-sw" role="switch" aria-checked="true"/);
   }
   // Until the engine plays, its controls are not pressable (it enables what it wires); lane tiles are out of the tab order.
@@ -144,9 +151,17 @@ test("the labels stay honest: the sample chip and rates line, the status strip o
   }
   const field = render("field");
   assert.ok(field.includes(`<p class="mc-eyebrow">${d.labels.eyebrow}</p>`));
-  assert.equal((field.match(/<span class="sc-offchip">Not on yet<\/span>/g) || []).length, 2, "Meal planner and Recovery rule say so");
-  assert.ok(field.includes('<span class="mc-noy" aria-hidden="true">Not on yet: 2</span>'));
-  assert.ok(field.includes(`<p class="mc-howp" id="sc-field-howp" hidden>${esc(d.labels.howWeCount as string)}</p>`));
+  // Every specialist that is not on yet says so, on its node and in the phones' count: with voice and
+  // nutrition off that is the meal planner, meal photos, voice lines, the set logger and the recovery rule.
+  for (const flags of [FLAGS, { ...FLAGS, voice: true, nutrition: true }]) {
+    const html = render("field", { flags }), off = data({ flags }).specialists.filter((s) => s.status == "not_on_yet").map((s) => s.id);
+    assert.ok(off.includes("recovery") && (flags.voice || off.length == 5), off.join());
+    for (const sp of off) assert.match(html, new RegExp(`data-sp="${sp}"[^>]*>(?:(?!</div>).)*<span class="sc-offchip">Not on yet</span>`), sp);
+    assert.equal((html.match(/<span class="sc-offchip">Not on yet<\/span>/g) || []).length, off.length);
+    assert.ok(html.includes(`<span class="mc-noy" aria-hidden="true">Not on yet: ${off.length}</span>`));
+  }
+  // How we count opens without the engine (and in the still frame): a details element.
+  assert.ok(field.includes(`<details class="mc-how"><summary>How we count</summary><p class="mc-howp">${esc(d.labels.howWeCount as string)}</p></details>`));
 });
 
 test("the call to action comes from the options: the receipts' link in the frame, never /signup while sign-ups are closed", () => {
@@ -164,7 +179,7 @@ test("inner ids start with the host id, every reference resolves, and the platfo
   for (const [kind, host] of [["field", "hf"], ["board", "hb"]] as const) {
     const html = render(kind, {}, host), inner = html.replace(/^<section[^>]*>/, "");
     const ids = [...inner.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]);
-    assert.ok(ids.length >= (kind == "field" ? 7 : 6), `${kind}: ${ids.length} ids`);
+    assert.ok(ids.length >= 6, `${kind}: ${ids.length} ids`);
     for (const id of ids) assert.ok(id.startsWith(host + "-"), `${kind}: ${id}`);
     assert.equal(new Set(ids).size, ids.length, `${kind}: ids are unique`);
     for (const m of inner.matchAll(/\saria-(?:labelledby|describedby|controls)="([^"]+)"/g))
@@ -233,6 +248,44 @@ test("sizes are reserved so the engine moves nothing: two lines for the streamed
   // Lane tiles sit in their lists by transforms once the engine plays; Noura's slot waits for her.
   assert.equal(decl(run, "[data-showcase] .mc-tl.is-stack > li", "position"), "absolute");
   assert.equal(decl(run, "[data-showcase] .mc-li.is-due", "visibility"), "hidden");
+  // Nothing in the field is wider than the field: its one column shrinks, the header's legend wraps, the
+  // members' column grows to its longest label (text spacing) and a tile's tag wraps.
+  assert.equal(decl(stage, '[data-showcase="field"]', "grid-template-columns"), "minmax(0, 1fr)");
+  assert.equal(decl(stage, '[data-showcase="field"] .mc-legend', "flex-wrap"), "wrap");
+  assert.equal(decl(stage, '[data-showcase="field"] .mc-body', "grid-template-columns"), "minmax(106px, max-content) minmax(0, 1fr) 156px");
+  assert.equal(decl(stage, '[data-showcase="field"] .mc-tag', "white-space"), undefined);
+});
+
+test("controls stay usable: contrast themes, phone hit areas, 320px, tips, the scroll lock", () => {
+  const stage = cssRules(src("apps/web/app/brain-field.css")), run = cssRules(src(ENGINE + "field.run.css"));
+  const rule = (rules: typeof stage, selector: string, media?: string) => rules.find((r) => r.selectors.includes(selector) && (!media || r.context.includes(media)));
+  const value = (rules: typeof stage, selector: string, prop: string, media?: string) =>
+    rules.find((r) => r.selectors.includes(selector) && (!media || r.context.includes(media)) && r.declarations.some((d) => d.property == prop))?.declarations.find((d) => d.property == prop)?.value;
+  // Forced colours: the chosen level and the switch keep system colours (fills are dropped there).
+  const FORCED = "@media (forced-colors: active)";
+  for (const s of ['[data-showcase] .mc-lv [aria-checked="true"]', '[data-showcase] .mc-sw[aria-checked="true"] .mc-swk']) {
+    assert.equal(value(stage, s, "forced-color-adjust", FORCED), "none", s);
+    assert.equal(value(stage, s, "background", FORCED), "Highlight", s);
+  }
+  assert.equal(value(stage, "[data-showcase] .mc-swk", "border", FORCED), "1px solid CanvasText");
+  assert.equal(value(stage, "[data-showcase] .mc-swk::after", "background", FORCED), "CanvasText");
+  // Phones: every field and board control is hit over at least 44px of height (More settings over 44px square).
+  const PHONE = "@media (max-width: 760px)", hit = '[data-showcase] :is(.mc-lv button, .mc-how summary, .mc-lock, .mc-chk, .mc-sw)::before';
+  assert.equal(value(stage, hit, "inset", PHONE), "calc(50% - 22px) 0");
+  assert.equal(value(stage, '[data-showcase="field"] .mc-moreb::before', "inset-inline", PHONE), "-4px");
+  assert.equal(value(stage, '[data-showcase="board"] .mc-bar input[type="range"]', "height", PHONE), "44px");
+  assert.equal(value(run, '[data-showcase="layer"] .mc-sheet .mc-bar input[type="range"]', "height"), "44px");
+  assert.equal(value(run, '[data-showcase="layer"] .mc-x', "min-block-size"), "44px");
+  // 320px: the board's three levels (318px in a row) stack below 350px.
+  assert.equal(value(stage, '[data-showcase="board"] .mc-lv', "display", "@media (max-width: 349px)"), "grid");
+  // The hover tip can be hovered (WCAG 1.4.13): it takes the pointer while shown, across a bridge to its control.
+  assert.equal(value(stage, "[data-showcase] .mc-chk:hover .mc-tip", "pointer-events"), "auto");
+  assert.equal(value(stage, "[data-showcase] .mc-tip::after", "inset"), "100% 0 -8px");
+  // The still frame's cards keep their look while disabled.
+  assert.ok(rule(stage, '[data-showcase="board"] .mb-b:disabled')?.declarations.some((d) => d.property == "background" && d.value == "var(--sc-node)"));
+  // The scroll lock (receipts and the phone sheet) keeps the scrollbar's gutter: nothing centred moves.
+  assert.equal(value(run, "html.sc-lock", "overflow"), "hidden");
+  assert.equal(value(run, "html.sc-lock", "scrollbar-gutter"), "stable");
 });
 
 test("the runtime keeps to the page: its own CSS by static import, receipts by a literal import, overlays in the layer, no test handles", () => {
@@ -248,6 +301,19 @@ test("the runtime keeps to the page: its own CSS by static import, receipts by a
   }
   assert.match(receipt, /classList\.add\("sc-lock"\)/);
   assert.match(receipt, /classList\.remove\("sc-lock"\)/);
+  // A modal receipt (dialog or phone sheet) owns the keyboard: the page behind is inert, Esc and Tab are
+  // heard on the document, and Tab wraps from anywhere (its heading, the first focus, included).
+  assert.match(receipt, /const undo = inline \? null : inertOutside\(o\.layer\)/);
+  assert.match(receipt, /\(inline \? box : document\)\.addEventListener\("keydown", key, !inline\)/);
+  assert.match(receipt, /const i = f\.indexOf\(document\.activeElement\)/);
+  // Closing lifts the opener's inert parts before focus goes back to it.
+  assert.match(receipt, /o\.onClose && o\.onClose\(\);\s+if \(!quiet && opener/);
+  // Receipts open one at a time, in the field and on the board; the phone sheet is a modal dialog.
+  assert.equal((field.match(/opening\) return;/g) || []).length, 2);
+  assert.match(field, /sheet\.setAttribute\("role", "dialog"\); sheet\.setAttribute\("aria-modal", "true"\)/);
+  // Reduced motion: nothing replays through WAAPI; the auto-demo never overrides a level the visitor chose.
+  assert.match(field, /if \(C\.reduced\(\)\) return;/);
+  assert.match(field, /if \(!p\.touched\) ctl\.setLv\(n, true\)/);
   // The board clears its own pre-state; every Pause control is the scene's (aria-pressed, data-sc-pause).
   assert.match(field, /function mountBoard[\s\S]*?root\.setAttribute\("data-sc", "on"\)/);
   assert.match(field, /sc\.button\(pb, \{ pause: COPY\.pause, play: COPY\.playField \}\);\s+sc\.pause\(\);/, "reduced motion starts paused, on Play the field");
