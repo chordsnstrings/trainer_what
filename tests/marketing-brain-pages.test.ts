@@ -205,7 +205,7 @@ test("the roster: 14 AI specialists and 11 code steps, as the registry counts th
     }
     // While subscriber payments are off, the roster says what that means.
     assert.equal(decode(html).includes(TRACES.labels.subscribers!), !p.availability.payments, state);
-    assert.ok(decode(element(html, "<details")).endsWith(TRACES.labels.howWeCount));
+    assert.ok(decode(element(html, "<details")).endsWith(TRACES.labels.howWeCount as string));
   }
   // With payments on, "try it on yourself" goes live only with the flag an item needs.
   const paid = data(platform("payments"));
