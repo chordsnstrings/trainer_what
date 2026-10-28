@@ -89,7 +89,8 @@ async function checkMarketingSite({ page, base }) {
       await play.locator('.bp-chip[data-t="t2"]').click();
       const result = play.locator(".bp-res:not(.is-due)");
       await result.getByText("Training paused", { exact: true }).first().waitFor();
-      await result.locator(".bp-noai", { hasText: "No AI called" }).first().waitFor();
+      // "No AI called" sits on the figure's AI box, outside the result.
+      await play.locator(".bp-noai", { hasText: "No AI called" }).waitFor();
       const low = play.locator('.bp-chip[data-t="t3"]');
       if (!(await low.isVisible())) await play.locator(".bp-more").click();
       await low.click();
