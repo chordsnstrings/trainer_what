@@ -219,17 +219,21 @@ export async function mount(root, o) {
   let cur = d.trace(FIRST), R = null, before = null, busy = false, attract = false, touched = false, stale = false, deb = 0, pend = null;
   /* The steps, newest last, scrolled into view (scrolling moves nothing). A
      streamed row holds its final words (unseen) while the live copy types
-     over them, so no row ever grows. */
+     over them, so no row ever grows; the caret is a new box at each step
+     (a box that moved with the words would be a layout shift). */
   const logAdd = (html) => (logOl.insertAdjacentHTML("beforeend", html), (logs.scrollTop = logs.scrollHeight));
   function logRow(t, s, i, stream) {
     logAdd(U.stepRow(d, t, s, { stream }).replace('<li class="sc-step"', `<li class="sc-step" data-i="${i}"`));
     const pre = stream && $(`[data-i="${i}"] .sc-out`, logOl);
     if (!pre) return null;
-    const full = pre.dataset.full, live = h("span.bp-sl");
+    const full = pre.dataset.full, words = document.createTextNode(""), live = h("span.bp-sl", null, words);
     pre.classList.add("bp-so");
     pre.append(h("span.bp-sf", null, full), live);
-    const f = U.streamer(live, full);
-    return (q) => (q >= 1 ? (pre.textContent = full) : f(q));
+    return (q) => {
+      if (q >= 1) return void (pre.textContent = full);
+      words.data = full.slice(0, Math.round(full.length * q));
+      live.replaceChildren(words, h("span.sc-caret"));
+    };
   }
   function chipsBusy(on) {
     busy = on;
@@ -249,7 +253,7 @@ export async function mount(root, o) {
     playing = false;
   }
   function resetStage(t, from, r) {
-    if (!from) { for (const sp in G.n) setNode(sp, "idle"); $$(".sc-val", dia).forEach((e) => (e.textContent = "")); }
+    if (!from) { for (const sp in G.n) setNode(sp, "idle"); $$(".sc-val", dia).forEach((e) => ((e.textContent = ""), e.classList.remove("is-due"))); }
     $$(".bp-bin", dia).forEach((b) => b.removeAttribute("data-hot"));
     $$(".is-dim", stage).forEach((e) => e.classList.remove("is-dim"));
     stamp.hidden = noai.hidden = true;
@@ -260,7 +264,9 @@ export async function mount(root, o) {
     const tag = kindTag(t, r);
     kindEl.hidden = !tag; kindEl.textContent = tag || "";
     const conf = nodeEl("confidence");
-    if (!from) conf.querySelector(".sc-val").textContent = t.sure ? "" : sureVal(t, r);
+    // a plan's score is written now and shown when Confidence has scored it, so its node keeps its lines
+    const val = conf.querySelector(".sc-val");
+    if (!from) (val.textContent = sureVal(t, r)), val.classList.toggle("is-due", !!r.sure);
     conf.title = t.sure ? d.sp.confidence.line : d.labels.noChatScore;
   }
   /** Plays a moment (from a step: "Run it again" replays only what changed). note: said first. */
@@ -289,7 +295,7 @@ export async function mount(root, o) {
       return Promise.resolve();
     }
     resetStage(t, from, r);
-    if (from) [...old.slice(from), ...r.steps.slice(from)].forEach((s) => { if (G.n[s.sp]) setNode(s.sp, "idle"), (nodeEl(s.sp).querySelector(".sc-val").textContent = ""); });
+    if (from) [...old.slice(from), ...r.steps.slice(from)].forEach((s) => { if (G.n[s.sp]) setNode(s.sp, "idle"), nodeEl(s.sp).querySelector(".sc-val").classList.add("is-due"); });
     else msgBox().outerHTML = msgHTML(t);
     need();
     // The result is known now: it is written with the click and shown when the run ends, so nothing moves then.
@@ -353,6 +359,7 @@ export async function mount(root, o) {
     if (sp == "any_ai") return;
     if (G.n[sp]) setNode(sp, stateOf(s));
     const val = nodeEl(sp) && nodeEl(sp).querySelector(".sc-val");
+    if (val) val.classList.remove("is-due");
     if (sp == "confidence" && r.sure) { val.textContent = sureVal(t, r); nodeEl(sp).dataset.state = r.sure.score * 100 >= r.sure.bar ? "pass" : "warn"; }
     if (s.result == "skipped" && val) val.textContent = "Not reached";
     if (sp == "safety" && s.result == "hit") {
