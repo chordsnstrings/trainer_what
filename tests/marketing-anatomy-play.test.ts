@@ -13,6 +13,7 @@ import { prepare } from "../apps/web/components/marketing/brain/engine/data.js";
 import { decide, defaults, isOff, pick, totals } from "../apps/web/components/marketing/brain/engine/decide.js";
 import { COPY, NOTES, ROOT, model, note, renderStatic } from "../apps/web/components/marketing/brain/engine/anatomy.render.js";
 import * as play from "../apps/web/components/marketing/brain/engine/play.render.js";
+import { closest } from "../apps/web/components/marketing/brain/engine/play.keys.js";
 import type { BrainData, RawBrainData, RenderOptions, ShowcaseOptions } from "../apps/web/components/marketing/brain/engine/types";
 import { C0_BANNED, MODEL_OR_VENDOR, PLACEHOLDER, cssRules } from "./marketing-helpers.ts";
 
@@ -397,9 +398,9 @@ test("free text finds the closest sample through the local keyword table only: s
     // Everyday gym words stay with their own samples, or with none.
     ["What's the best way to breathe during squats?", null], ["Can I add weight to my chest press?", "t1"], ["Spotting my friend on bench", null], ["أحب حمل الأثقال", null],
   ];
-  for (const [text, id] of cases) assert.equal(play.closest(text), id, text);
+  for (const [text, id] of cases) assert.equal(closest(text), id, text);
   // Every sample's own message finds its sample (You edit a reply and Week is over are not member messages).
-  for (const t of TRACES.traces.filter((x) => !/^t(7|8)-/.test(x.id))) assert.equal(play.closest(t.trigger.text), t.id.split("-")[0], t.id);
+  for (const t of TRACES.traces.filter((x) => !/^t(7|8)-/.test(x.id))) assert.equal(closest(t.trigger.text), t.id.split("-")[0], t.id);
   // At least as cautious as the app: every message the app's own safety tests hold maps to a sample the safety rules stop.
   const SAFE = ["t2", "t11", "t12"], held: string[] = [];
   for (const f of ["safety-floor", "messaging-safety-policy", "fix2-safety", "voice-talkback-retest", "fix-nutrition-safety"])
@@ -413,14 +414,18 @@ test("free text finds the closest sample through the local keyword table only: s
       if (/\s/.test(text) && redFlagCategories(text).length) held.push(text);
     }
   assert.ok(held.length >= 200, `${held.length} held messages`);
-  assert.deepEqual(held.filter((text) => !SAFE.includes(play.closest(text)!)), [], "held by the app, not by the table");
+  assert.deepEqual(held.filter((text) => !SAFE.includes(closest(text)!)), [], "held by the app, not by the table");
   assert.equal(play.COPY.closest, "Closest sample: {chip}. This page can't read new messages.");
   assert.equal(play.COPY.none, "No sample is close to that. This page can't read new messages: pick a sample moment.");
-  // No network and no safety rules in the browser for free text: the table, then a run of the sample, or nothing.
+  // No network and no safety rules in the browser for free text: the table (its own chunk, loaded once the visitor
+  // types), then a run of the sample, or nothing.
   const js = src(ENGINE + "play.js").replace(/\/\*[\s\S]*?\*\//g, "");
-  assert.match(js, /const id = closest\(v\), line = id \? COPY\.closest\.replace\("\{chip\}", d\.trace\(id\)\.chip\) : COPY\.none;/);
+  assert.match(js, /const keys = \(\) => import\("\.\/play\.keys\.js"\);/);
+  assert.match(js, /keys\(\)\.then\(\(\{ closest \}\) => \{[\s\S]*?const id = closest\(v\), line = id \? COPY\.closest\.replace\("\{chip\}", d\.trace\(id\)\.chip\) : COPY\.none;/);
   assert.match(js, /if \(id\) run\(id, 0, line \+ " "\);\s+else C\.say\(line\);/);
-  for (const f of ["play.js", "play.render.js"]) assert.doesNotMatch(src(ENGINE + f).replace(/\/\*[\s\S]*?\*\//g, ""), /red-flags|redFlag|import\(|fetch\(|XMLHttpRequest|sendBeacon/, f);
+  assert.doesNotMatch(src(ENGINE + "play.render.js"), /closest = |KEYS/, "the first frame's module carries no table");
+  for (const f of ["play.js", "play.render.js", "play.keys.js"]) assert.doesNotMatch(src(ENGINE + f).replace(/\/\*[\s\S]*?\*\//g, ""), /red-flags|redFlag|fetch\(|XMLHttpRequest|sendBeacon/, f);
+  assert.doesNotMatch(src(ENGINE + "play.keys.js"), /^import /m, "the table imports nothing");
 });
 
 test("honesty: the sample chip, banner, rates and speed lines, the status strip by payments, the platform's safety rule named and escaped; no placeholder, model name, C0 word, internals or images", () => {

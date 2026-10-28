@@ -334,7 +334,6 @@ function mountField(root, o, p) {
   function measure() {
     ph = C.phone();
     if (!ph) undock();
-    if (!ph) for (const l in lists) lists[l].classList.add("is-stack");
     // every read in one pass (one style and layout): the direction, the rects, the tiles' heights
     const b = body.getBoundingClientRect(), rtl = getComputedStyle(root).direction == "rtl";
     const R_ = (el) => { const r = el.getBoundingClientRect(), x = rtl ? b.right - r.right : r.left - b.left, y = r.top - b.top; return { x, y, w: r.width, h: r.height, r: x + r.width, b: y + r.height, cx: x + r.width / 2, cy: y + r.height / 2 }; };
@@ -345,7 +344,12 @@ function mountField(root, o, p) {
       if (slot && slot.offsetParent && slot.offsetWidth) g.mx[sp] = R_(slot);
     }
     $$(".mc-m").forEach((m) => (g.m[m.dataset.t] = R_(m)));
-    for (const l in lanes) g.lane[l] = { box: R_(lanes[l]), list: R_(ph ? lanes[l].querySelector(".mc-lh") : lists[l]) };
+    for (const l in lanes) {
+      const box = R_(lanes[l]), list = R_(ph ? lanes[l].querySelector(".mc-lh") : lists[l]);
+      // the room for tiles: from the list's top to the lane's padding (or, in Your Today, its "To check" line)
+      const foot = l == "waits" ? R_(lanes[l].querySelector(".mc-chk2")).y : box.b - parseFloat(getComputedStyle(lanes[l]).paddingBlockEnd);
+      g.lane[l] = { box, list, cap: foot - list.y };
+    }
     HT.clear();
     if (!ph) for (const l in lists) for (const li of lists[l].children) if (!li.hidden) HT.set(hkey(li), li.offsetHeight);
     g.fr = R_(frame); g.inb = R_($(".mc-in")); g.shell = R_($(".mc-shell")); g.first = R_($(".mc-first")); g.after = R_($(".mc-after"));
@@ -361,8 +365,9 @@ function mountField(root, o, p) {
     // boxes the moving layer never draws inside (lines are cut at their edges in JS), so dots pass "under" nodes,
     // lane cards and the message: a canvas clip or an erase pass costs a full-canvas mask every frame.
     g.boxes = [...Object.values(g.n), ...Object.values(g.lane).map((l) => l.box), g.inb, ...(ph ? [R_($(".mc-cr"))] : [])].map((r) => ({ x: r.x, y: r.y, r: r.r, b: r.b })); // phones: the readout line too
-    // then the writes
+    // then the writes: the lists hold their tiles by transforms from now on
     G = g; sign = rtl ? -1 : 1;
+    if (!ph) for (const l in lists) lists[l].classList.add("is-stack");
     ctx = C.fit(cv, g.W, g.H);
     if (rtl) ctx.translate(g.W, 0), ctx.scale(-1, 1);
     drawnAt = -1e9;
@@ -530,7 +535,7 @@ function mountField(root, o, p) {
     const more = () => { const m = n - lis.slice(0, k).filter((li) => !due(li)).length; mo.hidden = m <= 0; mo.textContent = "+" + m; };
     more();
     if (ph) return;
-    const cap = G.lane[l].list.h; // the stacked list fills its lane under the header (and Your Today's "To check" line)
+    const cap = G.lane[l].cap;
     for (;;) {
       let y = 0;
       for (const li of lists[l].children) {

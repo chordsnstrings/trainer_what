@@ -104,12 +104,10 @@ export function Roster({
         const members = d.specialists.filter((s) => s.crew === crew.id);
         if (!members.length)
           throw new Error(`Roster: no specialist in the "${crew.id}" crew`);
+        // A crew is a group under the band's region, not a region of its
+        // own: its H3 names it for heading navigation.
         return (
-          <section
-            key={crew.id}
-            className="mk-tb-stack mk-tb-crew"
-            aria-labelledby={"crew-" + crew.id}
-          >
+          <div key={crew.id} className="mk-tb-stack mk-tb-crew">
             <h3 id={"crew-" + crew.id}>
               {crew.title}
               {crew.label && ` · ${crew.label}`}
@@ -151,7 +149,7 @@ export function Roster({
                 );
               })}
             </ul>
-          </section>
+          </div>
         );
       })}
       {d.labels.subscribers && (

@@ -11,8 +11,6 @@ export declare const COPY: Record<string, string>;
 export declare const FIRST: string;
 /** "Your specialty": [value, label, the chips' order by trace number]. */
 export declare const SPECS: Array<[string, string, number[]]>;
-/** Free text → the closest sample's trace id ("t1"…"t12") from the local keyword table, or null when none is close. */
-export declare function closest(text: string): string | null;
 /** The result column for a moment's decision; prev: the lane before a settings change. */
 export declare function resultHTML(d: BrainData, t: Trace, r: Decision, prev?: Lane | null): string;
 /** The root's inner HTML; every inner id starts with the host id (o.id). */

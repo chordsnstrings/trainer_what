@@ -21,8 +21,9 @@
      in view and nobody has used the playground yet; never under reduced
      motion or from a settled frame, and it announces nothing;
    - free text finds the closest sample through the local keyword table only
-     (no safety rules in the browser, the owner's default); text no row
-     matches plays nothing and says so;
+     (play.keys.js, loaded once a visitor starts typing; no safety rules in
+     the browser, the owner's default); text no row matches plays nothing
+     and says so;
    - the page's one live region (core.js say()), none of its own;
    - run(traceId) plays a moment on request (brain/mount.tsx: sc:run and
      a[data-run] links). */
@@ -32,7 +33,7 @@ import * as C from "./core.js";
 import { prepare } from "./data.js";
 import { decide, defaults, pick, totals } from "./decide.js";
 import * as U from "./ui.js";
-import { COPY, FIRST, SPECS, closest, controlsHTML, hlText, isPick, kindTag, msgHTML, picksRow, resultHTML, stateOf, sureVal } from "./play.render.js";
+import { COPY, FIRST, SPECS, controlsHTML, hlText, isPick, kindTag, msgHTML, picksRow, resultHTML, stateOf, sureVal } from "./play.render.js";
 const { h, esc } = C;
 
 const COL = { text: "#F3F4F0", line: "#3A3F39", lime: "#D5F24A", ink: "#171917", red: "#F08A80", amber: "#E0B25C", green: "#7FCB9F" };
@@ -556,14 +557,20 @@ export async function mount(root, o) {
       const ord = SPECS.find((s) => s[0] == e.target.value)[2];
       ord.forEach((i) => chips.append(chips.querySelector(`[data-t="t${i}"]`)));
     });
+    // The keyword table is a chunk of its own: it loads when a visitor starts typing (most never do).
+    const keys = () => import("./play.keys.js");
+    k.on($(".bp-free textarea"), "input", () => keys().catch(() => {}), { once: true });
     k.on($(".bp-free"), "submit", (e) => {
       e.preventDefault();
       const v = $(".bp-free textarea").value.trim();
       if (!v || busy) return;
-      const id = closest(v), line = id ? COPY.closest.replace("{chip}", d.trace(id).chip) : COPY.none;
-      $(".bp-closest").textContent = line;
-      if (id) run(id, 0, line + " ");
-      else C.say(line); // no sample is close: nothing plays
+      keys().then(({ closest }) => {
+        if (dead) return;
+        const id = closest(v), line = id ? COPY.closest.replace("{chip}", d.trace(id).chip) : COPY.none;
+        $(".bp-closest").textContent = line;
+        if (id) run(id, 0, line + " ");
+        else C.say(line); // no sample is close: nothing plays
+      }, () => {});
     });
 
     /* ---------------- "Change and run again" */
