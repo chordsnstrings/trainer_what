@@ -377,8 +377,20 @@ const layout = (page) =>
     const d = document.documentElement;
     const ids = [...document.querySelectorAll("[id]")].map((e) => e.id);
     const visible = (e) => e.checkVisibility({ opacityProperty: true, visibilityProperty: true }) && e.getBoundingClientRect().width > 0;
+    const overflow = Math.max(d.scrollWidth - d.clientWidth, document.body.scrollWidth - document.body.clientWidth);
+    // What sticks out of the viewport (outside any clipping box), widest first, to name in a failure.
+    const out = [];
+    if (overflow > 0)
+      for (const e of document.querySelectorAll("body *")) {
+        const r = e.getBoundingClientRect(), by = Math.max(r.right - d.clientWidth, -r.left);
+        if (!r.width || by <= 0.5 || !visible(e)) continue;
+        let p = e.parentElement;
+        while (p && p !== document.body && !/(auto|scroll|hidden|clip)/.test(getComputedStyle(p).overflowX)) p = p.parentElement;
+        if (p === document.body || !p) out.push({ by, what: `${e.tagName.toLowerCase()}${e.id ? "#" + e.id : ""}${typeof e.className == "string" && e.className.trim() ? "." + e.className.trim().split(/\s+/).slice(0, 2).join(".") : ""} [${r.left.toFixed(1)}, ${r.right.toFixed(1)}]` });
+      }
     return {
-      overflow: Math.max(d.scrollWidth - d.clientWidth, document.body.scrollWidth - document.body.clientWidth),
+      overflow,
+      offenders: out.sort((a, b) => b.by - a.by).slice(0, 3).map((o) => o.what),
       duplicates: [...new Set(ids.filter((id, i) => ids.indexOf(id) !== i))],
       labels: [...new Set([...document.querySelectorAll("a, button")].filter(visible).map((e) => e.textContent.replace(/\s+/g, " ").trim()))],
       signup: d.outerHTML.includes('href="/signup"'),
@@ -586,7 +598,7 @@ async function pagePass(state, widths, directions) {
         if (state === "closed" && dir === "ltr" && width === 1440) ENGINE.set(path, new Set((await lateResources(page)).map((r) => r.url)));
         await page.waitForTimeout(300);
         const m = await layout(page);
-        if (m.overflow > 0) fail(`4. ${label}`, `horizontal overflow of ${m.overflow}px`);
+        if (m.overflow > 0) fail(`4. ${label}`, `horizontal overflow of ${m.overflow}px${m.offenders.length ? " (" + m.offenders.join("; ") + ")" : ""}`);
         if (m.duplicates.length) fail(`4. ${label}`, `duplicate id(s): ${m.duplicates.slice(0, 4).join(", ")}`);
         if (page.errors.length) fail(`4. ${label}`, page.errors.slice(0, 3).join(" | "));
         if (want(13) && dir === "ltr") {
