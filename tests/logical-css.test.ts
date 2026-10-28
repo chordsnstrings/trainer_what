@@ -31,12 +31,6 @@ type Finding = {
 const ALLOWED: Array<{ file: string; declaration: string; reason: string }> =
   [
     {
-      file: "apps/web/app/marketing.css",
-      declaration: "translate: 40px 0",
-      reason:
-        "The home relay's decorative dot travels along its wire inside .mk-relay-wire, an SVG that already mirrors with scale: var(--inline-sign) 1, so the dot's own offset must stay positive in both directions.",
-    },
-    {
       file: "apps/web/app/motion.css",
       declaration: "right: auto",
       reason:

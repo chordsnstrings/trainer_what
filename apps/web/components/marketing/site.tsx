@@ -2,20 +2,7 @@
 // in packages/contracts (marketing-content.ts), so the visible text, the
 // JSON-LD and llms-full.txt agree. Interactive parts are small client islands.
 import Link from "next/link";
-import {
-  Apple,
-  ArrowRight,
-  CalendarCheck,
-  CalendarDays,
-  Check,
-  CheckCircle,
-  CircleAlert,
-  Dumbbell,
-  MessageCircle,
-  TrendingUp,
-  UserRound,
-  type LucideIcon,
-} from "lucide-react";
+import { Check, UserRound } from "lucide-react";
 import type { ReactNode } from "react";
 import {
   OFFERED_DIRECTORY_SPECIALTIES,
@@ -29,37 +16,31 @@ import {
   type MarketingPage,
   type MarketingSection,
 } from "@trainer/contracts";
-import { BANDS } from "@trainer/domain";
 import {
   aedWhole as aed,
   DEFAULT_FOLLOWER_INPUTS,
   FOLLOWER_SCENARIOS,
   displayCount,
-  estimateEarnings,
   estimateFollowerConversion,
   followerModelAdjustments,
   type FollowerRateKey,
   type FollowerScenario,
 } from "../../../../packages/domain/src/marketing-calculators";
-import { claimCta, MarketingFooter, MarketingHeader, type Cta } from "./frame";
+import { claimCta, MarketingFooter, MarketingHeader } from "./frame";
 import {
   AddressPreview,
-  DemoScenarios,
   EarlyAccessForm,
   EarningsCalculator,
   FollowerCalculator,
 } from "./islands";
 import { availabilityChip, Chip } from "./chip";
-import { HeroFlow } from "./hero-flow";
-import { Journey, JourneyBand, journeyAvailable } from "./journey";
+import { Journey, journeyAvailable } from "./journey";
 import { MarketingMotion } from "./motion";
 import { MARKETING_MOTION } from "./motion-mode";
 import {
   Breadcrumbs,
   Closing,
   Faqs,
-  HOW_IT_WORKS,
-  Highlighted,
   InShort,
   PageHead,
   Related,
@@ -76,7 +57,6 @@ import { DemoPage } from "./pages/demo";
 import { HomePage } from "./pages/home";
 import { PricingPage } from "./pages/pricing";
 import { TrainerBrainPage } from "./pages/trainer-brain";
-import { ScrollScenes } from "./scene-mount";
 import type { PublicPlatform } from "./platform";
 import {
   FeatureMatrix,
@@ -84,13 +64,11 @@ import {
   ProductScreens,
   Replaces,
 } from "./showcase";
-// Still importable from here: Section moved to page-parts.tsx, and the
-// journey tests import it from this file.
-export { availabilityChip, Section };
+export { availabilityChip };
 
 /**
  * Pages with a renderer of their own (components/marketing/pages/), by
- * path; every other page is the home or the standard page.
+ * path; every other page is the standard page.
  */
 const BESPOKE: Partial<Record<string, (c: Ctx) => ReactNode>> = {
   "/pricing": (c) => <PricingPage {...c} />,
@@ -98,25 +76,6 @@ const BESPOKE: Partial<Record<string, (c: Ctx) => ReactNode>> = {
   "/trainer-brain": (c) => <TrainerBrainPage {...c} />,
   "/demo": (c) => <DemoPage {...c} />,
 };
-
-/**
- * The commission bands as short labels, from the ledger's own bands. The
- * list is labelled "Commission by paying subscriber", so the ranges count
- * paying subscribers: "25% · first 100", "20% · 101–300", ...
- */
-export function bandPills(): string[] {
-  const n = (v: number) => v.toLocaleString("en-GB");
-  let from = 1;
-  return BANDS.map((band) => {
-    const range = !Number.isFinite(band.count)
-      ? `${n(from)}+`
-      : from === 1
-        ? `first ${n(band.count)}`
-        : `${n(from)}–${n(from + band.count - 1)}`;
-    from += band.count;
-    return `${band.bps / 100}% · ${range}`;
-  });
-}
 
 /** A grid of child pages (hubs and the home feature grid). */
 function PageTiles({
@@ -193,41 +152,6 @@ function FollowerExamples({ platform }: { platform: PublicPlatform }) {
           })}
         </tbody>
       </table>
-    </div>
-  );
-}
-
-/** A worked example computed with the same function as the calculator. */
-function WorkedExample() {
-  const e = estimateEarnings({
-    subscribers: 150,
-    billing: "monthly",
-    workoutPriceAed: 199,
-    programmeMonths: 1,
-    nutritionSharePct: 0,
-    nutritionPriceAed: 0,
-    voiceSharePct: 0,
-    voicePriceAed: 0,
-    sessionsPerMonth: 0,
-    sessionPriceAed: 0,
-    yourSessionRateAed: 250,
-  });
-  return (
-    <div className="mk-example card">
-      <p className="eyebrow">WORKED EXAMPLE</p>
-      <p>
-        150 paying subscribers at AED 199 a month:{" "}
-        <strong>{aed(e.subscriptionMonthlyMinor)}</strong> in subscriptions.
-        Commission is {aed(e.bands[0].commissionMinor)} (25% on the first 100)
-        plus {aed(e.bands[1].commissionMinor)} (20% on the next 50):{" "}
-        <strong>{aed(e.commissionMinor)}</strong>. That leaves{" "}
-        <strong>{aed(e.beforeOtherCostsMinor)}</strong> before payment
-        processing and other costs, about {e.equivalentSessions}{" "}
-        sessions at AED 250.
-      </p>
-      <p className="fine-print muted">
-        An arithmetic example, not a forecast or promise.
-      </p>
     </div>
   );
 }
@@ -768,13 +692,6 @@ function CustomBlock({ page, platform, t }: Ctx & { t: (s: string) => string }) 
           claimLabel={platform.registrationOpen ? "Claim this address" : "Join early access"}
         />
       );
-    case "/pricing":
-      return (
-        <>
-          <WorkedExample />
-          <EarningsCalculator compact />
-        </>
-      );
     case "/features":
       // The home page's "everything included" counts, as a paper strip.
       return <IncludedStrip t={t} />;
@@ -803,25 +720,6 @@ function DirectoryBlock({ place }: { place: string }) {
     </aside>
   );
 }
-/** Published price anchors for one-to-one and online coaching (cited). */
-function PriceAnchors() {
-  return (
-    <div className="mk-anchors">
-      <div>
-        <strong>AED 70–350</strong>
-        <span>per one-to-one session in Dubai (Hey Trainer, 2026)</span>
-      </div>
-      <div>
-        <strong>AED 200–700+</strong>
-        <span>per session, basic to premium (Embody Fitness, 2025)</span>
-      </div>
-      <div>
-        <strong>AED 400–2,000</strong>
-        <span>a month for online coaching (369MMAFIT, 2026)</span>
-      </div>
-    </div>
-  );
-}
 /** Blocks placed after a section, by section id. */
 function AfterSection({
   page,
@@ -834,7 +732,6 @@ function AfterSection({
   platform: PublicPlatform;
   t: (s: string) => string;
 }) {
-  if (page.path === "/pricing" && section.id === "hours") return <PriceAnchors />;
   // /features: screens and guides first; the full capability matrix (still
   // server-rendered and indexed) sits lower on the page.
   if (page.path === "/features" && section.id === "subscribers")
@@ -883,7 +780,6 @@ function AfterSection({
 function StandardPage({ page, platform, origin }: Ctx) {
   const t = pageText(platform);
   const cta = primaryCta(page, platform);
-  const demo = page.path === "/demo";
   return (
     <>
       <div className="mk-container mk-page">
@@ -897,21 +793,9 @@ function StandardPage({ page, platform, origin }: Ctx) {
         />
         <CustomBlock page={page} platform={platform} origin={origin} t={t} />
         {page.sections.map((section) =>
-          demo && section.id === "scenarios" ? (
-            <section className="mk-section" key={section.id} aria-labelledby="scenarios-h">
-              <h2 id="scenarios-h">{t(section.heading)}</h2>
-              <DemoScenarios
-                scenarios={(section.cards ?? []).map((c) => ({
-                  title: t(c.title),
-                  label: t(c.label ?? ""),
-                  body: t(c.body),
-                }))}
-              />
-              {section.note && <p className="fine-print muted">{t(section.note)}</p>}
-            </section>
-          ) : page.path === "/how-it-works" &&
-            section.id === "steps" &&
-            journeyAvailable(platform) ? (
+          page.path === "/how-it-works" &&
+          section.id === "steps" &&
+          journeyAvailable(platform) ? (
             // The coach-to-subscriber journey player, with the same heading
             // and steps (components/marketing/journey.tsx).
             <div key={section.id}>
@@ -954,338 +838,6 @@ function StandardPage({ page, platform, origin }: Ctx) {
   );
 }
 
-/**
- * A home band: the registry heading and body, a visual and up to two links.
- * Bands alternate white and paper; "split" puts the text beside the visual
- * on wide screens. Every band shares the one page container.
- */
-function HomeSection({
-  page,
-  id,
-  t,
-  tone,
-  split = false,
-  visual,
-  links = [],
-  className = "",
-  scene,
-}: {
-  page: MarketingPage;
-  id: string;
-  t: (s: string) => string;
-  tone: "white" | "paper";
-  split?: boolean;
-  visual?: ReactNode;
-  links?: Cta[];
-  className?: string;
-  /** A scroll scene for the band (home only; docs/features/scroll-scenes.md). */
-  scene?: "assemble" | "beats" | "rise";
-}) {
-  const section = page.sections.find((s) => s.id === id)!;
-  const more = links.length > 0 && (
-    <p className="mk-home-more">
-      {links.map((link) => (
-        <Link key={link.href} className="text-link mk-link" href={link.href}>
-          {link.label} <ArrowRight size={15} aria-hidden="true" />
-        </Link>
-      ))}
-    </p>
-  );
-  return (
-    <section
-      className={`mk-home-band mk-home-${tone} ${className}`.trim()}
-      id={id}
-      aria-labelledby={id + "-h"}
-      data-scene={scene}
-    >
-      <div className={"mk-container mk-home-inner" + (split ? " mk-home-split" : "")}>
-        <div className="mk-home-text">
-          <h2 id={id + "-h"}>{t(section.heading)}</h2>
-          {section.body?.map((p) => (
-            <p key={p} className="mk-home-body">
-              {t(p)}
-            </p>
-          ))}
-          {split && more}
-        </div>
-        {visual && <div className="mk-home-visual">{visual}</div>}
-        {!split && more}
-      </div>
-    </section>
-  );
-}
-
-type Tile = {
-  icon: LucideIcon;
-  label: string;
-  line: string;
-  href: string;
-  /** The feature page whose availability decides whether the tile shows. */
-  gate?: string;
-};
-/**
- * What subscribers get: four flat tiles, each linking to its feature page
- * with one short line. Only features available now are shown ("Available
- * soon" stays on /features): the fourth tile is nutrition when that tier is
- * on, otherwise the first available of chat and bookings.
- */
-function SubscriberTiles({ platform }: { platform: PublicPlatform }) {
-  const core: Tile[] = [
-    {
-      icon: CalendarDays,
-      label: "Daily plan",
-      line: "Dated, built from your rules.",
-      href: "/features/ai-training-plans",
-    },
-    {
-      icon: Dumbbell,
-      label: "Guided workouts",
-      line: "Cues, set logging and rest timers.",
-      href: "/features/subscriber-app",
-    },
-    {
-      icon: TrendingUp,
-      label: "Progress they can see",
-      line: "Sessions and best loads, in one place.",
-      href: "/features/progress-and-client-twin",
-    },
-  ];
-  const extra: Tile[] = [
-    {
-      icon: Apple,
-      label: "Nutrition",
-      line: "Meal plans and a food diary, as an optional tier.",
-      href: "/features/nutrition",
-      gate: "/features/nutrition",
-    },
-    {
-      icon: MessageCircle,
-      label: "Chat",
-      line: "With you and a clearly labelled digital coach.",
-      href: "/features/chat-and-digital-coach",
-      gate: "/features/chat-and-digital-coach",
-    },
-    {
-      icon: CalendarCheck,
-      label: "Sessions with you",
-      line: "Paid one-to-one bookings, when it matters.",
-      href: "/features/bookings",
-      gate: "/features/bookings",
-    },
-  ];
-  const available = (tile: Tile) =>
-    !tile.gate ||
-    !availabilityChip(marketingPage(tile.gate), platform.availability)?.soon;
-  const tiles = [...core, ...extra.filter(available).slice(0, 1)];
-  return (
-    <ul className="mk-icon-tiles">
-      {tiles.map(({ icon: Icon, label, line, href }) => (
-        <li key={label} data-beat>
-          <Link className="mk-icon-tile" href={href}>
-            <span className="mk-icon-square" aria-hidden="true">
-              <Icon size={22} />
-            </span>
-            <span className="mk-icon-label">{label}</span>
-            <span className="mk-icon-line">{line}</span>
-          </Link>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-/** The trainer stays in charge: the decision flow (sample data). */
-function ControlFlow() {
-  // One image for assistive technology: the tag and the three paths are
-  // summarised in its label; the drawn cards are presentational.
-  return (
-    <div
-      className="mk-flow-card"
-      role="img"
-      aria-label="Illustration with sample data: a subscriber says squats felt easy; your rule adds 2.5 kg automatically. Unsure changes come to you, and pain pauses the workout and comes to you."
-    >
-      <p className="mk-relay-tag" aria-hidden="true">
-        Illustration with sample data
-      </p>
-      <div className="mk-flow" aria-hidden="true">
-        {/* Scroll scene beats: the same "before" poses as the reveal in
-            app/marketing.css. */}
-        <div className="mk-flow-msg" data-beat="1" data-from="y:12 o:0">
-          <span className="small-label">SUBSCRIBER</span>
-          <p>“Week three done. Squats felt easy.”</p>
-        </div>
-        <div className="mk-flow-brain" data-beat="2" data-from="y:12 o:0">
-          <span className="small-label">YOUR AI</span>
-          <p>
-            <strong>Your rule:</strong> two easy sessions → add 2.5 kg.
-          </p>
-          <div className="mk-meter">
-            <span style={{ inlineSize: "86%" }} data-beat="3" data-from="sx:0" />
-          </div>
-          <small>Confidence above your threshold</small>
-        </div>
-        <div className="mk-flow-lanes">
-          <span className="mk-lane mk-lane-auto" data-beat="4" data-from="s:.6 o:0">
-            <CheckCircle size={14} /> Applied automatically
-          </span>
-          <span className="mk-lane" data-beat="4" data-from="y:8 o:0">
-            <UserRound size={14} /> Unsure → to you
-          </span>
-          <span className="mk-lane mk-lane-safety" data-beat="4" data-from="s:1.15 o:0">
-            <CircleAlert size={14} /> Pain → paused, to you
-          </span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/**
- * Your site and your price: the coaching address from the platform's
- * template (never a hard-coded domain), shown without the scheme, and the
- * commission bands by paying subscriber.
- */
-function EconomicsVisual({ platform }: { platform: PublicPlatform }) {
-  const template = platform.coachAddressTemplate.replace(/^https?:\/\//, "");
-  const address = template.replace("{slug}", "yourname");
-  return (
-    <div className="mk-econ">
-      {platform.registrationOpen ? (
-        <AddressPreview template={template} />
-      ) : (
-        <div className="mk-browser">
-          <span className="mk-browser-dots" aria-hidden="true">
-            <span />
-            <span />
-            <span />
-          </span>
-          <span className="mk-browser-address ltr-data">{address}</span>
-        </div>
-      )}
-      <div className="mk-bands-box">
-        <p className="small-label" id="mk-bands-label">
-          Commission by paying subscriber
-        </p>
-        <ul className="mk-band-pills" aria-labelledby="mk-bands-label">
-          {bandPills().map((pill) => {
-            const [rate, range] = pill.split(" · ");
-            return (
-              <li key={pill} data-beat>
-                <strong>{rate}</strong> · {range}
-              </li>
-            );
-          })}
-        </ul>
-        <p className="fine-print muted">
-          Each rate applies only to the subscribers in its band.
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function Home({ page, platform }: Ctx) {
-  const t = pageText(platform);
-  const cta = primaryCta(page, platform);
-  // The follower estimate keeps its own block (the calculator is owned by
-  // the calculator package; only its container is styled here).
-  const calculator = (
-    <div className="mk-home-calc"><FollowerCalculator model={platform.followerModel} compact headingLevel={3} /></div>
-  );
-  return (
-    <>
-      <section className="mk-hero" aria-labelledby="mk-hero-h">
-        {/* The first paint waits until the hero copy is parsed (React puts
-            this in <head>; browsers without rel=expect ignore it). Its two
-            columns sit on their bottom edge, so a paint between the buttons
-            and the line under them moved the whole column up when that line
-            arrived: a layout shift of 0.0022 at 1366x900. #mk-relay-cap is
-            the relay's caption, the first element after the copy. */}
-        <link rel="expect" href="#mk-relay-cap" blocking="render" />
-        <div className="mk-container mk-hero-inner">
-          <div className="mk-hero-copy">
-            <div className="mk-hero-head">
-              <p className="eyebrow">{t(page.eyebrow)}</p>
-              <h1 id="mk-hero-h">
-                <Highlighted text={t(page.h1)} mark={page.h1Highlight} />
-              </h1>
-            </div>
-            <div className="mk-hero-body">
-              {page.lede && <p className="mk-hero-lede">{t(page.lede)}</p>}
-              <div className="button-row">
-                <Link className="button large mk-cta" href={cta.href}>
-                  {cta.label} <ArrowRight size={18} aria-hidden="true" />
-                </Link>
-                <Link className="text-link mk-link" href={HOW_IT_WORKS.href}>
-                  {HOW_IT_WORKS.label} <ArrowRight size={16} aria-hidden="true" />
-                </Link>
-              </div>
-              <p className="mk-hero-micro">
-                Free to join · No upfront cost · Built for UAE trainers
-              </p>
-            </div>
-          </div>
-          <HeroFlow platform={platform} t={t} />
-        </div>
-      </section>
-      {/* The whole workflow, coach to subscriber, once a coach can launch. */}
-      {journeyAvailable(platform) && <JourneyBand platform={platform} t={t} />}
-      <HomeSection
-        page={page}
-        id="subscribers"
-        t={t}
-        tone="white"
-        visual={<SubscriberTiles platform={platform} />}
-        links={[{ label: "All features", href: "/features" }]}
-      />
-      <HomeSection
-        page={page}
-        id="control"
-        t={t}
-        tone="paper"
-        split
-        scene="beats"
-        visual={<ControlFlow />}
-        links={[
-          { label: "How your AI decides", href: "/trainer-brain" },
-          { label: "Try the demo", href: "/demo" },
-        ]}
-      />
-      <HomeSection
-        page={page}
-        id="economics"
-        t={t}
-        tone="white"
-        split
-        visual={<EconomicsVisual platform={platform} />}
-        links={[{ label: "Pricing in detail", href: "/pricing" }]}
-      />
-      <HomeSection
-        page={page}
-        id="followers"
-        t={t}
-        tone="paper"
-        className="mk-home-followers"
-        visual={calculator}
-        links={[{ label: "Open the full calculator", href: "/follower-calculator" }]}
-      />
-      <div className="mk-home-band mk-home-white">
-        <div className="mk-container mk-home-inner">
-          {/* All answers start closed: the home page stays under its word
-              budget (scripts/brand-check.mjs). The first answer is the
-              answer-first introduction, in the page's HTML, the FAQPage
-              JSON-LD and llms-full.txt. */}
-          <Faqs page={page} t={t} heading="Questions trainers ask" />
-        </div>
-      </div>
-      <Closing cta={cta} platform={platform} secondary={closingLink(page)} />
-      {/* Drives the scenes above (renders nothing; off unless the head
-          script turned scenes on: docs/features/scroll-scenes.md). */}
-      <ScrollScenes />
-    </>
-  );
-}
-
 /** A complete marketing page: header, content, footer and JSON-LD. */
 export function MarketingSite({ page: registered, platform, origin, showcase = "live" }: Ctx) {
   // Lines gated on availability (the "frontier model" wording) appear only
@@ -1316,8 +868,6 @@ export function MarketingSite({ page: registered, platform, origin, showcase = "
       <main id="main" className="mk-main">
         {bespoke ? (
           bespoke({ page, platform, origin, showcase })
-        ) : page.kind === "home" ? (
-          <Home page={page} platform={platform} origin={origin} />
         ) : (
           <StandardPage page={page} platform={platform} origin={origin} />
         )}

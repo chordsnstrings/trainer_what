@@ -39,11 +39,10 @@ const reduced = () =>
 /**
  * The reveal units: each home band's content, each block of an inner page
  * (a section, the calculator, a grid, the FAQs, the related links) and the
- * closing panel. Never the hero, the breadcrumbs, the page heading or the
- * relay, and never the small "Last updated" line. Never the journey player
- * either (the /how-it-works steps section and the home band while a coach
- * can launch, components/marketing/journey.tsx): its stage has its own
- * one-off chapter motion, which a rise on top would double.
+ * closing panel. Never the hero, the breadcrumbs or the page heading, and
+ * never the small "Last updated" line. Never the journey player either (the
+ * /how-it-works steps section, components/marketing/journey.tsx): its stage
+ * has its own one-off chapter motion, which a rise on top would double.
  */
 const UNITS = [
   ".mk-home-band > .mk-home-inner",
@@ -56,29 +55,27 @@ const UNITS = [
  * and the Brain showcases (components/marketing/brain/: their engine
  * measures its own boxes, so a band holding one carries .mk-sc-band).
  */
-const NEVER = ".mk-hero, .mk-page-head, .mk-relay, .mk-walk-section, .mk-walk-band, [data-showcase], .mk-sc-band, .sc-host";
+const NEVER = ".mk-hero, .mk-page-head, .mk-walk-section, .mk-walk-band, [data-showcase], .mk-sc-band, .sc-host";
 /** While scroll scenes are on (scene-mount.tsx), scroll moves their sections instead. */
 const SCENES = "[data-scene]";
 /** The longest item stagger in app/marketing.css (--mk-stagger: six
  * --mk-stagger-step or three --mk-stagger-load), in ms. */
 export const MAX_STAGGER = 240;
 /** Grids whose items follow their unit in a short stagger (app/marketing.css). */
-const GRIDS =
-  ".mk-cards, .mk-tiles, .mk-icon-tiles, .mk-steps, .mk-checklist, .mk-anchors, .mk-band-pills, .mk-screens, .mk-faqs";
+const GRIDS = ".mk-cards, .mk-tiles, .mk-steps, .mk-checklist, .mk-screens, .mk-faqs";
 /**
  * Widgets with a trigger of their own (data-mk-cue), as the concept gives
  * its barbell its own observer: their unit reveals when its top enters the
  * view, and on a phone these sit far below that line, so their motion
- * would be over before it could be seen. The commission pills and the FAQ
- * rows (grids: their items wait for the grid itself, not for the unit),
- * the closing panel's button (its arrow nudges once when it comes into
- * view) and the /features "Back squat" set table (its ticks pop in turn
- * when it comes into view; its section is taller than one and a half
- * screens on a phone, so it never waits there). An element that is itself
- * a unit (the FAQs on an inner page) keeps its unit's trigger, which is
- * already its own.
+ * would be over before it could be seen. The FAQ rows (a grid: its items
+ * wait for the grid itself, not for the unit), the closing panel's button
+ * (its arrow nudges once when it comes into view) and the /features "Back
+ * squat" set table (its ticks pop in turn when it comes into view; its
+ * section is taller than one and a half screens on a phone, so it never
+ * waits there). An element that is itself a unit (the FAQs on an inner
+ * page) keeps its unit's trigger, which is already its own.
  */
-const CUES = ".mk-band-pills, .mk-faqs, .mk-closing-cta, .mk-sets";
+const CUES = ".mk-faqs, .mk-closing-cta, .mk-sets";
 
 /**
  * The section reveal. Units whose top is below the first screen when the

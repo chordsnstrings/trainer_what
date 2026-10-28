@@ -18,10 +18,7 @@ import {
   marketingPage,
 } from "@trainer/contracts";
 import { DEFAULT_FOLLOWER_MODEL } from "../packages/domain/src/marketing-calculators.ts";
-import {
-  MarketingSite,
-  Section,
-} from "../apps/web/components/marketing/site.tsx";
+import { MarketingSite } from "../apps/web/components/marketing/site.tsx";
 import {
   JOURNEY_TIMING,
   SUBSCRIBER_LINES,
@@ -253,7 +250,20 @@ test("the walkthrough shows whatever the platform flags say", () => {
 // too since phase 1 (pages/home.tsx). "I’m" and "rescheduled" are the
 // mock's own lines ("I’m travelling …", "Rescheduled automatically"): only
 // the old /demo scenarios had them, and the playground replaced those.
-const NEW_WORDS = new Set(["evaluate", "passed", "i’m", "rescheduled"]);
+// "Tuesday", "Thursday" ("Missed Tuesday · moved to Thursday") and the
+// stage's "Illustration with sample data" tag were on the old home too (the
+// hero's relay and the decision flow), and "travelling" in the relay's
+// source; phase 1 removed both.
+const NEW_WORDS = new Set([
+  "evaluate",
+  "passed",
+  "i’m",
+  "rescheduled",
+  "travelling",
+  "tuesday",
+  "thursday",
+  "illustration",
+]);
 // Controls' accessible names that are not elsewhere either ("Replay" is in
 // the /trainer-brain and /demo copy since phase 1: "AI steps replay …").
 const NEW_NAMES = new Set<string>();
@@ -320,7 +330,6 @@ test("the mocks: no AI costs, fees, model names or amounts; only the listed new 
       "../packages/contracts/src/brand.ts",
       "../apps/web/components/marketing/site.tsx",
       "../apps/web/components/marketing/showcase.tsx",
-      "../apps/web/components/marketing/hero-flow.tsx",
       "../apps/web/components/marketing/islands.tsx",
       "../apps/web/components/marketing/frame.tsx",
       "../apps/web/components/marketing/page-parts.tsx",

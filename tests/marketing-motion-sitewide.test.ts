@@ -12,11 +12,10 @@
 //   token (22 October 2026 concept pass);
 // - an animation repeats forever, the spring easing is used outside the
 //   success states, or the enter easing outside the load-in entrances;
-// - the concept pass's motion is not wired as agreed: the commission pills
-//   load from the inline start 80ms apart, the FAQ rows cascade, the
-//   closing button's arrow nudges once when the button itself comes into
-//   view (a trigger of its own, data-mk-cue), the hero's arrow takes over
-//   after the relay, and the /features set ticks pop in turn;
+// - the concept pass's motion is not wired as agreed: the FAQ rows
+//   cascade, the closing button's arrow nudges once when the button itself
+//   comes into view (a trigger of its own, data-mk-cue), the hero's arrow
+//   nudges once by 3 s, and the /features set ticks pop in turn;
 // - a :hover rule sits outside @media (hover: hover) / (hover: none);
 // - the marketing motion switch (components/marketing/motion-mode.ts) is not
 //   wired both ways: with "always" (the owner, 22 October 2026) every short
@@ -70,7 +69,7 @@ const TOKENS: Record<string, string> = {
   "--mk-stagger-step": "40ms",
   "--mk-stagger-load": "80ms",
 };
-/** What may move: compositor properties, the relay's wire and a disclosure's height. */
+/** What may move: compositor properties, an SVG stroke's dash offset and a disclosure's height. */
 const MOVING = new Set(["opacity", "transform", "translate", "scale", "rotate", "stroke-dashoffset"]);
 const TRANSITIONS = new Set([...MOVING, "grid-template-rows", "content-visibility"]);
 const LAYOUT = /^(width|height|(min|max)-(width|height)|inline-size|block-size|(min|max)-(inline|block)-size|top|left|right|bottom|inset(-.+)?|margin(-.+)?|padding(-.+)?|all)$/;
@@ -81,11 +80,8 @@ const EASING = /^var\(--mk-ease-(out|in|in-out|spring|enter)\)$/;
 const STAGGER_VAR = String.raw`var\(--mk-(?:stagger(?:-step|-load)?|set-step)(?:, ?[\d.]+m?s)?\)`;
 const TIME = new RegExp(String.raw`^(-?[\d.]+m?s|${STAGGER_VAR}|calc\((?:[\d.]+m?s|[\d.]+|${STAGGER_VAR}|[\s+*-])+\))$`);
 const KEYWORD_EASING = /^(ease|ease-in|ease-out|ease-in-out|linear|step-start|step-end|(cubic-bezier|steps|linear)\(.*\))$/;
-/** The success states that may use the spring (relay ticks, "Applied automatically", pops). */
+/** The success states that may use the spring (the /features ticks, pops). */
 const SPRING_ALLOWED = [
-  ".mk-relay-rows svg",
-  ".mk-lane-auto",
-  ".badge[data-mk-success]",
   '.mk-sets[data-mk-cue="in"] svg',
   ".mk-screen-note svg",
   ".mk-queue-item.done .badge svg",
@@ -93,7 +89,7 @@ const SPRING_ALLOWED = [
   ".mk-tb-stamp",
 ];
 /** The load-in entrances that may use the enter easing (the concept's plate curve). */
-const ENTER_ALLOWED = ['.mk-band-pills > [data-mk-item="in"]', ".mk .mk-hero .mk-mark::before"];
+const ENTER_ALLOWED = [".mk .mk-hero .mk-mark::before"];
 /** :hover rules that are functions, not effects: they stay on every device. */
 const HOVER_ALLOWED = [
   {
@@ -103,7 +99,7 @@ const HOVER_ALLOWED = [
   },
 ];
 /** Elements hidden without the .mk-motion class: closed or decorative states that never hold unrevealed content. */
-const HIDDEN_ALLOWED = [".mk-dropdown", ".mk-relay-dot", ":not([open])"];
+const HIDDEN_ALLOWED = [".mk-dropdown", ":not([open])"];
 const ROOT = /^(:is\(\.mk, \.mk-header, \.mk-footer\)|\.mk|\.mk-header|\.mk-footer)(?=$|[\s:.>[])/;
 
 /** Why one transition or animation list breaks the rules, or null. */
@@ -249,10 +245,10 @@ test("marketing motion uses the tokens, moves only transform, opacity and disclo
   const keyframes = new Set(
     rules.flatMap((r) => r.context.map((c) => c.match(/^@keyframes ([\w-]+)$/)?.[1]).filter((n): n is string => !!n)),
   );
-  assert.ok(keyframes.size >= 5, "the relay, header and demo keyframes are read");
+  assert.ok(keyframes.size >= 5, "the header, menu and entrance keyframes are read");
   const problems: string[] = [];
   for (const rule of rules) {
-    // Keyframes move compositor properties (and the relay's wire) only.
+    // Keyframes move compositor properties (or an SVG stroke's dash offset) only.
     if (rule.context.some((c) => c.startsWith("@keyframes"))) {
       for (const d of rule.declarations)
         if (!MOVING.has(d.property)) problems.push(`${rule.context.at(-1)} ${rule.selector}: ${d.property}`);
@@ -267,7 +263,7 @@ test("marketing motion uses the tokens, moves only transform, opacity and disclo
   const springs = rules.filter((r) =>
     r.declarations.some((d) => !d.property.startsWith("--") && d.value.includes("--mk-ease-spring")),
   );
-  assert.ok(springs.length >= 4, "the relay ticks, the lane, the demo label and the screen ticks use the spring");
+  assert.ok(springs.length >= 2, "the screen ticks and the Trainer Brain stamp use the spring");
   for (const rule of springs)
     for (const selector of rule.selectors)
       assert.ok(
@@ -278,7 +274,7 @@ test("marketing motion uses the tokens, moves only transform, opacity and disclo
   const enters = rules.filter((r) =>
     r.declarations.some((d) => !d.property.startsWith("--") && d.value.includes("--mk-ease-enter")),
   );
-  assert.ok(enters.length >= 1, "the commission pills use the enter curve");
+  assert.ok(enters.length >= 1, "the H1 highlight's sweep uses the enter curve");
   for (const rule of enters)
     for (const selector of rule.selectors)
       assert.ok(
@@ -368,11 +364,14 @@ test("hover effects only where the pointer hovers; in \"device\" mode reduced mo
     ),
   );
   // The motion plays outside any no-preference query (the switch decides
-  // who sees it): the relay, the header shadow, the demo and the phone menu.
+  // who sees it): the header shadow, the phone menu and the entrances (the
+  // Trainer Brain stamp's pop is in its page sheet).
   assert.doesNotMatch(css, /prefers-reduced-motion: no-preference/);
-  for (const name of ["mk-draw", "mk-ring", "mk-tick", "mk-header-shadow", "mk-drop", "mk-rise", "mk-pop", "mk-stamp", "mk-menu-out", "mk-fade", "mk-fade-out"])
+  for (const name of ["mk-header-shadow", "mk-drop", "mk-rise", "mk-pop", "mk-menu-out", "mk-fade", "mk-fade-out"])
     assert.ok(
-      rules.some((r) => r.declarations.some((d) => /^animation(-name)?$/.test(d.property) && d.value.split(/[\s,]+/).includes(name))),
+      [...rules, ...pageRules].some((r) =>
+        r.declarations.some((d) => /^animation(-name)?$/.test(d.property) && d.value.split(/[\s,]+/).includes(name)),
+      ),
       `${name} is still used`,
     );
 });
@@ -606,11 +605,11 @@ test("the script's motion values are the CSS tokens, and no animation library is
     "motion.tsx imports only react and the marketing motion switch",
   );
   // The reveal observes with IntersectionObserver, checks reduced motion
-  // (in "device" mode, motion-mode.ts) and never touches the hero, the page
-  // heading or the relay.
+  // (in "device" mode, motion-mode.ts) and never touches the hero or the
+  // page heading.
   assert.match(motion, /new IntersectionObserver\(/);
   assert.match(motion, /prefers-reduced-motion: reduce/);
-  assert.match(motion, /\.mk-hero, \.mk-page-head, \.mk-relay/);
+  assert.match(motion, /const NEVER = "\.mk-hero, \.mk-page-head, /);
   assert.match(motion, /classList\.add\("mk-motion"\)/);
 });
 
@@ -645,12 +644,11 @@ test("one set of motion tokens; the journey player shares the sitewide press and
         r.declarations.some((d) => d.property === "scale" && d.value === "none" && d.important),
     ),
   );
-  // The relay's ring pulses on the hero relay only, never on the journey's
-  // copy of the mark in its laptop bar.
-  const ring = rules.filter((r) => r.declarations.some((d) => d.property === "animation" && d.value.startsWith("mk-ring ")));
-  assert.deepEqual(
-    ring.flatMap((r) => r.selectors),
-    [".mk .mk-relay .mk-relay-mark::after"],
+  // The platform's mark in the journey's laptop bar never pulses: nothing
+  // animates it.
+  assert.ok(
+    !rules.some((r) => r.selector.includes(".mk-relay-mark") && r.declarations.some((d) => /^animation/.test(d.property))),
+    "the journey's mark never pulses",
   );
   // The reveal never marks the journey: it has its own chapter motion.
   const motion = await readFile(web("components/marketing/motion.tsx"), "utf8");
@@ -658,10 +656,9 @@ test("one set of motion tokens; the journey player shares the sitewide press and
   assert.match(motion, /!unit\.closest\(NEVER\)/);
   const journey = await readFile(web("components/marketing/journey.tsx"), "utf8");
   assert.match(journey, /className="mk-section mk-walk-section"/);
-  assert.match(journey, /className="mk-home-band mk-home-paper mk-walk-band"/);
 });
 
-test("the concept pass (22 October 2026): pills, FAQ rows, the arrow hand-offs and the set ticks, each on its own trigger", async () => {
+test("the concept pass (22 October 2026): FAQ rows, the arrow hand-offs and the set ticks, each on its own trigger", async () => {
   const css = await readFile(web("app/marketing.css"), "utf8");
   const rules = cssRules(css);
   const find = (selector: string) => rules.find((r) => r.selectors.includes(selector));
@@ -672,37 +669,28 @@ test("the concept pass (22 October 2026): pills, FAQ rows, the arrow hand-offs a
       .match(new RegExp(`const ${name} =\\s+"([^"]+)";`))![1]
       .split(",")
       .map((s) => s.trim());
-  // The FAQs are a grid (the heading, then each question), and the pills,
-  // the FAQs, the closing button and the /features set table have a
-  // trigger of their own.
-  assert.ok(list("GRIDS").includes(".mk-faqs") && list("GRIDS").includes(".mk-band-pills"));
-  assert.deepEqual(list("CUES"), [".mk-band-pills", ".mk-faqs", ".mk-closing-cta", ".mk-sets"]);
+  // The FAQs are a grid (the heading, then each question), and the FAQs,
+  // the closing button and the /features set table have a trigger of their
+  // own.
+  assert.ok(list("GRIDS").includes(".mk-faqs"));
+  assert.deepEqual(list("CUES"), [".mk-faqs", ".mk-closing-cta", ".mk-sets"]);
   assert.match(motion, /if \(cueSet\.has\(unit\)\) unit\.dataset\.mkCue = state;\s+else unit\.dataset\.mkReveal = state;/);
   assert.match(motion, /\.filter\(\(grid\) => !cueSet\.has\(grid\)\)/, "a unit leaves a cue's items to the cue");
   assert.match(
     motion,
     /\(cue\) => !unitSet\.has\(cue\) && !cue\.closest\(NEVER\) && !\(scenes && cue\.closest\(SCENES\)\)/,
-    "a cue never sits in the hero, the relay, the journey or a running scene",
+    "a cue never sits in the hero, the journey, a showcase or a running scene",
   );
   assert.match(motion, /for \(const unit of \[\.\.\.units, \.\.\.cues\]\) observer\.observe\(unit\);/);
   assert.match(motion, /for \(const cue of cues\) if \(cue\.dataset\.mkCue === "pending"\) mark\(cue, "in"\);/, "printing releases the cues");
-  // Every grid in GRIDS has its 40ms steps; the pills and the screens load
-  // 80ms apart (the first pill at once, the fourth 240ms later).
+  // Every grid in GRIDS has its 40ms steps; the /features screens load 80ms
+  // apart (the first at once, the fourth 240ms later).
   const GRID_LIST = list("GRIDS").join(", ");
   for (const [n, steps] of [[2, "var(--mk-stagger-step)"], [3, "calc(2 * var(--mk-stagger-step))"], ["n + 7", "calc(6 * var(--mk-stagger-step))"]] as const)
     assert.equal(value(`:is(${GRID_LIST}) > :nth-child(${n})`, "--mk-stagger"), steps, `grid item ${n}`);
-  assert.equal(value(":is(.mk-screens, .mk-band-pills) > :nth-child(2)", "--mk-stagger"), "var(--mk-stagger-load)");
-  assert.equal(value(":is(.mk-screens, .mk-band-pills) > :nth-child(n + 4)", "--mk-stagger"), "calc(3 * var(--mk-stagger-load))");
-  // The pills slide in from the inline start (mirrored right to left) on the
-  // enter curve; every other item keeps its 8px rise.
-  assert.equal(
-    value('.mk-motion .mk-band-pills > [data-mk-item="pending"]', "translate"),
-    "calc(-1 * var(--mk-dist-load) * var(--inline-sign, 1)) 0",
-  );
-  assert.equal(
-    value('.mk-motion .mk-band-pills > [data-mk-item="in"]', "transition"),
-    "opacity var(--mk-dur-slow) var(--mk-ease-out) var(--mk-stagger, 0ms), translate var(--mk-dur-slow) var(--mk-ease-enter) var(--mk-stagger, 0ms)",
-  );
+  assert.equal(value(".mk-screens > :nth-child(2)", "--mk-stagger"), "var(--mk-stagger-load)");
+  assert.equal(value(".mk-screens > :nth-child(n + 4)", "--mk-stagger"), "calc(3 * var(--mk-stagger-load))");
+  // An item rises 8px, a unit 12px.
   assert.equal(value('.mk-motion [data-mk-item="pending"]', "translate"), "0 var(--mk-dist-item)");
   assert.equal(value('.mk-motion [data-mk-reveal="pending"]', "translate"), "0 var(--mk-dist-rise)");
   // The nudge: one forward step and back, mirrored, never repeated.
@@ -721,15 +709,13 @@ test("the concept pass (22 October 2026): pills, FAQ rows, the arrow hand-offs a
     value('.mk-motion .mk-closing-cta[data-mk-cue="in"] > .lucide-arrow-right', "animation"),
     "mk-nudge var(--mk-dur-emphasis) var(--mk-ease-in-out) 280ms 1",
   );
-  // The hero's arrow takes over after the relay's last tick has popped,
-  // keyed on .mk-cta (whatever its label), and ends well inside the 4.5 s
-  // the brand check allows the home page's first-screen motion.
+  // The hero's arrow nudges once, keyed on .mk-cta (whatever its label),
+  // and ends well inside the 4.5 s the brand check allows the home page's
+  // first-screen motion.
   const seconds = (t: string) => (t.endsWith("ms") ? Number(t.slice(0, -2)) / 1000 : Number(t.slice(0, -1)));
   const hero = value(".mk .mk-hero .mk-cta > .lucide-arrow-right", "animation")!;
   assert.match(hero, /^mk-nudge var\(--mk-dur-emphasis\) var\(--mk-ease-in-out\) ([\d.]+m?s) 1$/);
   const heroDelay = seconds(hero.split(" ")[3]);
-  const lastTick = seconds(value(".mk-relay-rows li:nth-child(3) svg", "animation-delay")!) + MOTION.slow / 1000;
-  assert.ok(heroDelay >= lastTick, `the hand-off (${heroDelay}s) follows the relay's last tick (${lastTick}s)`);
   assert.ok(heroDelay + MOTION.emphasis / 1000 <= 3, `the hand-off ends by 3 s (${heroDelay + MOTION.emphasis / 1000}s)`);
   // The /features set ticks pop one after another, 80ms apart from 520ms,
   // on the set table's own trigger (its section is too tall to wait on a
@@ -773,9 +759,7 @@ test("the home page's first paint waits for the whole hero (CLS 0 when the parse
   assert.ok(hero.indexOf('<link rel="expect"') < hero.indexOf('className="eyebrow"'), "the link comes before the copy");
   // The marker is the hero's last child, always rendered.
   assert.match(hero, /<span id="mk-hero-end" hidden \/>\s+<\/section>$/);
-  // Only the home hero blocks the first paint, across the renderers
-  // (site.tsx's legacy Home, which no path reaches since BESPOKE["/"], goes
-  // with the phase 1 clean-up).
+  // Only the home hero blocks the first paint, across the renderers.
   const site = await readFile(web("components/marketing/site.tsx"), "utf8");
   assert.match(site, /"\/": \(c\) => <HomePage \{\.\.\.c\} \/>/);
   const pages = await Promise.all(
@@ -783,8 +767,7 @@ test("the home page's first paint waits for the whole hero (CLS 0 when the parse
       .filter((file) => file.endsWith(".tsx"))
       .map((file) => readFile(web("components/marketing/pages/" + file), "utf8")),
   );
-  const live = site.replace(/\nfunction Home\(\{[\s\S]*?\n\}\n/, "\n");
-  assert.equal([live, ...pages].join("\n").match(/rel="expect"/g)?.length, 1, "only the home hero blocks the first paint");
+  assert.equal([site, ...pages].join("\n").match(/rel="expect"/g)?.length, 1, "only the home hero blocks the first paint");
 });
 
 test('the Pace sweep behind "trains": once at load, from the left, scale only, and at rest the fill the span had', async () => {

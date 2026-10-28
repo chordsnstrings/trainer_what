@@ -3,8 +3,7 @@
    logical-css.test.ts). */
 /* Always light (globals.css .public.platform-ui): white canvas, paper bands,
    ink text, Pace only as a fill behind ink (the primary action, the H1
-   highlight, the relay's core tile and dot, the automatic lane and the
-   closing panel). No ink bands. */
+   highlight, the platform's mark and the closing panel). No ink bands. */
 .mk,
 .mk-header,
 .mk-footer,
@@ -24,14 +23,13 @@
      only --motion-base (200ms) and the out, in and in-out curves still
      match (docs/features/motion.md). The spring is for success states
      alone (tests/marketing-motion-sitewide.test.ts holds the list), and the
-     enter curve for load-in entrances alone (the commission pills; 22
-     October 2026 concept pass, docs/MARKETING_MOTION_PLAN_2026-10-22.md).
-     Distances: the hover and hand-off nudge, an item's rise, a section's
-     rise and a load-in slide. Staggers: the step between grid items and
-     the slower step of the load-ins (the /features screens and ticks, the
-     pills). Only transform, opacity, SVG stroke-dashoffset and a
-     disclosure's grid rows move; the motion block near the end of this
-     file holds the rest. */
+     enter curve for load-in entrances alone (the H1 highlight's sweep;
+     docs/MARKETING_MOTION_PLAN_2026-10-22.md). Distances: the hover and
+     hand-off nudge, an item's rise, a section's rise and a load-in slide.
+     Staggers: the step between grid items and the slower step of the
+     load-ins (the /features screens and ticks). Only transform, opacity,
+     SVG stroke-dashoffset and a disclosure's grid rows move; the motion
+     block near the end of this file holds the rest. */
   --mk-dur-press: 80ms;
   --mk-dur-fast: 140ms;
   --mk-dur-base: 200ms;
@@ -780,13 +778,6 @@ a.mk-nav-top {
   margin: 8px 0 0;
   font-size: 13px;
 }
-.mk-example {
-  margin-block: 16px;
-  max-inline-size: 860px;
-}
-.mk-example p {
-  font-size: 15px;
-}
 
 /* Calculators */
 .mk-calculator {
@@ -986,15 +977,6 @@ a.mk-nav-top {
   overflow-wrap: anywhere;
   color: var(--green);
 }
-.mk-demo-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-block-end: 16px;
-}
-.mk-demo-panel .badge {
-  margin-block-end: 12px;
-}
 .mk-copy-row {
   display: flex;
   align-items: center;
@@ -1020,29 +1002,11 @@ a.mk-nav-top {
   gap: 10px;
 }
 
-/* Home (28 September 2026 refresh). Every base style is the final picture;
-   the relay's one-off motion is at the end of this block. It plays for
-   every visitor while the marketing motion switch is "always"
-   (components/marketing/motion-mode.ts); with "device", reduced motion stops
-   it (globals.css for elements, the reduced-motion block at the end of the
-   Motion section for the ring). */
+/* Home (28 September 2026 refresh): the hero's base styles, which the
+   home page (components/marketing/pages/home.tsx, app/marketing-home.css)
+   builds on. Every base style is the final picture. */
 .mk-hero {
   background: var(--mk-canvas);
-}
-/* The headline and the copy side by side, the relay full width beneath:
-   the whole "you teach → it learns → your subscribers train" picture fits
-   the first screen from 1280x800 up, with room for each card. */
-.mk-hero-inner {
-  display: grid;
-  gap: 40px;
-  padding-block: 48px 64px;
-}
-.mk-hero-copy {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 520px);
-  column-gap: 64px;
-  row-gap: 20px;
-  align-items: end;
 }
 .mk-hero .eyebrow {
   font-size: 11px;
@@ -1091,108 +1055,20 @@ a.mk-nav-top {
   gap: 22px;
   margin-block-start: 24px;
 }
-.mk-hero-micro {
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--muted);
-  margin-block: 16px 0;
-}
 
-/* The relay: you teach → the platform learns → your subscribers train.
-   Three equal cards on one row at every width: the full cards from 761px,
-   a compact row of icons and titles on phones. */
-.mk-relay {
-  --relay-gap: 56px;
-  position: relative;
-  margin: 0;
-  min-inline-size: 0;
-  background: var(--mk-band);
-  border: 1px solid var(--mk-line);
-  border-radius: 8px;
-  padding: 20px 28px 18px;
-}
-.mk-relay-tag {
-  display: inline-block;
-  margin: 0 0 14px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-.mk-flow-card .mk-relay-tag {
-  margin-block-end: 14px;
-}
-.mk-relay-steps {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  column-gap: var(--relay-gap);
-  align-items: stretch;
-}
-/* Every card has the same 48px icon slot, so the titles line up; the
-   detail starts at the top of the card. */
-.mk-relay-node {
-  position: relative;
-  display: grid;
-  grid-template-columns: 48px minmax(0, 1fr) auto;
-  grid-template-areas:
-    "icon title num"
-    "detail detail detail";
-  column-gap: 14px;
-  row-gap: 14px;
-  align-items: center;
-  align-content: start;
-  min-inline-size: 0;
-  background: var(--ty-white);
-  border: 1px solid var(--mk-line);
-  border-radius: 8px;
-  padding: 18px;
-  box-shadow: var(--mk-shadow);
-}
-.mk-relay-num {
-  grid-area: num;
-  align-self: start;
-  font-size: 12px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  color: var(--muted);
-}
-.mk-relay-icon,
+/* The platform's mark on a Pace tile (CoreMark, in the journey's laptop
+   bar: components/marketing/journey.tsx; app/marketing-journey.css sizes
+   it there). */
 .mk-relay-mark {
-  grid-area: icon;
   display: inline-grid;
   place-items: center;
   inline-size: 48px;
   block-size: 48px;
   border-radius: 8px;
-}
-.mk-relay-icon {
-  background: var(--mk-band);
-  color: var(--ink);
-}
-/* Pace only on step 02, behind the ink mark. */
-.mk-relay-mark {
-  position: relative;
-  isolation: isolate;
   background: var(--lime);
   color: var(--on-lime);
   /* Latin artwork: the mark never mirrors. */
   direction: ltr;
-}
-/* The core tile's one-off pulse: a Pace ring behind the mark widens and
-   fades (the motion block below); the mark itself never scales. */
-.mk-relay-mark::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  border-radius: inherit;
-  background: var(--lime);
-  opacity: 0;
-  pointer-events: none;
 }
 .mk-relay-mark svg {
   inline-size: 75%;
@@ -1202,161 +1078,6 @@ a.mk-nav-top {
   font-size: 18px;
   font-weight: 700;
   letter-spacing: -0.02em;
-}
-.mk-relay-title {
-  grid-area: title;
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-  line-height: 1.3;
-  color: var(--ink);
-}
-.mk-relay-detail {
-  grid-area: detail;
-  display: grid;
-  gap: 8px;
-  align-content: start;
-  min-inline-size: 0;
-}
-.mk-relay-note {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.45;
-  color: var(--muted);
-}
-.mk-relay-chips {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.mk-relay-chips li {
-  font-size: 12px;
-  line-height: 1.3;
-  padding: 4px 8px;
-  border-radius: 999px;
-  background: var(--ty-white);
-  border: 1px solid var(--mk-line);
-  color: var(--ink);
-}
-.mk-relay-rows {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 6px;
-  inline-size: 100%;
-}
-.mk-relay-rows li {
-  display: grid;
-  grid-template-columns: 14px minmax(0, 1fr);
-  align-items: start;
-  gap: 8px;
-  font-size: 13px;
-  line-height: 1.45;
-  color: var(--ink);
-  padding-block-start: 6px;
-  border-block-start: 1px solid var(--mk-line);
-}
-.mk-relay-rows svg {
-  margin-block-start: 3px;
-  color: var(--ink);
-}
-.mk-relay-rows .badge {
-  text-transform: none;
-  margin-inline-start: 4px;
-}
-/* A sample rule in step 01 and the confident path in step 02. */
-.mk-relay-quote {
-  margin: 0;
-  padding-inline-start: 10px;
-  border-inline-start: 2px solid var(--ink);
-  font-size: 13px;
-  line-height: 1.45;
-  color: var(--ink);
-}
-.mk-relay-status {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  margin: 0;
-  padding: 6px 8px;
-  border-radius: 6px;
-  background: var(--mk-band);
-  font-size: 12px;
-  line-height: 1.4;
-  color: var(--ink);
-}
-.mk-relay-status svg {
-  flex-shrink: 0;
-  margin-block-start: 1px;
-}
-/* A wire spans the gap to the next step at the height of the icons; it
-   mirrors in right to left. */
-.mk-relay-wire {
-  position: absolute;
-  inset-inline-start: calc(100% + (var(--relay-gap) - 48px) / 2 + 1px);
-  inset-block-start: 42px;
-  translate: 0 -50%;
-  scale: var(--inline-sign, 1) 1;
-  overflow: visible;
-}
-.mk-relay-line {
-  stroke: var(--ink);
-  stroke-width: 1.5;
-  stroke-dasharray: 40;
-  stroke-dashoffset: 0;
-  vector-effect: non-scaling-stroke;
-}
-.mk-relay-head {
-  fill: var(--ink);
-}
-/* Decorative: it rests hidden at the end of the wire. */
-.mk-relay-dot {
-  fill: var(--lime);
-  stroke: var(--ink);
-  stroke-width: 1.5;
-  opacity: 0;
-  translate: 40px 0;
-}
-/* The return loop: from under step 02 back to step 01, with an arrowhead;
-   it runs between the centres of the first two columns. */
-.mk-relay-return {
-  position: relative;
-  block-size: 20px;
-  margin-inline-start: calc((100% - 2 * var(--relay-gap)) / 6);
-  inline-size: calc((100% - 2 * var(--relay-gap)) / 3 + var(--relay-gap));
-  border: 1.5px dashed var(--ink);
-  border-block-start: 0;
-  border-radius: 0 0 10px 10px;
-}
-.mk-relay-return::before {
-  content: "";
-  position: absolute;
-  inset-inline-start: -6px;
-  inset-block-start: -8px;
-  border-inline: 5px solid transparent;
-  border-block-end: 8px solid var(--ink);
-}
-.mk-relay-loop {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin: 10px 0 0;
-  font-size: 13px;
-  line-height: 1.45;
-  color: var(--muted);
-}
-.mk-relay-loop strong {
-  color: var(--ink);
-  font-weight: 600;
-}
-.mk-relay-loop svg {
-  flex-shrink: 0;
-  margin-block-start: 1px;
-  color: var(--ink);
 }
 
 /* Home bands: white and paper, alternating, in the shared container. */
@@ -1404,9 +1125,6 @@ a.mk-nav-top {
   row-gap: 4px;
   margin: 8px 0 0;
 }
-.mk-home-visual {
-  min-inline-size: 0;
-}
 .mk-home-band .mk-faqs {
   padding: 0;
   max-inline-size: 860px;
@@ -1415,135 +1133,8 @@ a.mk-nav-top {
   font-size: 16px;
 }
 
-/* What subscribers get: flat tiles, each a link to its feature page. */
-/* Three or four tiles (only features available now), filling the row. */
-.mk-icon-tiles {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 16px;
-}
-.mk-icon-tiles li {
-  display: flex;
-  min-inline-size: 0;
-}
-.mk-icon-tile {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 10px;
-  inline-size: 100%;
-  background: var(--ty-white);
-  border: 1px solid var(--mk-line);
-  border-radius: 8px;
-  padding: 20px;
-  color: var(--ink);
-  text-decoration: none;
-}
-@media (hover: hover) {
-  .mk-icon-tile:hover {
-    border-color: var(--ink);
-  }
-}
-.mk-icon-square {
-  display: inline-grid;
-  place-items: center;
-  inline-size: 48px;
-  block-size: 48px;
-  border-radius: 8px;
-  background: var(--mk-band);
-  color: var(--ink);
-}
-.mk-icon-label {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--ink);
-}
-.mk-icon-line {
-  font-size: 14px;
-  line-height: 1.45;
-  color: var(--muted);
-}
-
-/* You stay in charge: the decision flow, a white card on paper. */
-.mk-flow-card {
-  background: var(--ty-white);
-  border: 1px solid var(--mk-line);
-  border-radius: 8px;
-  padding: 28px;
-  box-shadow: var(--mk-shadow);
-  min-inline-size: 0;
-}
-.mk-flow {
-  display: grid;
-  gap: 14px;
-}
-.mk-flow-msg,
-.mk-flow-brain {
-  background: var(--ty-white);
-  border: 1px solid var(--mk-line);
-  border-radius: var(--radius);
-  padding: 18px 20px;
-  box-shadow: var(--mk-shadow);
-}
-.mk-flow-msg {
-  inline-size: 80%;
-}
-.mk-flow-brain {
-  inline-size: 92%;
-  margin-inline-start: auto;
-}
-.mk-flow p {
-  margin: 8px 0 0;
-  font-size: 14px;
-}
-.mk-flow small {
-  display: block;
-  margin-block-start: 6px;
-}
-.mk-meter {
-  block-size: 6px;
-  border-radius: 999px;
-  background: var(--mk-line);
-  margin-block-start: 14px;
-  overflow: hidden;
-}
-.mk-meter > span {
-  display: block;
-  block-size: 100%;
-  background: var(--ink);
-}
-.mk-flow-lanes {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.mk-lane {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border-radius: 999px;
-  border: 1px solid var(--mk-line);
-  padding: 7px 12px;
-  font-size: 12px;
-  background: var(--ty-white);
-  color: var(--ink);
-}
-.mk-lane-auto {
-  background: var(--lime);
-  border-color: var(--lime);
-  color: var(--on-lime);
-}
-.mk-lane-safety {
-  background: var(--warning-bg);
-  border-color: var(--warning-line);
-  color: var(--warning);
-}
-
-/* Your site, your price: the address (no scheme, body font) and the
-   commission bands by paying subscriber. */
+/* The home page's address card (components/marketing/pages/home.tsx): the
+   address without its scheme, in the body font. */
 .mk-econ {
   display: grid;
   gap: 18px;
@@ -1572,17 +1163,8 @@ a.mk-nav-top {
 #early-access {
   max-inline-size: 860px;
 }
-.mk-browser {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  border: 1px solid var(--mk-line);
-  border-radius: 8px;
-  background: var(--mk-band);
-  padding: 14px 18px;
-  box-shadow: var(--mk-shadow);
-  min-inline-size: 0;
-}
+/* A browser bar's three dots (the journey's laptop bar,
+   app/marketing-journey.css). */
 .mk-browser-dots {
   display: inline-flex;
   gap: 6px;
@@ -1594,45 +1176,6 @@ a.mk-nav-top {
   border-radius: 50%;
   background: var(--mk-line);
 }
-.mk-browser-address {
-  flex: 1;
-  min-inline-size: 0;
-  overflow-wrap: anywhere;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--ink);
-  background: var(--ty-white);
-  border: 1px solid var(--mk-line);
-  border-radius: 6px;
-  padding: 8px 12px;
-}
-.mk-bands-box {
-  display: grid;
-  gap: 10px;
-}
-.mk-bands-box .small-label {
-  margin: 0;
-}
-.mk-band-pills {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.mk-band-pills li {
-  font-size: 14px;
-  color: var(--ink);
-  background: var(--ty-white);
-  border: 1px solid var(--mk-line);
-  border-radius: 999px;
-  padding: 8px 14px;
-  font-variant-numeric: tabular-nums;
-}
-.mk-econ .fine-print {
-  margin: 0;
-}
 
 /* What are your followers worth: only the calculator's container. */
 .mk-home-calc > .mk-calculator.card {
@@ -1641,31 +1184,6 @@ a.mk-nav-top {
   border-radius: 8px;
   box-shadow: var(--mk-shadow);
   margin: 0;
-}
-
-/* Published price anchors (/pricing). */
-.mk-anchors {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
-  margin-block: 18px 4px;
-}
-.mk-anchors > div {
-  display: grid;
-  gap: 6px;
-  background: var(--mk-band);
-  border-radius: var(--radius);
-  padding: 20px;
-}
-.mk-anchors strong {
-  font-family: var(--ty-font-display);
-  font-size: clamp(22px, 2.4vw, 30px);
-  letter-spacing: -0.04em;
-  color: var(--ink);
-}
-.mk-anchors span {
-  font-size: 13px;
-  color: var(--muted);
 }
 
 /* Closing: a contained Pace panel with ink text and an ink button, on every
@@ -1715,231 +1233,25 @@ a.mk-nav-top {
   font-weight: 600;
 }
 
-/* The relay's one-off motion (it ends at about 2.5 s and never repeats).
-   All three cards and their text show from the first paint; only the
-   wires, the travelling dot, the ring behind the core tile's mark and the
-   row ticks move, on the motion tokens (the choreography's delays are
-   times, not durations). Keyframes hold only the starting state; the base
-   styles above are the end state. For every visitor while the marketing
-   motion switch is "always"; with "device" the reduced-motion rules stop
-   it (see the start of this block). */
-@keyframes mk-draw {
-  from {
-    stroke-dashoffset: 40;
-  }
-}
-@keyframes mk-travel {
-  from {
-    opacity: 1;
-    translate: 0 0;
-  }
-}
-@keyframes mk-ring {
-  from {
-    opacity: 0.6;
-    scale: 1;
-  }
-  to {
-    opacity: 0;
-    scale: 1.5;
-  }
-}
-@keyframes mk-tick {
-  from {
-    opacity: 0;
-    scale: 0.4;
-  }
-}
-.mk-relay-line,
-.mk-relay-dot,
-.mk-relay-rows svg {
-  animation-fill-mode: both;
-  animation-iteration-count: 1;
-}
-.mk-relay-line {
-  animation-name: mk-draw;
-  animation-duration: var(--mk-dur-emphasis);
-  animation-timing-function: var(--mk-ease-out);
-  animation-delay: 0.4s;
-}
-.mk-relay-dot {
-  animation-name: mk-travel;
-  animation-duration: var(--mk-dur-emphasis);
-  animation-timing-function: var(--mk-ease-in-out);
-  animation-delay: 0.4s;
-}
-.mk-relay-core .mk-relay-line,
-.mk-relay-core .mk-relay-dot {
-  animation-delay: 1.5s;
-}
-/* The hero relay's mark only: the journey's laptop bar
-   (components/marketing/journey.tsx) shows the same mark, which never
-   pulses on its own. */
-.mk .mk-relay .mk-relay-mark::after {
-  animation: mk-ring var(--mk-dur-emphasis) var(--mk-ease-out) 0.85s 1;
-}
-/* Success ticks: the spring. */
-.mk-relay-rows svg {
-  animation-name: mk-tick;
-  animation-duration: var(--mk-dur-slow);
-  animation-timing-function: var(--mk-ease-spring);
-  animation-delay: 1.95s;
-}
-.mk-relay-rows li:nth-child(2) svg {
-  animation-delay: 2.1s;
-}
-.mk-relay-rows li:nth-child(3) svg {
-  animation-delay: 2.25s;
-}
-
 @media (max-width: 1023px) {
-  /* Copy stacked above the relay; the cards keep one row of three. */
-  .mk-hero-copy {
-    grid-template-columns: minmax(0, 1fr);
-    align-items: start;
-  }
-  .mk-relay {
-    --relay-gap: 40px;
-  }
-  .mk-relay-node {
-    grid-template-columns: 48px minmax(0, 1fr);
-    grid-template-areas:
-      "icon num"
-      "title title"
-      "detail detail";
-    row-gap: 10px;
-    padding: 16px;
-  }
-  .mk-relay-num {
-    justify-self: end;
-  }
-  .mk-relay-wire {
-    inline-size: 36px;
-    block-size: 10px;
-    inset-block-start: 40px;
-    inset-inline-start: calc(100% + 2px);
-  }
   .mk-home-split {
     grid-template-columns: minmax(0, 1fr);
     gap: 32px;
   }
-  .mk-icon-tiles {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 @media (max-width: 760px) {
-  .mk-hero-inner {
-    padding-block: 24px 40px;
-    gap: 28px;
-  }
-  .mk-hero-copy {
-    row-gap: 16px;
-  }
   .mk-hero .button-row {
     margin-block-start: 20px;
     gap: 8px 22px;
   }
-  /* Phones: a compact row of the three steps (icon and title) joined by
-     short wires, so the whole relay sits on the first screen. The sample
-     detail is for wider screens. */
-  .mk-relay {
-    --relay-gap: 26px;
-    padding: 14px 12px 12px;
-  }
-  .mk-relay-tag,
-  .mk-relay-num,
-  .mk-relay-detail {
-    display: none;
-  }
-  .mk-relay-node {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas:
-      "icon"
-      "title";
-    justify-items: center;
-    text-align: center;
-    row-gap: 8px;
-    padding: 12px 4px;
-    box-shadow: none;
-  }
-  .mk-relay-icon,
-  .mk-relay-mark {
-    inline-size: 40px;
-    block-size: 40px;
-  }
-  .mk-relay-title {
-    font-size: 13px;
-    line-height: 1.25;
-  }
-  .mk-relay-wire {
-    inline-size: 22px;
-    block-size: 8px;
-    inset-block-start: 32px;
-    inset-inline-start: calc(100% + 3px);
-  }
-  .mk-relay-return {
-    block-size: 14px;
-  }
-  .mk-relay-loop {
-    font-size: 12px;
-    margin-block-start: 8px;
-  }
   .mk-home-band {
     padding-block: 56px;
-  }
-  .mk-flow-card {
-    padding: 20px;
-  }
-  .mk-flow-msg,
-  .mk-flow-brain {
-    inline-size: 100%;
-  }
-  /* Phones: one column of compact rows, icon beside the words. */
-  .mk-icon-tiles {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 10px;
-  }
-  .mk-icon-tile {
-    display: grid;
-    grid-template-columns: 48px minmax(0, 1fr);
-    grid-template-areas:
-      "icon label"
-      "icon line";
-    column-gap: 14px;
-    row-gap: 2px;
-    align-items: center;
-    padding: 14px 16px;
-  }
-  .mk-icon-square {
-    grid-area: icon;
-  }
-  .mk-icon-label {
-    grid-area: label;
-  }
-  .mk-icon-line {
-    grid-area: line;
-  }
-  .mk-anchors {
-    grid-template-columns: minmax(0, 1fr);
   }
   .mk-closing-wrap {
     margin-block: 56px;
   }
   .mk-closing {
     padding: 40px 20px;
-  }
-}
-@media (max-width: 360px) {
-  .mk-relay {
-    --relay-gap: 20px;
-    padding-inline: 8px;
-  }
-  .mk-relay-title {
-    font-size: 12px;
-  }
-  .mk-relay-wire {
-    inline-size: 18px;
-    inset-inline-start: calc(100% + 1px);
   }
 }
 
@@ -2372,9 +1684,9 @@ a.mk-nav-top {
   }
 }
 
-/* Motion (29 September 2026 microanimation pass). The home relay's rules
-   hold on every page: every word is real HTML and visible from the first
-   paint; motion is decorative, short and plays once. The marketing motion
+/* Motion (29 September 2026 microanimation pass). The same rules hold on
+   every page: every word is real HTML and visible from the first paint;
+   motion is decorative, short and plays once. The marketing motion
    switch (components/marketing/motion-mode.ts, data-mk-motion on .mk and
    the assistant host) decides who sees it: "always" (the owner, 22 October
    2026) plays it for every visitor, whatever the device's or the member's
@@ -2440,9 +1752,9 @@ a.mk-nav-top {
 }
 /* The hand-off (22 October 2026 concept pass): the trailing arrow nudges
    forward once, on its own, at the moment the page points at the next
-   step, and never repeats. In the hero, once the relay's last tick has
-   popped (about 2.53 s) the primary action's arrow takes over (keyed on
-   .mk-cta, so "Join early access" nudges too); it ends by about 2.97 s.
+   step, and never repeats. In the hero the primary action's arrow nudges
+   at 2.55 s (keyed on .mk-cta, so "Join early access" nudges too); it ends
+   by about 2.97 s.
    The closing panel's arrow nudges when that button itself comes into view
    (components/marketing/motion.tsx marks it, data-mk-cue), 280ms later.
    Nothing is hidden or delayed, and the button keeps its place. */
@@ -2563,15 +1875,15 @@ a.mk-nav-top {
 }
 
 /* Link cards lift 2px with a soft shadow where the pointer hovers (the
-   border tint is instant) and press on every device; the icon on a home
-   tile rises with its card. Static cards never move on hover. */
-.mk :is(.mk-tile, .mk-icon-tile, .mk-included a) {
+   border tint is instant) and press on every device. Static cards never
+   move on hover. */
+.mk :is(.mk-tile, .mk-included a) {
   position: relative;
   transition:
     translate var(--mk-dur-base) var(--mk-ease-out),
     scale var(--mk-dur-fast) var(--mk-ease-out);
 }
-.mk :is(.mk-tile, .mk-icon-tile, .mk-included a)::after {
+.mk :is(.mk-tile, .mk-included a)::after {
   content: "";
   position: absolute;
   inset: -1px;
@@ -2581,23 +1893,17 @@ a.mk-nav-top {
   pointer-events: none;
   transition: opacity var(--mk-dur-base) var(--mk-ease-out);
 }
-.mk-icon-square svg {
-  transition: translate var(--mk-dur-base) var(--mk-ease-out);
-}
-.mk :is(.mk-tile, .mk-icon-tile, .mk-included a):active {
+.mk :is(.mk-tile, .mk-included a):active {
   scale: 0.99;
   transition-duration: var(--mk-dur-press);
   transition-timing-function: var(--mk-ease-in);
 }
 @media (hover: hover) {
-  .mk :is(.mk-tile, .mk-icon-tile, .mk-included a):hover {
+  .mk :is(.mk-tile, .mk-included a):hover {
     translate: 0 -2px;
   }
-  .mk :is(.mk-tile, .mk-icon-tile, .mk-included a):hover::after {
+  .mk :is(.mk-tile, .mk-included a):hover::after {
     opacity: 1;
-  }
-  .mk-icon-tile:hover .mk-icon-square svg {
-    translate: 0 -2px;
   }
   /* Link pills and table rows: instant tints, no movement. */
   .mk-matrix-index a:hover {
@@ -2613,41 +1919,41 @@ a.mk-nav-top {
    --mk-dist-rise (12px) into place once as it enters the view; the items
    of a grid follow --mk-stagger-step (40ms) apart, at most 240ms (six
    steps; MAX_STAGGER in motion.tsx), and the load-ins (the /features
-   screens and the commission pills) --mk-stagger-load (80ms) apart, at
-   most three steps. The FAQs are a grid too: the heading, then each
-   question, so the six home questions land in turn. A few widgets have a
-   trigger of their own (data-mk-cue: the pills, the FAQs and the closing
-   panel's button), because their unit reveals while they are still below
-   the fold on a phone. The hero, the page heading, the relay, the journey
-   player (its stage has its own chapter motion), anything on the first
+   screens) --mk-stagger-load (80ms) apart, at most three steps. The FAQs
+   are a grid too: the heading, then each question, so the home questions
+   land in turn. A few widgets have a trigger of their own (data-mk-cue:
+   the FAQs, the closing panel's button and the /features set table),
+   because their unit reveals while they are still below the fold on a
+   phone. The hero, the page heading, the journey player (its stage has
+   its own chapter motion), the Brain showcases, anything on the first
    screen and any unit taller than one and a half screens never wait.
    Every rule keys on an attribute or class of the element it moves, so
    marking and revealing restyle only those elements. */
-:is(.mk-cards, .mk-tiles, .mk-icon-tiles, .mk-steps, .mk-checklist, .mk-anchors, .mk-band-pills, .mk-screens, .mk-faqs) > :nth-child(2) {
+:is(.mk-cards, .mk-tiles, .mk-steps, .mk-checklist, .mk-screens, .mk-faqs) > :nth-child(2) {
   --mk-stagger: var(--mk-stagger-step);
 }
-:is(.mk-cards, .mk-tiles, .mk-icon-tiles, .mk-steps, .mk-checklist, .mk-anchors, .mk-band-pills, .mk-screens, .mk-faqs) > :nth-child(3) {
+:is(.mk-cards, .mk-tiles, .mk-steps, .mk-checklist, .mk-screens, .mk-faqs) > :nth-child(3) {
   --mk-stagger: calc(2 * var(--mk-stagger-step));
 }
-:is(.mk-cards, .mk-tiles, .mk-icon-tiles, .mk-steps, .mk-checklist, .mk-anchors, .mk-band-pills, .mk-screens, .mk-faqs) > :nth-child(4) {
+:is(.mk-cards, .mk-tiles, .mk-steps, .mk-checklist, .mk-screens, .mk-faqs) > :nth-child(4) {
   --mk-stagger: calc(3 * var(--mk-stagger-step));
 }
-:is(.mk-cards, .mk-tiles, .mk-icon-tiles, .mk-steps, .mk-checklist, .mk-anchors, .mk-band-pills, .mk-screens, .mk-faqs) > :nth-child(5) {
+:is(.mk-cards, .mk-tiles, .mk-steps, .mk-checklist, .mk-screens, .mk-faqs) > :nth-child(5) {
   --mk-stagger: calc(4 * var(--mk-stagger-step));
 }
-:is(.mk-cards, .mk-tiles, .mk-icon-tiles, .mk-steps, .mk-checklist, .mk-anchors, .mk-band-pills, .mk-screens, .mk-faqs) > :nth-child(6) {
+:is(.mk-cards, .mk-tiles, .mk-steps, .mk-checklist, .mk-screens, .mk-faqs) > :nth-child(6) {
   --mk-stagger: calc(5 * var(--mk-stagger-step));
 }
-:is(.mk-cards, .mk-tiles, .mk-icon-tiles, .mk-steps, .mk-checklist, .mk-anchors, .mk-band-pills, .mk-screens, .mk-faqs) > :nth-child(n + 7) {
+:is(.mk-cards, .mk-tiles, .mk-steps, .mk-checklist, .mk-screens, .mk-faqs) > :nth-child(n + 7) {
   --mk-stagger: calc(6 * var(--mk-stagger-step));
 }
-:is(.mk-screens, .mk-band-pills) > :nth-child(2) {
+.mk-screens > :nth-child(2) {
   --mk-stagger: var(--mk-stagger-load);
 }
-:is(.mk-screens, .mk-band-pills) > :nth-child(3) {
+.mk-screens > :nth-child(3) {
   --mk-stagger: calc(2 * var(--mk-stagger-load));
 }
-:is(.mk-screens, .mk-band-pills) > :nth-child(n + 4) {
+.mk-screens > :nth-child(n + 4) {
   --mk-stagger: calc(3 * var(--mk-stagger-load));
 }
 /* Two measures keep a reveal cheap to draw (measured with the CPU throttled
@@ -2683,21 +1989,6 @@ a.mk-nav-top {
     opacity var(--mk-dur-slow) var(--mk-ease-out) var(--mk-stagger, 0ms),
     translate var(--mk-dur-slow) var(--mk-ease-out) var(--mk-stagger, 0ms);
 }
-/* The commission pills load like plates onto a bar (the concept's plates,
-   flat): each slides --mk-dist-load (16px) in from the inline start and
-   fades in, 80ms after the one before, so 25% lands first and 10% last;
-   the last is in place about 520ms after the pills come into view. The
-   concept loads from the inline end; entering from the inline start is
-   deliberate: it reads with the falling rates, and a slide from the start
-   can never add a horizontal scrollbar, in either direction. */
-.mk-motion .mk-band-pills > [data-mk-item="pending"] {
-  translate: calc(-1 * var(--mk-dist-load) * var(--inline-sign, 1)) 0;
-}
-.mk-motion .mk-band-pills > [data-mk-item="in"] {
-  transition:
-    opacity var(--mk-dur-slow) var(--mk-ease-out) var(--mk-stagger, 0ms),
-    translate var(--mk-dur-slow) var(--mk-ease-enter) var(--mk-stagger, 0ms);
-}
 /* The ticks inside the /features screens pop once the screens are in;
    the "Back squat" screen's completed sets pop one after another, 80ms
    apart from 520ms, like reps being logged (no count-up). The set table
@@ -2722,59 +2013,6 @@ a.mk-nav-top {
 }
 .mk-sets tr:nth-child(n + 3) {
   --mk-set-step: calc(2 * var(--mk-stagger-load));
-}
-
-/* You stay in charge (home), once, as the band is revealed: the message
-   card rises, then your AI's card; the confidence meter fills from the
-   inline start (its width never changes); the lanes follow 80ms apart,
-   "Applied automatically" pops and the safety lane stamps. About 1.1 s. */
-.mk-meter > span {
-  transform-origin: calc(50% - 50% * var(--inline-sign, 1)) 50%;
-}
-.mk-motion [data-mk-reveal="pending"] :is(.mk-flow-msg, .mk-flow-brain) {
-  opacity: 0;
-  translate: 0 var(--mk-dist-rise);
-}
-.mk-motion [data-mk-reveal="pending"] .mk-meter > span {
-  scale: 0 1;
-}
-.mk-motion [data-mk-reveal="pending"] .mk-lane {
-  opacity: 0;
-  translate: 0 var(--mk-dist-item);
-}
-.mk-motion [data-mk-reveal="pending"] .mk-lane-auto {
-  translate: 0 0;
-  scale: 0.6;
-}
-.mk-motion [data-mk-reveal="pending"] .mk-lane-safety {
-  translate: 0 0;
-  scale: 1.15;
-}
-.mk-motion [data-mk-reveal="in"] :is(.mk-flow-msg, .mk-flow-brain) {
-  transition:
-    opacity var(--mk-dur-slow) var(--mk-ease-out),
-    translate var(--mk-dur-slow) var(--mk-ease-out);
-}
-.mk-motion [data-mk-reveal="in"] .mk-flow-brain {
-  transition-delay: 140ms;
-}
-.mk-motion [data-mk-reveal="in"] .mk-meter > span {
-  transition: scale var(--mk-dur-emphasis) var(--mk-ease-out) 320ms;
-}
-.mk-motion [data-mk-reveal="in"] .mk-lane {
-  transition:
-    opacity var(--mk-dur-fast) var(--mk-ease-out) 720ms,
-    translate var(--mk-dur-slow) var(--mk-ease-out) 720ms;
-}
-.mk-motion [data-mk-reveal="in"] .mk-lane-auto {
-  transition:
-    opacity var(--mk-dur-fast) var(--mk-ease-out) 640ms,
-    scale var(--mk-dur-slow) var(--mk-ease-spring) 640ms;
-}
-.mk-motion [data-mk-reveal="in"] .mk-lane-safety {
-  transition:
-    opacity var(--mk-dur-fast) var(--mk-ease-out) 800ms,
-    scale var(--mk-dur-slow) var(--mk-ease-out) 800ms;
 }
 
 /* Disclosures (FAQs, the calculators' assumptions and optional numbers):
@@ -2842,10 +2080,9 @@ a.mk-nav-top {
   }
 }
 
-/* /demo: the chosen decision rises into place, and its label follows
-   80ms later: the two automatic outcomes pop (success), the hand-offs
-   stamp. Only after a visitor picks a tab; the first shows at once. The
-   early-access confirmation rises. With the motion switch at "device",
+/* One-off entrances: the early-access confirmation rises, the phone menu
+   (below) drops in, and the Trainer Brain rule card's stamp pops
+   (app/marketing-brain-pages.css). With the motion switch at "device",
    and in the headers outside .mk, reduced motion stops these (globals.css
    and app/motion.css stop element animations). */
 @keyframes mk-drop {
@@ -2871,21 +2108,6 @@ a.mk-nav-top {
     opacity: 0;
     scale: 0.6;
   }
-}
-@keyframes mk-stamp {
-  from {
-    opacity: 0;
-    scale: 1.15;
-  }
-}
-.mk-demo[data-mk-played] > .mk-demo-panel:not([hidden]) {
-  animation: mk-rise var(--mk-dur-base) var(--mk-ease-out);
-}
-.mk-demo[data-mk-played] > .mk-demo-panel:not([hidden]) > .badge {
-  animation: mk-stamp var(--mk-dur-slow) var(--mk-ease-out) 80ms both;
-}
-.mk-demo[data-mk-played] > .mk-demo-panel:not([hidden]) > .badge[data-mk-success] {
-  animation: mk-pop var(--mk-dur-slow) var(--mk-ease-spring) 80ms both;
 }
 .mk-early-done {
   animation: mk-rise var(--mk-dur-slow) var(--mk-ease-out);
@@ -2970,13 +2192,13 @@ a.mk-nav-top {
     transition: none !important;
     animation: none !important;
   }
-  :is(.mk, .mk-header, .mk-footer):not(:where([data-mk-motion="always"], [data-mk-motion="always"] *)) :is(.button, .mk-tile, .mk-icon-tile, .mk-included a, .mk-icon-square svg, .lucide-arrow-right, summary, .mk-footer-prefs, .mk-walk-btn, .mk-mobile-link, .mk-mobile-go) {
+  :is(.mk, .mk-header, .mk-footer):not(:where([data-mk-motion="always"], [data-mk-motion="always"] *)) :is(.button, .mk-tile, .mk-included a, .lucide-arrow-right, summary, .mk-footer-prefs, .mk-walk-btn, .mk-mobile-link, .mk-mobile-go) {
     translate: 0 0 !important;
     scale: none !important;
   }
   .mk-motion:not(:where([data-mk-motion="always"], [data-mk-motion="always"] *)) [data-mk-reveal="pending"],
   .mk-motion:not(:where([data-mk-motion="always"], [data-mk-motion="always"] *)) [data-mk-item="pending"],
-  .mk-motion:not(:where([data-mk-motion="always"], [data-mk-motion="always"] *)) [data-mk-reveal="pending"] :is(.mk-flow-msg, .mk-flow-brain, .mk-lane, .mk-meter > span, .mk-screen-note svg, .mk-queue-item.done .badge svg),
+  .mk-motion:not(:where([data-mk-motion="always"], [data-mk-motion="always"] *)) [data-mk-reveal="pending"] :is(.mk-screen-note svg, .mk-queue-item.done .badge svg),
   .mk-motion:not(:where([data-mk-motion="always"], [data-mk-motion="always"] *)) .mk-sets[data-mk-cue="pending"] svg {
     opacity: 1 !important;
     translate: 0 0 !important;
