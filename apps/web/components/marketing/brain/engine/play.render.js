@@ -130,7 +130,7 @@ function nodesHTML(d, S, t, r, a) {
     `<div class="bp-pills">${COACH.map((s) => n(s)).join("")}</div><div class="bp-row2">${n("set_logger", { name: "Set logger" })}${S.recoveryFlag ? n("recovery", { on: 1 }) : ""}<span class="bp-cl">code rules for workouts</span></div></div>` +
     `<div class="bp-band" data-band="after"><div class="bp-bl"><span>Checks after</span><span class="bp-rules">Your rules</span></div><div class="bp-row bp-r3">${["checker", "confidence", "lane_gate"].map((s) => n(s)).join("")}</div></div>` +
     `<div class="bp-lanes">${lanes.map(([l, txt]) => `<div class="bp-bin" data-lane="${l}"${l == r.lane ? " data-hot" : ""}>${l == "waits" ? '<span class="bp-mono">LS</span>' : ""}<span>${esc(txt)}</span></div>`).join("")}</div>` +
-    `<div class="bp-low"><div class="bp-learn"><span class="bp-bl">Learns from you</span><div class="bp-lrow"><div class="sc-node bp-priv" data-sp="code" data-kind="check" data-state="${end.code ? end.code[0] : "idle"}"><span class="sc-mx"></span>${U.icon("eye-off")}<span class="sc-nm">Privacy</span><span class="sc-val"></span></div>${n("learner")}${n("examiner")}</div></div>` +
+    `<div class="bp-low"><div class="bp-learn"><span class="bp-bl">Learns from you</span><div class="bp-lrow"><div class="sc-node bp-priv" data-sp="code" data-kind="check" data-state="${end.code ? end.code[0] : "idle"}"><span class="sc-mx" aria-hidden="true"></span>${U.icon("eye-off")}<span class="sc-nm">Privacy</span><span class="sc-val" aria-hidden="true"></span></div>${n("learner")}${n("examiner")}</div></div>` +
     `<div class="bp-shelf"><span class="bp-bl">${esc(d.labels.status.not_on_yet)}</span><div class="bp-lrow">${n("meal_planner")}${S.recoveryFlag ? "" : n("recovery")}</div></div></div>` +
     `<aside class="bp-book"><span>Your method · <b>24</b> rules (sample)</span></aside>`;
 }
@@ -151,7 +151,7 @@ export function renderStatic(d, o) {
     `<p class="bp-closest"></p><button type="button" class="bp-btn bp-all-b">${U.icon("layers")}<span>${esc(COPY.all)}</span></button></div>` +
     `<div class="bp-stage sc-stage"><div class="bp-top">${U.strip(d)}<button type="button" class="bp-pause" aria-pressed="false"><span data-label>${esc(COPY.pause)}</span><span class="bp-psz" aria-hidden="true">${esc(COPY.pause)}</span></button></div>` +
     `<div class="bp-diagram"${o.attract ? " data-attract" : ""}>${nodesHTML(d, S, t, r, a)}</div>` +
-    `<div class="bp-logd"><button type="button" class="bp-tg" aria-expanded="false" aria-controls="${u}-log">${esc(COPY.steps)}</button><div class="bp-log" id="${u}-log"><h3>${esc(COPY.panel)}</h3><div class="bp-logs"><ol class="${a.trim()}">${rows}</ol></div></div></div>` +
+    `<div class="bp-logd"><button type="button" class="bp-tg" aria-expanded="false" aria-controls="${u}-log">${esc(COPY.steps)}</button><div class="bp-log" id="${u}-log"><h3>${esc(COPY.panel)}</h3><div class="bp-logs"><ol${o.attract ? ' class="sc-res"' : ""}>${rows}</ol></div></div></div>` +
     `<div class="bp-foot"><span>${esc(d.labels.rates)}</span><span>${esc(d.labels.speed)}</span><button type="button" class="bp-how" aria-expanded="false" aria-controls="${u}-how">${esc(COPY.how)}</button><p class="bp-hownote" id="${u}-how" hidden>${esc(d.labels.howWeCount)}</p></div></div>` +
     `<div class="bp-out" id="${u}-out" tabindex="-1"><div class="bp-res${a}">${resultHTML(d, t, r)}</div>` +
     `<div class="bp-change${a}"><p class="bp-chg-h">${esc(COPY.change)}</p><button type="button" class="bp-tg" aria-expanded="false" aria-controls="${u}-set">${esc(COPY.change)}</button>` +
