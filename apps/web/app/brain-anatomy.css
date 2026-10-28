@@ -865,6 +865,17 @@
     --card: 1;
     --gh: 0;
   }
+  /* Only the stack, the plates, the card, the rulebook and the stacks read
+     those four: the parts beside and below them drop them, so the engine's
+     turning on restyles a few nodes, not all of the figure's (35–60 ms at 4x
+     CPU; custom properties inherit). */
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) :is(.ca-svg, .ca-side, .ca-foot),
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) :is(.ca-ghosts, .ca-p, .ca-card, .ca-book) > * {
+    --e: initial;
+    --pl: initial;
+    --card: initial;
+    --gh: initial;
+  }
   html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-frame {
     position: sticky;
     inset-block-start: var(--sc-top);
