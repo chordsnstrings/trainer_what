@@ -6,17 +6,9 @@
    opacity and transforms move; colours change at once. */
 
 /* ---------- the engine on: it moves the stack, the plates, the card, the rulebook and
-   the stacks inline, so the root keeps the values of the reply-card state
-   (app/brain-anatomy.css). Turning on then restyles those parts only, not every node
-   of the figure through inherited custom properties (45–60 ms at 4x CPU). ---------- */
+   the stacks inline, and keeps the root's custom properties where they were (anatomy.js),
+   so a plate at rest takes its opacity from here. ---------- */
 @media (min-height: 700px) {
-  html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) {
-    --e: 0;
-    --pl: 0;
-    --card: 1;
-    --gh: 0;
-  }
-  /* A plate at rest is opaque; the engine fades it inline. */
   html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-p {
     opacity: 1;
   }

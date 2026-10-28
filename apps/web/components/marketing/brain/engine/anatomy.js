@@ -69,6 +69,8 @@ function owned() {
 const STATES = ["data-trace", "data-tease", "data-step", "data-end", "data-stop"];
 /** Where the first frame's CSS changes mode (app/brain-anatomy.css). */
 const MODES = ["(min-height: 700px)", "(max-width: 760px)"];
+/** The root's custom properties that differ before and after the engine (app/brain-anatomy.css). */
+const PINNED = ["--e", "--pl", "--card", "--gh"];
 /** A task boundary (scheduler.yield where there is one): mounting stays clear of long tasks at 4x CPU. */
 const nextTask = () => (globalThis.scheduler && scheduler.yield ? scheduler.yield() : new Promise((r) => setTimeout(r)));
 
@@ -95,6 +97,11 @@ export async function mount(root, o) {
   };
   await nextTask(); // the chunk and the trace data in one task, the figure in the next
   try {
+    // The root's custom properties of the moment (the reply card's, app/brain-anatomy.css) stay, inline, for
+    // the engine's life: it moves those parts itself, and any change there, even to equal values from another
+    // rule, restyles every node of the figure (35–60 ms at 4x CPU).
+    const cs = getComputedStyle(root);
+    for (const k of PINNED) root.style.setProperty(k, cs.getPropertyValue(k));
     // on before the figure reads: the run sheet's restyle shares the mount's one style pass
     root.setAttribute("data-sc", "on");
     root.setAttribute("data-sc-tier", C.tier.name);
