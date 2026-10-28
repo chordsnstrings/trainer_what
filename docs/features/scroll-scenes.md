@@ -1,8 +1,29 @@
-# Scroll scenes (home page)
+# Scroll scenes (parked since 28 October 2026)
 
-On the home page (`/`), scrolling plays some sections. Each frame depends only on the scroll position, so a scene plays the same forwards and backwards. When a scene reaches its end, the section looks exactly as it did before scenes existed. The design (colours, fonts, spacing, copy and layout) is unchanged. Scenes use native scrolling and CSS transforms only; there is no animation library.
+Until 28 October 2026, scrolling the home page (`/`) played some sections. Each frame depends only on the scroll position, so a scene plays the same forwards and backwards. When a scene reaches its end, the section looks exactly as it did before scenes existed. The design (colours, fonts, spacing, copy and layout) is unchanged. Scenes use native scrolling and CSS transforms only; there is no animation library.
 
-## What is on the home page
+## Status: parked
+
+Phase 1 of the marketing revamp (PR #105) rebuilt `/`. The home no longer has the journey band or `#control`, so no page mounts the engine. It is parked, not deleted. Phase 2 decides whether to delete it or reuse it.
+
+**What remains:**
+- The engine and its recipes: `scroll-scenes.ts`, `scenes.ts` and `journey-scene.ts`.
+- `scene-mount.tsx`. Its `ScrollScenes` is no longer rendered anywhere.
+- `app/scroll-scenes.css`, still imported in `app/layout.tsx`, so every route still loads it.
+- The journey player's scrub mode.
+- `tests/scroll-scenes-engine.test.ts`, which still runs in `npm test`.
+- The head script. `SCENES_HEAD_SCRIPT` still adds `scenes-on` to `<html>` on `/` before the first paint. Nothing consumes it now: the rules in `scroll-scenes.css` and `motion.tsx` match only `[data-scene]` and `.mk-walk-band`, and both left `/`. It is harmless, and phase 2 removes it with the engine or uses it again.
+
+**The anatomy's pin is separate.**
+- The anatomy on `/trainer-brain` ([brain-showcase.md](brain-showcase.md)) pins with its own CSS sticky frame, not with this engine.
+- Its head script (`brain/head.ts`) gates the pin the same way `scenes-head.ts` gates scenes. It adds `sc-pin` only without reduced motion (the device's setting or the member's own), for visitors who are not robots, and when IntersectionObserver and sticky positioning exist. The pin also needs a viewport at least 700 px tall, like this engine's short-viewport gate.
+- Its `--sc-top` copies `--scene-top`'s header heights: 74 px, 69 px at 1150 px wide or less, and 65 px at 760 px or less. `tests/marketing-showcase.test.ts` keeps the two equal while `scroll-scenes.css` exists.
+
+**Browser checks.** The sitewide motion check's `/?scenes=on` pass reports "no scene on /" and skips the frame-loop rules. `verify_scenes.py` has nothing to run against.
+
+The rest of this page describes the engine as it ran on the home page until 28 October 2026.
+
+## What was on the home page (until 28 October 2026)
 
 | Section | Scene | What moves |
 |---|---|---|
@@ -24,13 +45,15 @@ Only these two are wired in `site.tsx` (the journey band and `scene="beats"` on 
   - there is no autoplay and the clock never advances;
   - Play jumps to the next chapter boundary, and Replay jumps to the scene start;
   - the segments, arrow keys and swipe go to a chapter by scrolling.
-- `apps/web/components/marketing/scene-mount.tsx`: `ScrollScenes`, rendered at the end of `Home` in `site.tsx`. It does three things:
+- `apps/web/components/marketing/scene-mount.tsx`: `ScrollScenes`, rendered at the end of `Home` in `site.tsx` until 28 October 2026 (no page renders it now). It does three things:
   - it mounts the engine;
   - it makes every in-place scene finish: one already on screen at load stays complete, and one near the footer finishes by the end of the page;
   - it turns scenes off if reduced motion is switched on while the page is open (the same test as the head script; a static test keeps the two equal).
 - `apps/web/components/marketing/scenes-head.ts`: the head script (inline in `app/layout.tsx`). It adds `<html class="scenes-on">` before the first paint.
 
 ## Who gets today's page
+
+Since 28 October 2026 the head script below still runs on `/`, but no scene is there to switch on (see "Status: parked").
 
 Scenes are on only when the head script adds `scenes-on`. It is not added in these cases:
 
