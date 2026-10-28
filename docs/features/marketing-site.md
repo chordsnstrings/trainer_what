@@ -1674,7 +1674,7 @@ The plan's §2 table lists every row.
 
 ### Checks run (27–28 October 2026, per work package; local Chromium only)
 
-**Typecheck and build.** `npm run typecheck` and `npm run build` passed at the end of each package. The route table shows `ƒ /[[...path]]`.
+**Typecheck and build.** `npm run typecheck` passed at the end of every package. `npm run build` passed at the end of WP0, WP1, WP4, WP5, WP6 and WP7a, and the route table shows `ƒ /[[...path]]`. The engine packages (WP2, WP3a and WP3b) did not run Next, so their code was first built inside the pages, in WP4 and WP5.
 
 **Unit tests.**
 - **Marketing suites** (`tests/marketing-*.test.ts`, `brand`, `logical-css`, `model-name-guard`, `discovery-seo`, `public-pages`): 214 of 215 after WP5.
@@ -1693,7 +1693,7 @@ The plan's §2 table lists every row.
 `/how-it-works` was unchanged. WP7a's deletions changed no page: before and after were identical apart from React's generated ids on `/earnings-calculator`.
 
 **Browser checks.**
-- **The showcase check** passed on `0dfc1dd`: exit 0, 0 failures, 6 min 5 s ([brain-showcase.md](brain-showcase.md) has its measurements).
+- **The showcase check** passed on `0dfc1dd`: exit 0, 0 failures, 6 min 5 s. It passed again on fix round 1's tree ([brain-showcase.md](brain-showcase.md) has the measurements).
 - **The journey check:** 209 passed, 0 failed.
 - **The sitewide motion check:** passed in 18 min 41 s.
 - **The brand check:** 38 failures.
