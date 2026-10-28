@@ -80,7 +80,9 @@ export function planScore(t, s) {
   ];
   // Whole percents, as the app shows them (brain-plans.tsx percent()), except where rounding would hide what
   // decides the lane: 0.705 against a bar of 71% shows 70.5%, never "71% is below your bar of 71%".
-  const whole = Math.round(score * 100), pct = confident || whole < s.bar ? whole : Math.round(score * 1000) / 10;
+  // Whole percents as the app shows them; a score that rounds up to the bar it misses shows its decimal,
+  // kept under the bar, so the % shown always agrees with the lane.
+  const whole = Math.round(score * 100), pct = confident || whole < s.bar ? whole : Math.min(Math.round(score * 1000) / 10, s.bar - 0.1);
   return { score, pct, bar: s.bar, confident, auto, reasons, display: `${pct}% · your bar ${s.bar}%` };
 }
 const swap = (st, sp, patch) => st.map((x) => (x.sp == sp ? { ...x, ...patch } : x));

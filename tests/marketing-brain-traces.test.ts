@@ -244,13 +244,13 @@ test("safety rules: categories computed by the real rules, highlighted words tha
   c.done();
 });
 
-test("plan maths: decide() equals planConfidence() and planRoute() across 480 combinations", () => {
+test("plan maths: decide() equals planConfidence() and planRoute() across 2000 combinations (every slider position)", () => {
   const c = checks();
   const seg = { goal: "strength", experience: "intermediate", daysPerWeek: 4, equipment: [] as string[] };
   let combos = 0;
   for (const id of ["t8", "t10"]) {
     const t = d.trace(id), g = t.sure.signals, ad = g.logged !== undefined;
-    for (const bar of [50, 66, 75, 78, 79, 80, 83, 86, 87, 88, 90, 99])
+    for (const bar of Array.from({ length: 50 }, (_, i) => 50 + i)) // every slider position, 50–99
       for (const eqr of [false, true])
         for (const more of [false, true])
           for (const logged of ad ? [1, 0.75, 0.5, 0.25] : [1])
@@ -272,13 +272,13 @@ test("plan maths: decide() equals planConfidence() and planRoute() across 480 co
               c.eq(mine.reasons, route.reasons, tag + " reasons");
               // Whole percents as the app shows them, except where rounding would reach the bar the score misses.
               const whole = Math.round(conf.score * 100);
-              c.eq(mine.pct, whole < bar || mine.confident ? whole : Math.round(conf.score * 1000) / 10, tag + " % rounding");
+              c.eq(mine.pct, whole < bar || mine.confident ? whole : Math.min(Math.round(conf.score * 1000) / 10, bar - 0.1), tag + " % rounding");
               c.eq(mine.pct >= bar, mine.confident, tag + " the % shown agrees with the lane");
               c.eq(core.decide(t, s, d).lane, route.route === "automatic" ? "sent" : "waits", tag + " lane");
               combos++;
             }
   }
-  c.eq(combos, 480, "plan combinations");
+  c.eq(combos, 2000, "plan combinations");
   // A score that rounds up to the bar it misses shows its decimal: never "75% is below your bar of 75%".
   for (const [patch, pct] of [[{ bar: 75, oneMoreApproved: true, loggedShare: 0.5 }, 74.8], [{ bar: 71, addEquipmentRule: true, loggedShare: 0.5 }, 70.5]] as const) {
     const r = core.decide(d.trace("t8"), settings(patch), d);
