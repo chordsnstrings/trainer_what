@@ -124,7 +124,14 @@
   - **The lead found the cause of the overflow:**
     - the playground's runtime `<canvas class="bp-cv">` has its default 300 px intrinsic width until `C.fit` sizes it (about 0.5 s), so it reaches 328 px at 320;
     - the field's first-frame canvas and SVG rails (`.mc-cv`) have the same intrinsic 300 px box.
-  - **Fix after the milestone finishes:** give them no intrinsic size until fitted, either `width="0" height="0"` or a size in the first-frame CSS. Also shorten or split the banner.
+  - **Lead fixes (`386cabd`, `da806d9`):**
+    - the field's rails and canvas and the playground's canvas carry `width="0" height="0"` until fitted;
+    - the `/demo` banner renders as two blocks, so the H1 is the largest paint at 390 and 1440 px.
+  - **Lead checks on a worktree build:**
+    - transient overflow at 320 px: 0 px in 8 sampled runs, at 1× and 4× CPU;
+    - `npm run test:marketing-showcase`: passed, full run 7 min 7 s;
+    - 85 + 69 targeted tests pass; typecheck passes.
+  - **CI on `5cd8e2d`, every other job green:** application (`npm run check`, the browser checks and more), postgres-and-container, subscriber-ui, ux-spacing, daily-workflows, compose-topology and wildcard-edge.
 
 **Done today:**
 - **Part 2:** WP4 home, WP5 brain pages, WP7a clean-up, WP7b checks and the CI step, WP8 docs.
