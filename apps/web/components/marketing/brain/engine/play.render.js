@@ -22,7 +22,11 @@
    - "Step by step" and "Change a setting" are phone-only toggles over
      regions the desktop always shows, so no width needs another first
      frame; the Pause label keeps one width; the canvas, the skip link, the
-     stamp and the "Throw them all" box are the engine's to add. */
+     stamp and the "Throw them all" box are the engine's to add;
+   - "How we count" is a disclosure, so it opens without the engine;
+   - the steps' heading sits one level under the heading that names the
+     playground: an H3 under its own H2 or the band's (labelledBy), an H2
+     where the page's H1 names it (heading: false and no labelledBy, /demo). */
 import { esc } from "./core.js";
 import { decide, defaults, isOff } from "./decide.js";
 import * as U from "./ui.js";
@@ -34,7 +38,8 @@ export const COPY = {
   h2: "Throw a moment at your Brain", lede: "Pick something a member might say. Watch each check and specialist work. Then change a setting and run it again.",
   placeholder: "Or type what a member might say", run: "Run it", all: "Throw them all", change: "Change a setting", again: "Run it again",
   panel: "What each step said", skip: "Skip to result", steps: "Step by step", moments: "Sample moments",
-  closest: "Closest sample: {chip}. This page can't read new messages.", more: "More moments", specialty: "Your specialty",
+  closest: "Closest sample: {chip}. This page can't read new messages.", none: "No sample is close to that. This page can't read new messages: pick a sample moment.",
+  more: "More moments", specialty: "Your specialty",
   allTitle: "Every sample moment at once", back: "Back to one moment", result: "Result", off: "Built and tested. Not on yet.",
   picks: "Code picks", stop: "STOP · No AI called", pause: "Pause", play: "Play", how: "How we count",
   lock: "Safety rules · can't switch off", lockTip: "Safety rules can't be switched off. You can only make them stricter.",
@@ -44,13 +49,57 @@ export const FIRST = "t1";
 /** "Your specialty" only reorders the chips (traces by number; the first 6 show on phones). */
 export const SPECS = [["strength", "Strength", [1, 6, 8, 2, 5, 10, 3, 9, 7, 4, 11, 12]], ["weight_loss", "Weight loss", [4, 10, 8, 9, 2, 1, 3, 6, 7, 5, 12, 11]],
   ["muscle_gain", "Muscle gain", [10, 1, 8, 9, 4, 6, 5, 2, 3, 7, 12, 11]], ["prenatal", "Pre- and postnatal", [11, 2, 12, 10, 5, 4, 9, 1, 8, 6, 3, 7]]];
-/* Free text → the closest sample, through this table only: no network, no
-   safety rules in the browser (the owner's default). Specific matches first,
-   so "chest pain" is t12, not t2. */
-const KEYS = [[/pregnan|حامل/i, 11], [/chest|dizzy|faint|numb|ألم|يعور|دوخة|صدري/i, 12], [/pain|hurt|injur|pop|swell|knee/i, 2],
+/* Free text → the closest sample, through this table only: no network, and
+   not the app's safety rules (the owner's default). Its first three rows are
+   wider than the app's red-flag screen (packages/domain/src/red-flags.ts):
+   whatever the screen holds maps to a moment the safety rules stop, never to
+   one that is sent (tests/marketing-anatomy-play.test.ts runs the screen's own
+   test messages through it). Specific matches first, so "chest pain" is t12,
+   not t2. Text no row matches gets no sample at all. */
+const fold = (s) => s.normalize("NFKC").replace(/(^|[^\p{L}\p{N}])([وفبك]?)الأم(?![\p{L}\p{N}])/gu, "$1$2ام").replace(/[ً-ٰٟـ]/g, "")
+  .replace(/[آأإٱ]/g, "ا").replace(/ؤ/g, "و").replace(/ئ/g, "ي").replace(/[ىی]/g, "ي").replace(/ة/g, "ه").replace(/[’‘`]/g, "'")
+  .replace(/[٠-٩]/g, (c) => c.charCodeAt(0) - 0x660).replace(/[۰-۹]/g, (c) => c.charCodeAt(0) - 0x6f0).replace(/\s+/g, " ").toLowerCase();
+/** English (folded, lower case) and Arabic (folded as the app folds it; a word may take clitics and the article). */
+const R = (en, ar) => new RegExp(`(?:${en})|(?:^|[^\\p{L}])[وفبلك]{0,2}(?:ال)?(?:${ar})(?![\\p{L}])`, "iu");
+const KEYS = [
+  // pregnancy and its warning signs
+  [R("pregnan|miscarr|amniotic|braxton|\\blabou?r\\b|eclampsia|\\bwaters? (?:(?:has|have|just|may have|might have|i think|think) )*(?:broke|broken|breaking)|(?:baby|bump|fetus|foetus|fetal|foetal)\\b.{0,30}\\b(?:mov|kick)|\\b(?:pelvic|vaginal) (?:pressure|bleeding|discharge)|" +
+    "spotting\\b(?! (?:me|you|him|her|them|us|each other|someone|somebody|people|others|a (?:friend|partner|lifter|client|mate|buddy)|my (?:friend|partner|mate|buddy|wife|husband|client|brother|sister)|the (?:bar|lift|lifter|bench|squat|press)|(?:for|on|during|while|from) |properly|correctly|safely|technique|tips|cues|position|necessary|required|needed|etiquette|arms?|hands|drills?|duty|is |isn'?t|was |are |will |would |should |can ))|" +
+    "(?:had|having|have|felt|feel|getting|get|got|been having) (?:a |another |some |regular |strong |real |bad |painful )?contractions?|contractions? (?:every|since|again|started|are|keep)|leak\\w* (?:\\w+ ){0,2}(?:fluid|water|liquid)|(?:fluid|liquid) (?:\\w+ ){0,2}(?:leak|gush|trickl|coming out)",
+    "حامل|حوامل|اجهاض|تسمم ?(?:ال)?حمل|جنين|بيبي|تنقيط|ولاده ?مبكره|انقباضات(?! ?(?:ال)?عضل)|تقلصات|امنيوسي|(?:ال)?طلق ?(?:ال)?(?:مبكر|متكرر|منتظم|قوي|مستمر)|(?:بدا|بدء|جاني|اجاني|عندي|يجيني) ?(?:ال)?طلق|" +
+    "نزول ?(?:ال)?(?:ماء|مويه|موي|سائل|سوائل|مياه|دم)|(?:تسرب|تسريب|خروج) ?(?:ال)?(?:ماء|مويه|سائل|سوائل|مياه)|كيس ?(?:ال)?(?:ماء|مويه|مياه)|(?:طفل|بيبي|جنين)\\p{L}* ?(?:\\S+ )?(?:يتحرك|يرفس|تحرك|رفس|يدف)"), 11],
+  // the heart, breathing, fainting, blood, blood pressure and sugar, self-harm, eating disorders
+  [R("chest (?:pains?|tightness|pressure|hurts?|aches?|discomfort)|chest (?:feels?|felt|is|was|gets?|got|went|has been|keeps getting) (?:(?:really|very|so|a bit|a little|kind of|kinda|all) )?(?:tight|heavy|squeezed|crushed|sore|painful)|(?:tight\\w*|heav\\w*|discomfort|crushing) (?:in|on|across|around) (?:my|the) chest|(?:pressure|squeez\\w*) (?:in|on|across|around) my chest|(?:a|my) tight chest|pain in (?:my|the) chest|" +
+    "faint|pass(?:ed|es|ing)? out|black(?:ed|ing)? ?outs?\\b|lost consciousness|unconscious|collaps|keeled over|dizz|light[\\s-]?head|vertigo|(?:room|everything|world|head) (?:\\w+ )?spinning|" +
+    "short(?:ness)? of breath|(?:can'?t|cannot|can not|couldn'?t|could not|hard to|trouble|difficulty|struggl\\w*)(?: to)? breath|breathless|out of breath|catch (?:my|his|her) breath|wheez|gasping|palpitat|irregular heart|skipp?(?:ed|ing) beats?|heart ?beats? (?:\\w+ ){0,2}(?:irregular|weird|strange|funny|off|skip)|" +
+    "heart\\s*(?:attack|flutter|skipping|beating irregularly|out of rhythm)|heart\\s*(?:(?:is|was|keeps|kept) )?(?:racing|pounding) (?:at rest|while (?:resting|sitting|lying)|sitting (?:down|still)|lying down|for no reason)|" +
+    "bleed|\\bbled\\b|blood(?! ?(?:work|tests?|results?|type|donation|panel|orange|count))|severe headache|(?:blurr\\w*|double|fuzzy) (?:vision|eyes?|sight)|vision (?:\\w+ ){0,2}(?:black|dark|grey|gray|white|blurr|fuzzy)|seeing (?:spots|stars|double|flash)|slurr|droop|(?:weakness|numbness) (?:in|on|down) one side|seizure|lost (?:my )?(?:vision|sight)|" +
+    "\\bb\\.? ?p\\b(?! ?\\d{2,3} ?(?:kg|kgs|kilos?|lbs?|x|reps?))|systolic|diastolic|hypertens|(?:my|his|her) pressure|glucose|glucometer|\\bbgl?\\b|\\bbsl\\b|\\bcgm\\b|libre|dexcom|finger ?prick|(?:my|her|his|your) sugars?\\b|sugar (?:levels?|readings?|was|is|dropped|crashed|low|high)|" +
+    "\\bsugar\\W{0,3}(?:\\w+ ){0,2}\\d{2,3}(?! ?(?:g\\b|grams?|gr\\b|kcal|cal\\b|%|per\\b|a day|/ ?day))|\\bhypo|(?:diabet|insulin|metformin|type ?[12]\\b|\\bt[12]d\\b).{0,60}(?:shak|trembl|jitter|sweat|clammy|confus|disorient|dizz|faint)|(?:shak|trembl|jitter|sweat|clammy|confus|disorient).{0,60}(?:diabet|insulin|metformin)|" +
+    "suicid|self[\\s-]?harm|kill\\w* myself(?! (?:in|at|on|with|during|doing|over) )|(?:end|ending|ended) (?:my (?:own )?life|it all)|(?:take|taking|took) my (?:own )?life(?! back)|(?:think|thought|feel|felt)\\w* (?:like |about |of )?(?:just )?end(?:ing)? it(?: all| already| forever| for good| tonight)?(?:[.!?,;]|$)|(?:want|wanna|going) (?:to )?die|better off (?:dead|without me)|wish i (?:was|were)(?:n'?t)? (?:dead|here|alive|around)|never (?:been born|existed)|" +
+    "(?:hurt|harm|cut|burn)\\w* myself(?! (?:some )?(?:slack|a break|off|short|out|down|in|deadlifting|lifting|training))|(?:don'?t|do not|no longer|can'?t|cannot) (?:want to (?:live(?! (?:on|off|in|at|with|near|there|here|abroad|without))|be alive|be here|exist|wake up(?! (?:early|at|so|before|for|to|in))|go on)|see (?:the|any) point)|(?:no|the) (?:reason|point) (?:to|in|of) (?:live|living|going on|being alive|life)|(?:want|wanna|wish i could) (?:to )?(?:just )?disappear(?! (?:into|for (?:a|the) |on |to ))|" +
+    "bulimi|anorexi|binge(?:d|s|ing)?(?![\\s-]*(?:watch|on (?:netflix|tv|youtube|shows?|series|episodes?)))|bingeing|binging|eating disorder|\\barfid\\b|orthorexi|purg(?:e|ed|es|ing)(?! (?:the|my|old|stale|expired|all|of|data|records?|backups?|logs?|cache|files?|emails?|inbox|fridge|cupboards?|pantry|closet|wardrobe))|laxative|diuretic|water pills?|(?:make|made|making) myself (?:sick|throw|vomit|puke)|(?:throw\\w*|threw) up|vomit|\\bpuk(?:e|ed|es|ing)\\b|starv|" +
+    "(?:barely|hardly|not|never) eat|eat\\w* (?:almost |next to )?nothing|(?:haven'?t|have not|hasn'?t|didn'?t|did not) (?:eaten|eat)|stopp?(?:ed|ing) eating(?= *(?:[.!?,;]|$)| (?:altogether|completely|entirely|properly|again|at all|for|since|this week|today|because|to (?:lose|drop|cut|get|make)|so|and(?! drinking)))|restricting(?! (?:carbs?|sugar|salt|sodium|alcohol|caffeine|dairy|gluten|fodmaps?|calories|kcal|my (?:carbs?|sugar|salt|caffeine|alcohol|calories)))|relaps|" +
+    "skip\\w* (?:\\w+ ){0,3}meals|skip\\w* (?:breakfast|lunch) and|cutting (?:out )?meals|fast(?:ing|ed) for (?:days|weeks|a week|\\d+|two|three|four|five|six|seven)|slipping back|sliding back|(?:back (?:to|into|in)|slipp\\w* (?:back )?into|fall\\w* back into|fell back into|old) (?:\\w+ ){0,2}(?:habits|ways|patterns|behaviou?rs|thoughts|disorder)|" +
+    "(?:eat\\w*|ate|consuming|living on|surviving on|intake (?:is|was|of)|down to) (?:\\w+ ){0,3}~?\\d{2,3} ?(?:k?cals?|calories|kilocalories)\\b(?! (?:deficit|surplus|less|more|fewer|extra|over|under|above|below|short|off|burn\\w*|so far|until|by|for|before|after|during|within|around|pre|post|per (?:meal|snack|serving)|a (?:meal|snack|serving)|each|at|in|of|from|with))",
+    "ضيق ?(?:في ?|ب)?(?:ال)?(?:صدر|تنفس|نفس)\\p{L}*|صعوبه ?(?:في ?|ب)?(?:ال)?تنفس|(?:لا|ما|مو|مش|لم) ?(?:اقدر|قدرت|اقدرت|استطيع|استطعت|استطع|قادر|قادره) ?(?:علي ?)?(?:ال|ا)?تنفس|نفسي ?(?:مقطوع|ينقطع|قاطع)|انقطع ?نفسي|انهج|الهث|" +
+    "[ايتن]?دوخ\\p{L}*|دايخ\\p{L}*|اغماء|اغمي\\p{L}*|غبت ?عن ?(?:ال)?وعي|غاب ?(?:عني ?)?(?:ال)?وعي|فقد\\p{L}* ?(?:ال)?وعي|غيبوبه|انهرت|(?:ال)?دنيا ?(?:[تد]لف|لفت|دارت|تدور|سودت|اظلمت)|اسودت|نزيف|[يت]?نزف\\p{L}*|نزفت|دم|دماء|خفقان|(?:ضربات|دقات|نبضات) ?(?:ال)?قلب\\p{L}*|(?:قلبي|نبضي) ?(?:\\S+ ){0,2}(?:[يت]دق|[يت]خفق|يضرب|سريع|[يت]تسارع|غير|مو|مش)\\p{L}*|نوبه ?قلبيه|جلطه|صداع ?شديد|" +
+    "كتمه|صدر\\p{L}* ?(?:\\S+ ){0,2}(?:[يت]عور|[يت]وجع|[يت]ولم|الم|وجع|ضيق|ضايق|ثقيل|مكتوم|كتمه|يضغط|مشدود|يعصر)\\p{L}*|(?:الم|وجع|ثقل|ضيق|كتمه) ?(?:في ?|علي ?|ب)?(?:ال)?صدر\\p{L}*|(?:ضغط|عصره|عصر) ?(?:في|علي) ?صدر\\p{L}*|" +
+    "ضغطي|ضغط ?(?:ال)?دم(?:ي)?|(?:ال)?ضغط ?(?!صدر|كتف|اكتاف|رجل|بنش|دمبل|دامبل|بار|مائل)(?:\\S+ )?(?:عالي|مرتفع|طالع|رافع)\\p{L}*|ارتفاع ?(?:\\S+ )?(?:ال)?ضغط|انقباضي|انبساطي|سكري|سكر ?(?:ال)?دم|(?:ال)?سكر(?:ي)? ?(?:\\S+ ){0,2}\\d+(?! ?(?:غ|غرام|جرام|جم|ملعقه|g|gr|grams?))|(?:هبوط|انخفاض|نزول) ?(?:في ?)?(?:ال)?سكر\\p{L}*|(?:ال)?سكر(?:ي)? ?(?:عندي ?)?(?:نازل|طايح|منخفض|واطي|هابط|نزل|طاح|هبط|انخفض|مرتفع|عالي)|جلوكوز|غلوكوز|انسولين|" +
+    "انتحار|[اين]?نتحر\\p{L}*|(?:اقتل|قتل|اوذي|ايذاء|اجرح|جرحت|اضر|احرق|[اتين]?جوع|جوعت|احرم) ?(?:ال)?نفس\\p{L}*|(?:انهي|انهاء) ?حياتي|(?:ابي|ابغي|ابغا|اريد|ودي|بدي) ?(?:ان ?)?اموت(?! ?(?:من ?)?(?:ال)?(?:ضحك|جوع|تعب|حر|برد|وناسه|فرح|عطش|شوق|ملل|طفش))|اتمني ?(?:ال)?موت|اتمني ?(?:اني|لو) ?(?:اموت|ميت|مت)|" +
+    "(?:ما|لا|مو) ?(?:ابي|ابغي|اريد|ودي|بدي) ?(?:ان ?)?(?:اعيش|احيا|اكمل ?حياتي)|(?:ما|لا|مو) ?(?:اشوف|اري|اجد|لقيت) ?(?:اي ?)?(?:فايده|داعي|معني|سبب) ?(?:من|ل|في) ?(?:ال)?(?:حياه|حياتي|عيش)|(?:ما ?(?:في|فيه|له)|لا ?يوجد) ?(?:فايده|داعي|معني) ?(?:من|ل) ?(?:ال)?(?:حياه|حياتي|عيش)|(?:تعبت|زهقت|مليت) ?من ?(?:ال)?حياه|" +
+    "[اتين]?تقيا\\p{L}*|[اتين]?تقيء\\p{L}*|تقيات|تقيو|استفراغ|[اتين]?ستفرغ\\p{L}*|استفرغت|[اتين]?طرش\\p{L}*|ترجيع|ملين\\p{L}*|مسهل\\p{L}*|شراهه|بشراهه|نهم|بنهم|(?:امتنع|امتنعت|ممتنع\\p{L}*) ?عن ?(?:ال)?اكل|انتكاس\\p{L}*|انتكست|[اين]?نتكس\\p{L}*|بوليميا|بوليميه|انوركسيا|انوريكسيا|انوركسيه|فقدان ?(?:ال)?شهيه|اضطراب\\p{L}* ?(?:ال)?(?:اكل|طعام)|" +
+    "(?:ما|لا|مو) ?(?:اكل|اكلت|اكلنا|قاعد ?اكل|قاعده ?اكل|صرت ?اكل) ?(?:شي|شيء|ولا ?شي|اي ?شي|ابد|نهائيا)(?! ?(?:بعد|قبل|الساعه|في ?الليل|بالليل|وقت|من ?(?:ال)?(?:صبح|صباح|فجر|ظهر|عصر)|اليوم|الحين|للحين|لين ?الحين))|(?:[اتين]?ترك|تركت|[اتين]?فوت|فوتت|[اتين]?سحب ?علي|سحبت ?علي|[اتين]?طنش|طنشت|[اتين]?تخطي|تخطيت) ?(?:\\S+ )?(?:ال)?(?:وجبات|وجباتي|وجبتين|اكلي)|(?:اكل|باكل|صرت ?اكل|اكلي) ?(?:\\S+ ){0,2}\\d{2,3} ?(?:سعره|سعرات|كالوري\\p{L}*)"), 12],
+  // pain and injuries
+  [R("pain|\\bhurt|injur|sprain|\\bstrain|pulled (?:a |my )?(?:\\w+ )?muscle|\\bnumb(?:ness)?\\b|\\bache|\\baching|\\bachy|swell|swollen|bruis|\\btor[en]\\b|\\btear (?:in|of)\\b|\\b[ampl]cl\\b|meniscus|ligament|tendon|achilles|rotator cuff|labrum|cartilage|ruptur|snapped|dislocat|sublux|\\bpop(?:ped|ping|s)?\\b|(?:heard|felt|got|had|there was) (?:a |this )?(?:\\w+ )?(?:snap|crack|clunk|rip)\\b|" +
+    "gave (?:way|out)|giv\\w* (?:way|out)|give (?:way|out)|(?:knees?|ankles?|hips?|joints?|shoulders?|elbows?|wrists?|jaw) (?:\\w+ ){0,3}(?:buckl|collaps|lock|unstable|loose|catch|caught|stuck|jam|seiz|popped|slipped|came out)|buckled|instability|unstable (?:knee|ankle|hip|shoulder|joint)|locked (?:up )?(?:knee|ankle|hip|elbow|jaw|joint|shoulder)|(?:lock|locks|locked|locking) up|(?:popped|slipped|came) out of|(?:rolled|twisted|turned|went over on) (?:my |the )?(?:\\w+ )?(?:ankle|knee|wrist)|\\bknee",
+    "الم|الام|[يت]ولم\\p{L}*|[اين]?تالم\\p{L}*|متالم\\p{L}*|[يت]?وجع\\p{L}*|اوجاع|موجوع\\p{L}*|[يت]عور\\p{L}*|عورني|اصابه|اصابات|مصاب\\p{L}*|التواء|ملتوي\\p{L}*|تمزق\\p{L}*|تنميل|خدر|ورم|تورم|متورم\\p{L}*|وارم\\p{L}*|انتفاخ|منتفخ\\p{L}*|نافخ\\p{L}*|منفوخ\\p{L}*|كدم\\p{L}*|انخلع\\p{L}*|خلع|رباط\\p{L}*|غضروف\\p{L}*|ركبه|ركبتي\\p{L}*|ركبتين|من ?مكان\\p{L}*|" +
+    "(?:ركب|كتف|كوع|مرفق|ورك|رسغ|معصم|مفصل|كاحل|ظهر|رقب)\\p{L}* ?(?:\\S+ ){0,2}(?:علق|يعلق|تعلق|يقفل|تقفل|قفل|انقفل|يخون|خان|طلع|يطلع|طقت|انفك)\\p{L}*"), 2],
   [/creatine|supplement|protein powder|pre-workout|vitamin|medication/i, 9], [/deload|skip|rest week/i, 6], [/easy|heavier|add weight|go up|\brir\b/i, 1],
-  [/photo|meal|\bate\b|lunch|calories/i, 4], [/tired|sleep|recovery|whoop|hrv/i, 3], [/\bnew\b|plan|programme/i, 10], [/week/i, 8], [/voice|talk|session/i, 5]];
-export const closest = (text) => "t" + ((KEYS.find(([re]) => re.test(text)) || [0, 1])[1]);
+  [/photo|meal|\bate\b|lunch|calories/i, 4], [/tired|sleep|recovery|whoop|hrv/i, 3], [/\bnew\b|plan|programme/i, 10], [/week/i, 8], [/voice|talk|session/i, 5],
+];
+/** The closest sample's trace id ("t1"…"t12"), or null when no sample is close. */
+export const closest = (text) => { const t = fold(text), k = KEYS.find(([re]) => re.test(t)); return k ? "t" + k[1] : null; };
 /** The AI specialists code picks from, in the "Your Brain" shell. */
 export const COACH = ["reply_picker", "draft_writer", "plan_writer", "week_reviewer", "meal_photo", "voice_lines"];
 const KIND = { chat_action: "Chat · a rule fits", chat_review: "Chat · a rule fits", topic: "Chat · your topic", floor: "Chat", plan: "", meal: "Meal photo", voice: "Before a voice session", learn: "Chat · no rule fits", recovery: "Workout starts" };
@@ -127,14 +176,16 @@ function nodesHTML(d, S, t, r, a) {
   const safe = d.sp.safety, rule = d.trace("t2").rule;
   const safety = n("safety", { title: false }).replace('data-sp="safety"', `data-sp="safety" title="${esc(`${safe.name}: ${safe.line} ${rule.title}: ${rule.source}`)}"`);
   const lanes = [["sent", d.labels.lanes.sent.split(",")[0]], ["waits", "Your Today"], ["paused", d.labels.lanes.paused]];
+  // the Meal planner waits on the shelf until nutrition is on, then joins the specialists code picks from
+  const planner = d.sp.meal_planner.status != "not_on_yet", shelf = (planner ? "" : n("meal_planner")) + (S.recoveryFlag ? "" : n("recovery"));
   return msgHTML(t) +
     `<div class="bp-band" data-band="before"><div class="bp-bl"><span>Checks first</span><span class="bp-rules">Your rules</span></div><div class="bp-row bp-r4">${safety}${["topics", "memory", "rule_finder"].map((s) => n(s)).join("")}</div></div>` +
     `<div class="bp-shell"><div class="bp-sh-h"><span class="bp-mono">LS</span><b>Your Brain</b><span class="bp-cap">Code picks one specialist per moment</span><span class="bp-kind${a}">${esc(kindTag(t, r))}</span></div>` +
-    `<div class="bp-pills">${COACH.map((s) => n(s)).join("")}</div><div class="bp-row2">${n("set_logger", { name: "Set logger" })}${S.recoveryFlag ? n("recovery", { on: 1 }) : ""}<span class="bp-cl">code rules for workouts</span></div></div>` +
+    `<div class="bp-pills">${COACH.map((s) => n(s)).join("")}${planner ? n("meal_planner") : ""}</div><div class="bp-row2">${n("set_logger", { name: "Set logger" })}${S.recoveryFlag ? n("recovery", { on: 1 }) : ""}<span class="bp-cl">code rules for workouts</span></div></div>` +
     `<div class="bp-band" data-band="after"><div class="bp-bl"><span>Checks after</span><span class="bp-rules">Your rules</span></div><div class="bp-row bp-r3">${["checker", "confidence", "lane_gate"].map((s) => n(s)).join("")}</div></div>` +
     `<div class="bp-lanes">${lanes.map(([l, txt]) => `<div class="bp-bin" data-lane="${l}"${l == r.lane ? " data-hot" : ""}>${l == "waits" ? '<span class="bp-mono">LS</span>' : ""}<span>${esc(txt)}</span></div>`).join("")}</div>` +
     `<div class="bp-low"><div class="bp-learn"><span class="bp-bl">Learns from you</span><div class="bp-lrow"><div class="sc-node bp-priv" data-sp="code" data-kind="check" data-state="${end.code ? end.code[0] : "idle"}"><span class="sc-mx" aria-hidden="true"></span>${U.icon("eye-off")}<span class="sc-nm">Privacy</span><span class="sc-val" aria-hidden="true"></span></div>${n("learner")}${n("examiner")}</div></div>` +
-    `<div class="bp-shelf"><span class="bp-bl">${esc(d.labels.status.not_on_yet)}</span><div class="bp-lrow">${n("meal_planner")}${S.recoveryFlag ? "" : n("recovery")}</div></div></div>` +
+    (shelf ? `<div class="bp-shelf"><span class="bp-bl">${esc(d.labels.status.not_on_yet)}</span><div class="bp-lrow">${shelf}</div></div>` : "") + `</div>` +
     `<aside class="bp-book"><span>Your method · <b>24</b> rules (sample)</span></aside>`;
 }
 
@@ -143,7 +194,7 @@ export function renderStatic(d, o) {
   const S = defaults(d), t = d.trace(FIRST), r = decide(t, S, d), u = o.id;
   // With attract, the engine plays this moment once: what it plays waits for it.
   const a = o.attract ? " sc-res" : "";
-  const ord = SPECS[0][2], i0 = r.steps.findIndex((s) => isPick(d, s));
+  const ord = SPECS[0][2], i0 = r.steps.findIndex((s) => isPick(d, s)), hl = o.heading === false && !o.labelledBy ? "h2" : "h3";
   const rows = r.steps.map((s, i) => (i == i0 ? picksRow(d, i) : "") + U.stepRow(d, t, s).replace('<li class="sc-step"', `<li class="sc-step" data-i="${i}"`)).join("");
   const html = (o.heading === false ? "" : `<div class="bp-head"><h2 id="${u}-h">${esc(COPY.h2)}</h2><p>${esc(COPY.lede)}</p></div>`) +
     `<p class="bp-banner">${esc(d.labels.long)}</p><div class="bp-grid"><div class="bp-pick">` +
@@ -154,8 +205,8 @@ export function renderStatic(d, o) {
     `<p class="bp-closest"></p><button type="button" class="bp-btn bp-all-b">${U.icon("layers")}<span>${esc(COPY.all)}</span></button></div>` +
     `<div class="bp-stage sc-stage"><div class="bp-top">${U.strip(d)}<button type="button" class="bp-pause" aria-pressed="false"><span data-label>${esc(COPY.pause)}</span><span class="bp-psz" aria-hidden="true">${esc(COPY.pause)}</span></button></div>` +
     `<div class="bp-diagram"${o.attract ? " data-attract" : ""}>${nodesHTML(d, S, t, r, a)}</div>` +
-    `<div class="bp-logd"><button type="button" class="bp-tg" aria-expanded="false" aria-controls="${u}-log">${esc(COPY.steps)}</button><div class="bp-log" id="${u}-log"><h3>${esc(COPY.panel)}</h3><div class="bp-logs"><ol${o.attract ? ' class="sc-res"' : ""}>${rows}</ol></div></div></div>` +
-    `<div class="bp-foot"><span>${esc(d.labels.rates)}</span><span>${esc(d.labels.speed)}</span><button type="button" class="bp-how" aria-expanded="false" aria-controls="${u}-how">${esc(COPY.how)}</button><p class="bp-hownote" id="${u}-how" hidden>${esc(d.labels.howWeCount)}</p></div></div>` +
+    `<div class="bp-logd"><button type="button" class="bp-tg" aria-expanded="false" aria-controls="${u}-log">${esc(COPY.steps)}</button><div class="bp-log" id="${u}-log"><${hl}>${esc(COPY.panel)}</${hl}><div class="bp-logs"><ol${o.attract ? ' class="sc-res"' : ""}>${rows}</ol></div></div></div>` +
+    `<div class="bp-foot"><span>${esc(d.labels.rates)}</span><span>${esc(d.labels.speed)}</span><details class="bp-how"><summary>${esc(COPY.how)}</summary><p class="bp-hownote">${esc(d.labels.howWeCount)}</p></details></div></div>` +
     `<div class="bp-out" id="${u}-out" tabindex="-1"><div class="bp-res${a}">${resultHTML(d, t, r)}</div>` +
     `<div class="bp-change${a}"><p class="bp-chg-h">${esc(COPY.change)}</p><button type="button" class="bp-tg" aria-expanded="false" aria-controls="${u}-set">${esc(COPY.change)}</button>` +
     `<div class="bp-set" id="${u}-set"><div class="bp-ctls">${controlsHTML(d, t, S, u)}</div><button type="button" class="bp-btn bp-again">${esc(COPY.again)}</button></div></div>` +

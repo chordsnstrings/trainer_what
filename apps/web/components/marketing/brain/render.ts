@@ -32,8 +32,10 @@ const CACHE_MAX = 32;
 
 /**
  * The showcase root and its static inner HTML. The root is labelled by the
- * page's H2 (labelledBy) or carries the label; data-nosnippet keeps the
- * sample lines out of search snippets. Live: data-sc="pre" until the engine
+ * page's H2 (labelledBy) or carries the label: a group under that H2's band,
+ * which is the region already (two regions of one name would be landmark
+ * noise), a region of its own otherwise. data-nosnippet keeps the sample
+ * lines out of search snippets. Live: data-sc="pre" until the engine
  * plays (nothing is hidden without html.sc-motion, app/brain-stage.css).
  * Static (MARKETING_SHOWCASE=static): data-sc="off", and the anatomy flat.
  * Every text, the platform name included, is HTML-escaped.
@@ -56,7 +58,7 @@ export function renderShowcase(
       ? ` data-sc="off"${kind === "anatomy" ? " data-sc-flat" : ""}`
       : ' data-sc="pre"';
   const name = o.labelledBy
-    ? ` aria-labelledby="${esc(o.labelledBy)}"`
+    ? ` role="group" aria-labelledby="${esc(o.labelledBy)}"`
     : o.label
       ? ` aria-label="${esc(o.label)}"`
       : "";

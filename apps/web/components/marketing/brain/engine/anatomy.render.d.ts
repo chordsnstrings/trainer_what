@@ -26,8 +26,10 @@ export declare const COPY: {
   ghosts: string;
   sr: string;
 };
-/** The margin notes (a)–(j): [title, text]. */
+/** The margin notes (a)–(j): [title, text]; (f)'s text holds {off} (note() fills it). */
 export declare const NOTES: Record<string, [string, string]>;
+/** A note's text under the page's flags: (f) counts the coaching specialists not on yet. */
+export declare function note(d: BrainData, k: string): string;
 /** One plate of the figure: (a)–(i). */
 export type Plate = { k: string; name: string; kind: "msg" | "check" | "ai"; state: string; stat?: string; say: string };
 /** The nine plates for a trace under the trainer's settings, the decision, and the specialist code picked. */

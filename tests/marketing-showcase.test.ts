@@ -720,9 +720,9 @@ test("static mode renders the still frame (data-sc=\"off\", the anatomy flat) wi
       const out = renderToStaticMarkup(el);
       assert.equal(out, `<div id="sc-${kind}" class="sc-host">${html}</div>`);
     }
-  // Labelled by the page's H2 instead, when it supplies one.
+  // Labelled by the page's H2 instead, when it supplies one: a group in the band that H2 names (one region).
   const labelled = renderShowcase("play", { ...options({ heading: false, labelledBy: "demo-h" }), kind: "play", id: "sc-play", label: "unused" }, "live");
-  assert.match(labelled, /^<section class="bp" data-showcase="play" data-sc="pre" data-nosnippet aria-labelledby="demo-h">/);
+  assert.match(labelled, /^<section class="bp" data-showcase="play" data-sc="pre" data-nosnippet role="group" aria-labelledby="demo-h">/);
 });
 
 test("host and island share one key: stable for equal HTML, new when a flag changes", () => {
@@ -775,8 +775,10 @@ test("the options come from the platform: its name, the page's call to action, t
   assert.deepEqual(showcaseOptions(platform, cta), {
     appName: "Acme",
     cta,
-    flags: { payments: true, payouts: false, voice: false, nutrition: true, recovery: false },
+    flags: { payments: true, payouts: false, voice: false, nutrition: true, model: true, recovery: false },
   });
+  // The AI model off: its specialists are not on yet (prepare()).
+  assert.equal(showcaseOptions({ ...platform, availability: { ...platform.availability, model: false } } as PublicPlatform, cta).flags.model, false);
   const extra = showcaseOptions(platform, cta, { heading: false, labelledBy: "h", appName: "Other", flags: { ...FLAGS, recovery: true } });
   assert.equal(extra.appName, "Acme");
   assert.equal(extra.flags.recovery, false);

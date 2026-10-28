@@ -11,6 +11,7 @@
 /* ---------- the field: root, header, status strip ---------- */
 [data-showcase="field"] {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
   padding: 12px 16px 10px;
   min-inline-size: 0;
@@ -51,7 +52,10 @@
 }
 [data-showcase="field"] .mc-legend {
   display: flex;
-  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 2px 12px;
+  min-inline-size: 0;
   margin-inline-start: auto;
   font-size: 11px;
   color: var(--sc-muted);
@@ -140,7 +144,7 @@
 [data-showcase="field"] .mc-body {
   position: relative;
   display: grid;
-  grid-template-columns: 106px minmax(0, 1fr) 156px;
+  grid-template-columns: minmax(106px, max-content) minmax(0, 1fr) 156px;
   column-gap: 13px;
   height: 458px;
   transform-origin: 50% 40%;
@@ -832,7 +836,6 @@ html.sc-motion:not(.sc-late) [data-showcase][data-sc="pre"] .mc-stamp {
   background: rgb(213 242 74 / 14%);
   color: var(--sc-pace);
   font: 500 9px/1.5 var(--sc-font);
-  white-space: nowrap;
 }
 [data-showcase="field"] .mc-sub2 {
   flex-basis: 100%;
@@ -1035,9 +1038,20 @@ html.sc-motion:not(.sc-late) [data-showcase][data-sc="pre"] .mc-stamp {
   opacity: 1;
   visibility: visible;
 }
+/* A tip shown on hover stays while the pointer moves onto it (WCAG 1.4.13):
+   it takes the pointer, and its ::after spans the gap to its control. */
+[data-showcase] .mc-chk:hover .mc-tip {
+  pointer-events: auto;
+}
+[data-showcase] .mc-tip::after {
+  content: "";
+  position: absolute;
+  inset: 100% 0 -8px;
+}
 [data-showcase] .mc-bar,
 [data-showcase] .mc-bari {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
 }
@@ -1049,7 +1063,7 @@ html.sc-motion:not(.sc-late) [data-showcase][data-sc="pre"] .mc-stamp {
   max-width: 150px;
   line-height: 1.2;
 }
-[data-showcase] .mc-bar output {
+[data-showcase] .mc-bari span {
   min-inline-size: 3.2ch;
   color: var(--sc-text);
   font: 700 12px/1 var(--sc-mono);
@@ -1147,16 +1161,23 @@ html.sc-motion:not(.sc-late) [data-showcase][data-sc="pre"] .mc-stamp {
   min-block-size: 18px;
   font-size: 10.5px;
 }
+/* "How we count" opens without the engine: a details element whose own box
+   is the footer's (display: contents), so its text takes a row of its own. */
 [data-showcase="field"] .mc-how {
+  display: contents;
+}
+[data-showcase="field"] .mc-how summary {
+  display: flex;
+  align-items: center;
   min-block-size: 24px;
-  padding: 0;
-  border: 0;
-  background: none;
   color: var(--sc-text);
   font: 500 10.5px/1 var(--sc-font);
   text-decoration: underline;
   text-underline-offset: 3px;
   cursor: pointer;
+}
+[data-showcase="field"] .mc-how summary::-webkit-details-marker {
+  display: none;
 }
 [data-showcase="field"] .mc-howp {
   flex-basis: 100%;
@@ -1511,7 +1532,8 @@ html.sc-motion:not(.sc-late) [data-showcase][data-sc="pre"] .mc-stamp {
   padding: 0;
   list-style: none;
 }
-[data-showcase="board"] .mb-b {
+[data-showcase="board"] .mb-b,
+[data-showcase="board"] .mb-b:disabled {
   display: grid;
   gap: 4px;
   width: 100%;
@@ -1613,6 +1635,55 @@ html.sc-motion:not(.sc-late) [data-showcase][data-sc="pre"] .mc-stamp {
   }
   [data-showcase="board"] .mc-bar input[type="range"] {
     width: min(220px, 60vw);
-    height: 30px;
+    height: 44px;
+  }
+}
+/* Below 350px the board's levels stack (in a row they need 318px). */
+@media (max-width: 349px) {
+  [data-showcase="board"] .mc-lv {
+    display: grid;
+    border-radius: 16px;
+  }
+  [data-showcase="board"] .mc-lv button {
+    min-block-size: 44px;
+    text-align: start;
+  }
+}
+/* Phones: a control's hit area is at least 44px tall (More settings, 44px
+   square), from a transparent ::before rather than a bigger box. */
+@media (max-width: 760px) {
+  [data-showcase] :is(.mc-how summary, .mc-sw, .mc-moreb) {
+    position: relative;
+  }
+  [data-showcase] :is(.mc-lv button, .mc-how summary, .mc-lock, .mc-chk, .mc-sw)::before,
+  [data-showcase] .mc-moreb::before {
+    content: "";
+    position: absolute;
+    inset: calc(50% - 22px) 0;
+  }
+  [data-showcase="field"] .mc-moreb::before {
+    inset-inline: -4px;
+  }
+}
+/* Contrast themes (forced colours) drop fills: the chosen level and the
+   switch keep system colours, and the switch an outline and a knob. */
+@media (forced-colors: active) {
+  [data-showcase] .mc-lv [aria-checked="true"],
+  [data-showcase] .mc-lv [aria-checked="true"] b,
+  [data-showcase] .mc-sw[aria-checked="true"] .mc-swk {
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+  }
+  [data-showcase] .mc-swk {
+    forced-color-adjust: none;
+    border: 1px solid CanvasText;
+    background: Canvas;
+  }
+  [data-showcase] .mc-swk::after {
+    background: CanvasText;
+  }
+  [data-showcase] .mc-sw[aria-checked="true"] .mc-swk::after {
+    background: HighlightText;
   }
 }

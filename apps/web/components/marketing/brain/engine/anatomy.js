@@ -127,7 +127,7 @@ function figure(root, d, S0, o, settled, say) {
   const noteLis = $$(".ca-nl li"), dots = $$(".ca-dots i"), ghosts = $$(".ca-g"), nl = $(".ca-nl"), pb = $(".ca-pause");
   const RM = C.reduced(), phone = C.phone(), flat = getComputedStyle(frame).position != "sticky", k = owned();
   const link = new RegExp(`^#${o.id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-([a-j])$`);
-  let dead = false, M = model(d, d.trace("t1"), S0), plates = [], mores = [], tagEl = null, gsc = null, gscIntro = null;
+  let dead = false, M = model(d, d.trace("t1"), S0), plates = [], mores = [], tagEl = null, gsc = null, gscIntro = null, wtl = null;
   const collect = () => {
     plates = $$(".ca-stack .ca-p");
     mores = plates.map((n) => n.querySelector(".ca-more"));
@@ -178,7 +178,7 @@ function figure(root, d, S0, o, settled, say) {
     G = { W: g.width, H: g.height, ox: s.left - g.left + (s.width * num(cs, "--ox")) / 100, oy: s.top - g.top + (s.height * num(cs, "--oy")) / 100,
       pw: num(cs, "--pw"), ph: num(cs, "--ph"), gap: num(cs, "--gap"), tz: num(cs, "--tz"), ty: num(cs, "--ty"), tx: num(cs, "--tx"), txf: cs.getPropertyValue("--txf").trim() ? num(cs, "--txf") : num(cs, "--tx"),
       top: root.getBoundingClientRect().top + y, y, len: Math.max(1, root.offsetHeight - frame.offsetHeight), lift: num(cs, "--lift"), vh: innerHeight, hh: num(cs, "--sc-top"),
-      sx: s.left - g.left, sy: s.top - g.top, sw: s.width, sh: s.height };
+      sx: s.left - g.left, sy: s.top - g.top, sw: s.width, sh: s.height, rtl: cs.direction == "rtl" };
     const b = book.getBoundingClientRect();
     G.book = [b.right - g.left, b.top - g.top + b.height * 0.5];
     // (f) keeps its compact box when inspected; its overlay hangs below it. Lift it by half the overhang so
@@ -200,13 +200,14 @@ function figure(root, d, S0, o, settled, say) {
   function centres() { G.cy = plates.map((n) => n.offsetTop + n.offsetHeight / 2); }
   /* Desktop notes: titles never move in layout. The open note's text is out of flow under its title and the
      titles below slide down by its height with a transform (no layout shift, no layout per frame), so each
-     title's anchor is fixed: read here on resize (and when fonts load), never in the loop. */
+     title's anchor is fixed: read here on resize (and when fonts load), never in the loop. The scene stays
+     left to right; in a right-to-left page the notes column sits on its left, so the anchor is their right edge. */
   let noteAt = null;
   const NA = {}, BH = {};
   function notesGeo(g) {
     if (phone) return;
     const lr = nl.getBoundingClientRect();
-    noteLis.forEach((li) => { const n = li.dataset.k; BH[n] = li.querySelector(".ca-nt").offsetHeight; NA[n] = [lr.left - g.left - 10, lr.top - g.top + li.offsetTop + 13]; });
+    noteLis.forEach((li) => { const n = li.dataset.k; BH[n] = li.querySelector(".ca-nt").offsetHeight; NA[n] = [G.rtl ? lr.right - g.left + 10 : lr.left - g.left - 10, lr.top - g.top + li.offsetTop + 13]; });
   }
   function noteAnchor() {
     const li = noteLis.find((x) => x.hasAttribute("data-focus"));
@@ -329,12 +330,12 @@ function figure(root, d, S0, o, settled, say) {
       sv[5 + n].setAttribute("d", `M${(A[0] + 8).toFixed(1)} ${A[1].toFixed(1)}L${A[0].toFixed(1)} ${A[1].toFixed(1)}L${Z[0].toFixed(1)} ${Z[1].toFixed(1)}L${(Z[0] + 8).toFixed(1)} ${Z[1].toFixed(1)}`);
       put(labs.brk[n], "transform", `translate(${(A[0] - G.sx - 10).toFixed(1)}px, ${((A[1] + Z[1]) / 2 - G.sy).toFixed(1)}px)`);
     });
-    // leader: inspected plate → its note (desktop)
+    // leader: inspected plate → its note (desktop), from the plate's side that faces the notes
     const lead = sv[7];
     if (!phone && V.k >= 0 && V.f > 0.6 && !root.hasAttribute("data-tease")) { // no leader during the intro teaser: its note is below the fold
       noteAt = noteAt || noteAnchor();
-      const kk = PERSP / (PERSP - G.tz), a = [G.ox + V.cam * ((V.k == 5 ? G.txf : G.tx) + G.pw / 2) * kk, G.oy - LF() + V.cam * G.ty * kk];
-      lead.setAttribute("d", noteAt ? `M${a[0].toFixed(1)} ${a[1].toFixed(1)}L${(noteAt[0] - 24).toFixed(1)} ${noteAt[1].toFixed(1)}L${noteAt[0].toFixed(1)} ${noteAt[1].toFixed(1)}` : "");
+      const kk = PERSP / (PERSP - G.tz), side = G.rtl ? -1 : 1, a = [G.ox + V.cam * ((V.k == 5 ? G.txf : G.tx) + (side * G.pw) / 2) * kk, G.oy - LF() + V.cam * G.ty * kk];
+      lead.setAttribute("d", noteAt ? `M${a[0].toFixed(1)} ${a[1].toFixed(1)}L${(noteAt[0] - side * 24).toFixed(1)} ${noteAt[1].toFixed(1)}L${noteAt[0].toFixed(1)} ${noteAt[1].toFixed(1)}` : "");
     } else lead.setAttribute("d", "");
     // pulse dot
     if (pu != null) for (const c of [sv[8], sv[9]]) c.setAttribute("cx", top[0].toFixed(1)), c.setAttribute("cy", py.toFixed(1));
@@ -363,18 +364,30 @@ function figure(root, d, S0, o, settled, say) {
     const nb = e.target.closest(".ca-nb");
     if (nb) return jump(nb.dataset.k);
     const w = e.target.closest(".ca-wb");
-    if (w) whatIf(w.dataset.w, w);
+    if (!w) return;
+    if (!flat && G && w.dataset.w != "base" && (!introDone || progress() < 0.88)) toEnd();
+    whatIf(w.dataset.w);
   });
   k.on(window, "hashchange", fromHash);
   const stop = () => {
     dead = true;
     k.clear();
+    endReplay();
     if (gsc) gsc.destroy();
     if (gscIntro) gscIntro.destroy();
   };
+  const press = (w) => $$(".ca-wb").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.w == w)));
+  /** Stops a What-if replay that is still running: its pulse and its stop go with it. */
+  function endReplay() {
+    if (!wtl) return;
+    wtl.stop();
+    wtl = null;
+    V.pulse = null; V.stop = 0;
+  }
   /* What-if: another moment on the same plates. Flat: they swap at once; pinned: re-explode and run it (2.4 s). */
-  function whatIf(w, btn) {
-    $$(".ca-wb").forEach((b) => b.setAttribute("aria-pressed", String(b == btn)));
+  function whatIf(w) {
+    press(w);
+    endReplay();
     if (w == "base") {
       clearWhatIf();
       if (!flat) onScroll(true);
@@ -388,7 +401,7 @@ function figure(root, d, S0, o, settled, say) {
     if (flat) return;
     gsc.play(); gscIntro.play(); // a What-if is the visitor asking for motion
     if (RM) { V = { ...V, e: 1, ex: Array(9).fill(1), lit: 9, k: -1, f: 0, end: 0, stop: M.stop ? 1 : 0, cam: 1 }; draw(); lightAll(); return; }
-    const tl = C.timeline(gscIntro);
+    const tl = (wtl = C.timeline(gscIntro));
     V = { ...V, k: -1, f: 0, j: 0, end: 0, lit: 0, stop: 0, pulse: null, cam: 1 };
     darkAll();
     draw();
@@ -397,11 +410,13 @@ function figure(root, d, S0, o, settled, say) {
     const keys = M.stop ? [[0, -0.7], [140, 0], [340, 1], [900, 1], [1300, 7], [1500, 8], [1800, 8.8]]
       : [[0, -0.7], [140, 0], [300, 1], [440, 2], [580, 3], [720, 4], [900, 5], [1500, 5], [1680, 6], [1860, 7], [2080, 8], [2300, 8.8]];
     runPulse(tl, 420, keys, M.stop ? () => { V.stop = 1; } : null);
-    tl.play();
+    tl.play().then(() => { if (wtl == tl) wtl = null; });
   }
   function clearWhatIf() {
     if (!wi) return;
     wi = null;
+    endReplay();
+    press("base");
     setTrace("t1");
     if (flat) return;
     V.stop = 0; V.lit = 9; V.pulse = null;
@@ -496,7 +511,7 @@ function figure(root, d, S0, o, settled, say) {
     tl.span(F0, 560, (q) => { const f = smooth(q); V.k = 5; V.f = f; V.tl = f; V.q = 0; V.cam = camAt(f); V.ghost = 0.72 + 0.38 * f; draw(); });
     tl.span(F0 + 360, 1900, (q) => { V.q = 0.08 + 0.7 * q; draw(); });
     tl.span(F1, 460, (q) => { const f = 1 - smooth(q); V.f = f; V.tl = f; V.cam = camAt(f); V.ghost = 0.72 + 0.38 * f; if (q >= 1) { V.k = -1; V.q = 0; } draw(); });
-    return tl.play().then(() => { if (!dead) finish(); });
+    return tl.play().then(() => { if (!dead && !introDone) finish(); });
   }
   /** y: the scroll position when the caller has just read it (mounting), so nothing reads it after a write. */
   function finish(y) {
@@ -509,6 +524,12 @@ function figure(root, d, S0, o, settled, say) {
     draw();
   }
 
+  /** A What-if reached by keyboard before the end (anatomy.run.css shows the group on focus): the figure goes to its end first. */
+  function toEnd() {
+    scrollTo({ top: G.top - G.hh + 0.95 * G.len + 1, behavior: "auto" });
+    readScroll(true);
+    if (!introDone) finish();
+  }
   function apply(p) {
     if (!introDone) return;
     if (wi && p < 0.88) clearWhatIf();
@@ -550,7 +571,13 @@ function figure(root, d, S0, o, settled, say) {
     else need = true;
     render.wake();
   }
-  k.on(window, "scroll", () => onScroll(), { passive: true });
+  // Scrolling elsewhere on the page costs no frame: the loop wakes only while the figure is within a viewport of
+  // the screen (it is no scene's, since a pinned figure follows the scroll even when its Pause is pressed).
+  let near = false;
+  const nio = new IntersectionObserver((en) => { near = en[en.length - 1].isIntersecting; if (near) onScroll(); }, { rootMargin: "100% 0px" });
+  nio.observe(root);
+  k.add(() => nio.disconnect());
+  k.on(window, "scroll", () => near && onScroll(), { passive: true });
   // the figure's own size, and the page above it (a disclosure opened, an image in): rect reads on change only
   const ro = new ResizeObserver(() => { layout(); onScroll(true, G && G.y); });
   ro.observe(grid);

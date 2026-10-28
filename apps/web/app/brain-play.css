@@ -79,7 +79,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-block-size: 40px;
+  min-block-size: 44px;
   padding: 0 14px;
   border: 1px solid var(--sc-pline);
   border-radius: 999px;
@@ -130,6 +130,7 @@
 /* ---------- the stage (ink) ---------- */
 [data-showcase="play"] .bp-stage {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   min-block-size: 560px;
   padding: 16px;
@@ -137,6 +138,7 @@
 [data-showcase="play"] .bp-top {
   position: relative;
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
@@ -205,7 +207,7 @@
   font-size: 11.5px;
 }
 [data-showcase="play"] .bp-bl,
-[data-showcase="play"] .bp-log h3 {
+[data-showcase="play"] .bp-log :is(h2, h3) {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -404,18 +406,18 @@
   color: var(--sc-muted);
   font-size: 11.5px;
 }
-[data-showcase="play"] .bp-how {
-  min-block-size: 32px;
-  padding: 0;
-  border: 0;
-  background: none;
+[data-showcase="play"] .bp-how[open] {
+  flex-basis: 100%;
+}
+[data-showcase="play"] .bp-how summary {
+  display: flex;
+  align-items: center;
+  min-block-size: 44px;
   color: var(--sc-text);
-  font: inherit;
   text-decoration: underline;
   cursor: pointer;
 }
 [data-showcase="play"] .bp-hownote {
-  flex-basis: 100%;
   margin: 0;
   color: var(--sc-text);
   line-height: 1.45;
@@ -497,7 +499,7 @@
 [data-showcase="play"] .bp-rng input {
   flex: 1;
   min-inline-size: 0;
-  block-size: 32px;
+  block-size: 44px;
   accent-color: var(--sc-ink);
 }
 [data-showcase="play"] .bp-rng output {
@@ -508,6 +510,7 @@
 [data-showcase="play"] .bp-sw {
   grid-template-columns: auto minmax(0, 1fr);
   align-items: start;
+  min-block-size: 44px;
 }
 [data-showcase="play"] .bp-sw input {
   inline-size: 20px;
@@ -521,7 +524,7 @@
   gap: 4px;
 }
 [data-showcase="play"] .bp-seg button {
-  min-block-size: 36px;
+  min-block-size: 44px;
   padding: 4px 10px;
   border: 1px solid var(--sc-pline);
   border-radius: var(--sc-radius-ctl);
@@ -579,9 +582,11 @@ html.sc-motion:not(.sc-late) [data-showcase="play"][data-sc="pre"] [data-attract
   /* The chip row scrolls edge to edge, across the page's gutter. */
   [data-showcase="play"] .bp-chips {
     flex-wrap: nowrap;
+    margin-block-start: -2px;
     margin-inline: calc(-1 * var(--mk-gutter, 16px));
-    padding: 2px var(--mk-gutter, 16px) 6px;
+    padding: 4px var(--mk-gutter, 16px) 6px;
     overflow-x: auto;
+    scroll-padding-inline: var(--mk-gutter, 16px);
     scroll-snap-type: x mandatory;
     scrollbar-width: none;
   }
@@ -602,7 +607,7 @@ html.sc-motion:not(.sc-late) [data-showcase="play"][data-sc="pre"] [data-attract
     justify-self: start;
     align-items: center;
     gap: 8px;
-    min-block-size: 40px;
+    min-block-size: 44px;
     padding: 0;
     border: 0;
     background: none;

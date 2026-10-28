@@ -69,13 +69,24 @@ const buttons = (o) => `<div class="ba-btns"><button type="button" class="bp-btn
   (o.onChange ? `<button type="button" class="bp-btn" data-a="change">${U.icon("sliders-horizontal")}${esc(COPY.change)}</button>` : "") +
   `${U.cta(o)}<button type="button" class="bp-btn" data-a="back">${esc(COPY.back)}</button></div>`;
 
+/** Tab and Shift+Tab cycle through the box's controls, wherever focus is:
+    from its heading (the first focus), or from outside, they go to the
+    first or the last control. */
 function trap(box, e) {
-  if (e.key != "Tab") return;
   const f = [...box.querySelectorAll('button:not([disabled]), a[href], [tabindex="0"], summary')].filter((x) => x.offsetParent);
   if (!f.length) return;
-  const a = f[0], z = f[f.length - 1];
-  if (e.shiftKey && document.activeElement == a) e.preventDefault(), z.focus();
-  else if (!e.shiftKey && document.activeElement == z) e.preventDefault(), a.focus();
+  const i = f.indexOf(document.activeElement), n = f.length;
+  e.preventDefault();
+  f[e.shiftKey ? (i <= 0 ? n - 1 : i - 1) : (i + 1) % n].focus();
+}
+/** Makes everything outside the overlay layer inert (the layer's ancestors'
+    other children): the page behind a modal is out of reach, for focus,
+    the pointer and assistive tech. Returns the undo. */
+function inertOutside(el) {
+  const set = [];
+  for (let n = el; n.parentElement && n != document.body; n = n.parentElement)
+    for (const s of n.parentElement.children) if (s != n && !s.inert && s.tagName != "SCRIPT") s.inert = true, set.push(s);
+  return () => set.forEach((s) => (s.inert = false));
 }
 let openOne = null, seq = 0;
 /** Opens a moment's receipt: open(traceId, {d, settings, from (DOMRect), mount,
@@ -99,6 +110,8 @@ export function open(id, o) {
   const host = o.mount || o.layer;
   if (back) host.append(back);
   host.append(box);
+  // A dialog or sheet is modal: the page behind is inert and scroll-locked, and Esc and Tab are its own.
+  const undo = inline ? null : inertOutside(o.layer);
   if (!inline) document.documentElement.classList.add("sc-lock");
   if (o.from && !RM && !sheet && !inline) {
     const b = box.getBoundingClientRect(), f = o.from;
@@ -119,7 +132,13 @@ export function open(id, o) {
     tl.play();
     if (RM) tl.skip();
   };
-  box.addEventListener("keydown", (e) => { if (e.key == "Escape") api.close(); else if (!inline) trap(box, e); });
+  // Inline, the box hears its keys; modal, the document does (first, in the capture phase), so Esc
+  // closes it from anywhere, and only it, and Tab never leaves it.
+  const key = (e) => {
+    if (e.key == "Escape") inline || e.stopPropagation(), api.close();
+    else if (e.key == "Tab" && !inline) trap(box, e);
+  };
+  (inline ? box : document).addEventListener("keydown", key, !inline);
   box.addEventListener("click", (e) => {
     const a = e.target.closest("[data-a]");
     if (!a) return;
@@ -134,10 +153,11 @@ export function open(id, o) {
       closed = true;
       if (tl) tl.stop();
       sc.destroy(); box.remove(); back && back.remove();
-      if (!inline) document.documentElement.classList.remove("sc-lock");
+      if (!inline) document.removeEventListener("keydown", key, true), undo(), document.documentElement.classList.remove("sc-lock");
       if (openOne == api) openOne = null;
-      if (!quiet && opener && opener.isConnected && opener.focus) opener.focus();
+      // the opener's side first (the field's zoom lifts its inert parts), then focus goes back to it
       o.onClose && o.onClose();
+      if (!quiet && opener && opener.isConnected && opener.focus) opener.focus();
     },
   };
   openOne = api;

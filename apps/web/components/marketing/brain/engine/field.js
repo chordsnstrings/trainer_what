@@ -26,7 +26,14 @@
      sizers, field.render.js), and on screen every re-sort is a FLIP, the
      catch-up when it mounts included, so its boxes never move in layout;
    - the Paused count holds each stop once in the reduced-motion frame (the
-     prototype landed Noura's twice). */
+     prototype landed Noura's twice);
+   - right to left, geometry is measured from the inline start and the drawn
+     layer (rails and canvas) mirrors, so routes never cross the frame;
+   - receipts open one at a time; while one lies in the zoom the field's
+     parts under it are inert, and the phone settings sheet is a modal
+     dialog (the page behind inert and scroll-locked);
+   - the mount reads every rect in one pass before it writes, and the
+     overlay layer comes with the first sheet, receipt or announcement. */
 import "./field.run.css";
 import raw from "../data/traces.client.json";
 import * as C from "./core.js";
@@ -88,12 +95,19 @@ function owned() {
     clear() { timers.forEach(clearTimeout); timers.clear(); offs.splice(0).forEach((f) => f()); },
   };
 }
-/** The inline direction's sign (WAAPI keyframes are physical). */
-const signOf = (el) => (getComputedStyle(el).direction == "rtl" ? -1 : 1);
+/** Makes everything outside the overlay layer inert (the layer's ancestors'
+    other children), while a modal sheet is open. Returns the undo.
+    (receipt.js keeps the same helper for its dialogs.) */
+function inertOutside(el) {
+  const set = [];
+  for (let n = el; n.parentElement && n != document.body; n = n.parentElement)
+    for (const s of n.parentElement.children) if (s != n && !s.inert && s.tagName != "SCRIPT") s.inert = true, set.push(s);
+  return () => set.forEach((s) => (s.inert = false));
+}
 
 /* ------------------------------------------------------------------ shared control wiring */
-function wireControls(box, p, k, root) {
-  const d = p.d, lvs = [...box.querySelectorAll("[data-level]")], rng = box.querySelector(".mc-bar input"), out = box.querySelector(".mc-bar output");
+function wireControls(box, p, k, root, say) {
+  const d = p.d, lvs = [...box.querySelectorAll("[data-level]")], rng = box.querySelector(".mc-bar input"), out = box.querySelector(".mc-bari span");
   const sw = box.querySelector(".mc-sw"), lock = box.querySelector(".mc-lock"), now = box.querySelector(".mc-lvnow");
   box.querySelectorAll("button[disabled], input[disabled]").forEach((b) => (b.disabled = false));
   const setLv = (n, demo) => {
@@ -103,10 +117,12 @@ function wireControls(box, p, k, root) {
   lvs.forEach((b) => {
     k.on(b, "click", () => setLv(+b.dataset.level));
     k.on(b, "keydown", (e) => {
-      const i = lvs.indexOf(b), key = e.key, n = key == "ArrowRight" || key == "ArrowDown" ? 1 : key == "ArrowLeft" || key == "ArrowUp" ? -1 : 0;
-      if (!n) return;
+      const key = e.key;
+      if (!/^Arrow(Up|Down|Left|Right)$/.test(key)) return;
+      // Down and the inline direction's forward arrow (Left, right to left) go to the next level
+      const n = key == "ArrowDown" || key == (getComputedStyle(b).direction == "rtl" ? "ArrowLeft" : "ArrowRight") ? 1 : -1;
       e.preventDefault();
-      const nb = lvs[(i + n + 3) % 3];
+      const nb = lvs[(lvs.indexOf(b) + n + 3) % 3];
       nb.focus();
       setLv(+nb.dataset.level);
     });
@@ -118,7 +134,7 @@ function wireControls(box, p, k, root) {
     rng.setAttribute("aria-valuetext", rng.value + "%");
     paint(rng);
     clearTimeout(deb);
-    deb = setTimeout(() => { p.touched = true; set(p, "bar", +rng.value, "user", root); }, 120);
+    deb = setTimeout(() => { deb = 0; p.touched = true; set(p, "bar", +rng.value, "user", root); }, 120);
   });
   sw && k.on(sw, "click", () => { p.touched = true; set(p, "supplementsTopic", !p.S.supplementsTopic, "user", root); });
   let tip = 0;
@@ -126,16 +142,24 @@ function wireControls(box, p, k, root) {
   lock && k.on(lock, "click", () => {
     replay(lock, "is-shake");
     lock.classList.add("is-tip");
+    lock.querySelector(".mc-tip").hidden = false;
     clearTimeout(tip);
     tip = setTimeout(() => lock.classList.remove("is-tip"), 3200);
-    C.say(lock.querySelector(".mc-tip").textContent);
+    say(lock.querySelector(".mc-tip").textContent);
+  });
+  // Esc hides a tip that shows (on hover, focus or a press) until its control is left (WCAG 1.4.13).
+  const tips = [...box.querySelectorAll(".mc-tip")];
+  for (const t of tips) for (const ev of ["pointerleave", "focusout"]) k.on(t.parentElement, ev, () => (t.hidden = false));
+  k.on(document, "keydown", (e) => {
+    if (e.key == "Escape") for (const t of tips) if (getComputedStyle(t).visibility == "visible") (t.hidden = true), t.parentElement.classList.remove("is-tip");
   });
   function paint(r) { r.style.setProperty("--fill", fill(d, +r.value) + "%"); }
   const sync = () => {
     const S = p.S;
     lvs.forEach((b) => { const on = +b.dataset.level == S.level; b.setAttribute("aria-checked", on); b.tabIndex = on ? 0 : -1; });
     if (now) now.textContent = d.labels.levels[S.level].name;
-    if (rng && +rng.value != S.bar) { rng.value = S.bar; out.textContent = S.bar + "%"; rng.setAttribute("aria-valuetext", S.bar + "%"); paint(rng); }
+    // the slider keeps the value it is being moved to until its debounce applies it
+    if (rng && !deb && +rng.value != S.bar) { rng.value = S.bar; out.textContent = S.bar + "%"; rng.setAttribute("aria-valuetext", S.bar + "%"); paint(rng); }
     sw && sw.setAttribute("aria-checked", S.supplementsTopic);
   };
   p.subs.add(sync);
@@ -147,7 +171,8 @@ function wireControls(box, p, k, root) {
 /* ------------------------------------------------------------------ one-shot effects
    Replays a one-shot CSS effect without a forced reflow: the first time the
    class starts the CSS animation; after that the same keyframes run through
-   WAAPI (pseudo-element effects need WAAPI pseudoElement support). */
+   WAAPI (pseudo-element effects need WAAPI pseudoElement support), never
+   under reduced motion. */
 const FXK = {
   "is-land": (s) => [[{ opacity: 0, transform: `translateX(${-10 * s}px)` }, { opacity: 1, transform: "translateY(0)" }], { duration: 280, easing: ENTER }],
   "is-roll": () => [[{ opacity: 0.2, transform: "translateY(-6px)" }, { opacity: 1, transform: "none" }], { duration: 280, easing: ENTER }],
@@ -163,6 +188,7 @@ const PSEUDO_FX = () => typeof KeyframeEffect != "undefined" && "pseudoElement" 
 function replay(el, cls, sign = 1) {
   if (!el) return;
   if (!el.classList.contains(cls)) { el.classList.add(cls); return; }
+  if (C.reduced()) return; // the class stands with its animation off; nothing replays it (WAAPI is not under the CSS switch)
   const k = FXK[cls] && FXK[cls](sign);
   if (k && el.animate && (!k[1].pseudoElement || PSEUDO_FX())) { try { el.animate(k[0], k[1]); return; } catch { /* the class restart below */ } }
   el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls);
@@ -196,14 +222,21 @@ async function openReceipt(id, from, ctx) {
 
 /* ------------------------------------------------------------------ the board */
 function mountBoard(root, o, p) {
-  const d = p.d, RM = C.reduced(), L = C.layer(root), k = owned();
-  let dead = false, rx = null, seen = false;
-  wireControls(root.querySelector(".mb-ctrl"), p, k, root);
+  const d = p.d, RM = C.reduced(), k = owned();
+  let dead = false, rx = null, opening = false, seen = false, L = null;
+  // The overlay layer comes with the first receipt or announcement.
+  const lay = () => L || (L = C.layer(root)), say = (m) => (lay(), C.say(m));
   // What shows is the note's first span and each column's first list; the hidden sizers after them (.mb-sz) hold the room.
   const note = root.querySelector(".mb-note > span"), diff = root.querySelector(".mb-diff"), tot = root.querySelector(".mb-tot");
   const lists = {}, cards = {};
   root.querySelectorAll(".mb-col").forEach((c) => (lists[c.dataset.lane] = c.querySelector(".mb-list")));
   root.querySelectorAll(".mb-c").forEach((c) => (cards[c.dataset.t] = c));
+  // Reads before writes (one layout): is it on screen, and, if so, where every card is, for the catch-up below.
+  const S0 = defaults(d), at = root.getBoundingClientRect();
+  seen = at.bottom > 0 && at.top < innerHeight;
+  const first = seen ? new Map(Object.values(cards).map((c) => [c, c.getBoundingClientRect()])) : null;
+  wireControls(root.querySelector(".mb-ctrl"), p, k, root, say);
+  Object.values(cards).forEach((c) => (c.firstElementChild.disabled = false));
   // Re-sorts animate only while the board is on screen. Off screen (the
   // field's auto-demo, far above) it re-sorts at once and nobody sees a move.
   const io = new IntersectionObserver((e) => (seen = e[e.length - 1].isIntersecting));
@@ -211,14 +244,19 @@ function mountBoard(root, o, p) {
   k.add(() => io.disconnect());
   k.on(root, "click", async (e) => {
     const b = e.target.closest(".mb-b");
-    if (!b) return;
-    const api = await openReceipt(b.dataset.t, b, { p, o, layer: L.el, dead: () => dead, onClose: () => (rx = null) });
-    if (api) rx = api;
+    if (!b || opening) return; // one receipt at a time: a press while one opens does nothing
+    opening = true;
+    try {
+      const api = await openReceipt(b.dataset.t, b, { p, o, layer: lay().el, dead: () => dead, onClose: () => (rx = null) });
+      if (api) rx = api;
+    } finally {
+      opening = false;
+    }
   });
-  /** Re-sorts every card by the page's settings: anim "move" (a FLIP) or "fade" (reduced motion), or at once. */
-  function apply(key, src, anim, by) {
-    const S = p.S, moved = [], first = new Map();
-    if (anim) Object.values(cards).forEach((c) => first.set(c, c.getBoundingClientRect()));
+  /** Re-sorts every card by the page's settings: anim "move" (a FLIP) or "fade" (reduced motion), or at once.
+      first: the cards' rects, read before (the mount's catch-up), else read here. */
+  function apply(key, src, anim, by, first = anim && new Map(Object.values(cards).map((c) => [c, c.getBoundingClientRect()]))) {
+    const S = p.S, moved = [];
     for (const id in cards) {
       const t = d.trace(id), r = decide(t, S, d), c = cards[id], col = c.closest(".mb-col").dataset.lane;
       const su = c.querySelector(".mb-sure");
@@ -227,7 +265,7 @@ function mountBoard(root, o, p) {
       if (col != r.lane) { lists[r.lane].append(c); moved.push([t, col, r]); }
     }
     root.querySelectorAll(".mb-col").forEach((c) => (c.querySelector(".mb-n").textContent = c.querySelectorAll(".mb-c").length));
-    if (anim) flip(first, anim == "fade" ? 280 : 420, anim == "fade");
+    if (anim && moved.length) flip(first, anim == "fade" ? 280 : 420, anim == "fade");
     if (key == "level") note.textContent = levelNote(d, S.level);
     else if (key == "supplementsTopic" && !S.supplementsTopic) note.textContent = COPY.suppOff;
     tot.textContent = totals(d, S);
@@ -235,7 +273,7 @@ function mountBoard(root, o, p) {
     const said = src != "user" ? "" : moved.length ? moved.map(([t, b, r]) => `${t.member}: before, ${d.labels.lanes[b]}. Now, ${d.labels.lanes[r.lane]}.${r.why ? " Why: " + r.why : ""}`).join(" ")
       : key == "bar" ? "No moment crossed your bar." : key == "supplementsTopic" ? (S.supplementsTopic ? "Khalid's question waits for you personally." : "Khalid's question still waits for you, drafted for you. " + COPY.suppOff) : "";
     diff.textContent = said;
-    if (said && by == root) C.say(said);
+    if (said && by == root) say(said);
   }
   const resort = (key, src, by) => apply(key, src, seen && !RM && "move", by);
   p.subs.add(resort);
@@ -243,9 +281,7 @@ function mountBoard(root, o, p) {
   // The field may have changed a setting already (its auto-demo, or the
   // visitor): the board catches up, on screen as a re-sort (a fade under
   // reduced motion), so no card jumps where the visitor is looking.
-  const S0 = defaults(d), at = root.getBoundingClientRect();
-  seen = at.bottom > 0 && at.top < innerHeight;
-  apply(p.S.level != S0.level ? "level" : p.S.supplementsTopic != S0.supplementsTopic ? "supplementsTopic" : null, "", seen && (RM ? "fade" : "move"));
+  apply(p.S.level != S0.level ? "level" : p.S.supplementsTopic != S0.supplementsTopic ? "supplementsTopic" : null, "", seen && (RM ? "fade" : "move"), null, first);
   root.setAttribute("data-sc", "on");
   root.setAttribute("data-sc-tier", C.tier.name);
   return {
@@ -254,7 +290,7 @@ function mountBoard(root, o, p) {
       dead = true;
       k.clear();
       rx && rx.close(true);
-      L.release();
+      L && L.release();
       unshare(p);
     },
   };
@@ -262,14 +298,16 @@ function mountBoard(root, o, p) {
 
 /* ------------------------------------------------------------------ the field */
 function mountField(root, o, p) {
-  const d = p.d, RM = C.reduced(), k = owned(), L = C.layer(root), sign = signOf(root);
+  const d = p.d, RM = C.reduced(), k = owned();
   const $ = (s) => root.querySelector(s), $$ = (s) => [...root.querySelectorAll(s)];
   const body = $(".mc-body"), frame = $(".mc-frame"), rails = $(".mc-rails"), cv = $(".mc-cv2"), sheet = $(".mc-sheet"), moreb = $(".mc-moreb");
   const sheetHome = sheet.parentElement, pb = $(".mc-pause");
-  let ph = C.phone(), G = null, ctx = null, W = 0, T = 0, freeze = 0, seq = 0, drawnAt = -1e9, dead = false;
+  // sign: the inline direction's (WAAPI keyframes are physical), read with the geometry; sc and ctl come after the first reads.
+  let ph = C.phone(), G = null, ctx = null, W = 0, T = 0, freeze = 0, seq = 0, drawnAt = -1e9, dead = false, sign = 1, sc = null, ctl = null, L = null;
+  // The overlay layer comes with the first sheet, receipt or announcement.
+  const lay = () => L || (L = C.layer(root)), say = (m) => (lay(), C.say(m));
   const Q = [], dots = [], rules = [], streams = [], rips = [], R = C.rng(7), RG = C.rng(11);
   const at = (t, fn) => { let i = Q.length; while (i && Q[i - 1][0] > t) i--; Q.splice(i, 0, [t, fn]); };
-  const sc = C.scene(root, { onState: (run, why) => { $(".mc-reading").hidden = !why.includes("read"); } });
   const NS = {}, nodes = {};
   $$(".mc-frame [data-sp]").forEach((n, i) => {
     const sp = n.dataset.sp;
@@ -277,7 +315,6 @@ function mountField(root, o, p) {
   });
   const lanes = {}, lists = {};
   $$(".mc-lane").forEach((sec) => { lanes[sec.dataset.lane] = sec; lists[sec.dataset.lane] = sec.querySelector(".mc-tl"); });
-  root.classList.add("sc-cv");
 
   /* ---- reset the server-rendered result states, then play (a settled frame keeps them).
      Noura's tile keeps its slot in Training paused, hidden, until her stop lands it. */
@@ -289,15 +326,19 @@ function mountField(root, o, p) {
     setNode("safety", "idle");
   };
 
-  /* ---- geometry: rects relative to the body, read once and on resize */
+  /* ---- geometry: rects relative to the body, read once and on resize. x runs
+     from the inline start (from the right, right to left): the drawn layer
+     mirrors (G.rtl), so every route works in one direction. */
   const Y = new Map(), HT = new Map(); // a tile's offset in its list; tile heights by content
+  const hkey = (li) => (li.classList.contains("mc-more") ? "+" : li.dataset.t + (li.querySelector(".mc-sub2").textContent ? "*" : ""));
   function measure() {
     ph = C.phone();
-    dock();
-    const b = body.getBoundingClientRect();
-    const R_ = (el) => { const r = el.getBoundingClientRect(), x = r.left - b.left, y = r.top - b.top; return { x, y, w: r.width, h: r.height, r: x + r.width, b: y + r.height, cx: x + r.width / 2, cy: y + r.height / 2 }; };
-    const g = { W: b.width, H: b.height, n: {}, m: {}, lane: {}, mx: {} };
+    if (!ph) undock();
     if (!ph) for (const l in lists) lists[l].classList.add("is-stack");
+    // every read in one pass (one style and layout): the direction, the rects, the tiles' heights
+    const b = body.getBoundingClientRect(), rtl = getComputedStyle(root).direction == "rtl";
+    const R_ = (el) => { const r = el.getBoundingClientRect(), x = rtl ? b.right - r.right : r.left - b.left, y = r.top - b.top; return { x, y, w: r.width, h: r.height, r: x + r.width, b: y + r.height, cx: x + r.width / 2, cy: y + r.height / 2 }; };
+    const g = { W: b.width, H: b.height, n: {}, m: {}, lane: {}, mx: {}, rtl };
     for (const sp in nodes) if (nodes[sp].offsetParent) {
       g.n[sp] = R_(nodes[sp]);
       const slot = nodes[sp].querySelector(".sc-mx");
@@ -305,6 +346,8 @@ function mountField(root, o, p) {
     }
     $$(".mc-m").forEach((m) => (g.m[m.dataset.t] = R_(m)));
     for (const l in lanes) g.lane[l] = { box: R_(lanes[l]), list: R_(ph ? lanes[l].querySelector(".mc-lh") : lists[l]) };
+    HT.clear();
+    if (!ph) for (const l in lists) for (const li of lists[l].children) if (!li.hidden) HT.set(hkey(li), li.offsetHeight);
     g.fr = R_(frame); g.inb = R_($(".mc-in")); g.shell = R_($(".mc-shell")); g.first = R_($(".mc-first")); g.after = R_($(".mc-after"));
     g.spine = ph ? null : R_($(".mc-spine")); g.lanes = R_($(".mc-lanes"));
     g.learn = ph ? null : R_($(".mc-learn"));
@@ -318,12 +361,13 @@ function mountField(root, o, p) {
     // boxes the moving layer never draws inside (lines are cut at their edges in JS), so dots pass "under" nodes,
     // lane cards and the message: a canvas clip or an erase pass costs a full-canvas mask every frame.
     g.boxes = [...Object.values(g.n), ...Object.values(g.lane).map((l) => l.box), g.inb, ...(ph ? [R_($(".mc-cr"))] : [])].map((r) => ({ x: r.x, y: r.y, r: r.r, b: r.b })); // phones: the readout line too
-    G = g;
+    // then the writes
+    G = g; sign = rtl ? -1 : 1;
     ctx = C.fit(cv, g.W, g.H);
+    if (rtl) ctx.translate(g.W, 0), ctx.scale(-1, 1);
     drawnAt = -1e9;
     rails.setAttribute("width", g.W); rails.setAttribute("height", g.H); rails.setAttribute("viewBox", `0 0 ${g.W} ${g.H}`);
     rails.innerHTML = drawStatic();
-    HT.clear();
   }
   const col = (sp) => { const c = G.ch; return SHELL.findIndex((r) => r.includes(sp)) < 0 ? [c[0], c[1]] : [c[SHELL.flat().indexOf(sp) % 3], c[SHELL.flat().indexOf(sp) % 3 + 1]]; };
   const row = (sp) => SHELL.findIndex((r) => r.includes(sp));
@@ -344,7 +388,7 @@ function mountField(root, o, p) {
       for (const key in g.m) { const m = g.m[key]; Ln([[m.r, m.cy], [g.gL, m.cy]], 0.06); }
       const ln = g.learn; Ln([[ln.x, ln.cy], [ln.r, ln.cy]], 0.1);
     } else Ln([[g.gL, g.inb.cy], [g.gL, g.bot], [g.gR, g.bot]], 0.1);
-    return `<g fill="none" stroke="${PAPER}">${out.join("")}</g>`;
+    return `<g fill="none" stroke="${PAPER}"${g.rtl ? ` transform="matrix(-1 0 0 1 ${f(g.W)} 0)"` : ""}>${out.join("")}</g>`;
   }
   const laneRails = () => {
     const g = G, gate = g.n.lane_gate;
@@ -476,17 +520,30 @@ function mountField(root, o, p) {
   const laneOf = (id) => { const t = d.trace(id), r = decide(t, p.S, d); return t.decide == "learn" ? "waits" : r.lane; };
   const lisOf = (l) => [...lists[l].children].filter((li) => li.classList.contains("mc-li"));
   const due = (li) => li.classList.contains("is-due"); // a reserved slot: not landed yet
-  function place(l) {
+  /** Stacks a lane's shown tiles (lis, newest first) and its "+N" (n moments
+      in all). The lane's box never grows: a tile that would run past its
+      foot (wider text, bigger text spacing) rolls into "+N" instead. */
+  function place(l, lis, n) {
+    const mo = lists[l].lastElementChild;
+    let k = Math.min(lis.length, SHOW[l]);
+    const more = () => { const m = n - lis.slice(0, k).filter((li) => !due(li)).length; mo.hidden = m <= 0; mo.textContent = "+" + m; };
+    more();
     if (ph) return;
-    let y = 0;
-    for (const li of lists[l].children) {
-      if (li.hidden) continue;
-      // its place first: a height read below must not see a tile that just appeared at the top
-      if (Y.get(li) !== y) { li.style.transform = `translateY(${y}px)`; Y.set(li, y); }
-      const key = li.classList.contains("mc-more") ? "+" : li.dataset.t + (li.querySelector(".mc-sub2").textContent ? "*" : "");
-      let ht = HT.get(key);
-      if (ht == null) HT.set(key, (ht = li.offsetHeight));
-      y += ht + 4;
+    const cap = G.lane[l].list.h; // the stacked list fills its lane, under the header (and Your Today's "To check" line)
+    for (;;) {
+      let y = 0;
+      for (const li of lists[l].children) {
+        if (li.hidden) continue;
+        // its place first: a height read below must not see a tile that just appeared at the top
+        if (Y.get(li) !== y) { li.style.transform = `translateY(${y}px)`; Y.set(li, y); }
+        const key = hkey(li);
+        let ht = HT.get(key);
+        if (ht == null) HT.set(key, (ht = li.offsetHeight));
+        y += ht + 4;
+      }
+      if (y - 4 <= cap || k < 2) return;
+      lis[--k].hidden = true;
+      more();
     }
   }
   /** A moment lands in its lane: on top, or (the reduced-motion still frame)
@@ -514,12 +571,10 @@ function mountField(root, o, p) {
       if (ce.textContent != String(n)) { ce.textContent = n; replay(ce, "is-roll"); }
       sec.querySelector(".mc-csr").textContent = `: ${n} in this sample hour`;
       lis.forEach((li, i) => (li.hidden = i >= SHOW[l]));
-      const more = n - Math.min(lis.length, SHOW[l]), mo = lists[l].querySelector(".mc-more");
-      mo.hidden = more <= 0; mo.textContent = "+" + more;
       const last = lis.find((li) => !due(li));
       sec.querySelector(".mc-last").textContent = last ? d.trace(last.dataset.t).member : "—";
       if (l == "waits") sec.querySelector(".mc-chk2 b").textContent = spot && tiles.t10 && tiles.t10.lane == "sent" ? spot : 0;
-      place(l);
+      place(l, lis, n);
     }
     rove();
   }
@@ -545,7 +600,7 @@ function mountField(root, o, p) {
         const tl = tiles[li.dataset.t];
         if (!tl || li.hidden || a.l == tl.lane) return;
         const A = G.lane[a.l].list, B = G.lane[tl.lane].list;
-        li.animate([{ transform: `translate(${A.x - B.x}px,${A.y + a.y - B.y}px)` }, { transform: li.style.transform }], { duration: 420, delay: 40 * i++, easing: EASE, fill: "backwards" });
+        li.animate([{ transform: `translate(${(A.x - B.x) * sign}px,${A.y + a.y - B.y}px)` }, { transform: li.style.transform }], { duration: 420, delay: 40 * i++, easing: EASE, fill: "backwards" });
       });
     }
     const gate = G && G.n.lane_gate;
@@ -565,7 +620,7 @@ function mountField(root, o, p) {
     }
     if (src == "user" && by == root) {
       const names = moved.map((id) => d.trace(id).member);
-      C.say(names.length ? `${names.join(", ")} moved to ${COPY.laneShort[tiles[moved[0]].lane]}.` : "No moment changed lanes.");
+      say(names.length ? `${names.join(", ")} moved to ${COPY.laneShort[tiles[moved[0]].lane]}.` : "No moment changed lanes.");
     }
   }
 
@@ -992,8 +1047,9 @@ function mountField(root, o, p) {
     b.classList.remove("is-press"); void b.offsetWidth; b.classList.add("is-press");
     dm.style.setProperty("--x", (sign > 0 ? b.offsetLeft + b.offsetWidth / 2 : lv.offsetWidth - b.offsetLeft - b.offsetWidth / 2) + "px");
     dm.classList.add("is-shown");
-    // applied at the start of a frame, before other events dirty the layout
-    at(W + 320, () => pre.push(() => ctl.setLv(n, true)));
+    // applied at the start of a frame, before other events dirty the layout; a level the
+    // visitor chose meanwhile stands (the demo stops, its chip goes)
+    at(W + 320, () => pre.push(() => { if (!p.touched) ctl.setLv(n, true); else dm.classList.remove("is-shown"), b.classList.remove("is-press"); }));
     at(W + 2400, () => { dm.classList.remove("is-shown"); b.classList.remove("is-press"); });
   }
   function nudge() {
@@ -1103,12 +1159,14 @@ function mountField(root, o, p) {
   }
 
   /* ---- receipts: the zoom (desktop), or the sheet in the overlay layer (phones) */
-  let rx = null, zoomHost = null;
+  let rx = null, zoomHost = null, opening = false;
+  /** While a receipt lies in the zoom, the parts of the field under it are inert (the header, with Pause, stays). */
+  const cover = (on) => $$(":scope > :is(.mc-strip, .mc-body, .mc-sub, .mc-ctrl, .mc-foot)").forEach((el) => (el.inert = on));
   const field = {
     async zoom(id) {
       sc.set("read", true);
       const t = d.trace(id), a = pick(t, d, p.S) || "safety", n = G.n[a] || G.n.safety;
-      body.style.transformOrigin = `${n.cx}px ${n.cy}px`;
+      body.style.transformOrigin = `${G.rtl ? G.W - n.cx : n.cx}px ${n.cy}px`;
       root.classList.add("is-zoom");
       zoomHost && zoomHost.remove();
       const host = (zoomHost = h("div.mc-rx"));
@@ -1118,6 +1176,7 @@ function mountField(root, o, p) {
       return host;
     },
     unzoom() {
+      cover(false);
       root.classList.remove("is-read", "is-zoom");
       zoomHost && zoomHost.remove(); zoomHost = null;
       sc.set("read", false);
@@ -1132,36 +1191,51 @@ function mountField(root, o, p) {
     },
   };
   async function receipt(id, from) {
+    if (opening) return; // one at a time: a press while one opens (its chunk, the zoom) does nothing
+    opening = true;
     if (rx) rx.close(true);
-    const api = await openReceipt(id, from, { p, o, layer: L.el, dead: () => dead, zoom: field.zoom, hold: field.hold, onChange: (t) => field.focusControl(t), onClose: () => { rx = null; field.unzoom(); } });
-    if (api) rx = api;
+    try {
+      const api = await openReceipt(id, from, { p, o, layer: lay().el, dead: () => dead, zoom: field.zoom, hold: field.hold, onChange: (t) => field.focusControl(t), onClose: () => { rx = null; field.unzoom(); } });
+      if (api) { rx = api; if (zoomHost) cover(true); } // after it took its opener, which it focuses again on close
+    } finally {
+      opening = false;
+    }
   }
 
-  /* ---- the phone settings sheet: in the overlay layer, over a backdrop */
-  let sheetOpen = false, back = null;
-  function dock() {
-    if (ph && sheet.parentElement != L.el) { sheet.hidden = true; L.el.append(sheet); }
-    else if (!ph && sheet.parentElement != sheetHome) {
-      sheetOpen = false; moreb.setAttribute("aria-expanded", "false"); back && back.remove();
-      sheet.classList.remove("is-open"); sheet.hidden = false; sheetHome.append(sheet);
-      sc.set("read", false);
-    }
+  /* ---- the phone settings sheet: opened, it moves to the overlay layer, a
+     modal dialog over a backdrop (the page behind inert and scroll-locked);
+     on desktop it is part of the controls row (a group). */
+  let sheetOpen = false, back = null, unInert = null;
+  function modal(on) {
+    if (on && !unInert) unInert = inertOutside(L.el), document.documentElement.classList.add("sc-lock");
+    else if (!on && unInert) unInert(), (unInert = null), document.documentElement.classList.remove("sc-lock");
+  }
+  function undock() {
+    if (sheet.parentElement == sheetHome) return;
+    modal(false);
+    sheetOpen = false; moreb.setAttribute("aria-expanded", "false"); back && back.remove();
+    sheet.classList.remove("is-open"); sheet.hidden = false; sheet.setAttribute("role", "group"); sheet.removeAttribute("aria-modal");
+    sheetHome.append(sheet);
+    sc && sc.set("read", false);
   }
   function openSheet(on, to) {
     if (!ph || on == sheetOpen) return;
     sheetOpen = on;
     moreb.setAttribute("aria-expanded", on);
     if (on) {
+      if (sheet.parentElement == sheetHome) { sheet.hidden = true; lay().el.append(sheet); sheet.setAttribute("role", "dialog"); sheet.setAttribute("aria-modal", "true"); }
       if (!back) { back = h("div.mc-sheetback"); k.on(back, "click", () => openSheet(false)); }
       L.el.insertBefore(back, sheet);
       sheet.hidden = false;
       void sheet.offsetWidth; // the closed position first, so the slide-in runs
       sheet.classList.add("is-open"); back.classList.add("is-open");
+      modal(true);
       sc.set("read", true);
       k.later(() => sheetOpen && (to || sheet.querySelector("[data-close]")).focus(), 30);
     } else {
       sheet.classList.remove("is-open"); back.classList.remove("is-open");
       k.later(() => { if (!sheetOpen) { sheet.hidden = true; back.remove(); } }, 300);
+      modal(false); // before focus goes back: the button is out of reach while the page is inert
       sc.set("read", false);
       moreb.focus();
     }
@@ -1176,37 +1250,45 @@ function mountField(root, o, p) {
   });
 
   /* ---- interactions */
-  const ctl = wireControls($(".mc-ctrl"), p, k, root);
   k.on(root, "click", (e) => {
     const b = e.target.closest(".mc-tile, .mc-m");
     if (b && !b.disabled && b.dataset.t) { receipt(b.dataset.t, b); return; }
     const bin = e.target.closest(".mc-bin");
     if (bin) { binList(bin); return; }
     if (e.target.closest(".mc-moreb")) openSheet(!sheetOpen);
-    const how = e.target.closest(".mc-how");
-    if (how) { const hp = $(".mc-howp"); hp.hidden = !hp.hidden; how.setAttribute("aria-expanded", !hp.hidden); }
   });
   k.on(root, "keydown", (e) => {
     if (e.key == "Escape" && rx) rx.close(); // the receipt in the zoom closes from anywhere in the field
-    if (e.key == "Escape") { const hp = $(".mc-howp"); if (!hp.hidden) { hp.hidden = true; $(".mc-how").setAttribute("aria-expanded", "false"); } closeBin(); }
+    if (e.key == "Escape") { $(".mc-how").open = false; closeBin(); }
     const b = e.target.closest(".mc-tile, .mc-m");
     if (!b || !/^Arrow(Up|Down)$/.test(e.key) || b.closest(".mc-binlist")) return;
-    const list = [...b.closest("ul").querySelectorAll(b.classList.contains("mc-m") ? ".mc-m" : ".mc-li:not([hidden]):not(.is-due) .mc-tile")];
+    // the arrows move through the members (each its own tab stop) and through a lane's tiles (one tab stop, roving)
+    const m = b.classList.contains("mc-m"), list = [...b.closest("ul").querySelectorAll(m ? ".mc-m" : ".mc-li:not([hidden]):not(.is-due) .mc-tile")];
     const i = list.indexOf(b), nb = list[clamp(i + (e.key == "ArrowDown" ? 1 : -1), 0, list.length - 1)];
-    e.preventDefault(); list.forEach((x) => (x.tabIndex = -1)); nb.tabIndex = 0; nb.focus();
+    e.preventDefault();
+    if (!m) list.forEach((x) => (x.tabIndex = -1)), (nb.tabIndex = 0);
+    nb.focus();
   });
-  let binBox = null, binFrom = null;
+  /* A bin's list (phones): a small dialog over the bins. Esc, Done, a tap
+     outside it or focus moving on to the page close it (a receipt opened
+     from it, in the overlay layer, keeps it). */
+  let binBox = null, binFrom = null, binOff = null;
   function binList(bin) {
     closeBin();
     binFrom = bin; // Esc or Done returns focus here
-    const l = bin.dataset.bin;
-    binBox = h("div.mc-binlist", { role: "dialog", "aria-label": COPY.lanes[l][0] });
-    binBox.innerHTML = `<p><b>${esc(COPY.lanes[l][0])}</b><button type="button" class="mc-x" data-binx>${esc(COPY.done)}</button></p><ul>${lisOf(l).filter((li) => !due(li)).map((li) => `<li><button type="button" class="mc-tile" data-t="${li.dataset.t}">${li.querySelector(".mc-tn").innerHTML}</button></li>`).join("")}</ul>`;
-    root.append(binBox);
-    k.on(binBox, "click", (e) => { if (e.target.closest("[data-binx]")) closeBin(bin); });
-    binBox.querySelector("button").focus();
+    const l = bin.dataset.bin, box = (binBox = h("div.mc-binlist", { role: "dialog", "aria-label": COPY.lanes[l][0] }));
+    box.innerHTML = `<p><b>${esc(COPY.lanes[l][0])}</b><button type="button" class="mc-x" data-binx>${esc(COPY.done)}</button></p><ul>${lisOf(l).filter((li) => !due(li)).map((li) => `<li><button type="button" class="mc-tile" data-t="${li.dataset.t}">${li.querySelector(".mc-tn").innerHTML}</button></li>`).join("")}</ul>`;
+    root.append(box);
+    box.addEventListener("click", (e) => { if (e.target.closest("[data-binx]")) closeBin(bin); });
+    const away = (t) => t && !box.contains(t) && !t.closest(".sc-layer");
+    const down = (e) => away(e.target) && closeBin(null), key = (e) => e.key == "Escape" && closeBin();
+    box.addEventListener("focusout", (e) => away(e.relatedTarget) && closeBin(null));
+    document.addEventListener("pointerdown", down, true);
+    document.addEventListener("keydown", key);
+    binOff = () => { document.removeEventListener("pointerdown", down, true); document.removeEventListener("keydown", key); };
+    box.querySelector("button").focus();
   }
-  function closeBin(focus = binFrom) { if (binBox) { binBox.remove(); binBox = null; focus && focus.focus(); } }
+  function closeBin(focus = binFrom) { if (binBox) { binOff(); binBox.remove(); binBox = null; focus && focus.focus(); } }
   k.add(C.prefetch(() => import("./receipt.js"), root, 10000));
 
   /* ---- pause button, resize, start */
@@ -1214,17 +1296,24 @@ function mountField(root, o, p) {
   function teardown() {
     dead = true;
     rx && rx.close(true);
-    sc.destroy();
+    sc && sc.destroy();
     k.clear();
     closeBin(null);
-    if (sheet.parentElement == L.el) sheet.remove();
+    modal(false);
+    if (L && sheet.parentElement == L.el) sheet.remove();
     back && back.remove();
-    L.release();
+    L && L.release();
   }
+  /** The start sweep's delay for a node: down and along its row, from its frame's (or the shell's) corner. */
+  const sweep = (sp) => { const n = G.n[sp], o2 = row(sp) >= 0 || sp == "set_logger" ? G.shell : G.fr; return n ? (n.x - o2.x + n.y - o2.y) * 0.9 : 0; };
   try {
-    pb.disabled = false;
-    $$(".mc-m, .mc-bin, .mc-moreb, .mc-how").forEach((b) => (b.disabled = false));
+    // Reads first: every rect, the direction and the tiles' heights in one layout. The writes follow.
     measure();
+    sc = C.scene(root, { onState: (run, why) => { $(".mc-reading").hidden = !why.includes("read"); } });
+    root.classList.add("sc-cv");
+    ctl = wireControls($(".mc-ctrl"), p, k, root, say);
+    pb.disabled = false;
+    $$(".mc-m, .mc-bin, .mc-moreb").forEach((b) => (b.disabled = false));
     k.add(C.tier.on((name) => { measure(); counts(); root.setAttribute("data-sc-tier", name); if (RM) draw(); }));
     let rz = 0, lastW = G.W, lastP = ph;
     ro = new ResizeObserver(() => {
@@ -1237,6 +1326,8 @@ function mountField(root, o, p) {
     });
     ro.observe(body);
     k.add(() => { ro.disconnect(); clearTimeout(rz); });
+    // A web font that arrives after the mount changes the text's size: measure again.
+    if (document.fonts && document.fonts.status == "loading") document.fonts.ready.then(() => dead || (measure(), counts(), RM && draw()));
     p.subs.add(resort);
     k.add(() => p.subs.delete(resort));
     const own = () => { for (const li of $$(".mc-li")) tiles[li.dataset.t] = { li, lane: li.closest(".mc-lane").dataset.lane, n: due(li) ? 0 : 1 }; };
@@ -1253,7 +1344,7 @@ function mountField(root, o, p) {
       if (o.settled) { frame.classList.add("is-still"); setNode("safety", "hit", { val: "STOP" }); } else resetFirst();
       own(); counts();
       k.later(() => { for (const l in lists) lists[l].classList.add("is-glide"); }, 100); // tiles glide once placed
-      Object.keys(NS).forEach((sp) => { const s_ = NS[sp], n = nodes[sp], dly = (n.offsetTop + n.offsetLeft) * 0.9; if (s_.owner || sp == "safety") return; s_.mode = "code"; s_.t0 = -dly; at(dly + 240, () => { if (!NS[sp].owner && NS[sp].mode == "code") NS[sp].mode = "idle"; }); });
+      Object.keys(NS).forEach((sp) => { const s_ = NS[sp], dly = sweep(sp); if (s_.owner || sp == "safety") return; s_.mode = "code"; s_.t0 = -dly; at(dly + 240, () => { if (!NS[sp].owner && NS[sp].mode == "code") NS[sp].mode = "idle"; }); });
       story(o.settled);
       sc.loop((dt) => { frameFn(dt); director(); }, 60);
     }

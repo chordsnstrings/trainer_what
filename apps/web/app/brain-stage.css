@@ -301,7 +301,13 @@ html.sc-motion:not(.sc-late) [data-showcase][data-sc="pre"] .sc-res {
   box-shadow: inset 0 0 0 1.5px var(--sc-paused);
   border-color: transparent;
 }
+/* Not reached: dimmed by its frame and glyphs, never its text (4.5:1 holds). */
 [data-showcase] .sc-node[data-state="skip"] {
+  border-style: dashed;
+  background: transparent;
+  color: var(--sc-muted);
+}
+[data-showcase] .sc-node[data-state="skip"] :is(.sc-ic, .sc-mx) {
   opacity: 0.45;
 }
 [data-showcase] .sc-node[data-state="focus"] {
@@ -430,6 +436,9 @@ html.sc-motion:not(.sc-late) [data-showcase][data-sc="pre"] .sc-res {
   background: var(--sc-paused);
 }
 [data-showcase] .sc-step[data-result="skipped"] {
+  color: var(--sc-muted);
+}
+[data-showcase] .sc-step[data-result="skipped"] .sc-gl {
   opacity: 0.55;
 }
 [data-showcase] .sc-step-h {
@@ -727,6 +736,17 @@ html.sc-motion:not(.sc-late) [data-showcase][data-sc="pre"] .sc-res {
   padding-inline: 24px 0;
   font: 500 12px/1.4 var(--sc-mono);
   color: var(--sc-pace);
+}
+
+/* ---------- forced colours (Windows contrast themes) drop fills: a chosen
+   moment, setting or What-if keeps a system highlight ---------- */
+@media (forced-colors: active) {
+  [data-showcase] :is(.bp-chip, .bp-seg button, .ca-wb):is([aria-pressed="true"], [aria-checked="true"]) {
+    forced-color-adjust: none;
+    border-color: Highlight;
+    background: Highlight;
+    color: HighlightText;
+  }
 }
 
 /* ---------- reduced motion: the device's setting or the member's own ----------

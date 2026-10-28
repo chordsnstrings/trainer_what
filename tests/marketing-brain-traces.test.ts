@@ -125,13 +125,15 @@ test("schema and roster: 25 specialists (14 AI, 11 code steps), 12 traces, every
       );
     if (t.needs) c.ok(t.status === "try_yourself" && ["voice", "nutrition"].includes(t.needs), `${k} needs`);
   }
-  for (const key of ["eyebrow", "picks", "noChatScore", "howWeCount", "totals", "levels", "planSetting", "spotCheck", "supplements", "recoveryCaption", "chip", "long", "subscribers", "rates", "speed", "noAi", "basis", "status", "kind", "lanes"])
+  for (const key of ["eyebrow", "picks", "noChatScore", "howWeCount", "totals", "levels", "planSetting", "spotCheck", "supplements", "recoveryCaption", "chip", "long", "subscribers", "subscribersNoModel", "rates", "speed", "noAi", "basis", "status", "kind", "lanes"])
     c.ok(key in d.labels, `labels.${key}`);
   c.done(500);
 });
 
-test("the Not-on-yet shelf is the Meal planner and the Recovery rule; t3 and the recovery rule are off by default", () => {
-  assert.deepEqual(d.specialists.filter((s: any) => s.status === "not_on_yet").map((s: any) => s.id).sort(), ["meal_planner", "recovery"]);
+test("only the Recovery rule is never on in phase 1; with the platform's default flags the Meal planner, the meal photo and voice specialists wait too; t3 and the recovery rule are off by default", () => {
+  assert.deepEqual(d.specialists.filter((s: any) => s.status === "not_on_yet").map((s: any) => s.id).sort(), ["recovery"]);
+  const off = prepare(full, { appName: "trainsyou", flags: OFF }) as any;
+  assert.deepEqual(off.specialists.filter((s: any) => s.status === "not_on_yet").map((s: any) => s.id).sort(), ["meal_photo", "meal_planner", "recovery", "set_logger", "voice_lines"]);
   assert.equal(d.trace("t3").defaultOff, true);
   assert.equal(d.settingsDefault.recovery.on, false);
   assert.equal(core.defaults(d).recoveryFlag, false, "no flags: recovery off");
@@ -142,7 +144,8 @@ test("the Not-on-yet shelf is the Meal planner and the Recovery rule; t3 and the
 test("the honesty strings are exact (SHOWCASE_DESIGN.md §1.5)", () => {
   const c = checks();
   c.eq(d.labels.chip, "Sample · scripted · no AI model called", "chip");
-  c.eq(d.labels.subscribers, "Subscribers can't join yet: subscriber payments are not on. You can run all of this on yourself with Try my AI.", "status strip");
+  c.eq(d.labels.subscribers, "Subscribers can't join yet: subscriber payments are not on. You can run most of this on yourself with Try my AI.", "status strip");
+  c.eq(d.labels.subscribersNoModel, "Subscribers can't join yet: subscriber payments are not on.", "status strip without the AI model");
   c.eq(d.labels.eyebrow, "A SAMPLE HOUR OF YOUR BRAIN", "eyebrow");
   c.eq(d.labels.rates, "A mix chosen to show every path. Not real rates.", "rates");
   c.eq(d.labels.long, "Sample moments. Code steps use the app's own limits on sample data. AI steps replay answers from test runs, or are marked illustrative. No AI model is called on this page.", "banner");
@@ -267,12 +270,21 @@ test("plan maths: decide() equals planConfidence() and planRoute() across 480 co
               c.eq(mine.score, conf.score, tag + " score");
               c.eq(mine.auto, route.route === "automatic", tag + " route");
               c.eq(mine.reasons, route.reasons, tag + " reasons");
-              c.eq(mine.pct, Math.round(conf.score * 100), tag + " % rounding");
+              // Whole percents as the app shows them, except where rounding would reach the bar the score misses.
+              const whole = Math.round(conf.score * 100);
+              c.eq(mine.pct, whole < bar || mine.confident ? whole : Math.round(conf.score * 1000) / 10, tag + " % rounding");
+              c.eq(mine.pct >= bar, mine.confident, tag + " the % shown agrees with the lane");
               c.eq(core.decide(t, s, d).lane, route.route === "automatic" ? "sent" : "waits", tag + " lane");
               combos++;
             }
   }
   c.eq(combos, 480, "plan combinations");
+  // A score that rounds up to the bar it misses shows its decimal: never "75% is below your bar of 75%".
+  for (const [patch, pct] of [[{ bar: 75, oneMoreApproved: true, loggedShare: 0.5 }, 74.8], [{ bar: 71, addEquipmentRule: true, loggedShare: 0.5 }, 70.5]] as const) {
+    const r = core.decide(d.trace("t8"), settings(patch), d);
+    c.eq([r.lane, r.sure.pct, r.sure.display, r.why], ["waits", pct, `${pct}% · your bar ${patch.bar}%`, `${pct}% is below your bar of ${patch.bar}%.`], `t8 ${JSON.stringify(patch)}`);
+    c.ok(!new RegExp(`(\\d+)% · your bar \\1%`).test(r.sure.display), "no tie on display");
+  }
   c.eq(core.planScore(d.trace("t8"), settings()).score, 0.78, "t8 0.78");
   c.eq(core.planScore(d.trace("t10"), settings()).score, 0.862, "t10 0.862");
   c.eq(core.decide(d.trace("t10"), settings({ bar: 86 }), d).lane, "sent", "86% passes 0.862");
@@ -369,7 +381,9 @@ test("claims the pages and the showcases share hold in the code (28 days, the 5%
 
   const coach = d.specialists.filter((s: any) => s.crew === "coach" && s.kind === "ai");
   c.eq(coach.length, 7, "seven coaching specialists");
-  c.eq(coach.filter((s: any) => s.status === "not_on_yet").map((s: any) => s.name), ["Meal planner"], "one of them not on yet");
+  // How many are not on yet follows the flags (anatomy.render.js note()); the Meal planner waits for nutrition.
+  c.eq(coach.filter((s: any) => s.status === "not_on_yet").map((s: any) => s.name), [], "every one of them runs once its flags are on");
+  c.eq(d.sp.meal_planner.needs, "nutrition", "the Meal planner needs nutrition");
   for (const m of every(/\b(\w+) coaching specialists/gi)) c.eq(number(m[1]), coach.length, m[0]);
 
   const dimensions = src("apps/web/components/brain-fidelity.tsx").match(/const dimensions = \[([\s\S]*?)\] as const;/)![1].match(/\["\w+", "[^"]+"\]/g)!;
@@ -463,38 +477,73 @@ test("every visible string of the client copy passes the marketing copy scans", 
   })(client, "");
 });
 
-test("both payments states: the strip and the statuses follow the flags (prepare)", () => {
+test("the strip and every status follow the flags (prepare): payments, voice, nutrition and the AI model", () => {
   const raw: any = JSON.parse(clientText);
-  const off = prepare(raw, { appName: "trainsyou", flags: OFF }) as any;
+  const at = (flags: object) => prepare(raw, { appName: "trainsyou", flags: { ...OFF, ...flags } }) as any;
+  const ids = (x: any, status: string) => [...x.specialists, ...x.traces].filter((s: any) => s.status === status).map((s: any) => s.id.split("-")[0]).sort();
+  const NEEDS = ["meal_photo", "meal_planner", "set_logger", "t4", "t5", "voice_lines"];
+  // Every status has its words, and a "not on yet" one no tip that says it runs.
+  const words = (x: any) => {
+    for (const s of [...x.specialists, ...x.traces]) {
+      if (s.status === "try_yourself") assert.match(s.statusTip ?? s.statusNote ?? x.labels.statusTip.default, /\S/, `${s.id} says where it runs`);
+      if (s.status !== "try_yourself") assert.equal(s.statusTip, undefined, `${s.id}: no "Try my AI" tip while ${s.status}`);
+    }
+  };
+  // Payments off, voice and nutrition off: what needs them is not on yet, even in Try my AI; the rest is tried on yourself.
+  const off = at({});
   assert.equal(off.labels.subscribers, d.labels.subscribers);
-  assert.match(strip(off), /class="sc-subs">Subscribers can&#39;t join yet/);
-  assert.deepEqual(
-    off.specialists.filter((s: any) => s.status === "try_yourself").map((s: any) => s.id),
-    d.specialists.filter((s: any) => s.status === "try_yourself").map((s: any) => s.id),
-  );
-  // Payments on: the strip goes; "Try it on yourself" is live, except where
-  // the second flag it needs (voice, nutrition) is still off.
-  const on = prepare(raw, { appName: "trainsyou", flags: { ...OFF, payments: true } }) as any;
-  assert.equal(on.labels.subscribers, undefined);
-  assert.doesNotMatch(strip(on), /sc-subs|Subscribers can/);
-  const still = (x: any) => x.status === "try_yourself";
-  assert.deepEqual(on.specialists.filter(still).map((s: any) => s.id).sort(), ["meal_photo", "set_logger", "voice_lines"]);
-  assert.deepEqual(on.traces.filter(still).map((t: any) => t.id.split("-")[0]).sort(), ["t4", "t5"]);
-  for (const x of [...on.specialists, ...on.traces]) {
-    if (still(x)) assert.match(x.statusTip ?? x.statusNote ?? "", /\S/, `${x.id} keeps what it needs`);
-    if (x.status === "live") assert.equal(x.statusTip, undefined, `${x.id}: no "not on yet" tip once live`);
+  assert.equal(off.labels.subscribersNoModel, undefined, "never shown as its own line");
+  assert.match(strip(off), /class="sc-subs">Subscribers can&#39;t join yet: subscriber payments are not on\. You can run most of this on yourself with Try my AI\./);
+  assert.deepEqual(ids(off, "not_on_yet"), [...NEEDS, "recovery", "t3"].sort());
+  assert.deepEqual(ids(off, "try_yourself"), ["draft_writer", "plan_writer", "reply_picker", "t1", "t10", "t6", "t7", "t8", "t9", "week_reviewer"]);
+  words(off);
+  // Payments on: the strip goes and the rest is live; what needs voice or nutrition is still not on yet.
+  const paid = at({ payments: true });
+  assert.equal(paid.labels.subscribers, undefined);
+  assert.doesNotMatch(strip(paid), /sc-subs|Subscribers can/);
+  assert.deepEqual(ids(paid, "try_yourself"), []);
+  assert.deepEqual(ids(paid, "not_on_yet"), ids(off, "not_on_yet"));
+  words(paid);
+  // Voice and nutrition on: their specialists and moments join, tried on yourself until payments are on.
+  const early = at({ voice: true, nutrition: true });
+  assert.deepEqual(ids(early, "not_on_yet"), ["recovery", "t3"]);
+  assert.deepEqual(ids(early, "try_yourself"), [...ids(off, "try_yourself"), ...NEEDS].sort());
+  words(early);
+  assert.deepEqual(ids(at({ payments: true, voice: true, nutrition: true }), "not_on_yet"), ["recovery", "t3"]);
+  assert.deepEqual(ids(at({ payments: true, voice: true }), "not_on_yet"), ["meal_photo", "meal_planner", "recovery", "t3", "t4"]);
+  // The AI model off: every specialist that uses it and every moment one of them plays is not on yet, whatever
+  // else is on; code steps and the safety stops stay; the strip says only that payments are off.
+  for (const flags of [{ model: false }, { model: false, payments: true, voice: true, nutrition: true }]) {
+    const x = at(flags);
+    const ai = x.specialists.filter((s: any) => s.kind === "ai" || s.usesAi);
+    assert.ok(ai.length >= 15 && ai.every((s: any) => s.status === "not_on_yet"), JSON.stringify(flags));
+    for (const t of x.traces) assert.equal(t.status === "not_on_yet", t.steps.some((st: any) => ai.some((s: any) => s.id === st.sp)) || t.id.startsWith("t3-"), `${t.id} ${JSON.stringify(flags)}`);
+    assert.deepEqual(["t2", "t11", "t12"].map((id) => x.trace(id).status), ["live", "live", "live"]);
+    assert.ok(x.specialists.filter((s: any) => s.kind === "check" && !s.usesAi && s.status === "not_on_yet").every((s: any) => ["recovery", "set_logger"].includes(s.id)));
+    words(x);
   }
-  const all = prepare(raw, { appName: "trainsyou", flags: { ...OFF, payments: true, voice: true, nutrition: true } }) as any;
-  assert.deepEqual([...all.specialists, ...all.traces].filter(still), []);
-  assert.deepEqual(
-    all.specialists.filter((s: any) => s.status === "not_on_yet").map((s: any) => s.id).sort(),
-    ["meal_planner", "recovery"],
-  );
-  // Voice and nutrition without payments change nothing: subscribers cannot pay yet.
-  const early = prepare(raw, { appName: "trainsyou", flags: { ...OFF, voice: true, nutrition: true } }) as any;
-  assert.equal(JSON.stringify(early.specialists), JSON.stringify(off.specialists));
-  // The lanes never depend on the payments state.
-  assert.equal(core.totals(on, core.defaults(on)), core.totals(off, core.defaults(off)));
+  assert.equal(at({ model: false }).labels.subscribers, d.labels.subscribersNoModel);
+  assert.match(strip(at({ model: false })), /class="sc-subs">Subscribers can&#39;t join yet: subscriber payments are not on\.<\/span>/);
+  assert.equal(at({ model: false, payments: true }).labels.subscribers, undefined);
+  // A fixture without the model flag counts it on (showcaseOptions() always passes it).
+  const statuses = (x: any) => JSON.stringify({ ...x, flags: null });
+  assert.equal(statuses(at({ model: true })), statuses(off));
+  // The lanes never depend on the flags (recovery aside).
+  for (const x of [paid, early, at({ model: false })]) assert.equal(core.totals(x, core.defaults(x)), core.totals(off, core.defaults(off)));
+});
+
+test("Aisha's adjustment sent on its own shows the member the app's notice, word for word; while it waits she sees nothing yet", () => {
+  const t8 = d.trace("t8"), notice = "Your trainer's Brain adjusted next week's sessions from how this week went. Open Training to see them.";
+  const templates = src("apps/api/src/message-templates.ts"), plans = src("apps/api/src/brain-plans.ts");
+  assert.ok(templates.includes(`body: "${notice}"`) && plans.includes(`"${notice}"`), "the brain-plan-adjusted notice");
+  for (const v of t8.variants.filter((x: any) => x.lane === "sent")) assert.equal(v.memberSees, notice, JSON.stringify(v.when));
+  for (const patch of [{ bar: 78 }, { addEquipmentRule: true }, { oneMoreApproved: true }]) {
+    const r = core.decide(t8, settings(patch), d);
+    assert.equal(r.lane, "sent", JSON.stringify(patch));
+    assert.deepEqual(r.memberSees, { verbatim: true, parts: [{ by: "platform", text: notice }] }, JSON.stringify(patch));
+  }
+  assert.equal(core.decide(t8, settings(), d).memberSees, null, "waits: nothing yet");
+  assert.equal(core.decide(d.trace("t10"), settings({ bar: 87 }), d).memberSees, null, "Fatima's first plan waits: nothing yet");
 });
 
 test("prepare() is pure: it copies, fills the name and flags, and never changes its input", () => {

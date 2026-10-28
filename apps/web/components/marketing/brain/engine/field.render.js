@@ -109,9 +109,11 @@ function levels(d, S, inField) {
   return `<div class="mc-lv" role="radiogroup" aria-label="${esc(COPY.level)}"><span class="mc-k" aria-hidden="true">${esc(COPY.level)}</span>${[1, 2, 3].map(b).join("")}` +
     (inField ? `<span class="mc-lvnow" aria-hidden="true">${esc(lv[S.level].name)}</span><span class="mc-demo" aria-hidden="true">${esc(COPY.demo)}</span>` : "") + `</div>`;
 }
-/** The plans slider (how sure a plan must be to send alone); --fill paints its track. */
+/** The plans slider (how sure a plan must be to send alone); --fill paints its track.
+    Its readout is hidden from assistive tech: the slider's aria-valuetext
+    speaks the value (an <output> would be a second, polite live region). */
 export const fill = (d, v) => ((v - d.labels.planSetting.min) / (d.labels.planSetting.max - d.labels.planSetting.min)) * 100;
-const bar = (d, S) => `<label class="mc-bar"><span>${esc(d.labels.planSetting.label)}</span><span class="mc-bari"><input type="range" min="${d.labels.planSetting.min}" max="${d.labels.planSetting.max}" step="1" value="${S.bar}" aria-valuetext="${S.bar}%" style="--fill:${fill(d, S.bar).toFixed(1)}%" disabled><output>${S.bar}%</output></span></label>`;
+const bar = (d, S) => `<label class="mc-bar"><span>${esc(d.labels.planSetting.label)}</span><span class="mc-bari"><input type="range" min="${d.labels.planSetting.min}" max="${d.labels.planSetting.max}" step="1" value="${S.bar}" aria-valuetext="${S.bar}%" style="--fill:${fill(d, S.bar).toFixed(1)}%" disabled><span aria-hidden="true">${S.bar}%</span></span></label>`;
 const supp = (S) => `<button type="button" class="mc-sw" role="switch" aria-checked="${S.supplementsTopic}" disabled><span class="mc-swk" aria-hidden="true"></span><span><b>${esc(COPY.supp)}</b><small>${esc(COPY.suppSub)}</small></span></button>`;
 /** The safety lock. Its tip is the platform's rule, as a stop's receipt shows
     it ("Platform safety rules", "{APP_NAME}. Can't switch off."). */
@@ -139,7 +141,7 @@ function field(d, o) {
   };
   const members = ROWS.map((x, i) => {
     const t = d.trace(x);
-    return `<li><button type="button" class="mc-m${i < 2 ? " is-on" : ""}" data-t="${x}" tabindex="${i ? -1 : 0}" disabled><span class="mc-av" aria-hidden="true">${esc(t.member[0])}</span><span class="mc-mtx"><b>${esc(t.member)}</b><span class="mc-mc"${t.trigger.lang == "ar" ? ' dir="rtl" lang="ar"' : ""}>${esc(FX[x][1])}</span></span>${U.icon(FX[x][2], 12)}<span class="sc-sr"> — ${esc(t.chip)}. See each step.</span></button></li>`;
+    return `<li><button type="button" class="mc-m${i < 2 ? " is-on" : ""}" data-t="${x}" disabled><span class="mc-av" aria-hidden="true">${esc(t.member[0])}</span><span class="mc-mtx"><b>${esc(t.member)}</b><span class="mc-mc"${t.trigger.lang == "ar" ? ' dir="rtl" lang="ar"' : ""}>${esc(FX[x][1])}</span></span>${U.icon(FX[x][2], 12)}<span class="sc-sr"> — ${esc(t.chip)}. See each step.</span></button></li>`;
   }).join("");
   const off = d.specialists.filter((s) => s.status == "not_on_yet").length;
   const conf = `<span class="mc-gauge" aria-hidden="true"><i></i><b style="--bar:${S.bar}%"></b></span>`;
@@ -176,7 +178,7 @@ function field(d, o) {
     `<p class="mc-sheet-h"><b>${esc(COPY.more)}</b><button type="button" class="mc-x" data-close disabled>${esc(COPY.done)}</button></p>` +
     `<span class="mc-chk" tabindex="0" aria-describedby="${id}-tip-l">${U.icon("check", 12)}${esc(COPY.lastCheck)}<span class="mc-tip" role="tooltip" id="${id}-tip-l">${esc(lv.note)}</span></span>` +
     `${bar(d, S)}${supp(S)}${lock(d, `${id}-tip-k`)}</div></div>` +
-    `<div class="mc-foot"><span class="sc-sample">${esc(d.labels.chip)}</span><span>${esc(d.labels.rates)}</span><button type="button" class="mc-how" aria-expanded="false" aria-controls="${id}-howp" disabled>How we count</button><p class="mc-howp" id="${id}-howp" hidden>${esc(d.labels.howWeCount)}</p></div>` +
+    `<div class="mc-foot"><span class="sc-sample">${esc(d.labels.chip)}</span><span>${esc(d.labels.rates)}</span><details class="mc-how"><summary>How we count</summary><p class="mc-howp">${esc(d.labels.howWeCount)}</p></details></div>` +
     cta(o);
 }
 
@@ -194,14 +196,15 @@ function reach(d, S) {
   return out;
 }
 /** One card per moment: who handled it (the specialist code picked, or the
-    code that stopped it) and, for plans, how sure it is. A sizer's copy (sz)
-    names no moment: it only holds the card's size. */
+    code that stopped it) and, for plans, how sure it is. Disabled until the
+    engine arms it (its receipt needs the engine). A sizer's copy (sz) names
+    no moment: it only holds the card's size. */
 export function boardCard(d, t, r, why = "", sz = false) {
   const id = id0(t), st = r.steps.find((x) => x.sp in d.sp && d.sp[x.sp].kind == "ai" && x.sp != "learner");
   const who = st ? d.sp[st.sp] : null, hit = r.steps.find((x) => x.result == "hit");
   const by = hit ? `${d.sp[hit.sp].name} · ${COPY.noAi}` : who ? who.name : COPY.noAi;
   const code = t.decide == "voice" ? `<span class="mb-by" data-kind="check"><i aria-hidden="true"></i>Set logger · your rule</span>` : "";
-  return (sz ? `<li><button type="button" class="mb-b" tabindex="-1">` : `<li class="mb-c" data-t="${id}"><button type="button" class="mb-b" data-t="${id}">`) +
+  return (sz ? `<li><button type="button" class="mb-b" tabindex="-1">` : `<li class="mb-c" data-t="${id}"><button type="button" class="mb-b" data-t="${id}" disabled>`) +
     `<span class="mb-h"><span class="mc-av" aria-hidden="true">${esc(t.member[0])}</span><b>${esc(t.member)}</b><span>${esc(t.chip)}</span></span>` +
     `<span class="mb-by" data-kind="${who ? "ai" : "check"}"><i aria-hidden="true"></i>${esc(by)}</span>${code}${r.sure ? `<span class="mb-sure" data-ok="${r.lane == "sent" ? 1 : 0}">${esc(r.sure.display)}</span>` : ""}<span class="mb-why">${esc(why)}</span></button></li>`;
 }

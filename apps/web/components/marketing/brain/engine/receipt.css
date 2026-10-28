@@ -3,11 +3,8 @@
    overlay layer over a backdrop. Only opacity and transforms move. Ported
    from the approved prototype's brain-anatomy.css, receipt part
    (docs/marketing-revamp-2026-10-26/prototypes/shared/brain/), with
-   logical properties and the site's fonts. */
-
-html.sc-lock {
-  overflow: hidden;
-}
+   logical properties and the site's fonts. Its scroll lock (html.sc-lock)
+   is in field.run.css, which the phone settings sheet shares. */
 [data-showcase] .ba-back {
   position: fixed;
   inset: 0;

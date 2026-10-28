@@ -5,6 +5,13 @@
    (docs/marketing-revamp-2026-10-26/phase1/PLAN.md WP2). The first frame's
    rules are in app/brain-field.css. */
 
+/* The scroll lock while a receipt or the phone settings sheet is open; the
+   gutter stays, so nothing centred moves where scrollbars take room. */
+html.sc-lock {
+  overflow: hidden;
+  scrollbar-gutter: stable;
+}
+
 /* ---------- the engine draws the matrices; lists hold tiles by transforms ---------- */
 [data-showcase].sc-cv .sc-mx {
   background: none;
@@ -488,7 +495,7 @@
 }
 [data-showcase="layer"] .mc-x,
 [data-showcase] .mc-binlist .mc-x {
-  min-block-size: 36px;
+  min-block-size: 44px;
   padding: 0 12px;
   border: 1px solid var(--sc-control);
   border-radius: 999px;
@@ -548,7 +555,7 @@
 }
 [data-showcase="layer"] .mc-sheet .mc-bar input[type="range"] {
   width: min(240px, 60vw);
-  height: 32px;
+  height: 44px;
 }
 [data-showcase="layer"] .mc-sheet .mc-chk,
 [data-showcase="layer"] .mc-sheet .mc-lock {

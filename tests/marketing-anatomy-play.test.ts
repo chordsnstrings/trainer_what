@@ -6,12 +6,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { RED_FLAG_CATEGORIES } from "../packages/domain/src/red-flags.ts";
+import { RED_FLAG_CATEGORIES, redFlagCategories } from "../packages/domain/src/red-flags.ts";
 import { renderShowcase } from "../apps/web/components/marketing/brain/render.ts";
 import { esc } from "../apps/web/components/marketing/brain/engine/core.js";
 import { prepare } from "../apps/web/components/marketing/brain/engine/data.js";
 import { decide, defaults, isOff, pick, totals } from "../apps/web/components/marketing/brain/engine/decide.js";
-import { COPY, NOTES, ROOT, model, renderStatic } from "../apps/web/components/marketing/brain/engine/anatomy.render.js";
+import { COPY, NOTES, ROOT, model, note, renderStatic } from "../apps/web/components/marketing/brain/engine/anatomy.render.js";
 import * as play from "../apps/web/components/marketing/brain/engine/play.render.js";
 import type { BrainData, RawBrainData, RenderOptions, ShowcaseOptions } from "../apps/web/components/marketing/brain/engine/types";
 import { C0_BANNED, MODEL_OR_VENDOR, PLACEHOLDER, cssRules } from "./marketing-helpers.ts";
@@ -42,19 +42,21 @@ test("the anatomy renders the root's inner HTML only: no outer section, skip lin
   assert.doesNotMatch(html, /<section|data-sc-module|data-showcase|ca-skip|ca-after|Skip the|aria-live|data-live/);
   const ids = [...html.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]);
   assert.deepEqual(ids, "abcdefghij".split("").map((k) => "sc-x-" + k), "the notes, (a)–(j), are the only ids, each after the host id");
-  // Every inner id is prefixed even with a heading of its own.
+  // Every inner id is prefixed even with a heading of its own, and unique: its heading is not note (h).
   const withHead = render({ heading: true, labelledBy: undefined }, "sc-y").html;
-  for (const m of withHead.matchAll(/\sid="([^"]+)"/g)) assert.ok(m[1].startsWith("sc-y-"), m[1]);
+  const own = [...withHead.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]);
+  for (const id of own) assert.ok(id.startsWith("sc-y-"), id);
+  assert.equal(new Set(own).size, own.length, own.join(" "));
 });
 
 test("heading: false leaves the H2 to the page, which labels the root; with heading the figure carries its own", () => {
   const live = renderShowcase("anatomy", { ...options(), kind: "anatomy", id: "sc-anatomy" }, "live");
   const open = live.slice(0, live.indexOf(">") + 1);
-  assert.equal(open, `<section class="${ROOT.anatomy}" data-showcase="anatomy" data-sc="pre" data-nosnippet aria-labelledby="decides-h">`);
+  assert.equal(open, `<section class="${ROOT.anatomy}" data-showcase="anatomy" data-sc="pre" data-nosnippet role="group" aria-labelledby="decides-h">`);
   assert.equal(ROOT.anatomy, "ca sc-stage", "the ink stage");
   assert.doesNotMatch(live, /<h[1-6]/, "no heading of its own");
   const own = render({ heading: true, labelledBy: undefined }).html;
-  assert.match(own, /<h2 class="ca-h2" id="sc-anatomy-h">Anatomy of one decision<\/h2>/);
+  assert.match(own, /<h2 class="ca-h2" id="sc-anatomy-title">Anatomy of one decision<\/h2>/);
   assert.match(own, new RegExp(`<p class="ca-lede">${COPY.lede}</p>`));
   assert.doesNotMatch(own, /§|Fig\. \d/, "no section or figure numbers (C's skin)");
   const flat = renderShowcase("anatomy", { ...options(), kind: "anatomy", id: "sc-anatomy" }, "static");
@@ -82,17 +84,27 @@ test("the first frame is the finished figure: Omar's reply in nine lit plates, c
   assert.match(html, /<b>Upper body increments<\/b>/);
 });
 
-test("(f): what code can pick from, each with its moment, and the coaching specialists not on yet on the shelf", () => {
+test("(f): what code can pick from, each with its moment; one not on yet keeps its place, marked; the Meal planner waits on the shelf, then joins them", () => {
+  const grid = (html: string) => html.slice(html.indexOf('<div class="ca-x">'));
+  const pills = (html: string) => [...grid(html).matchAll(/<span class="ca-sp" data-sp="(\w+)" data-kind="(\w+)"/g)].map((m) => m[1] + ":" + m[2]);
+  const off = (html: string) => [...grid(html).matchAll(/<span class="ca-sp" data-sp="(\w+)"[^>]*data-off/g)].map((m) => m[1]);
+  const seven = ["reply_picker:ai", "draft_writer:ai", "plan_writer:ai", "week_reviewer:ai", "meal_photo:ai", "voice_lines:ai", "set_logger:check"];
+  // Voice and nutrition off (the platform's default): their specialists keep their places, marked; the Meal planner is on the shelf.
   const { d, html } = render();
-  const shell = html.slice(html.indexOf('<div class="ca-x">'));
-  const pills = [...shell.matchAll(/<span class="ca-sp" data-sp="(\w+)" data-kind="(\w+)"/g)].slice(0, 7).map((m) => m[1] + ":" + m[2]);
-  assert.deepEqual(pills, ["reply_picker:ai", "draft_writer:ai", "plan_writer:ai", "week_reviewer:ai", "meal_photo:ai", "voice_lines:ai", "set_logger:check"]);
-  const coach = d.specialists.filter((s) => s.crew == "coach" && s.kind == "ai");
-  const notOnYet = coach.filter((s) => s.status == "not_on_yet");
-  assert.deepEqual(notOnYet.map((s) => s.id), ["meal_planner"]);
-  assert.deepEqual(coach.filter((s) => s.status != "not_on_yet").map((s) => s.id).sort(), pills.filter((p) => p.endsWith(":ai")).map((p) => p.split(":")[0]).sort(), "every coaching specialist that is on is a pill");
+  assert.deepEqual(pills(html), seven);
+  assert.deepEqual(off(html), ["meal_photo", "voice_lines", "set_logger"]);
+  assert.match(grid(html), /<b>Meal photo reader<\/b><small>meal photo · Not on yet<\/small>/);
   assert.equal((html.match(/<span class="ca-shelf">/g) || []).length, 2, "the shelf, in the compact row and the labelled grid");
   assert.match(html, /Meal planner · Not on yet<\/span>/);
+  for (const s of d.specialists.filter((x) => x.crew == "coach")) assert.equal(off(html).includes(s.id) || html.includes(`${s.name} · Not on yet</span>`), s.status == "not_on_yet", s.id);
+  // Every flag on: nothing marked, no shelf; the Meal planner joins them (it has no sample moment).
+  const all = render({ flags: { ...FLAGS, voice: true, nutrition: true } }).html;
+  assert.deepEqual(pills(all), [...seven, "meal_planner:ai"]);
+  assert.doesNotMatch(all, /data-off|ca-shelf/);
+  // The AI model off: every AI specialist is marked; the code step that needs only voice is not.
+  const noModel = render({ flags: { ...FLAGS, voice: true, nutrition: true, model: false } }).html;
+  assert.deepEqual(off(noModel), seven.filter((p) => p.endsWith(":ai")).map((p) => p.split(":")[0]));
+  assert.match(noModel, /Meal planner · Not on yet<\/span>/);
   assert.match(html, /<em class="ca-tag">Chat · a rule fits<\/em>/);
   assert.ok(html.includes(String(d.labels.picks)), "Code picks the specialist. No AI chooses which AI runs.");
 });
@@ -140,9 +152,16 @@ test("the copy's claims hold in the product: nine kinds, 28 days, +2.5 kg is 4.2
   assert.equal(NOTES.e[1], `Which approved replies fit? One: +${t1.inputs.increaseKg} kg. That’s ${pct}%, inside your ${S.capPct}% cap.`);
   assert.equal(NOTES.a[1], `Omar logged ${["", "one", "two", "three", "four"][t1.inputs.sets]} sets with ${t1.inputs.rir} reps in reserve. He asks to go up.`);
   const coach = d.specialists.filter((s) => s.crew == "coach" && s.kind == "ai");
-  assert.match(NOTES.f[1], /^Seven coaching specialists\. One is not on yet\./);
   assert.equal(coach.length, 7);
-  assert.equal(coach.filter((s) => s.status == "not_on_yet").length, 1);
+  assert.match(NOTES.f[1], /^Seven coaching specialists\. \{off\}Code picks one/);
+  // (f) counts the coaching specialists not on yet under the page's flags.
+  const f = (flags: Partial<ShowcaseOptions["flags"]>) => note(render({ flags: { ...FLAGS, ...flags } }).d, "f");
+  assert.equal(coach.filter((s) => s.status == "not_on_yet").length, 3, "voice and nutrition off: Meal planner, Meal photo reader, Voice lines");
+  assert.match(note(d, "f"), /^Seven coaching specialists\. Three are not on yet\. Code picks one/);
+  assert.match(f({ nutrition: true }), /^Seven coaching specialists\. One is not on yet\. Code picks/);
+  assert.match(f({ nutrition: true, voice: true }), /^Seven coaching specialists\. Code picks/);
+  assert.match(f({ model: false }), /^Seven coaching specialists\. None is on yet\. Code picks/);
+  assert.ok(render().html.includes(esc(note(d, "f"))), "the notes and plate (f) say it");
   assert.match(NOTES.f[1], /so it’s the Reply picker/);
   assert.equal(d.sp[pick(t1, d, S)!].name, "Reply picker");
   assert.match(NOTES.h[1], new RegExp(`at level ${S.level} and passed its last check`));
@@ -208,9 +227,17 @@ test("the anatomy's stylesheets: the pin, its frame and the card under the gate;
     }
   for (const r of [...first, ...lazy])
     if (r.selectors.some((s) => s.includes(":hover"))) assert.ok(r.context.includes("@media (hover: hover)"), `${r.selector}: hover outside (hover: hover)`);
-  // The runtime sheet styles the pinned figure only.
-  for (const r of lazy.filter((x) => !x.context.some((c) => c.startsWith("@keyframes"))))
+  // The runtime sheet styles the pinned figure only, on the viewports where it pins: a shorter window lays the
+  // figure out flat, where its stamp (off screen in right to left) and the rest must not show.
+  for (const r of lazy.filter((x) => !x.context.some((c) => c.startsWith("@keyframes")))) {
+    assert.ok(r.context.includes("@media (min-height: 700px)"), `${r.selector}: outside @media (min-height: 700px)`);
     for (const s of r.selectors) assert.ok(s.startsWith('html.sc-pin [data-showcase="anatomy"]'), s);
+  }
+  // Before the end, the What-ifs are visually hidden, never out of the tab order; focus shows them.
+  const wi = lazy.find((r) => r.selector.endsWith(".ca-wi:not(:focus-within)"))!;
+  assert.ok(wi.selector.includes('[data-trace="t1"]:not([data-end], [data-sc-flat])'), wi.selector);
+  assert.deepEqual(["position", "clip-path"].map((p) => value(wi, p)), ["absolute", "inset(50%)"]);
+  assert.ok(lazy.some((r) => r.selector.endsWith(':not([data-end], [data-sc-flat]) .ca-wi') && value(r, "display") == "flex"), "displayed, so focusable");
 });
 
 test("every runtime state the anatomy's lazy sheet styles is one its runtime sets", () => {
@@ -242,6 +269,12 @@ test("the anatomy's runtime: its own CSS and render module, the overlay layer's 
   assert.match(body, /"--sc-top"/);
   assert.match(body, /L\.release\(\)/, "destroy releases the overlay layer");
   assert.match(body, /root\.setAttribute\("data-sc", "on"\)/);
+  // A What-if replay is stopped by the next one, by Omar's reply, by scrolling back into the steps and by destroy.
+  assert.match(body, /function whatIf\(w\) \{\s+press\(w\);\s+endReplay\(\);/);
+  assert.match(body, /function clearWhatIf\(\) \{\s+if \(!wi\) return;\s+wi = null;\s+endReplay\(\);\s+press\("base"\);/);
+  assert.match(body, /const stop = \(\) => \{[^}]*endReplay\(\);/);
+  // Scrolling elsewhere wakes nothing.
+  assert.match(body, /k\.on\(window, "scroll", \(\) => near && onScroll\(\), \{ passive: true \}\);/);
 });
 
 // ---------------------------------------------------------------- 3b: the playground
@@ -275,7 +308,7 @@ test("the playground renders the root's inner HTML: every inner id carries the h
     const { html } = playRender(patch, "sc-x");
     assert.doesNotMatch(html, /<section|data-showcase|aria-live|role="status"|data-sc-live/);
     const ids = [...html.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]);
-    assert.ok(ids.length >= 6, ids.join(" "));
+    assert.ok(ids.length >= 5, ids.join(" "));
     for (const id of ids) assert.ok(id.startsWith("sc-x-"), id);
     assert.equal(new Set(ids).size, ids.length, "ids are unique");
     for (const m of html.matchAll(/\s(?:aria-(?:labelledby|describedby|controls)|for)="([^"]+)"/g))
@@ -284,8 +317,16 @@ test("the playground renders the root's inner HTML: every inner id carries the h
   // Its own H2 by default; with heading: false the page's H2 labels the root.
   assert.match(playRender().html, /^<div class="bp-head"><h2 id="sc-play-h">Throw a moment at your Brain<\/h2><p>Pick something a member might say\./);
   const labelled = renderShowcase("play", { ...playOptions({ heading: false, labelledBy: "demo-h" }), kind: "play", id: "sc-play" }, "live");
-  assert.match(labelled, /^<section class="bp" data-showcase="play" data-sc="pre" data-nosnippet aria-labelledby="demo-h"><p class="bp-banner">/);
+  assert.match(labelled, /^<section class="bp" data-showcase="play" data-sc="pre" data-nosnippet role="group" aria-labelledby="demo-h"><p class="bp-banner">/);
   assert.equal(play.ROOT.play, "bp");
+  // The steps' heading sits under the heading that names the playground: the band's H2 (or its own), or, on
+  // /demo, the page's H1.
+  assert.match(playRender().html, /<h3>What each step said<\/h3>/);
+  assert.match(playRender({ heading: false, labelledBy: "play-h" }).html, /<h3>What each step said<\/h3>/);
+  assert.match(playRender({ heading: false }).html, /<h2>What each step said<\/h2>/);
+  // "How we count" opens without the engine.
+  const { d: hd, html: hh } = playRender();
+  assert.ok(hh.includes(`<details class="bp-how"><summary>How we count</summary><p class="bp-hownote">${esc(hd.labels.howWeCount as string)}</p></details>`));
   assert.match(renderShowcase("play", { ...playOptions(), kind: "play", id: "sc-play" }, "static"), /^<section class="bp" data-showcase="play" data-sc="off" data-nosnippet>/);
 });
 
@@ -344,19 +385,42 @@ test("the first frame is the first moment played: its nodes, code picks then eac
   assert.match(play.resultHTML(d, d.trace("t1"), capped, "sent"), /<p class="bp-why">Before: Sent on its own, within your rules\. Now: Waits for you\. Why: 2\.5 kg is 4\.2%, over your 3% cap\./);
 });
 
-test("free text finds the closest sample through the local keyword table only: specific words first, anything else is the first moment", () => {
-  const cases: Array<[string, string]> = [
+test("free text finds the closest sample through the local keyword table only: specific words first, nothing when no sample is close", () => {
+  const cases: Array<[string, string | null]> = [
     ["I took creatine before my session", "t9"], ["any vitamin advice?", "t9"], ["chest pain since this morning", "t12"], ["صدري يعورني", "t12"],
     ["I'm pregnant", "t11"], ["حامل", "t11"], ["my knee hurts", "t2"], ["can I skip my deload?", "t6"], ["rest week?", "t6"],
     ["that felt easy, go up?", "t1"], ["photo of my lunch", "t4"], ["slept badly, whoop says 30", "t3"], ["new programme please", "t10"],
-    ["how was my week", "t8"], ["can we talk now", "t5"], ["hello", "t1"],
+    ["how was my week", "t8"], ["can we talk now", "t5"],
+    // Never a sample that is sent for text the app would hold, or for text no row knows.
+    ["I think I tore my hamstring", "t2"], ["I can't breathe properly after sprints", "t12"], ["I'm bleeding from a cut on my hand", "t12"],
+    ["I've been throwing up after meals to lose weight", "t12"], ["hello", null], ["How much protein should I eat?", null],
+    // Everyday gym words stay with their own samples, or with none.
+    ["What's the best way to breathe during squats?", null], ["Can I add weight to my chest press?", "t1"], ["Spotting my friend on bench", null], ["أحب حمل الأثقال", null],
   ];
   for (const [text, id] of cases) assert.equal(play.closest(text), id, text);
+  // Every sample's own message finds its sample (You edit a reply and Week is over are not member messages).
+  for (const t of TRACES.traces.filter((x) => !/^t(7|8)-/.test(x.id))) assert.equal(play.closest(t.trigger.text), t.id.split("-")[0], t.id);
+  // At least as cautious as the app: every message the app's own safety tests hold maps to a sample the safety rules stop.
+  const SAFE = ["t2", "t11", "t12"], held: string[] = [];
+  for (const f of ["safety-floor", "messaging-safety-policy", "fix2-safety", "voice-talkback-retest", "fix-nutrition-safety"])
+    for (const m of src(`tests/${f}.test.ts`).matchAll(/"((?:[^"\\\n]|\\.){10,400})"/g)) {
+      let text = "";
+      try {
+        text = JSON.parse(`"${m[1]}"`);
+      } catch {
+        continue;
+      }
+      if (/\s/.test(text) && redFlagCategories(text).length) held.push(text);
+    }
+  assert.ok(held.length >= 200, `${held.length} held messages`);
+  assert.deepEqual(held.filter((text) => !SAFE.includes(play.closest(text)!)), [], "held by the app, not by the table");
   assert.equal(play.COPY.closest, "Closest sample: {chip}. This page can't read new messages.");
-  // No network and no safety rules in the browser for free text: the table, then a run of the sample.
+  assert.equal(play.COPY.none, "No sample is close to that. This page can't read new messages: pick a sample moment.");
+  // No network and no safety rules in the browser for free text: the table, then a run of the sample, or nothing.
   const js = src(ENGINE + "play.js").replace(/\/\*[\s\S]*?\*\//g, "");
-  assert.match(js, /const id = closest\(v\), line = COPY\.closest\.replace\("\{chip\}", d\.trace\(id\)\.chip\);/);
-  assert.doesNotMatch(js, /red-flags|redFlag|fetch\(|XMLHttpRequest|sendBeacon/);
+  assert.match(js, /const id = closest\(v\), line = id \? COPY\.closest\.replace\("\{chip\}", d\.trace\(id\)\.chip\) : COPY\.none;/);
+  assert.match(js, /if \(id\) run\(id, 0, line \+ " "\);\s+else C\.say\(line\);/);
+  for (const f of ["play.js", "play.render.js"]) assert.doesNotMatch(src(ENGINE + f).replace(/\/\*[\s\S]*?\*\//g, ""), /red-flags|redFlag|import\(|fetch\(|XMLHttpRequest|sendBeacon/, f);
 });
 
 test("honesty: the sample chip, banner, rates and speed lines, the status strip by payments, the platform's safety rule named and escaped; no placeholder, model name, C0 word, internals or images", () => {
@@ -482,6 +546,7 @@ test("the playground's runtime: its own CSS and render module, the overlay layer
   assert.match(body, /showResult\(resultHTML\(d, t, r, before && before != r\.lane \? before : null\), true\);/, "written with the click");
   assert.match(body, /function finish\(t, r\) \{[\s\S]*?reveal\(\);/, "shown when the run ends");
   assert.match(body, /const wait = !!o\.attract && !RM && !o\.settled/, "attract: only with the option, never under reduced motion or from a settled frame");
-  assert.match(body, /if \(!attract\) C\.say\(`Result: \$\{d\.labels\.lanes\[r\.lane\]\}`\);/, "the self-started run says nothing");
+  assert.match(body, /own = !attract;/, "a run is the visitor's unless attract started it");
+  assert.match(body, /if \(own\) C\.say\(`Result: \$\{d\.labels\.lanes\[r\.lane\]\}`\);/, "the self-started run says nothing, even after the visitor presses a key");
   assert.match(body, /run\(id\) \{/, "run(traceId) for the island");
 });

@@ -165,7 +165,8 @@ test("/demo: the registry's H1, lede and headings, the playground under the head
     assert.equal(decode(element(head, "<h1")), t(DEMO.h1));
     assert.ok(decode(head).includes(t(DEMO.lede!)));
     assert.ok(!decode(head).includes(t(DEMO.intro)));
-    assert.deepEqual(h2s(html), [...DEMO.sections.map((s) => t(s.heading)), "In short", "Demo questions", t("Your coaching. Beyond your hours.")]);
+    // The H1 names the playground, so its steps' heading is the first H2.
+    assert.deepEqual(h2s(html), ["What each step said", ...DEMO.sections.map((s) => t(s.heading)), "In short", "Demo questions", t("Your coaching. Beyond your hours.")]);
     // The playground follows the head, before the first section.
     const at = (needle: string) => main(html).indexOf(needle);
     assert.ok(at('<header class="mk-page-head">') < at('<div id="sc-play" class="sc-host">'));
@@ -207,10 +208,10 @@ test("the roster: 14 AI specialists and 11 code steps, as the registry counts th
     assert.equal(decode(html).includes(TRACES.labels.subscribers!), !p.availability.payments, state);
     assert.ok(decode(element(html, "<details")).endsWith(TRACES.labels.howWeCount as string));
   }
-  // With payments on, "try it on yourself" goes live only with the flag an item needs.
+  // With payments on, "try it on yourself" goes live; what needs a flag that is off is not on yet.
   const paid = data(platform("payments"));
   assert.equal(paid.sp.reply_picker.status, "live");
-  assert.equal(paid.sp.meal_photo.status, "try_yourself");
+  assert.equal(paid.sp.meal_photo.status, "not_on_yet");
   assert.equal(data(platform("on")).sp.meal_photo.status, "live");
 });
 
@@ -221,7 +222,7 @@ test("See it work plays, in the playground on the same page, a moment the specia
   const links = [...element(html, 'id="inside"').matchAll(/<a class="text-link mk-link" href="([^"]+)" data-run="(t\d+)">/g)];
   const runs = d.specialists.filter((s) => s.status !== "not_on_yet" && SHOWS[s.id]);
   assert.equal(links.length, runs.length);
-  assert.ok(runs.length >= 15);
+  assert.ok(runs.length >= 14, "voice and nutrition off: the Voice lines, Meal photo reader and Set logger link nowhere");
   const play = element(html, '<div id="sc-play" class="sc-host">');
   for (const [, href, run] of links) {
     // The band that holds the playground: its heading stays in view.
@@ -265,16 +266,17 @@ test("the showcases: labelled by the page's headings, the sample labels, a named
     const brain = render(BRAIN, p),
       demo = render(DEMO, p);
     const anatomy = element(brain, '<div id="sc-anatomy" class="sc-host">');
-    assert.match(anatomy, /^<div id="sc-anatomy" class="sc-host"><section class="ca sc-stage" data-showcase="anatomy" data-sc="pre" data-nosnippet aria-labelledby="decides-h">/);
+    assert.match(anatomy, /^<div id="sc-anatomy" class="sc-host"><section class="ca sc-stage" data-showcase="anatomy" data-sc="pre" data-nosnippet role="group" aria-labelledby="decides-h">/);
     const plays = [
-      [element(brain, '<div id="sc-play" class="sc-host">'), ' aria-labelledby="play-h"'],
+      [element(brain, '<div id="sc-play" class="sc-host">'), ' role="group" aria-labelledby="play-h"'],
       [element(demo, '<div id="sc-play" class="sc-host">'), ` aria-label="${t(DEMO.h1)}"`],
     ] as const;
     for (const [root, name] of plays)
       assert.match(root, new RegExp(`^<div id="sc-play" class="sc-host"><section class="bp" data-showcase="play" data-sc="pre" data-nosnippet${name}>`));
     for (const root of [anatomy, ...plays.map(([r]) => r)]) {
-      // The page supplies the heading; the root carries the honesty strip.
-      assert.doesNotMatch(root, /<h2[\s>]/);
+      // The page supplies the heading that names it; the root carries the honesty strip. Under /demo's H1 the
+      // playground's steps' heading is an H2.
+      assert.deepEqual([...root.matchAll(/<h2[^>]*>([^<]*)</g)].map((m) => m[1]), /^<div[^>]*><section[^>]* aria-label="/.test(root) ? ["What each step said"] : []);
       assert.ok(decode(root).includes(TRACES.labels.chip), state);
       assert.equal(decode(root).includes(TRACES.labels.subscribers!), !p.availability.payments, state);
     }

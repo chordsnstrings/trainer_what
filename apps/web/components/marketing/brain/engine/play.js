@@ -21,7 +21,8 @@
      in view and nobody has used the playground yet; never under reduced
      motion or from a settled frame, and it announces nothing;
    - free text finds the closest sample through the local keyword table only
-     (no safety rules in the browser, the owner's default);
+     (no safety rules in the browser, the owner's default); text no row
+     matches plays nothing and says so;
    - the page's one live region (core.js say()), none of its own;
    - run(traceId) plays a moment on request (brain/mount.tsx: sc:run and
      a[data-run] links). */
@@ -31,7 +32,7 @@ import * as C from "./core.js";
 import { prepare } from "./data.js";
 import { decide, defaults, pick, totals } from "./decide.js";
 import * as U from "./ui.js";
-import { COACH, COPY, FIRST, SPECS, closest, controlsHTML, hlText, isPick, kindTag, msgHTML, picksRow, resultHTML, stateOf, sureVal } from "./play.render.js";
+import { COPY, FIRST, SPECS, closest, controlsHTML, hlText, isPick, kindTag, msgHTML, picksRow, resultHTML, stateOf, sureVal } from "./play.render.js";
 const { h, esc } = C;
 
 const COL = { text: "#F3F4F0", line: "#3A3F39", lime: "#D5F24A", ink: "#171917", red: "#F08A80", amber: "#E0B25C", green: "#7FCB9F" };
@@ -216,8 +217,9 @@ export async function mount(root, o) {
   };
 
   /* ---------------- a run */
-  // cur: the moment on stage; R: its decision when it last played (null while attract waits to play it).
-  let cur = d.trace(FIRST), R = null, before = null, busy = false, attract = false, touched = false, stale = false, deb = 0, pend = null;
+  // cur: the moment on stage; R: its decision when it last played (null while attract waits to play it);
+  // own: the visitor started the run on stage (only then is its result announced).
+  let cur = d.trace(FIRST), R = null, before = null, busy = false, attract = false, touched = false, stale = false, deb = 0, pend = null, own = false;
   /* The steps, newest last, scrolled into view (scrolling moves nothing). A
      streamed row holds its final words (unseen) while the live copy types
      over them, so no row ever grows; the caret is a new box at each step
@@ -278,6 +280,7 @@ export async function mount(root, o) {
     stopRun();
     if (mode == "all") showAll(false);
     pend = null;
+    own = !attract;
     // the run plays in the stage (and pauses off screen): read this before any DOM write.
     // Phones: a chip sits above the stage, so a tap whose stage starts low brings it up. Attract never scrolls.
     const sb = stage.getBoundingClientRect(), away = !attract && (sb.top > innerHeight - 160 || sb.bottom < 160 || (C.phone() && sb.top > innerHeight * 0.4));
@@ -345,7 +348,7 @@ export async function mount(root, o) {
   function startStep(t, s, i) {
     const sp = s.sp == "today" ? null : s.sp, kind = sp && d.sp[sp] ? d.sp[sp].kind : "check";
     if (sp && G.n[sp]) setNode(sp, s.result == "skipped" ? "skip" : "work");
-    if (s.sp == "any_ai") { noai.hidden = false; COACH.forEach((c) => setNode(c, "skip")); }
+    if (s.sp == "any_ai") { noai.hidden = false; $$(".bp-pills .sc-node", dia).forEach((e) => setNode(e.dataset.sp, "skip")); }
     if (isPick(d, s)) { // code picks: one straight line from the moment's kind to the one specialist
       if (!RM) lines.push({ p: () => [[G.kind.cx, G.kind.b], [G.n[sp].cx, G.n[sp].y]], t0: clock - 1, draw: 240, hold: 500, fade: 600, col: COL.lime, label: COPY.picks });
       logAdd(picksRow(d, i));
@@ -362,7 +365,7 @@ export async function mount(root, o) {
     if (G.n[sp]) setNode(sp, stateOf(s));
     const val = nodeEl(sp) && nodeEl(sp).querySelector(".sc-val");
     if (val) val.classList.remove("is-due");
-    if (sp == "confidence" && r.sure) { val.textContent = sureVal(t, r); nodeEl(sp).dataset.state = r.sure.score * 100 >= r.sure.bar ? "pass" : "warn"; }
+    if (sp == "confidence" && r.sure) { val.textContent = sureVal(t, r); setNode(sp, (r.sure.pct != null ? r.sure.pct : Math.round(r.sure.score * 100)) >= r.sure.bar ? "pass" : "warn"); }
     if (s.result == "skipped" && val) val.textContent = "Not reached";
     if (sp == "safety" && s.result == "hit") {
       const m = msgBox();
@@ -383,7 +386,7 @@ export async function mount(root, o) {
     reveal();
     again.classList.remove("bp-btn-p");
     chipsBusy(false);
-    if (!attract) C.say(`Result: ${d.labels.lanes[r.lane]}`); // the self-started run announces nothing
+    if (own) C.say(`Result: ${d.labels.lanes[r.lane]}`); // the self-started run announces nothing, even after a key press
     attract = false;
     paint();
     if (stale) changed(); // a setting changed while it played: the result follows the settings now
@@ -540,11 +543,11 @@ export async function mount(root, o) {
       if (c) { if (busy) return void e.preventDefault(); return void run(c.dataset.t); }
       if (e.target.closest(".bp-skip")) { e.preventDefault(); if (playing) runTl.skip(); out.focus(); return; }
       if (e.target.closest(".bp-all-b")) return void (busy || showAll(true));
+      // Leaving the twelve stacks hides the button that had focus: focus goes to the moment's chip (the result
+      // when the chip is folded away on a phone), or back to "Throw them all".
       const m = e.target.closest(".bp-mini");
-      if (m) return void run(m.dataset.t);
-      if (e.target.closest(".bp-back")) return void showAll(false);
-      const how = e.target.closest(".bp-how");
-      if (how) { const n = $(".bp-hownote"); n.hidden = !n.hidden; how.setAttribute("aria-expanded", String(!n.hidden)); }
+      if (m) { run(m.dataset.t); const c = $(`.bp-chip[data-t="${m.dataset.t}"]`); return void (c && c.offsetParent ? c : out).focus({ preventScroll: true }); }
+      if (e.target.closest(".bp-back")) return void (showAll(false), $(".bp-all-b").focus({ preventScroll: true }));
       if (e.target.closest(".bp-more")) { const all = chips.toggleAttribute("data-all"); $(".bp-more").setAttribute("aria-expanded", String(all)); }
       const tg = e.target.closest(".bp-tg"); // phones: "Step by step" and "Change a setting"
       if (tg) { const open = tg.parentElement.toggleAttribute("data-open"); tg.setAttribute("aria-expanded", String(open)); }
@@ -557,9 +560,10 @@ export async function mount(root, o) {
       e.preventDefault();
       const v = $(".bp-free textarea").value.trim();
       if (!v || busy) return;
-      const id = closest(v), line = COPY.closest.replace("{chip}", d.trace(id).chip);
+      const id = closest(v), line = id ? COPY.closest.replace("{chip}", d.trace(id).chip) : COPY.none;
       $(".bp-closest").textContent = line;
-      run(id, 0, line + " ");
+      if (id) run(id, 0, line + " ");
+      else C.say(line); // no sample is close: nothing plays
     });
 
     /* ---------------- "Change and run again" */

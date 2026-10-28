@@ -189,7 +189,7 @@ test("the bands: the registry's headings in order; the showcases' bands keep sti
   assert.match(html, /<section class="mk-home-band mk-home-paper mk-sc-band mk-hm-resort" id="resort"/);
   assert.equal((html.match(/data-showcase="(field|board)"/g) ?? []).length, 2);
   assert.match(element(html, '<div id="sc-field"'), /^<div id="sc-field" class="sc-host"><section class="mc sc-stage" data-showcase="field" data-sc="pre" data-nosnippet aria-label="A sample hour of your Brain">/);
-  assert.match(element(html, '<div id="sc-board"'), /<section class="mb sc-stage" data-showcase="board" data-sc="pre" data-nosnippet aria-labelledby="resort-h">/);
+  assert.match(element(html, '<div id="sc-board"'), /<section class="mb sc-stage" data-showcase="board" data-sc="pre" data-nosnippet role="group" aria-labelledby="resort-h">/);
   // Every other band keeps the sitewide reveal structure.
   for (const id of ["how", "subscribers", "control", "economics", "followers", "proof", "faq"])
     assert.match(element(html, `id="${id}"`), new RegExp(`^<section class="mk-home-band [^"]+" id="${id}" aria-labelledby="${id}-h"><div class="mk-container mk-home-inner">`), id);

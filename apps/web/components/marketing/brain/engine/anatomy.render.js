@@ -58,7 +58,7 @@ export const NOTES = {
 };
 export const LET = "abcdefghij";
 const COUNT = ["One", "Two", "Three", "Four", "Five", "Six"];
-/** A note's text, (f) with how many coaching specialists are not on yet. */
+/** A note's text; (f) says how many of the coach crew are not on yet. */
 export function note(d, k) {
   if (k != "f") return NOTES[k][1];
   const coach = d.specialists.filter((s) => s.crew == "coach" && s.kind == "ai"), n = coach.filter((s) => s.status == "not_on_yet").length;
