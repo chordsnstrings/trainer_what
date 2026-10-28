@@ -42,6 +42,24 @@
 4. WP7b CI step.
 5. WP8 docs.
 
+**Progress at 04:10 UTC:**
+- **WP4 home is done** (WIP `0e836cc`). Results:
+  - typecheck and build pass; 203/203 marketing tests;
+  - Kamran's button covers nothing; the LCP is the H1;
+  - CLS is 0.00044 at 390 px and 0.00016 at 1440 px;
+  - static mode, JavaScript off, and sign-ups open or closed all checked.
+
+  The full report is in the scratchpad as `report-wp4.md`.
+- **Lead fixes from WP4's notes:**
+  - the showcase host and island now share one keyed fragment, so React no longer warns about duplicate keys;
+  - the status strip drops "today" from "You can run all of this on yourself today with Try my AI", because "today" is untrue while sign-ups are closed;
+  - the Instagram answer says followers pay "once subscriber payments are on", and the payments-on line restores the full answer;
+  - the status panel uses one full-width column when everything is live;
+  - the traces test's "N cases." pattern no longer misreads "8 quiz answers and 3 cases.".
+
+  Targeted tests: 50/50; typecheck passes.
+- **Now running:** WP5 (/trainer-brain and /demo) and WP7b (checks, round 1, in its own worktree). WP7b's baseline was measured on `4f35e5c`.
+
 **Lead decision for the owner's FYI list:** the "Can subscribers pay me today?" answer no longer says "Today you can join". It now reads "With an account you can already set up your page and app, and teach and test your AI", which stays true while sign-ups are closed.
 
 **Next:**

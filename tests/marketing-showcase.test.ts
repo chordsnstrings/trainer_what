@@ -727,9 +727,12 @@ test("static mode renders the still frame (data-sc=\"off\", the anatomy flat) wi
 
 test("host and island share one key: stable for equal HTML, new when a flag changes", () => {
   const key = (o: ShowcaseOptions) => {
-    const kids = elementChildren(BrainShowcase({ kind: "field", id: "sc-field", label: "A sample", options: o, mode: "live" }) as ReactElement);
-    assert.equal(kids[0].key, kids[1].key);
-    return kids[0].key;
+    // One keyed fragment holds both, so a new key replaces both (and React
+    // never sees two siblings with the same key).
+    const el = BrainShowcase({ kind: "field", id: "sc-field", label: "A sample", options: o, mode: "live" }) as ReactElement;
+    assert.equal(elementChildren(el).length, 2);
+    assert.ok(elementChildren(el).every((k) => k.key === null));
+    return el.key;
   };
   assert.equal(key(options()), key(options()));
   assert.equal(key(options()), fnv1a(renderShowcase("field", { ...options(), kind: "field", id: "sc-field", label: "A sample" }, "live")));

@@ -153,6 +153,12 @@ async function signIn(page, email) {
 function measure(page) {
   return page.evaluate(() => {
     const parse = (c) => {
+      // color-mix() and relative colours compute to color(srgb r g b / a), 0–1.
+      const srgb = c.match(/color\(srgb ([^)]+)\)/);
+      if (srgb) {
+        const [r, g, b, a = 1] = srgb[1].split(/[ /]+/).filter(Boolean).map(Number);
+        return { r: r * 255, g: g * 255, b: b * 255, a };
+      }
       const m = c.match(/rgba?\(([^)]+)\)/);
       if (!m) return null;
       const [r, g, b, a = 1] = m[1].split(/[ ,/]+/).filter(Boolean).map(Number);
@@ -224,7 +230,9 @@ function measure(page) {
     }
     // Focus rings (3px outline in --focus, drawn outside the element) need
     // 3:1 against the surface they sit on: the parent's backdrop. Trainer
-    // themes draw their own white-and-black double ring.
+    // themes draw their own white-and-black double ring; a Brain showcase
+    // draws its own ring (--sc-ai-on on the ink stage, app/brain-stage.css),
+    // whose contrast tests/marketing-showcase.test.ts holds at 3:1.
     const hex = (v) => {
       const m = v.trim().match(/^#([0-9a-f]{6})$/i);
       if (!m) return parse(v.trim());
@@ -235,7 +243,7 @@ function measure(page) {
     for (const el of document.body.querySelectorAll(
       "a[href], button, input:not([type='hidden']), select, textarea, summary, [tabindex]:not([tabindex='-1'])",
     )) {
-      if (el.closest(".trainer-theme, [aria-hidden='true'], [hidden], :disabled")) continue;
+      if (el.closest(".trainer-theme, [data-showcase], [aria-hidden='true'], [hidden], :disabled")) continue;
       if (!el.checkVisibility?.({ opacityProperty: true, visibilityProperty: true }))
         continue;
       const r = el.getBoundingClientRect();
@@ -481,13 +489,15 @@ async function consentAnswerChecks(page, label, answer) {
  * The home page's word budget and H2 cap (docs/marketing-revamp-2026-10-26/
  * phase1/PLAN.md §4.3): visible words in `main`, as C1 counts them (the
  * showcases, the sample screens, the follower calculator, screen-reader text
- * and closed or hidden content left out), within 400 (a measured figure above
- * that is recorded as the budget in docs/features/marketing-site.md and set
- * here, never cut without the owner); the H2s are the registry's sections
- * (resort, how, subscribers, control, economics, followers, proof), the FAQ
- * band and the closing panel.
+ * and closed or hidden content left out). C1's target is 400; the approved
+ * copy measures more, so the measured figure is the budget (the plan's rule;
+ * it is recorded in docs/features/marketing-site.md, and copy is never cut
+ * without the owner): 624 on 28 October 2026 with sign-ups open, as this
+ * check's seeded platform has them (610 with them closed). The H2s are the
+ * registry's sections (resort, how, subscribers, control, economics,
+ * followers, proof), the FAQ band and the closing panel.
  */
-const HOME_WORDS = 400;
+const HOME_WORDS = 624;
 const HOME_H2 = 9;
 
 /**

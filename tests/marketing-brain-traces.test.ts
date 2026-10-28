@@ -142,7 +142,7 @@ test("the Not-on-yet shelf is the Meal planner and the Recovery rule; t3 and the
 test("the honesty strings are exact (SHOWCASE_DESIGN.md §1.5)", () => {
   const c = checks();
   c.eq(d.labels.chip, "Sample · scripted · no AI model called", "chip");
-  c.eq(d.labels.subscribers, "Subscribers can't join yet: subscriber payments are not on. You can run all of this on yourself today with Try my AI.", "status strip");
+  c.eq(d.labels.subscribers, "Subscribers can't join yet: subscriber payments are not on. You can run all of this on yourself with Try my AI.", "status strip");
   c.eq(d.labels.eyebrow, "A SAMPLE HOUR OF YOUR BRAIN", "eyebrow");
   c.eq(d.labels.rates, "A mix chosen to show every path. Not real rates.", "rates");
   c.eq(d.labels.long, "Sample moments. Code steps use the app's own limits on sample data. AI steps replay answers from test runs, or are marked illustrative. No AI model is called on this page.", "banner");
@@ -381,7 +381,8 @@ test("claims the pages and the showcases share hold in the code (28 days, the 5%
   const brainStep = SETUP_STEPS.find((s) => s.key === "brain")!;
   c.eq(brainStep.minutes, 6, "about 6 minutes to teach the Brain");
   for (const m of every(/\b(\d+) (?:confirmed )?(?:quiz )?answers and (\d+) (?:own |client )?cases\b/gi)) c.eq([Number(m[1]), Number(m[2])], [8, 3], m[0]);
-  for (const m of every(/\b(\d+)\+? (?:of your own )?cases(?= and passing| for automatic|\.)/gi)) c.eq(Number(m[1]), OWN_CASES_FOR_FULL_CHECK, m[0]);
+  // "8 quiz answers and 3 cases." is the setup minimum, checked above.
+  for (const m of every(/(?<!answers and )\b(\d+)\+? (?:of your own )?cases(?= and passing| for automatic|\.)/gi)) c.eq(Number(m[1]), OWN_CASES_FOR_FULL_CHECK, m[0]);
   for (const m of every(/\babout (\d+) minutes for the first/gi)) c.eq(Number(m[1]), brainStep.minutes, m[0]);
 
   // "Approve all" leaves flagged drafts out, in the API and on screen.

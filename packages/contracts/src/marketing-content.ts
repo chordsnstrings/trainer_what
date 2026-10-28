@@ -693,6 +693,14 @@ const PAY_TODAY_FAQ: MarketingFaq = {
   a: "Not yet. Subscriber payments are not on yet, and publishing your page waits for them. With an account you can already set up your page and app, and teach and test your AI.",
 };
 /**
+ * The answer while subscriber payments are off; AVAILABILITY_LINES carries
+ * the full answer once they are on.
+ */
+const INSTAGRAM_FAQ: MarketingFaq = {
+  q: "How do my Instagram followers become subscribers?",
+  a: "Share your coaching link in your bio and Stories. Followers open your branded page, choose your offer and, once subscriber payments are on, pay in AED. The follower calculator headlines a strong case: a best case, not typical. Cautious and typical results show too.",
+};
+/**
  * Lines shown only while an availability flag is on (marketingPageFor): the
  * frontier wording, and answers that change once subscriber payments are on.
  * The "frontier" flag is on only while the active model profile is frontier
@@ -718,6 +726,14 @@ export const AVAILABILITY_LINES: readonly AvailabilityLine[] = [
     },
   },
   {
+    // /trainer-brain asks it as "my AI" (MY_AI_TRAINED_FAQ).
+    when: "frontier",
+    faq: {
+      q: MY_AI_TRAINED_FAQ.q,
+      a: "It runs on a frontier model, taught with your confirmed rules, cases, examples and corrections. Each version is checked against your test cases and can be rolled back. We do not fine-tune a model on you; your teaching stays private to your workspace.",
+    },
+  },
+  {
     when: "frontier",
     path: "/faq",
     faq: {
@@ -740,6 +756,10 @@ export const AVAILABILITY_LINES: readonly AvailabilityLine[] = [
     when: "payments",
     faq: { q: PAY_TODAY_FAQ.q, a: "Yes. Subscribers pay you by card in AED." },
   },
+  {
+    when: "payments",
+    faq: { q: INSTAGRAM_FAQ.q, a: "You share your coaching link in your bio and Stories. Followers open your branded page, choose your offer and pay in AED. The follower calculator headlines a strong case: a best case, not typical. Cautious and typical results show too. An estimate, not a promise." },
+  },
 ];
 const TECH_FAQ: MarketingFaq = {
   q: "Do I need technical skills?",
@@ -748,10 +768,6 @@ const TECH_FAQ: MarketingFaq = {
 const FOLLOWERS_FAQ: MarketingFaq = {
   q: "Will my followers pay?",
   a: "Some will. Use the follower calculator for a strong case with cautious and typical scenarios from published benchmarks, then test your offer. We never promise a number.",
-};
-const INSTAGRAM_FAQ: MarketingFaq = {
-  q: "How do my Instagram followers become subscribers?",
-  a: "You share your coaching link in your bio and Stories. Followers open your branded page, choose your offer and pay in AED. The follower calculator headlines a strong case: a best case, not typical. Cautious and typical results show too. An estimate, not a promise.",
 };
 /**
  * The home page's answer-first introduction (35-65 words, opening with the
@@ -924,172 +940,202 @@ export const MARKETING_CONTENT: MarketingPage[] = [
     kind: "page",
     group: "product",
     navLabel: "Trainer Brain",
-    title: "Trainer Brain: an AI built from your judgment",
+    // Phase 1 (27 October 2026, docs/marketing-revamp-2026-10-26/phase1/
+    // PLAN.md): the title keeps "AI trainer" for search; the H1 says "your
+    // AI". The crew, the anatomy and the playground counts come from the
+    // Brain traces (components/marketing/brain/data/traces.json).
+    title: "Trainer Brain: an AI trainer from your judgment",
     description:
-      "Teach an AI your coaching rules, cases and examples. It plans and adapts training for each subscriber, learns from your corrections and asks when unsure.",
-    h1: "An AI trainer built from your judgment",
+      "Teach an AI trainer your rules, cases and examples. It plans and adapts training for each subscriber, learns from your corrections and asks when unsure.",
+    h1: "Your AI, built from your judgment",
     eyebrow: "TRAINER BRAIN",
-    lede: "Your rules, cases and corrections in one private AI. It acts alone only when confident and asks you when it isn’t.",
+    lede: "Built from your rules and corrections. Routine replies use your approved words. Anything else waits for you.",
     intro:
-      "The Trainer Brain is a private, versioned set of your coaching rules, cases and examples. It plans and adapts training for each subscriber. It is taught by you, tested on held-out scenarios, and acts alone only when confident. It learns from your corrections.",
+      "The Trainer Brain is a private, versioned set of your coaching rules, cases and examples. It plans and adapts training for each subscriber. It is taught by you, checked against your test cases, and sends on its own only within your rules. It learns from your corrections.",
     primaryKeyword: "AI trained on my coaching method",
     sections: [
       {
         id: "what",
-        heading: "What it is",
+        heading: "Not a generic workout generator",
+        body: ["Every change traces back to something you taught. Every version can be rolled back."],
+      },
+      {
+        id: "inside",
+        heading: "Who’s inside your Brain",
         body: [
-          "A bespoke AI trainer built from your rules, cases and corrections, not a generic workout generator. Every change traces back to something you taught, and every version can be rolled back.",
+          "Specialists inside your AI handle every message. Code checks every step. You decide what goes out.",
+          "14 AI specialists and 11 code steps.",
         ],
+        cards: [
+          {
+            title: "Coach",
+            label: "One per moment",
+            body: "Code picks one of these from the kind of moment. Never two on one message.",
+          },
+          {
+            title: "Teach",
+            label: "Works with you",
+            body: "These help you teach. Nothing they write is used until you confirm it.",
+          },
+          {
+            title: "Guard",
+            label: "Code, no AI",
+            body: "Fixed steps around every moment. They follow your rules and the safety rules.",
+          },
+        ],
+        note: "How we count: 14 AI specialists are the AI jobs, grouped by what they do (the Meal planner groups 4 model tasks). 11 code steps run around them. One of those, the Examiner, has your AI answer your test cases, then code marks them.",
+      },
+      {
+        // The anatomy figure's key: the three lanes a decision ends in.
+        id: "decides",
+        heading: "Anatomy of one decision",
+        body: [
+          "One reply, taken apart. Fixed checks before and after. One AI specialist in the middle. Your rules at every layer.",
+        ],
+        bullets: [
+          "Sent on its own: your approved reply fits and cites your rule.",
+          "Waits for you: nothing fits your rules, or it is your topic.",
+          "Training paused: safety rules in code catch pain and red flags first.",
+        ],
+      },
+      {
+        id: "play",
+        heading: "Throw a moment at your Brain",
+        body: [
+          "Pick something a member might say. Watch each check and specialist work. Then change a setting and run it again.",
+        ],
+        note: "Sample moments. Code steps use the app's own limits on sample data. AI steps replay answers from test runs, or are marked illustrative. No AI model is called on this page.",
       },
       {
         id: "teach",
         heading: "What you teach it",
-        bullets: [
-          "A guided interview: what you recommend, why, and what changes it.",
-          "Plain-language rules you confirm, edit or reject, each with its source.",
-          "Coaching cases and worked examples of real decisions.",
-          "Your own documents; you review the extracted text before use.",
-          "Practice quiz and client cases; 20 cases for automatic sending.",
-        ],
-      },
-      {
-        // The three paths moved here from the home page (28 September 2026).
-        id: "decides",
-        heading: "How it decides",
-        body: [
-          "It combines your published rules with each subscriber’s goals, schedule, equipment and logged training. Then it takes one of three paths.",
-        ],
+        body: ["Five ways in. Every rule keeps its source, so you can always see where a decision came from."],
         cards: [
-          {
-            title: "Confident",
-            body: "The change follows your confirmed rules, so it is applied automatically and logged with its reason.",
-            label: "Applied automatically",
-          },
-          {
-            title: "Not sure",
-            body: "Outside what you taught or below your threshold, a draft comes to you. Your correction becomes teaching.",
-            label: "Handed to you",
-          },
-          {
-            title: "Safety",
-            body: "Pain, medical issues and red flags pause the workout and alert you. Enforced in code, outside the AI.",
-            label: "Always to you",
-          },
+          { title: "A guided interview", body: "What you recommend, why, and what changes it." },
+          { title: "Rules you confirm", body: "Plain language, each with its source: confirm, edit or reject. Flagged rules never go into “Approve all”." },
+          { title: "Cases and examples", body: "Real decisions you made, not just principles." },
+          { title: "Your documents", body: "Used only after you review the extracted text." },
+          { title: "The practice quiz", body: "8 answers and 3 cases to start. 20 cases for automatic sending." },
         ],
       },
       {
+        // The frontier wording adds a fifth bullet here (AVAILABILITY_LINES).
         id: "learns",
-        heading: "How it learns",
+        heading: "How it gets better",
         bullets: [
-          "Your approvals and corrections become new teaching.",
-          "Subscriber outcomes, such as completed sessions and logged loads, inform later plans.",
-          "New teaching is evaluated against your scenarios before release.",
-          "Every release is versioned; you can roll back to an earlier one.",
+          "Your corrections become suggested rules you confirm.",
+          "Each release is checked against your test cases first.",
+          "Every release is versioned, so you can roll back.",
+          "Compare my replies: rate its reply blind against yours, on five points.",
         ],
       },
       {
         id: "never",
-        heading: "What it never does",
-        bullets: [
-          "Keep pain, medical issues or red flags from you.",
-          "Pretend to be you: subscribers see a clearly labelled digital coach.",
-          "Give medical or clinical advice.",
-          "Use your teaching elsewhere: your Brain stays private to your workspace.",
-        ],
+        heading: "What your AI will never do",
+        bullets: NEVER_LIST,
+        note: NEVER_NOTE,
       },
       {
-        // Moved from the home page (28 September 2026).
-        id: "control",
-        heading: "You stay in control",
+        // Deletion is a reviewed request, so "request deletion", never
+        // "delete it whenever you like" (marketing-features.ts, "Export and
+        // deletion").
+        id: "yours",
+        heading: "Your method stays yours",
         bullets: [
-          "Your rules are inspectable and every release can be rolled back.",
-          "You choose which routine changes run automatically.",
-          "You can take over any subscriber or conversation at any time.",
-          "Safety routing is enforced in code and cannot be switched off.",
-          "Subscribers always see when guidance comes from the digital coach.",
+          "Private to your workspace",
+          "Isolated at the database layer",
+          "Never used for another trainer",
+          "Download your data and request deletion",
+          "Your voice only with consent you can withdraw",
         ],
       },
     ],
     faqs: [
-      TRAINED_FAQ,
-      REPLACE_FAQ,
+      MY_AI_TRAINED_FAQ,
+      MY_AI_REPLACE_FAQ,
       {
-        q: "Can another trainer see or use my Brain?",
-        a: "No. Your rules, sources, cases and scenarios are private to your workspace, and workspaces are isolated at the database layer.",
+        q: "Can another trainer see or use my AI?",
+        a: "No. Your rules, sources, cases and test cases are private to your workspace, and workspaces are isolated at the database layer.",
       },
       {
-        q: "What if the Brain gets something wrong?",
-        a: "Correct it. The correction is recorded with its reason, becomes teaching, and is checked against your scenarios before the next release. You can also roll back to an earlier release at any time.",
+        q: "What if my AI gets something wrong?",
+        a: "Correct it. The correction is recorded with its reason, becomes teaching, and is checked against your test cases before the next release. You can also roll back to an earlier release at any time.",
       },
     ],
     related: ["/demo", "/features/safety", "/features/ai-training-plans", "/guides/writing-coaching-rules"],
-    lastUpdated: "2026-10-03",
+    lastUpdated: "2026-10-27",
     indexable: true,
     jsonLd: ["WebPage", "FAQPage"],
-    cta: { label: "Start teaching your Brain", href: "/signup" },
+    secondaryCta: { label: "Try the demo", href: "/demo" },
   },
   {
     path: "/demo",
     kind: "page",
     group: "product",
     navLabel: "Demo",
+    // Phase 1 (27 October 2026, docs/marketing-revamp-2026-10-26/phase1/
+    // PLAN.md): the playground replaces the four scripted examples. The
+    // moments and their outcomes come from the Brain traces
+    // (components/marketing/brain/data/traces.json) with the sample
+    // settings; "6 minutes" is the setup wizard's Brain step (SETUP_STEPS).
     title: "See an AI coach decide: interactive demo",
     description:
-      "Four scripted examples of a Trainer Brain decision: a confident progression, a missed session, a low-confidence handoff to the trainer and a pain report.",
-    h1: "See your Brain make a coaching decision",
+      "Throw a sample moment at a Trainer Brain. Watch each code check and AI specialist work, then change a setting and run it again. No AI model is called.",
+    h1: "Throw a moment at your Brain",
     eyebrow: "INTERACTIVE DEMO",
+    lede: "Pick something a member might say. Watch each check and specialist work. Then change a setting and run it again.",
     intro:
-      "Choose a subscriber message to see how a Trainer Brain responds. Confident changes follow the trainer’s rules automatically, uncertain ones go to the trainer, and pain always pauses the workout. These examples are fictional and scripted; no AI model is called.",
+      "This demo shows how a Trainer Brain handles sample moments from members. Safety rules in code read each message first; code then picks the specialist, and checks run before anything is sent. Change a setting, such as how sure a plan must be, and run it again. The moments are scripted; no AI model is called.",
     primaryKeyword: "AI coach example",
     sections: [
       {
-        id: "scenarios",
-        heading: "Four decisions",
-        cards: [
+        id: "next",
+        heading: "What happens in your account",
+        body: ["You’ll teach your real rules in setup. Every reply waits for you until you choose otherwise."],
+        steps: [
           {
-            title: "A confident progression",
-            label: "Applied automatically",
-            body: "“Week three done and the squats felt easy.” The trainer’s rule: after two sessions with every set completed and three or more reps in reserve, add 2.5 kg to the main lower-body lift. The Brain moves next Monday’s squat from 60 kg to 62.5 kg and records why.",
+            title: "Setup",
+            body: "Teach your real rules. About 6 minutes for the first ones: 8 quiz answers and 3 cases.",
           },
           {
-            title: "A missed session",
-            label: "Rescheduled automatically",
-            body: "“I missed yesterday. Should I do two sessions today?” The trainer’s rule: never stack two sessions in a day; move the missed one to the next free day and keep a rest day between hard sessions. The session moves to Thursday and Friday becomes a rest day.",
+            title: "Waits for me",
+            body: "Every reply comes to you first. Nothing reaches a subscriber without you, and your edits become teaching.",
           },
           {
-            title: "Outside what it was taught",
-            label: "Handed to the trainer",
-            body: "“I’m travelling for two weeks with only a hotel gym. Can you rebuild my plan?” Nothing the trainer taught covers this equipment, so confidence is below the trainer’s threshold. The Brain drafts an option and hands it to the trainer; the subscriber is told the trainer will confirm.",
-          },
-          {
-            title: "New pain",
-            label: "Workout paused",
-            body: "“My knee hurts when I squat today.” Pain is a safety rule enforced in code, outside the AI. The workout pauses, the trainer is alerted, and normal training stays blocked until the trainer reviews it.",
+            title: "Your choice",
+            body: "Automatic for routine changes you choose, after 20 cases and passing checks. Safety issues always come to you.",
           },
         ],
-        note: "Fictional, scripted examples. They do not assess anyone’s health or prescribe a workout.",
+      },
+      {
+        id: "moments",
+        heading: "The 12 sample moments",
+        body: [
+          "With the sample settings, “Squats felt easy”, “Voice session” and “First plan” are sent on their own, within your rules. “Skip my deload?”, “Week is over” and “Creatine question” wait for you.",
+          "“My knee popped”, “22 weeks pregnant” and “Chest pain (Arabic)” pause training. “Meal photo” asks the member to confirm, “You edit a reply” suggests a new rule, and “Low recovery” is not on yet.",
+        ],
       },
     ],
     faqs: [
       {
-        q: "Can I test my own Brain before launch?",
-        a: "Yes. The scenario lab lets you write held-out situations with the answer you expect, and your Brain is evaluated against them before a version can be published."
+        q: "Can I test my AI before launch?",
+        a: "Yes. You write test cases with the answer you expect, and your AI is checked against them before a version can be published.",
       },
       {
         q: "Is this a real AI response?",
-        a: "No. These are scripted examples that show the decision flow. A real Trainer Brain uses the trainer’s own confirmed rules and evaluated release.",
+        a: "No. These are sample moments. Code steps use the app’s own limits on sample data. AI steps replay answers from test runs, or are marked illustrative. No AI model is called.",
       },
       {
-        q: "Who decides the confidence threshold?",
-        a: "You do. You choose which routine changes may run automatically; everything else comes to you.",
+        q: "Who decides how sure it must be?",
+        a: "You do. Plans send on their own only when Confidence meets your bar. Chat replies have no score: they must cite your approved rule, at the Brain level you choose.",
       },
       SAFETY_FAQ,
     ],
     related: ["/trainer-brain", "/features/safety", "/how-it-works"],
-    lastUpdated: UPDATED,
+    lastUpdated: "2026-10-27",
     indexable: true,
     jsonLd: ["WebPage", "FAQPage"],
-    cta: { label: "Build my Brain", href: "/signup" },
+    secondaryCta: { label: "See how it works", href: "/how-it-works" },
   },
   {
     path: "/features",

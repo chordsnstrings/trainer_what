@@ -63,7 +63,8 @@ export function StatusPanel({
       <p className="mk-pf-status-title" id={id + "-title"}>
         {title}
       </p>
-      <div className="mk-pf-status-cols">
+      {/* Everything live: no grid, so the one column takes the whole panel. */}
+      <div className={off.length > 0 ? "mk-pf-status-cols" : undefined}>
         <div className="mk-pf-status-col mk-pf-status-live">
           <H>Live today</H>
           <ul>

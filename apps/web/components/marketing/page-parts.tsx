@@ -51,7 +51,7 @@ export const dateLabel = (iso: string) =>
  * (teachCta). Each page joins in the change that redesigns it; every other
  * page keeps claimCta or its own call to action.
  */
-export const TEACH_CTA_PATHS: ReadonlySet<string> = new Set<string>(["/pricing", "/"]);
+export const TEACH_CTA_PATHS: ReadonlySet<string> = new Set<string>(["/pricing", "/", "/trainer-brain", "/demo"]);
 
 /** The CTA a page shows, following whether registration is open. */
 export function primaryCta(page: MarketingPage, platform: PublicPlatform): Cta {

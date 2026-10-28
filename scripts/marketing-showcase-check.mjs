@@ -30,10 +30,11 @@
 //     ?lang=ar; no duplicate id, page error or console error; each page has
 //     its showcases and each reaches data-sc="on" within 15 s of coming near.
 //  5. With the engine's requests aborted after the load event, the hero ends
-//     at data-sc="off" within 7 s of html[data-sc-ready] (the island's clock)
-//     with its final frame visible; the anatomy ends "off" within 7 s of
-//     coming near and goes flat only while entirely below the viewport, with
-//     no layout shift.
+//     at data-sc="off" within 7 s of html[data-sc-ready] with its final frame
+//     visible; with them stalled (never answered), the island's 6 s fallback
+//     ends it, timed from html[data-sc-ready] (6 to 7 s); the anatomy ends
+//     "off" within 7 s of coming near and goes flat only while entirely below
+//     the viewport, with no layout shift.
 //  6. While visible and running, data-sc-run is on the root and frames run;
 //     it is gone within 1 s off screen, in a hidden document, after Pause,
 //     under emulated reduced motion, with the member's reduce-motion cookie
@@ -68,11 +69,14 @@
 // hardware; this container and CI have no GPU): frame gaps and engine work
 // per frame (4x CPU, ?tier=full), the STOP stamp after load, blocking time
 // against scripts/marketing-showcase-baseline.json (measured on the build
-// before phase 1), long tasks from mounting, chip and slider latency, engine
+// before phase 1), long tasks from mounting (those in which the engine's
+// chunks ran, named by long animation frames), chip and slider latency, engine
 // chunk sizes, shared JavaScript and global CSS against the baseline, and
 // the showcase HTML on /trainer-brain. SHOWCASE_RUNS loads per page (default
 // 1; 3 when judging), median. SHOWCASE_BASELINE_OUT=<file> writes the
-// metrics as a new baseline. SHOWCASE_CHECKS=1,4,metrics runs a subset.
+// metrics as a new baseline (measure it on the build before phase 1, 4f35e5c,
+// with SHOWCASE_CHECKS=metrics SHOWCASE_RUNS=5). SHOWCASE_CHECKS=1,4,metrics
+// runs a subset.
 // Results: test-results/marketing-showcase.json (SHOWCASE_OUT).
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";

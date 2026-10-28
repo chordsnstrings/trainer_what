@@ -5,7 +5,7 @@
  "labels": {
   "chip": "Sample · scripted · no AI model called",
   "long": "Sample moments. Code steps use the app's own limits on sample data. AI steps replay answers from test runs, or are marked illustrative. No AI model is called on this page.",
-  "subscribers": "Subscribers can't join yet: subscriber payments are not on. You can run all of this on yourself today with Try my AI.",
+  "subscribers": "Subscribers can't join yet: subscriber payments are not on. You can run all of this on yourself with Try my AI.",
   "rates": "A mix chosen to show every path. Not real rates.",
   "speed": "Slowed down so you can follow it.",
   "noAi": "No AI called",

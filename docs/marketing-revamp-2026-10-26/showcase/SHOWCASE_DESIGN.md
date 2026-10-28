@@ -206,7 +206,7 @@ settingsDefault: supplementsTopic true (the sample trainer's choice), recovery.o
 
 - **Inside every showcase stage, always visible:**
   - "Sample · scripted · no AI model called";
-  - the status strip: "Subscribers can't join yet: subscriber payments are not on. You can run all of this on yourself today with Try my AI." It sits inside the stage, not below it.
+  - the status strip: "Subscribers can't join yet: subscriber payments are not on. You can run all of this on yourself with Try my AI. (Was "…on yourself today…"; "today" is untrue while sign-ups are closed, changed 28 Oct.)" It sits inside the stage, not below it.
 - **A's eyebrow:** "A SAMPLE HOUR OF YOUR BRAIN". Never "right now", "live" or a real clock.
 - **Mission control and playground footer:** "A mix chosen to show every path. Not real rates."
 - **Counts** always read "in this sample". They are capped and reset each loop (A) or each day (B).
