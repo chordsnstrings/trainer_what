@@ -767,10 +767,14 @@ test("the home page's first paint waits for the whole hero (CLS 0 when the parse
       .filter((file) => file.endsWith(".tsx"))
       .map((file) => readFile(web("components/marketing/pages/" + file), "utf8")),
   );
-  assert.equal([site, ...pages].join("\n").match(/rel="expect"/g)?.length, 2, "only the home and /trainer-brain heroes block the first paint");
+  assert.equal([site, ...pages].join("\n").match(/rel="expect"/g)?.length, 3, "only the home, /trainer-brain and /pricing heroes block the first paint");
   const brain = pages.find((p) => p.includes('className="mk-container mk-page mk-tb-hero"'))!;
   assert.match(brain, /<link rel="expect" href="#mk-tb-hero-end" blocking="render" \/>\s+<Breadcrumbs/);
   assert.match(brain, /<span id="mk-tb-hero-end" hidden \/>\s+<\/div>\s+<Band section=\{what\}/);
+  // /pricing: its stairs card is centred beside the page head (the same race).
+  const pricing = pages.find((p) => p.includes('className="mk-container mk-pr-hero"'))!;
+  assert.match(pricing, /<link rel="expect" href="#mk-pr-hero-end" blocking="render" \/>\s+<Breadcrumbs/);
+  assert.match(pricing, /<span id="mk-pr-hero-end" hidden \/>\s+<\/div>\s+<Band section=\{glance\}/);
 });
 
 test('the Pace sweep behind "trains": once at load, from the left, scale only, and at rest the fill the span had', async () => {

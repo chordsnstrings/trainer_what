@@ -425,8 +425,13 @@ hold this. The LCP element is the H1 at 390x844 and 1440x900.
 rule ledger, so a first paint during the ledger's parse moved the head
 down 114 px (CLS 0.048 in about 1 cold load in 9 at 1366x900 with 4x CPU).
 Its hero ends in `#mk-tb-hero-end` with one `rel=expect` to it (28 October
-2026): 0 shifts in 40 loads, median LCP 576 ms at 1366. No other marketing
-page blocks its first paint; the same two tests hold that.
+2026): 0 shifts in 40 loads, median LCP 576 ms at 1366. `/pricing` has the
+same race too: its stairs card is centred beside the page head
+(`.mk-pr-hero-grid`, `align-items: center`), so a first paint during the
+card's parse moved the card up 18–118 px (CLS 0.0027–0.0172 in 1 cold load
+in 20, and 1 in 5, at 1366x900 with 4x CPU; milestone run, 28 October
+2026). Its hero ends in `#mk-pr-hero-end` with one `rel=expect` to it. No
+other marketing page blocks its first paint; the same two tests hold that.
 
 **The Pace sweep behind "trains": built, measured, then shipped on the owner's instruction (23 October 2026).**
 The owner approved the sweep only if LCP was proven unchanged. The plan

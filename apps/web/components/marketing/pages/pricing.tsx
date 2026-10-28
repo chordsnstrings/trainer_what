@@ -344,6 +344,10 @@ export function PricingPage({ page, platform }: Ctx) {
   return (
     <>
       <div className="mk-container mk-pr-hero">
+        {/* As on / and /trainer-brain: the first paint waits for the whole
+            hero, so the stairs card (centred beside the page head) never
+            paints half-parsed and then moves up as the rest arrives. */}
+        <link rel="expect" href="#mk-pr-hero-end" blocking="render" />
         <Breadcrumbs page={page} t={t} />
         <div className="mk-pr-hero-grid">
           <PageHead page={page} platform={platform} t={t} cta={cta} secondary={secondaryCta(page)}>
@@ -351,6 +355,7 @@ export function PricingPage({ page, platform }: Ctx) {
           </PageHead>
           <Stairs />
         </div>
+        <span id="mk-pr-hero-end" hidden />
       </div>
 
       <Band section={glance} tone="white" className="mk-pr-rule">
