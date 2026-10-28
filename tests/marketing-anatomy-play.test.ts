@@ -542,7 +542,10 @@ test("free text finds the closest sample through the local keyword table only: s
 
 test("honesty: the sample chip, banner, rates and speed lines, the status strip by payments, the platform's safety rule named and escaped; no placeholder, model name, C0 word, internals or images", () => {
   const { d, html } = playRender();
-  assert.ok(html.includes(`<p class="bp-banner">${esc(d.labels.long)}</p>`), "the banner is labels.long");
+  // Two blocks, so neither is the largest paint on phones (the page's H1 or lede is).
+  const banner = html.match(/<p class="bp-banner">(.*?)<\/p>/)![1];
+  assert.equal(banner.match(/<span>/g)?.length, 2, "the banner is two blocks");
+  assert.equal(banner.replace(/<\/?span>/g, ""), esc(d.labels.long), "the banner is labels.long");
   assert.ok(html.includes(`<span class="sc-sample">${esc(d.labels.chip)}</span>`));
   for (const s of [d.labels.rates, d.labels.speed as string, d.labels.howWeCount as string]) assert.ok(html.includes(esc(s)), s);
   assert.ok(html.includes(esc(d.labels.subscribers!)), "while subscriber payments are off, the strip says so");

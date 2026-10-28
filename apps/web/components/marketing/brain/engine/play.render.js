@@ -150,6 +150,13 @@ function nodesHTML(d, S, t, r, a) {
     `<aside class="bp-book"><span>Your method · <b>24</b> rules (sample)</span></aside>`;
 }
 
+/** The banner in two blocks (after its second sentence): as one block it
+    outweighed /demo's H1 and lede as the largest paint on phones. */
+function banner(s) {
+  const i = s.indexOf(". ", s.indexOf(". ") + 2);
+  return i < 0 ? `<span>${esc(s)}</span>` : `<span>${esc(s.slice(0, i + 1))}</span> <span>${esc(s.slice(i + 2))}</span>`;
+}
+
 /** The root's inner HTML: the playground with its first moment played. */
 export function renderStatic(d, o) {
   const S = defaults(d), first = firstOf(d, S), t = d.trace(first), r = decide(t, S, d), u = o.id;
@@ -158,7 +165,7 @@ export function renderStatic(d, o) {
   const ord = SPECS[0][2], i0 = r.steps.findIndex((s) => isPick(d, s)), hl = o.heading === false && !o.labelledBy ? "h2" : "h3";
   const rows = r.steps.map((s, i) => (i == i0 ? picksRow(d, i) : "") + U.stepRow(d, t, s).replace('<li class="sc-step"', `<li class="sc-step" data-i="${i}"`)).join("");
   const html = (o.heading === false ? "" : `<div class="bp-head"><h2 id="${u}-h">${esc(COPY.h2)}</h2><p>${esc(COPY.lede)}</p></div>`) +
-    `<p class="bp-banner">${esc(d.labels.long)}</p><div class="bp-grid"><div class="bp-pick">` +
+    `<p class="bp-banner">${banner(d.labels.long)}</p><div class="bp-grid"><div class="bp-pick">` +
     `<label class="bp-lab"><span>${esc(COPY.specialty)}</span><select data-spec>${SPECS.map(([k, n]) => `<option value="${k}">${esc(n)}</option>`).join("")}</select></label>` +
     `<div class="bp-chips" role="group" aria-label="${esc(COPY.moments)}">${ord.map((i) => chipHTML(d, d.trace("t" + i), S, "t" + i == first)).join("")}</div>` +
     `<button type="button" class="bp-more" aria-expanded="false">${esc(COPY.more)}</button>` +

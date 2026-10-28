@@ -40,6 +40,9 @@
   font-size: 13px;
   line-height: 1.45;
 }
+[data-showcase="play"] .bp-banner > span {
+  display: block;
+}
 [data-showcase="play"] .bp-grid {
   display: grid;
   grid-template-columns: minmax(0, 3fr) minmax(0, 6fr) minmax(0, 3fr);
