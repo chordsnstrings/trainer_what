@@ -231,10 +231,15 @@ function mountBoard(root, o, p) {
   const lists = {}, cards = {};
   root.querySelectorAll(".mb-col").forEach((c) => (lists[c.dataset.lane] = c.querySelector(".mb-list")));
   root.querySelectorAll(".mb-c").forEach((c) => (cards[c.dataset.t] = c));
-  // Reads before writes (one layout): is it on screen, and, if so, where every card is, for the catch-up below.
-  const S0 = defaults(d), at = root.getBoundingClientRect();
-  seen = at.bottom > 0 && at.top < innerHeight;
-  const first = seen ? new Map(Object.values(cards).map((c) => [c, c.getBoundingClientRect()])) : null;
+  // Reads before writes, and only when the board must catch up (below): is it on screen, and if so
+  // where every card is. Otherwise it reads nothing (the observer below tells when it is on screen).
+  const S0 = defaults(d), stale = Object.keys(S0).some((key) => p.S[key] !== S0[key]);
+  let first = null;
+  if (stale) {
+    const at = root.getBoundingClientRect();
+    seen = at.bottom > 0 && at.top < innerHeight;
+    first = seen && new Map(Object.values(cards).map((c) => [c, c.getBoundingClientRect()]));
+  }
   wireControls(root.querySelector(".mb-ctrl"), p, k, root, say);
   Object.values(cards).forEach((c) => (c.firstElementChild.disabled = false));
   // Re-sorts animate only while the board is on screen. Off screen (the
@@ -280,8 +285,9 @@ function mountBoard(root, o, p) {
   k.add(() => p.subs.delete(resort));
   // The field may have changed a setting already (its auto-demo, or the
   // visitor): the board catches up, on screen as a re-sort (a fade under
-  // reduced motion), so no card jumps where the visitor is looking.
-  apply(p.S.level != S0.level ? "level" : p.S.supplementsTopic != S0.supplementsTopic ? "supplementsTopic" : null, "", seen && (RM ? "fade" : "move"), null, first);
+  // reduced motion), so no card jumps where the visitor is looking. At the
+  // defaults its first frame is already right.
+  if (stale) apply(p.S.level != S0.level ? "level" : p.S.supplementsTopic != S0.supplementsTopic ? "supplementsTopic" : null, "", seen && (RM ? "fade" : "move"), null, first);
   root.setAttribute("data-sc", "on");
   root.setAttribute("data-sc-tier", C.tier.name);
   return {
