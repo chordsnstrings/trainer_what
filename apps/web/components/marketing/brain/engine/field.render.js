@@ -14,7 +14,10 @@
    - slots are reserved so the engine's changes move nothing: the two-line
      code-rule readout, fixed-width counts, the Pause label's width;
    - the board has no live region of its own (the engine's one is in the
-     overlay layer). */
+     overlay layer);
+   - the receipts' call to action comes from the options, and the frame
+     carries it, so the host's key changes with it (brain/showcase.tsx);
+   - the safety lock's tip names the platform's rule, as its receipts do. */
 import { esc } from "./core.js";
 import { decide, defaults, isOff, totals } from "./decide.js";
 import * as U from "./ui.js";
@@ -33,7 +36,7 @@ export const COPY = {
   hour: "In this sample hour", toCheck: "To check · already sent",
   tap: "Tap any moment to see each step", turn: "Your turn: set Brain level to 1, or tap any moment to see each step",
   newHour: "New sample hour", legend: ["AI specialist", "Code, no AI", "Other members' moments"],
-  lock: "Safety rules · can't switch off", lockTip: "Safety rules can't be switched off. You can only make them stricter.",
+  lock: "Safety rules · can't switch off", stricter: "You can only make them stricter.",
   lastCheck: "Last check: passed (sample)", supp: "Supplement questions: I answer myself", suppSub: "Your choice · off by default",
   suppOff: "Supplements still never send on their own.", drafted: "Drafted for you", more: "More settings", done: "Done",
   demo: "Demo", reading: "Paused while you read", pause: "Pause", play: "Play", playField: "Play the field",
@@ -110,7 +113,16 @@ function levels(d, S, inField) {
 export const fill = (d, v) => ((v - d.labels.planSetting.min) / (d.labels.planSetting.max - d.labels.planSetting.min)) * 100;
 const bar = (d, S) => `<label class="mc-bar"><span>${esc(d.labels.planSetting.label)}</span><span class="mc-bari"><input type="range" min="${d.labels.planSetting.min}" max="${d.labels.planSetting.max}" step="1" value="${S.bar}" aria-valuetext="${S.bar}%" style="--fill:${fill(d, S.bar).toFixed(1)}%" disabled><output>${S.bar}%</output></span></label>`;
 const supp = (S) => `<button type="button" class="mc-sw" role="switch" aria-checked="${S.supplementsTopic}" disabled><span class="mc-swk" aria-hidden="true"></span><span><b>${esc(COPY.supp)}</b><small>${esc(COPY.suppSub)}</small></span></button>`;
-const lock = (tip) => `<button type="button" class="mc-lock" aria-describedby="${tip}" disabled>${U.icon("lock", 12)}${esc(COPY.lock)}<span class="mc-tip" role="tooltip" id="${tip}">${esc(COPY.lockTip)}</span></button>`;
+/** The safety lock. Its tip is the platform's rule, as a stop's receipt shows
+    it ("Platform safety rules", "{APP_NAME}. Can't switch off."). */
+const lock = (d, tip) => {
+  const r = d.trace("t2").rule;
+  return `<button type="button" class="mc-lock" aria-describedby="${tip}" disabled>${U.icon("lock", 12)}${esc(COPY.lock)}<span class="mc-tip" role="tooltip" id="${tip}"><b>${esc(r.title)}</b> ${esc(r.source)} ${esc(COPY.stricter)}</span></button>`;
+};
+/** The receipts' call to action (receipt.js renders the same, from the same
+    options). Inert here: the frame carries it so that a change to it, such as
+    sign-ups opening, changes the host's key and remounts the island with it. */
+const cta = (o) => `<template class="mc-cta">${U.cta(o)}</template>`;
 
 /* ------------------------------------------------------------------ the field */
 function field(d, o) {
@@ -127,7 +139,7 @@ function field(d, o) {
   };
   const members = ROWS.map((x, i) => {
     const t = d.trace(x);
-    return `<li><button type="button" class="mc-m${i < 2 ? " is-on" : ""}" data-t="${x}" tabindex="${i ? -1 : 0}" disabled><span class="mc-av">${esc(t.member[0])}</span><span class="mc-mtx"><b>${esc(t.member)}</b><span class="mc-mc"${t.trigger.lang == "ar" ? ' dir="rtl" lang="ar"' : ""}>${esc(FX[x][1])}</span></span>${U.icon(FX[x][2], 12)}<span class="sc-sr"> — ${esc(t.chip)}. See each step.</span></button></li>`;
+    return `<li><button type="button" class="mc-m${i < 2 ? " is-on" : ""}" data-t="${x}" tabindex="${i ? -1 : 0}" disabled><span class="mc-av" aria-hidden="true">${esc(t.member[0])}</span><span class="mc-mtx"><b>${esc(t.member)}</b><span class="mc-mc"${t.trigger.lang == "ar" ? ' dir="rtl" lang="ar"' : ""}>${esc(FX[x][1])}</span></span>${U.icon(FX[x][2], 12)}<span class="sc-sr"> — ${esc(t.chip)}. See each step.</span></button></li>`;
   }).join("");
   const off = d.specialists.filter((s) => s.status == "not_on_yet").length;
   const conf = `<span class="mc-gauge" aria-hidden="true"><i></i><b style="--bar:${S.bar}%"></b></span>`;
@@ -163,8 +175,9 @@ function field(d, o) {
     `<div class="mc-sheet" id="${id}-sheet" role="group" aria-label="${esc(COPY.more)}">` +
     `<p class="mc-sheet-h"><b>${esc(COPY.more)}</b><button type="button" class="mc-x" data-close disabled>${esc(COPY.done)}</button></p>` +
     `<span class="mc-chk" tabindex="0" aria-describedby="${id}-tip-l">${U.icon("check", 12)}${esc(COPY.lastCheck)}<span class="mc-tip" role="tooltip" id="${id}-tip-l">${esc(lv.note)}</span></span>` +
-    `${bar(d, S)}${supp(S)}${lock(`${id}-tip-k`)}</div></div>` +
-    `<div class="mc-foot"><span class="sc-sample">${esc(d.labels.chip)}</span><span>${esc(d.labels.rates)}</span><button type="button" class="mc-how" aria-expanded="false" aria-controls="${id}-howp" disabled>How we count</button><p class="mc-howp" id="${id}-howp" hidden>${esc(d.labels.howWeCount)}</p></div>`;
+    `${bar(d, S)}${supp(S)}${lock(d, `${id}-tip-k`)}</div></div>` +
+    `<div class="mc-foot"><span class="sc-sample">${esc(d.labels.chip)}</span><span>${esc(d.labels.rates)}</span><button type="button" class="mc-how" aria-expanded="false" aria-controls="${id}-howp" disabled>How we count</button><p class="mc-howp" id="${id}-howp" hidden>${esc(d.labels.howWeCount)}</p></div>` +
+    cta(o);
 }
 
 /* ------------------------------------------------------------------ the board */
@@ -176,18 +189,19 @@ export function boardCard(d, t, r) {
   const who = st ? d.sp[st.sp] : null, hit = r.steps.find((x) => x.result == "hit");
   const by = hit ? `${d.sp[hit.sp].name} · ${COPY.noAi}` : who ? who.name : COPY.noAi;
   const code = t.decide == "voice" ? `<span class="mb-by" data-kind="check"><i aria-hidden="true"></i>Set logger · your rule</span>` : "";
-  return `<li class="mb-c" data-t="${id}"><button type="button" class="mb-b" data-t="${id}"><span class="mb-h"><span class="mc-av">${esc(t.member[0])}</span><b>${esc(t.member)}</b><span>${esc(t.chip)}</span></span>` +
+  return `<li class="mb-c" data-t="${id}"><button type="button" class="mb-b" data-t="${id}"><span class="mb-h"><span class="mc-av" aria-hidden="true">${esc(t.member[0])}</span><b>${esc(t.member)}</b><span>${esc(t.chip)}</span></span>` +
     `<span class="mb-by" data-kind="${who ? "ai" : "check"}"><i aria-hidden="true"></i>${esc(by)}</span>${code}${r.sure ? `<span class="mb-sure" data-ok="${r.lane == "sent" ? 1 : 0}">${esc(r.sure.display)}</span>` : ""}<span class="mb-why"></span></button></li>`;
 }
 function board(d, o) {
   const S = defaults(d), lv = d.labels.levels, id = esc(o.id), cols = {};
   BLANES.forEach((l) => (cols[l] = []));
   for (const t of d.traces) if (!isOff(t, S)) { const r = decide(t, S, d); cols[r.lane].push(boardCard(d, t, r)); }
-  return `<div class="mb-ctrl">${levels(d, S, false)}${bar(d, S)}${supp(S)}${lock(`${id}-tip-k`)}</div>` +
+  return `<div class="mb-ctrl">${levels(d, S, false)}${bar(d, S)}${supp(S)}${lock(d, `${id}-tip-k`)}</div>` +
     `<p class="mb-note" aria-hidden="true">${esc(lv[S.level].summary)}</p>` +
     `<div class="mb-cols">${BLANES.map((l) => `<section class="mb-col" data-lane="${l}" aria-labelledby="${id}-h-${l}"><p class="mb-ch" id="${id}-h-${l}">${U.lane(d, l)}<span class="mb-n">${cols[l].length}</span></p><ul class="mb-list">${cols[l].join("")}</ul></section>`).join("")}</div>` +
     `<p class="mb-diff"></p><p class="mb-tot">${esc(totals(d, S))}</p>` +
-    `<div class="sc-strip"><span class="sc-sample">${esc(d.labels.chip)}</span><span>${esc(d.labels.rates)}</span>${d.labels.subscribers ? `<span>${esc(d.labels.subscribers)}</span>` : ""}</div>`;
+    `<div class="sc-strip"><span class="sc-sample">${esc(d.labels.chip)}</span><span>${esc(d.labels.rates)}</span>${d.labels.subscribers ? `<span>${esc(d.labels.subscribers)}</span>` : ""}</div>` +
+    cta(o);
 }
 
 /** The root's inner HTML: the field or the board's first frame. */
