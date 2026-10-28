@@ -117,6 +117,10 @@
   - **Tests:** 238/238 across 23 unit files, plus 82/82.
   - **Left for A2, in the notes:** the consent bar's first appearance restyles the whole document once, and the watchdog never steps back up.
   - **Docs to update:** `brand.md:362` and `dark-mode.md:108` still name the old selectors. The "paint" explanation for the playground and `/demo` slowness was wrong (it was `:has()`); correct it in `brain-showcase.md` and `COMPLETION_STAGES.md:34`.
+- **Status at 12:15 UTC, as told to the owner:** fix round 2 is still running.
+  - A1 (field, board, receipts) has committed fixes for all 21 of its items and is finishing browser verification.
+  - B (anatomy, playground, data) is in progress, with WIP commits up to `0640f36`.
+  - Then A2 (core loop, watchdog, head script, check).
 - **Lead follow-ups done:** `registrationOpen` is passed to `llmsFullTxt` and `marketingAssistantFacts`; the traces' Examiner line now reads "Sending on its own needs a pass".
 - **Docs to update at records time:**
   - PLAN §1.5's publish row and PLAN line 610;
