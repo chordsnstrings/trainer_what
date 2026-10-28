@@ -44,7 +44,9 @@ jobs:
           if-no-files-found: ignore
   homepage-call:
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    # 28 October 2026: 40 → 50 minutes for the Brain showcase check (about
+    # 6 minutes; it must stay under 8).
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
       - run: sh scripts/ci-apt-mirror.sh
@@ -56,6 +58,7 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: npm run build
       - run: npx playwright install --with-deps chromium --only-shell
+        id: browsers
       - name: Neural speech detection and noise comparison
         run: node scripts/voice-noise-check.mjs
       - name: Homepage call, waiting cues, interruption and site navigation
@@ -63,6 +66,15 @@ jobs:
         env:
           RTL_WEB_MODE: start
           AUTHENTICATOR_REQUIRED: "false"
+      # Runs even when the call check fails, so both results are collected.
+      # Layout shift is reported, not judged, until three PR runs in a row
+      # pass it; then set SHOWCASE_JUDGE_CLS: "1" here (phase 1 plan §4.3).
+      - name: Brain showcases on /, /trainer-brain, /demo and /pricing
+        if: ${{ !cancelled() && steps.browsers.outcome == 'success' }}
+        run: npm run test:marketing-showcase
+        env:
+          MOTION_WEB_PORT: "3241"
+          MOTION_API_PORT: "4241"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

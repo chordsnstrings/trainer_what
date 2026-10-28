@@ -131,6 +131,34 @@ html.sc-motion:not(.sc-late) [data-showcase][data-sc="pre"] .sc-res {
     block-size: calc(100svh - var(--sc-top) + var(--sc-pin-len));
   }
 }
+/* Until the engine arms them (and without it) the controls are disabled and
+   keep their own look: the site's rule for disabled buttons
+   (subscriber-public.css: white, muted, dashed) has this specificity and
+   comes earlier; each kind's [disabled] and state rules come later. On the
+   ink stage a control is text (outlined: Pause, the What-ifs, the lock); the
+   playground's pickers are white chips. */
+[data-showcase] :is(.button, button):disabled {
+  border: 0;
+  background: none;
+  color: inherit;
+}
+[data-showcase] :is(.ca-wb, .ca-pause, .mc-pause, .mc-moreb, .mc-lock, .bp-pause):disabled {
+  border: 1px solid var(--sc-control);
+}
+[data-showcase] .mc-lock:disabled {
+  border-color: color-mix(in srgb, var(--sc-paused) 70%, transparent);
+}
+[data-showcase] :is(.bp-btn, .bp-chip):disabled,
+[data-showcase] .bp-seg button:disabled {
+  border: 1px solid var(--sc-pline);
+  background: var(--sc-white);
+  color: var(--sc-ink);
+}
+[data-showcase] .bp-btn-p:disabled {
+  border-color: var(--sc-ink);
+  background: var(--sc-ink);
+  color: var(--sc-paper);
+}
 
 /* ---------- the status strip and the honesty chip (always in the stage) ---------- */
 [data-showcase] .sc-strip {

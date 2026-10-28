@@ -48,9 +48,7 @@
 // - the concept pass (22 October 2026), untimed, on the build under test at
 //   both widths, without reduced motion and (with "always") under each
 //   source (the device setting and the member's cookie), and in Arabic at
-//   390: the commission pills (while / has them) wait for their own
-//   trigger and load from the inline start 80ms apart on the enter curve,
-//   the home FAQ rows cascade 40ms apart (at most 240ms), the closing
+//   390: the home FAQ rows cascade 40ms apart (at most 240ms), the closing
 //   button's arrow nudges once 280ms after the button itself comes into
 //   view, the hero's arrow nudges once and is still by 3 s, and at rest by
 //   5 s on its own timeline, both arrows nudge toward the reading
@@ -317,7 +315,7 @@ function revealState() {
     pendingOnFirstScreen: pending
       .filter((el) => el.getBoundingClientRect().top - 12 < window.innerHeight)
       .map((el) => el.className || el.tagName),
-    pendingInHero: pending.filter((el) => el.closest(".mk-hero, .mk-page-head, .mk-relay")).length,
+    pendingInHero: pending.filter((el) => el.closest(".mk-hero, .mk-page-head")).length,
     lcpWaits: !!window.__mk?.lcpNode?.closest?.('[data-mk-reveal="pending"]'),
     infinite: document
       .getAnimations()
@@ -664,9 +662,8 @@ async function scenes(browser, device, base) {
 
 /**
  * The concept pass's motion on the build under test (22 October 2026,
- * docs/features/marketing-motion.md): the commission pills wait for their
- * own trigger and load from the inline start 80ms apart on the enter
- * curve, the home FAQ rows cascade 40ms apart (at most 240ms), the closing
+ * docs/features/marketing-motion.md): the home FAQ rows cascade 40ms apart
+ * (at most 240ms), the closing
  * button's arrow nudges once when the button itself comes into view, the
  * hero's arrow nudges once, over by 3 s and at rest by 5 s (read on its
  * own, untouched timeline before its direction is checked), the
@@ -707,17 +704,6 @@ async function conceptMotion(browser, device, base, reducedMotion, query = "") {
     await until(page, () => document.querySelector(".mk.mk-motion"));
     await page.waitForTimeout(200);
     out.hero = (await timings(page, ".mk-hero .mk-cta > .lucide-arrow-right", "mk-nudge"))[0] ?? null;
-    // The commission pills, while / still has them (phase 1's home lists the bands without them).
-    out.pillsAtLoad = await page.evaluate(() =>
-      document.querySelector(".mk-band-pills > li")
-        ? { cue: document.querySelector(".mk-band-pills").dataset.mkCue ?? null, translate: getComputedStyle(document.querySelector(".mk-band-pills > li")).translate }
-        : null,
-    );
-    if (out.pillsAtLoad) {
-      await page.evaluate(() => document.querySelector(".mk-band-pills").scrollIntoView({ block: "center", behavior: "instant" }));
-      out.pillsIn = await until(page, () => document.querySelector(".mk-band-pills").dataset.mkCue === "in");
-      out.pills = await timings(page, ".mk-band-pills > li", "translate");
-    }
     out.overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     await page.evaluate(() => document.querySelector(".mk-faqs").scrollIntoView({ block: "start", behavior: "instant" }));
     out.faqIn = await until(page, () => document.querySelector(".mk-faqs").dataset.mkCue === "in");
@@ -850,8 +836,8 @@ async function measure(browser, builds, reducedBuilds) {
           motion: await conceptMotion(browser, device, base, "no-preference"),
           reduced: await conceptMotion(browser, device, base, "reduce"),
           cookie: await conceptMotion(browser, device, base, "cookie"),
-          // Right to left at 390: the pills enter from the right and the
-          // arrows nudge left (the hero copy stays English).
+          // Right to left at 390: the arrows nudge left (the hero copy
+          // stays English).
           ...(device.name.startsWith("390") ? { rtl: await conceptMotion(browser, device, base, "no-preference", "?lang=ar") } : {}),
         };
       } else {
@@ -1016,14 +1002,6 @@ try {
       const sign = source === "rtl" ? -1 : 1;
       if (c.heroPeak !== `${3 * sign}px` || c.closingPeak !== `${3 * sign}px`)
         fail(label, `the arrows nudge the wrong way: hero ${c.heroPeak}, closing ${c.closingPeak}`);
-      if (c.pillsAtLoad === null) console.log(`${label}: no commission pills on / (phase 1's home); their motion is not checked`);
-      else {
-        if (c.pillsAtLoad.cue !== "pending" || c.pillsAtLoad.translate !== `${-16 * sign}px`)
-          fail(label, `the pills do not wait at the inline start: ${JSON.stringify(c.pillsAtLoad)}`);
-        const pills = c.pills ?? [];
-        if (!c.pillsIn || pills.length !== 4 || !pills.every((t, i) => t && t.delay === i * 80 && t.easing === "cubic-bezier(0.2, 0.8, 0.2, 1)"))
-          fail(label, `the pills do not load 80ms apart on the enter curve: ${JSON.stringify(pills)}`);
-      }
       if (!c.faqIn || (c.faq ?? []).some((d, i) => d !== Math.min(i * 40, 240))) fail(label, `the FAQ rows: ${JSON.stringify(c.faq)}`);
       if (!c.closingIn || !c.closing || c.closing.delay !== 280 || c.closing.iterations !== 1 || c.closing.delay + c.closing.duration > 700)
         fail(label, `the closing nudge: ${JSON.stringify(c.closing)}`);

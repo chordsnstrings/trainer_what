@@ -53,7 +53,8 @@
 // 11. /trainer-brain: the pin (html.sc-pin, more than 3 viewports, steps
 //     advance), the pinned frame flush under the header at 1440, 1000 and
 //     390, flat plates under reduced motion and at 1440x650, and "See it
-//     work" runs its moment.
+//     work" runs its moment (a link to a moment the playground is not
+//     already showing: its first frame presses t1).
 // 12. Three rounds of / → /pricing → / → /trainer-brain → /demo → / by link
 //     clicks: no errors, every arrival reaches "on", and no more animation
 //     frame callbacks per frame in round 3 than in round 1.
@@ -1004,9 +1005,13 @@ await step(11, "/trainer-brain", async () => {
   {
     const page = await open();
     await go(page, "/trainer-brain");
-    const link = page.locator('a[data-run][href^="#"]').first();
-    if (!(await link.count())) fail("11. See it work", "no See it work link (a[data-run])");
+    const links = page.locator('a[data-run][href^="#"]');
+    const pick = await links.evaluateAll((as) =>
+      as.findIndex((a) => document.querySelector(`${a.hash} .bp-chip[aria-pressed="true"]`)?.dataset.t !== a.dataset.run),
+    );
+    if (pick < 0) fail("11. See it work", `no See it work link (a[data-run]) to a moment the playground is not already showing (${await links.count()} links)`);
     else {
+      const link = links.nth(pick);
       const t = await link.getAttribute("data-run");
       const target = (await link.getAttribute("href")).slice(1);
       await link.scrollIntoViewIfNeeded();
