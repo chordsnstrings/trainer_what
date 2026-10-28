@@ -244,12 +244,12 @@
 [data-showcase="play"] .bp-r4 {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
-/* Node names never break inside a word: a long value wraps to its own line. */
+/* Node names never break inside a word ("Week reviewer" on a tablet); a long value wraps to its own line. */
 [data-showcase="play"] .bp-row .sc-node {
   flex-wrap: wrap;
   row-gap: 2px;
 }
-[data-showcase="play"] .bp-row .sc-nm {
+[data-showcase="play"] .sc-node .sc-nm {
   overflow-wrap: normal;
 }
 [data-showcase="play"] .bp-r4 .sc-node {
@@ -576,10 +576,11 @@ html.sc-motion:not(.sc-late) [data-showcase="play"][data-sc="pre"] [data-attract
     grid-template-columns: minmax(0, 1fr);
     gap: 16px;
   }
+  /* The chip row scrolls edge to edge, across the page's gutter. */
   [data-showcase="play"] .bp-chips {
     flex-wrap: nowrap;
-    margin-inline: -16px;
-    padding: 2px 16px 6px;
+    margin-inline: calc(-1 * var(--mk-gutter, 16px));
+    padding: 2px var(--mk-gutter, 16px) 6px;
     overflow-x: auto;
     scroll-snap-type: x mandatory;
     scrollbar-width: none;

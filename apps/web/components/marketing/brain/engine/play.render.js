@@ -108,7 +108,7 @@ export function hlText(txt, words) {
   for (const w of words) s = s.split(esc(w)).join(`<mark class="bp-hl">${esc(w)}</mark>`);
   return s;
 }
-/** The log's rows for steps from..end: code picks first, then each step as it said it. */
+/** The steps' "code picks" row, just before the one AI specialist it picked; isPick: that step. */
 export const picksRow = (d, i) => `<li class="sc-step bp-picks" data-i="${i}">${esc(d.labels.picks)}</li>`;
 export const isPick = (d, s) => s.sp in d.sp && d.sp[s.sp].kind == "ai" && s.sp != "learner";
 const chipHTML = (d, t, S, on) => `<button type="button" class="bp-chip" data-t="${d.short(t)}" aria-pressed="${on}"${isOff(t, S) ? " data-off" : ""}>${esc(t.chip)}${isOff(t, S) ? `<small>${esc(d.labels.status.not_on_yet)}</small>` : ""}</button>`;

@@ -104,6 +104,7 @@ export async function mount(root, o) {
     G.msg = R(msgBox()); G.shell = R(shell); G.book = R($(".bp-book")); G.kind = R(kindEl.hidden ? $(".bp-sh-h b") : kindEl); G.lanes = R($(".bp-lanes"));
     const size = [G.w, G.h, C.tier.name].join();
     if (!ctx || size != fitted) (ctx = C.fit(cv, G.w, G.h)), (fitted = size);
+    stage.classList.add("sc-cv"); // the canvas draws the matrices from now on
     dirty = false;
     drawEdges();
     paint();
@@ -272,6 +273,7 @@ export async function mount(root, o) {
   /** Plays a moment (from a step: "Run it again" replays only what changed). note: said first. */
   function run(id, from = 0, note = "") {
     const t = d.trace(id);
+    if (!G && !dead) measure(); // a run asked for before the first frame (a link elsewhere on the page)
     if (!t || !G || dead) return Promise.resolve();
     stopRun();
     if (mode == "all") showAll(false);
@@ -481,13 +483,12 @@ export async function mount(root, o) {
   }
 
   try {
+    sc = C.scene(stage, { resumeOnInput: true }); // first: it reads the header's height while the frame's style is still clean
     dia.append(cv);
     shell.append(noai, stamp);
     dia.after(allBox);
     $(".bp-top").append(skip);
-    stage.classList.add("sc-cv"); // the canvas draws the matrices now
     $$("[disabled]").forEach((e) => (e.disabled = false));
-    sc = C.scene(stage, { resumeOnInput: true });
     sc.button($(".bp-pause"), { pause: COPY.pause, play: COPY.play });
     const wait = !!o.attract && !RM && !o.settled && typeof IntersectionObserver == "function";
     if (wait) {
@@ -518,7 +519,7 @@ export async function mount(root, o) {
     const touch = () => { touched = true; attract = false; settle(); };
     ["click", "keydown", "change"].forEach((ev) => k.on(root, ev, touch, { capture: true }));
 
-    measure();
+    // No layout is read here: the first frame (or the first resize report) measures, after layout.
     // one loop subscriber: 60 fps while a run plays, 12 fps breathing when idle; asleep under reduced motion and while all twelve play
     sub = sc.loop((dt, now) => {
       clock += dt;
