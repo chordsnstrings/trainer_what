@@ -171,7 +171,7 @@ With either setting:
 **Open: production wiring.**
 - The host runs `docker compose --env-file runtime.env` (`infra/digitalocean/host.py`). `runtime.env` only fills in the variables that `compose.yaml` names.
 - The `web` service names only `NODE_ENV`, `PUBLIC_APP_URL`, `PLATFORM_ROOT_DOMAIN`, `INTERNAL_PROXY_SECRET` and `API_INTERNAL_URL`, and the controller refuses `env_file`.
-- So setting the variable in `runtime.env` does not reach the site until `compose.yaml` gains `MARKETING_SHOWCASE: ${MARKETING_SHOWCASE:-}` under `web.environment`. That is the pattern `PLATFORM_ROOT_DOMAIN` already uses, and `tests/test_web_address_deployment.py` pins it. An empty value means live.
+- So setting the variable in `runtime.env` does not reach the site until `compose.yaml` gains `MARKETING_SHOWCASE: ${MARKETING_SHOWCASE:-}` under `web.environment`. That is the pattern `PLATFORM_ROOT_DOMAIN` already uses; `tests/test_web_address_deployment.py` pins that variable's two lines. An empty value means live.
 
 **Switching, once that line is in:**
 1. Set `MARKETING_SHOWCASE=static` in `runtime.env`, from the DigitalOcean console.
