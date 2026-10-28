@@ -14,7 +14,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { brandText, marketingPage, marketingPageFor, type MarketingPage } from "@trainer/contracts";
 import { DEFAULT_FOLLOWER_MODEL } from "../packages/domain/src/marketing-calculators.ts";
-import { decide, defaults, isOff } from "../apps/web/components/marketing/brain/engine/decide.js";
+import { decide, defaults } from "../apps/web/components/marketing/brain/engine/decide.js";
 import { prepare } from "../apps/web/components/marketing/brain/engine/data.js";
 import type { Lane, RawBrainData, ShowcaseFlags } from "../apps/web/components/marketing/brain/engine/types";
 import { SHOWS } from "../apps/web/components/marketing/brain/roster.tsx";
@@ -311,40 +311,63 @@ test("the showcases: labelled by the page's headings, the sample labels, a named
   assert.ok(main(html).indexOf('id="play"') > main(html).indexOf('id="decides"'));
 });
 
-test("/demo's sample moments: every moment once, each with the outcome its trace's lane gives under the sample settings", () => {
-  const d = data(platform("off"));
-  const S = defaults(d);
+test("/demo's sample moments: every moment once, each with the outcome the playground gives it on this page's flags (not on yet while what it needs is off)", () => {
   const OUTCOME: Array<[RegExp, Lane | "off"]> = [
-    [/^are sent on their own, within your rules\b/, "sent"],
-    [/^wait for you\b/, "waits"],
-    [/^pause training\b/, "paused"],
-    [/^asks the member to confirm\b/, "member"],
-    [/^suggests a new rule\b/, "learn"],
-    [/^is not on yet\b/, "off"],
+    [/^(is|are) sent on (its|their) own, within your rules\b/, "sent"],
+    [/^waits? for you\b/, "waits"],
+    [/^pauses? training\b/, "paused"],
+    [/^asks? the member to confirm\b/, "member"],
+    [/^suggests? a new rule\b/, "learn"],
+    [/^(is|are) not on yet\b/, "off"],
   ];
-  const text = sectionOf(DEMO, "moments").body!.join(" ");
-  // Runs of quoted chips ("A", "B" and "C"), each followed by its outcome.
-  const quotes = [...text.matchAll(/“([^”]+)”/g)];
-  const said = new Map<string, Lane | "off">();
-  let run: string[] = [];
-  quotes.forEach((q, i) => {
-    run.push(q[1]);
-    const after = text.slice(q.index! + q[0].length, quotes[i + 1]?.index ?? text.length);
-    if (/^(,| and|, and) $/.test(after)) return;
-    const phrase = after.replace(/^[\s,]+/, "");
-    const outcome = OUTCOME.find(([re]) => re.test(phrase));
-    assert.ok(outcome, `no outcome after “${q[1]}”: "${phrase}"`);
-    for (const chip of run) {
-      assert.ok(!said.has(chip), `${chip} twice`);
-      said.set(chip, outcome![1]);
-    }
-    run = [];
-  });
-  assert.equal(said.size, TRACES.traces.length, "every sample moment");
-  for (const trace of d.traces)
-    assert.equal(said.get(trace.chip), isOff(trace, S) ? "off" : decide(trace, S, d).lane, trace.chip);
-  assert.ok(decode(element(render(DEMO, platform("off")), 'id="moments"')).includes(text));
+  /** Runs of quoted chips ("A", "B" and "C"), each followed by its outcome. */
+  function outcomes(text: string) {
+    const quotes = [...text.matchAll(/“([^”]+)”/g)];
+    const said = new Map<string, Lane | "off">();
+    let run: string[] = [];
+    quotes.forEach((q, i) => {
+      run.push(q[1]);
+      const after = text.slice(q.index! + q[0].length, quotes[i + 1]?.index ?? text.length);
+      if (/^(,| and|, and) $/.test(after)) return;
+      const phrase = after.replace(/^[\s,]+/, "");
+      const outcome = OUTCOME.find(([re]) => re.test(phrase));
+      assert.ok(outcome, `no outcome after “${q[1]}”: "${phrase}"`);
+      // One moment takes the singular, several the plural.
+      assert.equal(/^(is|waits|pauses|asks|suggests)\b/.test(phrase), run.length === 1, phrase);
+      for (const chip of run) {
+        assert.ok(!said.has(chip), `${chip} twice`);
+        said.set(chip, outcome![1]);
+      }
+      run = [];
+    });
+    return said;
+  }
+  const off = platform("off");
+  const variants: Array<[string, PublicPlatform]> = [
+    ...STATES.map((state) => [state, platform(state)] as [string, PublicPlatform]),
+    ["the AI model off", { ...off, availability: { ...off.availability, model: false } }],
+    ["nutrition on, meal photos off", { ...off, availability: { ...off.availability, nutrition: true, mealPhotos: false } }],
+  ];
+  for (const [label, p] of variants) {
+    const d = data(p);
+    const S = defaults(d);
+    const moments = element(render(DEMO, p), 'id="moments"');
+    const said = outcomes(decode(moments));
+    assert.equal(said.size, TRACES.traces.length, `${label}: every sample moment`);
+    for (const trace of d.traces)
+      assert.equal(said.get(trace.chip), trace.status === "not_on_yet" ? "off" : decide(trace, S, d).lane, `${label}: ${trace.chip}`);
+    assert.match(decode(moments), /^The 12 sample moments With the sample settings, /, label);
+  }
+  // With the AI model off, every moment an AI specialist plays is not on yet.
+  const noModel = outcomes(decode(element(render(DEMO, variants[4][1]), 'id="moments"')));
+  assert.equal(noModel.get("Squats felt easy"), "off");
+  assert.equal(noModel.get("My knee popped"), "paused");
+  // The registry text (llms-full.txt) holds in every state: no moment, no status.
+  const registry = sectionOf(DEMO, "moments").body!.join(" ");
+  assert.doesNotMatch(registry, /“/);
+  for (const trace of TRACES.traces) assert.ok(!registry.includes(trace.chip), trace.chip);
 });
+
 
 test("the samples are the product's: Compare my replies rates the app's five points, Approve all skips the flagged rule, deletion is a request", () => {
   const fidelity = src("apps/web/components/brain-fidelity.tsx").match(/const dimensions = \[([\s\S]*?)\] as const;/)![1];
@@ -355,6 +378,26 @@ test("the samples are the product's: Compare my replies rates the app's five poi
   assert.ok(ledger.includes("1 to review · 1 flagged Approve all (1) Flagged rules are never in “Approve all”."));
   assert.ok(ledger.includes("Flagged · conflicts with case 3"));
   assert.ok(ledger.endsWith("Sample trainer · try Confirm, Edit or Reject"));
+  // Only confirmed rules drive decisions: the rule "Skip my deload?" cites
+  // is confirmed here, and the flagged draft is one no sample moment uses.
+  const rows = [...hero.matchAll(/<li class="mk-tb-row"><code>([\s\S]*?)<\/code>([\s\S]*?)<\/li>/g)].map((m) => [decode(m[1]), decode(m[2])]);
+  const deload = (TRACES.traces.find((trace) => trace.chip === "Skip my deload?")!.rule as { title: string }).title;
+  assert.equal(deload, "Deload every fourth week");
+  assert.match(rows.find(([rule]) => /^Deload every (4th|fourth) week$/.test(rule))![1], /Confirmed$/);
+  const flagged = rows.filter(([, state]) => state.includes("Flagged"));
+  assert.equal(flagged.length, 1);
+  const traces = JSON.stringify(TRACES.traces).toLowerCase();
+  const subject = flagged[0][0].toLowerCase().split(" ")[0];
+  assert.ok(!traces.includes(subject), `a sample moment mentions the flagged rule's "${subject}"`);
+  // The trace chain is "Squats felt easy": the same jump under the same rule
+  // and limits as the anatomy (the sample settings' reps in reserve and cap).
+  const squats = TRACES.traces.find((trace) => trace.chip === "Squats felt easy")!;
+  const inputs = squats.inputs as { loadKg: number; increaseKg: number; rir: number };
+  const limits = (TRACES.settingsDefault as { progression: { minRir: number; capPct: number } }).progression;
+  const chain = decode(element(html, '<ol class="mk-tb-stack mk-tb-trace"'));
+  assert.ok(chain.includes(`Back squat ${inputs.loadKg} → ${inputs.loadKg + inputs.increaseKg} kg`), chain);
+  assert.ok(chain.includes(`Every set at ${limits.minRir}+ RIR → +${inputs.increaseKg} kg, up to ${limits.capPct}%`), chain);
+  assert.ok(inputs.rir >= limits.minRir && (inputs.increaseKg / inputs.loadKg) * 100 <= limits.capPct);
   assert.match(hero, /<button type="button" class="button">Confirm<\/button><button type="button" class="button secondary">Edit<\/button><button type="button" class="button secondary mk-tb-no">Reject<\/button>/);
   const yours = decode(element(html, 'id="yours"'));
   assert.ok(yours.includes("Download your data and request deletion"));

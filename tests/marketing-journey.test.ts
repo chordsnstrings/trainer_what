@@ -192,7 +192,7 @@ test("each subscriber line is registry text, looked up, never copied", () => {
     "If your published teaching covers it, the labelled digital coach replies from your rules.",
     "Today’s session first, then the week ahead.",
     "Your price and terms before paying.",
-    "Followers open your branded page, choose your offer and, once subscriber payments are on, pay in AED.",
+    "Once your page is live, followers open it, choose your offer and pay in AED.",
     "Today’s session and the days ahead, with dates.",
     "A note when their trainer is reviewing a change.",
     "Subscribers pay you monthly or upfront, by card, in AED.",
@@ -264,6 +264,10 @@ const NEW_WORDS = new Set([
   "tuesday",
   "thursday",
   "illustration",
+  // The traces' "Squats felt easy": since the /demo moments come from the
+  // traces (pages/demo.tsx), the registry no longer quotes it.
+  "felt",
+  "squats",
 ]);
 // Controls' accessible names that are not elsewhere either ("Replay" is in
 // the /trainer-brain and /demo copy since phase 1: "AI steps replay …").

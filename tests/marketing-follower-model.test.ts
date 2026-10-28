@@ -525,3 +525,28 @@ test("the Super admin's assumptions: settings map onto the model and inconsisten
   assert.equal(noted.changeNote, "Own trial data");
   assert.deepEqual(followerModelAdjustments(noted).map((a) => a.field), ["scenarios.strong.paidPct"]);
 });
+
+test("the calculators the browser runs load only what they use: the commission bands (not the domain index and its red-flag screen), the settings schema on first use, one number formatter each", async () => {
+  const { readFileSync } = await import("node:fs");
+  const read = (path: string) => readFileSync(new URL("../" + path, import.meta.url), "utf8");
+  const calculators = read("packages/domain/src/marketing-calculators.ts");
+  assert.deepEqual(
+    [...calculators.matchAll(/^import [^;]*? from "([^"]+)";/gm)].map((m) => m[1]).sort(),
+    ["./commission-bands.ts", "zod"],
+  );
+  assert.doesNotMatch(read("packages/domain/src/commission-bands.ts"), /^import /m);
+  // Every zod call sits inside the function that makes the schema.
+  const lazy = calculators.slice(calculators.indexOf("function makeFollowerModelSchema() {"));
+  const body = lazy.slice(0, lazy.indexOf("\n}\n"));
+  assert.equal((calculators.match(/\bz\./g) ?? []).length, (body.match(/\bz\./g) ?? []).length);
+  // Still refused on first use.
+  assert.match(followerSettingsProblem({ [FOLLOWER_MODEL_SETTING_KEYS.rates.paidPct.cautious]: "99" }) ?? "", /Cautious must not exceed typical/);
+  // Formatters are made once, never per call: making one costs far more than using it.
+  for (const path of [
+    "packages/domain/src/marketing-calculators.ts",
+    "apps/web/components/marketing/islands.tsx",
+    "apps/web/components/marketing/pricing-islands.tsx",
+    "apps/web/components/marketing/pages/pricing.tsx",
+  ])
+    assert.doesNotMatch(read(path), /(=>|return)\s*new Intl\.NumberFormat/, path);
+});

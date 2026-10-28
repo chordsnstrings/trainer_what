@@ -9,6 +9,7 @@ import { runInNewContext } from "node:vm";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
+  ROOT_MARK_WITHOUT_SCRIPT,
   RootMark,
   holdRootMark,
   rootMarkScript,
@@ -73,7 +74,7 @@ test("the server's HTML carries each mark as a script that runs before the first
   const html = renderToStaticMarkup(
     createElement(RootMark, { attribute: "data-scheme", token: "dark" }),
   );
-  const script = html.match(/^<script>([\s\S]*)<\/script>$/)?.[1];
+  const script = html.match(/^<script>([\s\S]*?)<\/script>/)?.[1];
   assert.ok(script, html);
   const empty = fakeRoot();
   run(script, empty);
@@ -89,7 +90,7 @@ test("the server's HTML carries each mark as a script that runs before the first
   );
   assert.match(
     member,
-    /data-color-scheme="system"><script>[^<]*"data-scheme","system"\)<\/script>x<\/div>$/,
+    /data-color-scheme="system"><script>[^<]*"data-scheme","system"\)<\/script><noscript><style>[^<]*<\/style><\/noscript>x<\/div>$/,
   );
   assert.doesNotMatch(
     renderToStaticMarkup(createElement(TrainerTheme, { theme: {}, children: "x" })),
@@ -301,3 +302,71 @@ test(
     }
   },
 );
+
+/**
+ * Every rule for exactly `selector` in a stylesheet, as "@media …{decls}"
+ * (or "{decls}" outside any @media), in source order, whitespace and
+ * comments set aside.
+ */
+function rulesFor(css: string, selector: string): string[] {
+  const text = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const flat = (part: string) => part.replace(/\s+/g, " ").replace(/\s*([:;,{}()])\s*/g, "$1").trim();
+  const out: string[] = [];
+  const stack: string[] = [];
+  let start = 0;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === "{") {
+      stack.push(flat(text.slice(start, i).split(";").pop()!));
+      start = i + 1;
+    } else if (text[i] === "}") {
+      const prelude = stack.pop();
+      if (prelude === selector) {
+        const decls = flat(text.slice(start, i)).replace(/;$/, "");
+        out.push(stack.filter((p) => p.startsWith("@media")).join("") + "{" + decls + "}");
+      }
+      start = i + 1;
+    }
+  }
+  return out;
+}
+
+test("without JavaScript a mark's rules still apply: the server's HTML carries them in a <noscript>, the stylesheets' own", async () => {
+  const dir = new URL("../apps/web/app/", import.meta.url);
+  const sheets = await Promise.all(
+    (await readdir(dir)).filter((f) => f.endsWith(".css")).sort().map((f) => readFile(new URL(f, dir), "utf8")),
+  );
+  for (const [key, rules] of Object.entries(ROOT_MARK_WITHOUT_SCRIPT)) {
+    const [attribute, token] = key.split(" ");
+    const inSheets = sheets.flatMap((css) => rulesFor(css, `:root[${attribute}~="${token}"]`)).sort();
+    assert.ok(inSheets.length > 0, key);
+    assert.deepEqual(rulesFor(rules, ":root").sort(), inSheets, key);
+    const html = renderToStaticMarkup(
+      createElement(RootMark, { attribute: attribute as "data-shell", token }),
+    );
+    assert.ok(html.endsWith(`<noscript><style>${rules}</style></noscript>`), html);
+  }
+  // A mark without document rules (the open sheet) carries no <noscript>.
+  assert.doesNotMatch(
+    renderToStaticMarkup(createElement(RootMark, { attribute: "data-open", token: "sheet" })),
+    /noscript/,
+  );
+});
+
+test("the public pages' sticky header never covers a focused control: the document stops 8px below it at each of its heights", async () => {
+  const [globals, stage] = await Promise.all(
+    ["apps/web/app/globals.css", "apps/web/app/brain-stage.css"].map(source),
+  );
+  // The header's heights are the showcases' --sc-top steps (74, 69 and 65px).
+  const tops = [...stage.matchAll(/--sc-top: (\d+)px;/g)].map((m) => Number(m[1]));
+  assert.deepEqual(tops, [74, 69, 65]);
+  assert.deepEqual(
+    rulesFor(globals, ':root[data-shell~="public"]').map((r) => Number(r.match(/scroll-padding-block-start:(\d+)px/)?.[1])),
+    tops.map((top) => top + 8),
+  );
+  assert.deepEqual(
+    rulesFor(globals, ':root[data-shell~="public"]').map((r) => r.match(/^@media\(max-width:(\d+)px\)/)?.[1] ?? null),
+    [null, "1150", "760"],
+  );
+  // Bands carry no margin of their own on top of it.
+  assert.doesNotMatch(await source("apps/web/app/marketing-home.css"), /scroll-margin-block-start/);
+});

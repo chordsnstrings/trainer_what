@@ -90,6 +90,7 @@
    "Play" (or "Play the field" under reduced motion) keep one width. */
 [data-showcase="field"] .mc-pause {
   position: relative;
+  z-index: 1; /* its 44px hit area (::after) over the message and the lanes' caption below it */
   display: inline-grid;
   grid-template-columns: auto auto;
   align-items: center;
@@ -1641,6 +1642,10 @@ html.sc-motion:not(.sc-late) [data-showcase][data-sc="pre"] .mc-stamp {
 @media (max-width: 760px) {
   [data-showcase="board"] {
     padding: 12px;
+  }
+  /* rows far enough apart that each control's 44px hit area is its own (the switch's met the lock's) */
+  [data-showcase="board"] .mb-ctrl {
+    row-gap: 16px;
   }
   [data-showcase="board"] .mb-cols {
     grid-template-columns: minmax(0, 1fr);

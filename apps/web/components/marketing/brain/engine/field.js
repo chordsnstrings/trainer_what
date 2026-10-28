@@ -1211,9 +1211,11 @@ function mountField(root, o, p) {
       the zoom has no room there, so the same moment reopens as the phone's sheet, from its lane's bin (ENG-1). */
   function unfit() {
     if (!ph || !zoomHost || !rx || opening) return;
-    const id = d.short(rx.trace), from = $(`.mc-bin[data-bin="${laneOf(id)}"]`) || $(`.mc-m[data-t="${id}"]`), back = rx.el.contains(document.activeElement);
+    // focus in it, or dropped to the body when the zoom lost its size: the sheet hands it back to the bin
+    const a = document.activeElement, id = d.short(rx.trace), from = $(`.mc-bin[data-bin="${laneOf(id)}"]`) || $(`.mc-m[data-t="${id}"]`);
+    const back = !a || a.tagName == "BODY" || rx.el.contains(a);
     rx.close(true);
-    if (back) from.focus({ preventScroll: true }); // keyboard focus was in it: the sheet returns it there
+    if (back) from.focus({ preventScroll: true });
     receipt(id, from);
   }
 

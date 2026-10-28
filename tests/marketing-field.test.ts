@@ -286,10 +286,17 @@ test("controls stay usable: contrast themes, phone hit areas, 320px, tips, the s
   const hit = '[data-showcase][data-sc="on"] :is(.mc-lv button, .mc-how summary, .mc-lock, .mc-chk, .mc-sw, .mc-moreb)::before';
   assert.equal(value(run, hit, "inset", PHONE), "calc(50% - 22px) 0");
   assert.equal(value(run, '[data-showcase="layer"] :is(.mc-lock, .mc-chk, .mc-sw)::before', "inset", PHONE), "calc(50% - 22px) 0");
-  assert.equal(value(run, '[data-showcase][data-sc="on"] .mc-moreb.mc-moreb::before', "inset-inline", PHONE), "-4px");
+  assert.equal(value(run, '[data-showcase][data-sc="on"] .mc-moreb.mc-moreb::before', "inset-inline", PHONE), "-6px");
+  // Each hit area is its own: the board's control rows sit 16px apart (the lock's took the switch's foot), and the
+  // field's Pause lies over the message below it (A11Y-7, A11Y-10).
+  assert.equal(value(stage, '[data-showcase="board"] .mb-ctrl', "row-gap", PHONE), "16px");
+  assert.equal(value(stage, '[data-showcase="field"] .mc-pause', "z-index"), "1");
   assert.equal(value(stage, '[data-showcase="board"] .mc-bar input[type="range"]', "height", PHONE), "44px");
   assert.equal(value(run, '[data-showcase="layer"] .mc-sheet .mc-bar input[type="range"]', "height"), "44px");
   assert.equal(value(run, '[data-showcase="layer"] .mc-x', "min-block-size"), "44px");
+  // 400% zoom (320x256): the open sheet stays within the viewport and scrolls inside, its title and Done in reach (A11Y-6).
+  for (const [p, v] of [["max-height", "100dvh"], ["min-height", "min(300px, 100dvh)"], ["overflow-y", "auto"], ["overscroll-behavior", "contain"]])
+    assert.equal(value(run, '[data-showcase="layer"] .mc-sheet', p), v, p);
   // 320px: the board's three levels (318px in a row) stack below 350px.
   assert.equal(value(stage, '[data-showcase="board"] .mc-lv', "display", "@media (max-width: 349px)"), "grid");
   // The hover tip can be hovered (WCAG 1.4.13): it takes the pointer while shown, across a bridge to its control.
@@ -354,7 +361,7 @@ test("the board's line keeps the room of the longest it can say after one change
     s = next;
   }
   assert.equal(said(S, { ...S, level: 1 }, "level"), "Omar moved to Waits for you.");
-  assert.match(sized, /^\w+ moved to .+\. \w+ moved to .+\.$/, "two plans crossing the bar at once is the longest");
+  assert.equal(sized, "Aisha and Fatima moved to Sent on its own, within your rules.", "two plans crossing the bar at once is the longest");
   // The engine writes the short line in the first span and keeps the reasons for the announcement.
   const js = src(ENGINE + "field.js");
   assert.match(js, /diff = root\.querySelector\("\.mb-diff > span"\)/);

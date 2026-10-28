@@ -1062,7 +1062,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         body: [
           "Pick something a member might say. Watch each check and specialist work. Then change a setting and run it again.",
         ],
-        note: "Sample moments. Code steps use the app's own limits on sample data. AI steps replay answers from test runs, or are marked illustrative. No AI model is called on this page.",
+        note: "Sample moments. Code steps use the app's own limits on sample data. AI steps replay answers from test runs or the app's tests, or are marked illustrative. No AI model is called on this page.",
       },
       {
         id: "teach",
@@ -1184,7 +1184,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
       },
       {
         q: "Is this a real AI response?",
-        a: "No. These are sample moments. Code steps use the app’s own limits on sample data. AI steps replay answers from test runs, or are marked illustrative. No AI model is called.",
+        a: "No. These are sample moments. Code steps use the app’s own limits on sample data. AI steps replay answers from test runs or the app’s tests, or are marked illustrative. No AI model is called.",
       },
       {
         q: "Who decides how sure it must be?",
@@ -3257,7 +3257,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         heading: "Include commission and costs",
         body: [
           "Commission is a share of subscription revenue in marginal bands: 25% for your first 100 paying subscribers, 20% for the next 200, 15% up to 1,000 and 10% beyond. Each band keeps its own rate, so growing never raises the rate on earlier subscribers.",
-          "Your statement also lists payment processing and your own domain, if you choose one. Use the earnings calculator to see what remains before these costs at your price."
+          `Your statement also lists payment processing and your own domain, if you choose one. Monthly offers also let subscribers prepay ${PREPAY.six.months} or ${PREPAY.twelve.months} months at ${PREPAY.six.pct}% or ${PREPAY.twelve.pct}% off. Use the earnings calculator to see what remains before these costs at your price.`
         ]
       },
       {

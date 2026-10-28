@@ -42,6 +42,7 @@ import {
   marketingMetadata,
   marketingNav,
   marketingPage,
+  marketingPageFor,
   marketingRedirect,
   MARKETING_REDIRECTS,
   robotsPolicy,
@@ -325,7 +326,7 @@ test("JSON-LD: valid schema.org graphs built from the page's visible text", () =
   for (const page of site) {
     // The graph of the page as rendered: the same availability, so a line
     // that follows a flag (AVAILABILITY_LINES) reads the same in both.
-    const graph = marketingJsonLd(page, { ...ctx, availability: platform.availability });
+    const graph = marketingJsonLd(page, { ...ctx, availability: platform.availability, registrationOpen: platform.registrationOpen });
     const script = jsonLdScript(graph);
     assert.doesNotMatch(script, /<|>/, page.path);
     const parsed = JSON.parse(script);
@@ -1122,4 +1123,38 @@ test("honesty scan: public pages never name a registrar, the payout provider or 
     const source = await readFile(file, "utf8");
     assert.doesNotMatch(source, REGISTRARS, file.pathname);
   }
+});
+
+test("/faq's money answers say what is on: money reaches the bank once payments and payouts are on, a subscriber's options once each is on, followers pay a published page", () => {
+  const faq = marketingPage("/faq")!;
+  type Flags = Parameters<typeof marketingPageFor>[1];
+  const answer = (q: string, availability: Flags, registrationOpen = true) =>
+    marketingPageFor(faq, availability, registrationOpen).faqs.find((f) => f.q === q)!.a;
+  const all = { model: true, nutrition: true, voice: true, payments: true, payouts: true };
+  for (const payments of [false, true])
+    for (const payouts of [false, true]) {
+      const money = answer("How does money reach me?", { ...all, payments, payouts });
+      assert.equal(money.startsWith("Once subscriber payments and payouts are on,"), !(payments && payouts), money);
+      assert.match(money, /paid monthly to your verified UAE bank account/);
+    }
+  for (const off of ["nutrition", "voice", "payments"] as const) {
+    const options = answer("What does a subscriber get for their money?", { ...all, [off]: false });
+    assert.match(options, /optionally nutrition, voice and one-to-one sessions once each is on\.$/, off);
+  }
+  assert.match(answer("What does a subscriber get for their money?", all), /optionally nutrition, voice and one-to-one sessions\.$/);
+  // Followers pay a published page: present tense only once one can be published.
+  for (const [flags, open, live] of [
+    [all, true, true],
+    [{ ...all, model: false }, true, false],
+    [all, false, false],
+    [{ ...all, payments: false }, true, false],
+  ] as Array<[Flags, boolean, boolean]>) {
+    const instagram = answer("How do my Instagram followers become subscribers?", flags, open);
+    assert.equal(instagram.startsWith("You share your coaching link"), live, instagram);
+    if (!live) assert.match(instagram, /Once your page is live, followers open it, choose your offer and pay in AED\./);
+  }
+  // The assistant hears the same answers beside "Can subscribers pay me today?".
+  const facts = marketingAssistantFacts({ origin: ORIGIN, appName: APP, registrationOpen: true, availability: { model: true } });
+  assert.match(facts, /Q: Can subscribers pay me today\?\nA: Not yet\./);
+  assert.match(facts, /Q: How does money reach me\?\nA: Once subscriber payments and payouts are on,/);
 });

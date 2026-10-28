@@ -477,7 +477,7 @@ html.sc-lock {
     inset: calc(50% - 22px) 0;
   }
   [data-showcase][data-sc="on"] .mc-moreb.mc-moreb::before {
-    inset-inline: -4px;
+    inset-inline: -6px;
   }
 }
 
@@ -537,7 +537,12 @@ html.sc-lock {
   align-content: start;
   gap: 14px;
   height: 45vh;
-  min-height: 300px;
+  /* never taller than the viewport, and it scrolls within: at 400% zoom (320x256) its title and Done stay
+     in reach while the page behind is locked (A11Y-6) */
+  min-height: min(300px, 100dvh);
+  max-height: 100dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 14px 16px calc(16px + env(safe-area-inset-bottom, 0px));
   border-radius: 16px 16px 0 0;
   background: var(--sc-stage);

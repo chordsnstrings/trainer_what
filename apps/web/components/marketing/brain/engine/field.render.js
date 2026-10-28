@@ -195,9 +195,15 @@ export const whyOf = (id, S) => (id == "t9" && !S.supplementsTopic ? COPY.drafte
 /** The note under the board's controls once the level changes. */
 export const levelNote = (d, n) => d.labels.levels[n].summary + (n > 1 ? " " + d.labels.levels.note : "");
 /** The board's line after one change the visitor made (moved: [trace, lane before, lane now]): who moved
-    where, or what stayed. Short: the reasons go to the live region (field.js apply()). */
-export const diffLine = (d, moved, key, S) => (moved.length ? moved.map(([t, , to]) => `${t.member} moved to ${d.labels.lanes[to]}.`).join(" ")
-  : key == "bar" ? COPY.noCross : key == "supplementsTopic" ? (S.supplementsTopic ? COPY.suppMine : COPY.suppDraft) : "");
+    where ("Aisha and Fatima moved to …"), or what stayed. Short: the reasons go to the live region
+    (field.js apply()). */
+export function diffLine(d, moved, key, S) {
+  if (!moved.length) return key == "bar" ? COPY.noCross : key == "supplementsTopic" ? (S.supplementsTopic ? COPY.suppMine : COPY.suppDraft) : "";
+  return [...new Set(moved.map((m) => m[2]))].map((to) => {
+    const who = moved.filter((m) => m[2] == to).map(([t]) => t.member);
+    return `${who.length > 1 ? who.slice(0, -1).join(", ") + " and " + who.at(-1) : who[0]} moved to ${d.labels.lanes[to]}.`;
+  }).join(" ");
+}
 const SET = ["level", "bar", "supplementsTopic"];
 /** Every setting the controls reach from S: each level, each step of the plans slider, supplements either way. */
 function reach(d, S) {

@@ -50,7 +50,9 @@
 //  9. A receipt takes focus, Esc closes it and returns focus; open, Pause,
 //     close leaves "Play" and no frames; with the consent bar open
 //     the phone receipt and settings sheet are topmost at their centres;
-//     leaving with a receipt open leaves no overlay layer or scroll lock.
+//     leaving with a receipt open leaves no overlay layer or scroll lock; a
+//     receipt open in the field's zoom at 844x390, turned to 390x844, is the
+//     phone's sheet, and closing it leaves no zoom and nothing inert.
 // 10. The /demo playground: knee, deload, low recovery, free text (a close
 //     sample, and none for "hello there"), a setting change and the keyboard.
 // 11. /trainer-brain: the pin (html.sc-pin, more than 3 viewports, steps
@@ -68,21 +70,33 @@
 // 15. Without ?sc=on an automated browser requests no engine chunk, gets no
 //     sc-motion or sc-pin, and every root stays "pre" with its final frame
 //     visible: the call, browser and completion checks see the still frames.
+// 16. The keyboard and the board: at 1280x900, Tab from the top of / and of
+//     /trainer-brain (no scrolling first) reaches the board's controls and the
+//     playground's chips (the first Tab mounts every showcase); the board's
+//     height holds through a change of each of its controls.
 //
 // Reported (judged only with SHOWCASE_JUDGE_METRICS=1, meant for real
 // hardware; this container and CI have no GPU): frame gaps and engine work
 // per frame (4x CPU, ?tier=full) after a scroll down 200 px and back (the
-// field also partly under the header), the STOP stamp after load, blocking
-// time against scripts/marketing-showcase-baseline.json (measured on the
-// build before phase 1), long tasks from mounting (from the island's import,
-// its performance mark, to "on" + 1 s, in frames that ran the engine's or the
-// island's script, or only rendered), chip and slider
-// latency, engine chunk sizes, shared JavaScript and global CSS against the
-// baseline, and the showcase HTML on /trainer-brain. SHOWCASE_RUNS loads per
-// page (default 1; 3 when judging), median. SHOWCASE_BASELINE_OUT=<file> writes the
-// metrics as a new baseline (measure it on the build before phase 1, 4f35e5c,
-// with SHOWCASE_CHECKS=metrics SHOWCASE_RUNS=5). SHOWCASE_CHECKS=1,4,metrics
-// runs a subset.
+// field also partly under the header; with software compositing, as here,
+// frame gaps are only reported: a canvas commit is a CPU copy, PERF-5), the
+// STOP stamp after load, blocking time from the response's end (not the
+// first paint, which the framework's own script task falls on either side
+// of) to 5 s after the load event: the engine's share (long tasks in frames
+// that ran its chunks or the island's) against a fixed budget, the page's
+// against the build before phase 1 measured in the same session
+// (SHOWCASE_BASELINE_URL, interleaved run by run; the number stored in
+// scripts/marketing-showcase-baseline.json is shown for reference only:
+// another machine's, PERF-4), long tasks from mounting (from the island's
+// import, its performance mark, to "on" + 1 s, in frames that ran the
+// engine's or the island's script, or only rendered; the consent bar opens
+// on a first scroll before, and its cost is reported on its own, PERF-3),
+// chip and slider latency, engine chunk sizes, shared JavaScript and global
+// CSS against the baseline, and the showcase HTML on /trainer-brain.
+// SHOWCASE_RUNS loads per page (default 1; 5 when judging), median.
+// SHOWCASE_BASELINE_OUT=<file> writes the metrics as a new baseline (measure
+// it on the build before phase 1, 4f35e5c, with SHOWCASE_CHECKS=metrics
+// SHOWCASE_RUNS=5). SHOWCASE_CHECKS=1,4,metrics runs a subset.
 // Results: test-results/marketing-showcase.json (SHOWCASE_OUT).
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
@@ -118,8 +132,10 @@ const PAGES = (env.SHOWCASE_PAGES ?? Object.keys(KINDS).join(",")).split(",");
 const CHECKS = env.SHOWCASE_CHECKS ? new Set(env.SHOWCASE_CHECKS.split(",")) : null;
 const JUDGE_CLS = !!env.SHOWCASE_JUDGE_CLS;
 const JUDGE_METRICS = !!env.SHOWCASE_JUDGE_METRICS;
-const RUNS = Number(env.SHOWCASE_RUNS ?? (JUDGE_METRICS ? 3 : 1));
+const RUNS = Number(env.SHOWCASE_RUNS ?? (JUDGE_METRICS ? 5 : 1));
 const BASELINE = env.SHOWCASE_BASELINE ?? root + "scripts/marketing-showcase-baseline.json";
+/** The build before phase 1, served alongside (its own stub), for page blocking time measured in the same session. */
+const BASELINE_URL = env.SHOWCASE_BASELINE_URL ?? null;
 const DESKTOP = { width: 1440, height: 900 };
 const PHONE = { width: 390, height: 844 };
 const ROOTS = '[data-showcase]:not([data-showcase="layer"])';
@@ -943,6 +959,37 @@ await step(9, "receipts and overlays", async () => {
     if (page.errors.length) fail(label, page.errors.slice(0, 3).join(" | "));
     await close(page);
   }
+  {
+    // A phone held sideways shows the desktop field: its receipt opens in the zoom. Turned upright, the zoom has no
+    // room; the same moment is the phone's sheet, and closing it leaves the field as it was (ENG-1).
+    const label = "9. 844x390 receipt turned to 390x844";
+    const page = await open({ viewport: { width: 844, height: 390 } });
+    await go(page, "/");
+    const id = await hostOf(page, "field");
+    await isOn(page, id);
+    await page.waitForTimeout(800);
+    const tile = page.locator(`#${id} .mc-lane[data-lane="sent"] .mc-tile`).first();
+    await tile.scrollIntoViewIfNeeded();
+    await tile.click();
+    await page.waitForSelector(`#${id} .mc-rx [data-showcase="receipt"]`, { timeout: 5000 });
+    await page.waitForTimeout(600);
+    await page.setViewportSize(PHONE);
+    await page.waitForTimeout(1200);
+    const turned = await page.evaluate((id) => {
+      const box = document.querySelector('[data-showcase="receipt"]'), back = box?.querySelector('[data-a="back"]')?.getBoundingClientRect();
+      return { mode: box?.dataset.mode ?? null, back: back ? Math.round(back.height) : 0, zoom: document.getElementById(id).firstElementChild.classList.contains("is-zoom") };
+    }, id);
+    if (turned.mode !== "sheet" || turned.back < 44 || turned.zoom) fail(label, `after turning: ${JSON.stringify(turned)} (want the sheet, its Back button shown, no zoom)`);
+    await page.locator('[data-showcase="receipt"] [data-a="back"]').click().catch(() => {});
+    await page.waitForTimeout(600);
+    const after = await page.evaluate((id) => {
+      const root = document.getElementById(id).firstElementChild;
+      return { zoom: root.classList.contains("is-zoom"), inert: [...root.querySelectorAll(":scope > [inert]")].map((e) => e.className), lock: document.documentElement.classList.contains("sc-lock"), open: document.querySelectorAll('[data-showcase="receipt"]').length };
+    }, id);
+    if (after.zoom || after.inert.length || after.lock || after.open) fail(label, `after Back: ${JSON.stringify(after)}`);
+    if (page.errors.length) fail(label, page.errors.slice(0, 3).join(" | "));
+    await close(page);
+  }
 });
 
 await step(10, "playground", async () => {
@@ -1230,17 +1277,94 @@ await step(15, "robot path", async () => {
   }
 });
 
+await step(16, "keyboard and board", async () => {
+  // A Tab walk from the top, no scrolling first, 120 ms between presses (A11Y-2: the still frame's controls wait,
+  // disabled, for the engine; mounting only once a host came near let Tab pass the board and most of the playground).
+  const walk = async (path, kind, want, max) => {
+    const label = `16. ${path} Tab walk`;
+    const page = await open({ viewport: { width: 1280, height: 900 } });
+    await go(page, path);
+    const id = await hostOf(page, kind);
+    const met = new Set();
+    for (let i = 0; i < max && met.size < want.length; i++) {
+      await page.keyboard.press("Tab");
+      await page.waitForTimeout(120);
+      const at = await page.evaluate(([id, want]) => want.find((s) => document.activeElement?.matches(`#${id} ${s}`)) ?? null, [id, want]);
+      if (at) met.add(at);
+    }
+    const missed = want.filter((s) => !met.has(s));
+    if (missed.length) fail(label, `Tab from the top never reached ${missed.join(", ")} (${kind}: ${(await scState(page, id))?.sc})`);
+    if (page.errors.length) fail(label, page.errors.slice(0, 3).join(" | "));
+    await close(page);
+  };
+  if (PAGES.includes("/")) await walk("/", "board", [".mc-lv [role=radio]", ".mc-bar input", ".mc-sw", ".mb-b"], 120);
+  if (PAGES.includes("/trainer-brain")) await walk("/trainer-brain", "play", ["[data-spec]", ".bp-chip", "textarea"], 160);
+  if (PAGES.includes("/")) {
+    // The board keeps its height through a change of each control (ENG-5: its line grew and shrank by up to 74 px).
+    const label = "16. / board height";
+    for (const viewport of [PHONE, DESKTOP]) {
+      const page = await open({ viewport });
+      await go(page, "/");
+      const id = await hostOf(page, "board");
+      await scrollToHost(page, id, "start");
+      await isOn(page, id);
+      const height = () => page.evaluate((id) => Math.round(document.getElementById(id).firstElementChild.getBoundingClientRect().height * 10) / 10, id);
+      const seen = [await height()];
+      for (const act of [
+        (p) => p.click(`#${id} .mc-lv [data-level="1"]`),
+        (p) => p.click(`#${id} .mc-sw`),
+        (p) => p.click(`#${id} .mc-lv [data-level="3"]`),
+        (p) => p.locator(`#${id} .mc-bar input`).fill("90"),
+        (p) => p.locator(`#${id} .mc-bar input`).fill("70"),
+      ]) {
+        await act(page);
+        await page.waitForTimeout(700);
+        seen.push(await height());
+      }
+      if (new Set(seen).size > 1) fail(`${label} ${viewport.width}`, `the board's height changed: ${seen.join(" → ")} px`);
+      else report(`${label} ${viewport.width}`, `${seen[0]} px through five changes`);
+      if (page.errors.length) fail(label, page.errors.slice(0, 3).join(" | "));
+      await close(page);
+    }
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Metrics (reported; judged with SHOWCASE_JUDGE_METRICS=1): 390x844 at 4x CPU, ?tier=full.
 const baseline = existsSync(BASELINE) ? JSON.parse(await readFile(BASELINE, "utf8")) : null;
 await step("metrics", "metrics", async () => {
   const metrics = (results.metrics = { conditions: `390x844 DPR 3 touch, ${THROTTLE}x CPU, ?sc=on&tier=full, platform closed, median of ${RUNS}`, pages: {} });
   const judge = (label, ok, line) => (JUDGE_METRICS && !ok ? fail(`metrics ${label}`, line) : report(`metrics ${label}`, line + (ok ? "" : " (over budget)")));
+  /** Blocking time from the response's end to 5 s after the load event: the page's, and the engine's share (long
+      tasks in frames that ran one of the scripts `ours` names once that window has passed). */
+  const blocking = async (page, ours = async () => []) => {
+    await page.waitForTimeout(Math.max(0, await page.evaluate(() => performance.getEntriesByType("navigation")[0].loadEventStart + 5000 - performance.now())));
+    const urls = await ours(page);
+    return page.evaluate((urls) => {
+      const nav = performance.getEntriesByType("navigation")[0], sc = window.__sc;
+      const tasks = sc.long.filter(([t]) => t >= nav.responseEnd && t < nav.loadEventStart + 5000);
+      const frames = sc.loaf.filter(([, , scripts]) => scripts.some((u) => urls.includes(u)));
+      const ours = tasks.filter(([t, d]) => frames.some(([ft, fd]) => ft < t + d && ft + fd > t));
+      const sum = (list) => list.reduce((n, [, d]) => n + Math.max(0, d - 50), 0);
+      return { load: nav.loadEventStart, tbt: sum(tasks), engine: sum(ours), lcp: sc.lcp?.t ?? null };
+    }, urls);
+  };
+  // Software compositing (no GPU, as in this container and CI): a canvas's commit is a CPU copy every frame, so frame
+  // gaps say more about the machine than the engine there (PERF-5). Asked of WebGL once.
+  let gpu = null;
   for (const path of PAGES) {
     const runs = [];
     for (let run = 0; run < RUNS; run++) {
       const page = await open({ viewport: PHONE, throttle: THROTTLE });
       await go(page, path, "sc=on&tier=full");
+      gpu ??= await page.evaluate(() => {
+        try {
+          const gl = document.createElement("canvas").getContext("webgl"), info = gl?.getExtension("WEBGL_debug_renderer_info");
+          return gl ? String(gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER)) : "none";
+        } catch {
+          return "none";
+        }
+      });
       const first = (await hosts(page))[0];
       // The STOP stamp on /: from the load event until "STOP · No AI called" shows.
       let stamp = null;
@@ -1257,15 +1381,25 @@ await step("metrics", "metrics", async () => {
             { timeout: 15_000, polling: 50 },
           )
           .then((h) => h.jsonValue(), () => null);
-      // Blocking time from the first paint to 5 s after the load event (the engine mounts in it).
-      await page.waitForTimeout(Math.max(0, await page.evaluate(() => performance.getEntriesByType("navigation")[0].loadEventStart + 5000 - performance.now())));
-      const load = await page.evaluate(() => {
-        const nav = performance.getEntriesByType("navigation")[0];
-        const fcp = performance.getEntriesByName("first-contentful-paint")[0]?.startTime ?? 0;
-        const tasks = window.__sc.long.filter(([t]) => t >= fcp && t < nav.loadEventStart + 5000);
-        return { load: nav.loadEventStart, tbt: tasks.reduce((n, [, d]) => n + Math.max(0, d - 50), 0), lcp: window.__sc.lcp?.t ?? null };
-      });
-      const r = { tbt: load.tbt, lcp: load.lcp, stamp, frames: {}, mount: [] };
+      // Blocking time to 5 s after the load event (the engine mounts in it): the engine's chunks are the scripts
+      // fetched after the load event, the island's those that set its mark.
+      const load = await blocking(page, async (p) => [...(await lateResources(p)).map((x) => x.url).filter((u) => !isCss(u)), ...(await islandChunks(p))]);
+      const r = { tbt: load.tbt, engineTbt: load.engine, lcp: load.lcp, stamp, frames: {}, mount: [] };
+      // The same page of the build before phase 1, measured now, in turn (PERF-4).
+      if (BASELINE_URL) {
+        const before = await open({ viewport: PHONE, throttle: THROTTLE });
+        await before.goto(new URL(path + "?sc=on&tier=full", BASELINE_URL).href, { waitUntil: "load" });
+        r.baseTbt = (await blocking(before)).tbt;
+        await close(before);
+      }
+      // The consent bar opens on the first scroll and restyles the page: before the mounts are timed, and on its
+      // own (PERF-3: it shared a frame with the anatomy's mount).
+      const barFrom = await page.evaluate(() => performance.now());
+      await scrollTop(page, 60);
+      await page.waitForTimeout(250);
+      await scrollTop(page, 0);
+      await page.waitForTimeout(500);
+      r.consent = await page.evaluate((from) => window.__sc.long.filter(([t]) => t >= from).map(([, d]) => Math.round(d)), barFrom);
       // Per showcase: long tasks from mounting, then frames while it runs.
       for (const { id, kind } of await hosts(page)) {
         if ((await scState(page, id))?.sc !== "on") await scrollToHost(page, id, kind === "anatomy" ? "start" : "center");
@@ -1383,6 +1517,9 @@ await step("metrics", "metrics", async () => {
     }
     const m = {
       tbt: round(median(runs.map((r) => r.tbt)), 0),
+      engineTbt: round(median(runs.map((r) => r.engineTbt)), 0),
+      baseTbt: BASELINE_URL ? round(median(runs.map((r) => r.baseTbt ?? null)), 0) : null,
+      consent: runs[0].consent,
       lcp: round(median(runs.map((r) => r.lcp)), 0),
       stamp: round(median(runs.map((r) => r.stamp)), 0),
       engine: runs[0].engine,
@@ -1404,7 +1541,7 @@ await step("metrics", "metrics", async () => {
       commit = execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: root }).toString().trim();
     } catch {}
     const baselineOut = {
-      about: "The build before phase 1 (PLAN.md §4.3): blocking time from the first paint to 5 s after the load event, the largest paint, and the first HTML's JavaScript and CSS (gzipped bytes). scripts/marketing-showcase-check.mjs compares with it.",
+      about: "The build before phase 1 (PLAN.md §4.3): blocking time from the response's end to 5 s after the load event, the largest paint, and the first HTML's JavaScript and CSS (gzipped bytes). scripts/marketing-showcase-check.mjs compares with it.",
       commit,
       measured: new Date().toISOString().slice(0, 10),
       conditions: metrics.conditions,
@@ -1415,15 +1552,22 @@ await step("metrics", "metrics", async () => {
     return;
   }
   const budget = { "/": 45, "/trainer-brain": 50, "/demo": 37 };
+  const software = /swiftshader|llvmpipe|software|^none$/i.test(gpu ?? "none");
+  metrics.gpu = gpu;
   for (const [path, m] of Object.entries(metrics.pages)) {
     const b = baseline?.pages?.[path];
     for (const [kind, f] of Object.entries(m.frames)) {
-      judge(`${path} ${kind} frame gap`, f.gap !== null && f.gap <= 20, `p95 frame gap ${f.gap} ms (budget 20; tier ${f.tier}, ${f.count} frames)`);
+      const line = `p95 frame gap ${f.gap} ms (budget 20; tier ${f.tier}, ${f.count} frames)`, ok = f.gap !== null && f.gap <= 20;
+      if (software) report(`metrics ${path} ${kind} frame gap`, line + (ok ? "" : " (over budget)") + ` (software compositing, ${gpu}: reported, judged on GPU hardware)`);
+      else judge(`${path} ${kind} frame gap`, ok, line);
       judge(`${path} ${kind} work`, f.work !== null && f.work <= 4, `p95 engine work per frame ${f.work} ms (budget 4)`);
     }
     if (path === "/") judge("/ STOP stamp", m.stamp !== null && m.stamp <= 2500, `the STOP stamp ${m.stamp} ms after load (budget 2500)`);
-    if (b) judge(`${path} TBT`, m.tbt <= b.tbt + 100, `blocking time ${m.tbt} ms, baseline ${b.tbt} ms (budget +100)`);
-    else report(`metrics ${path} TBT`, `${m.tbt} ms (no baseline)`);
+    // The engine's own blocking time: its mounts (each long task 80 ms or less) leave at most 2 x 30 ms, a margin on top.
+    if (KINDS[path]?.length) judge(`${path} engine blocking`, m.engineTbt <= 100, `the engine's blocking time ${m.engineTbt} ms from the response's end to load + 5 s (budget 100)`);
+    if (m.baseTbt !== null) judge(`${path} TBT`, m.tbt <= m.baseTbt + 100, `blocking time ${m.tbt} ms, the build before phase 1 ${m.baseTbt} ms in this session (budget +100)`);
+    else report(`metrics ${path} TBT`, `${m.tbt} ms from the response's end (not judged without SHOWCASE_BASELINE_URL${b ? `; the stored ${b.tbt} ms was measured elsewhere, from the first paint` : ""})`);
+    if (m.consent?.length) report(`metrics ${path} consent bar`, `long tasks as it opens on the first scroll: ${JSON.stringify(m.consent)} (page work, not the engine's)`);
     for (const { kind, tasks } of m.mount) judge(`${path} ${kind} mount`, tasks.length <= 2 && tasks.every((d) => d <= 80), `long tasks from mounting: ${JSON.stringify(tasks)} (budget 2, each 80 ms)`);
     if (m.input !== null) judge(`${path} input`, m.input <= 200, `input latency ${m.input} ms (budget 200)`);
     if (budget[path] !== undefined && KINDS[path]?.length) judge(`${path} engine`, m.engine <= budget[path] * 1024, `engine chunks ${kb(m.engine)} KB gzipped (budget ${budget[path]})`);
