@@ -42,23 +42,32 @@
 4. WP7b CI step.
 5. WP8 docs.
 
-**Progress at 04:10 UTC:**
-- **WP4 home is done** (WIP `0e836cc`). Results:
-  - typecheck and build pass; 203/203 marketing tests;
-  - Kamran's button covers nothing; the LCP is the H1;
-  - CLS is 0.00044 at 390 px and 0.00016 at 1440 px;
-  - static mode, JavaScript off, and sign-ups open or closed all checked.
-
-  The full report is in the scratchpad as `report-wp4.md`.
-- **Lead fixes from WP4's notes:**
-  - the showcase host and island now share one keyed fragment, so React no longer warns about duplicate keys;
-  - the status strip drops "today" from "You can run all of this on yourself today with Try my AI", because "today" is untrue while sign-ups are closed;
-  - the Instagram answer says followers pay "once subscriber payments are on", and the payments-on line restores the full answer;
+**Progress at 05:25 UTC:**
+- **WP4 home is done** (`0e836cc`). Typecheck, build, and 203/203 marketing tests pass. Kamran's button covers nothing; the LCP is the H1; CLS stays within 0.001.
+- **WP5 /trainer-brain and /demo are done** (`0dfc1dd`):
+  - typecheck, build and `npm run test:browser` pass;
+  - 214/215 marketing tests, the failure being the journey line, now fixed by the lead;
+  - CLS 0 on both pages.
+- **WP7b round 1 is done.**
+  - `scripts/marketing-showcase-check.mjs` passes on all four pages in 6 min 5 s.
+  - The baseline was measured on `4f35e5c`.
+  - The brand, journey and sitewide motion scripts were updated. The journey check passes 209/209; the sitewide check passes.
+  - The brand check's 36 remaining failures are pre-existing: the identical set fails on `4f35e5c`.
+- **Lead fixes so far:**
+  - the keyed-fragment fix for the duplicate React key;
+  - the honest copy while sign-ups are closed: the status strip without "today", and the Instagram answer;
   - the status panel uses one full-width column when everything is live;
-  - the traces test's "N cases." pattern no longer misreads "8 quiz answers and 3 cases.".
-
-  Targeted tests: 50/50; typecheck passes.
-- **Now running:** WP5 (/trainer-brain and /demo) and WP7b (checks, round 1, in its own worktree). WP7b's baseline was measured on `4f35e5c`.
+  - the traces test's "N cases." pattern no longer misreads "8 quiz answers and 3 cases.";
+  - the journey test's expected Instagram line.
+- **Running:**
+  - WP7a dead-code removal, in workflow `wf_2044b74e-e8b`;
+  - then WP7b round 2 (the CI step and final runs) and WP8 docs;
+  - fix round 1, workflow `wf_b98be2ed-50e`, working in its own worktrees:
+    - the board's 92 px shift on phones (CLS 0.153 at 390 px);
+    - the anatomy mount's 291 ms long task at 4× CPU;
+    - still-frame controls restyled by `subscriber-public.css`;
+    - the walkthrough "Not on yet" dot contrast.
+- **Reports:** `scratchpad/report-wp*.md`. Subagents cannot write files there, so `report-sync.py` copies them from the workflow journal.
 
 **Lead decision for the owner's FYI list:** the "Can subscribers pay me today?" answer no longer says "Today you can join". It now reads "With an account you can already set up your page and app, and teach and test your AI", which stays true while sign-ups are closed.
 

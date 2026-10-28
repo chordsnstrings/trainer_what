@@ -191,7 +191,7 @@ test("each subscriber line is registry text, looked up, never copied", () => {
     "If your published teaching covers it, the labelled digital coach replies from your rules.",
     "Today’s session first, then the week ahead.",
     "Your price and terms before paying.",
-    "Followers open your branded page, choose your offer and pay in AED.",
+    "Followers open your branded page, choose your offer and, once subscriber payments are on, pay in AED.",
     "Today’s session and the days ahead, with dates.",
     "A note when their trainer is reviewing a change.",
     "Subscribers pay you monthly or upfront, by card, in AED.",
