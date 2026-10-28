@@ -5,15 +5,6 @@
    and the showcase contract applies (tests/marketing-showcase.test.ts): only
    opacity and transforms move; colours change at once. */
 
-/* ---------- the engine on: it moves the stack, the plates, the card, the rulebook and
-   the stacks inline, and keeps the root's custom properties where they were (anatomy.js),
-   so a plate at rest takes its opacity from here. ---------- */
-@media (min-height: 700px) {
-  html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-p {
-    opacity: 1;
-  }
-}
-
 /* ---------- while the engine plays: the halo, the overlay (thread, pulse, rule lines,
    brackets, the leader), its labels and the stamp, and other members' finished moments.
    The first frame never shows them: the still figure has no paths to draw. ---------- */
