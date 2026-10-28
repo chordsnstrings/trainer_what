@@ -251,7 +251,7 @@ The `flag` field names what each off item waits for: `WHOOP_TRAINING_APPROVED` f
   - plates (f) to (i) read "Not on yet" or "Not reached", and plate (i) "Nothing is sent while it is not on yet.";
   - the card reads "Omar · Squats felt easy", with a dashed "Not on yet" in place of the lane;
   - notes (f) to (j) say what happens "once it is on", and (f)'s count reads "None is on yet.";
-  - a What-if whose moment does not run adds " · Not on yet" to its button. Pinned on phones the suffix takes a second line in the button, without the dot, so the What-ifs keep the three lines row 4 holds (four at 340 px and less, as with the model on). On one line they needed a fourth, and "Omar's reply" covered the caption (28 October 2026; `.ca-wb small` in the phone pin block, the dot is an `aria-hidden` span).
+  - a What-if whose moment does not run adds " · Not on yet" to its button. Pinned on phones the suffix takes a second line in the button, without the dot, so the What-ifs keep the three lines row 4 holds (four below 359 px, as with the model on). On one line they needed a fourth, and "Omar's reply" covered the caption (28 October 2026; `.ca-wb small` in the phone pin block, the dot is an `aria-hidden` span). Row 4 is 204 px below 359 px, where "Omar's reply" no longer fits beside level 1; it was 204 px only below 341 px, so from 341 to 358 px both states covered the caption by 28 px. At 320–362 px the "Sample · scripted · no AI model called" pill now wraps instead of running under Pause.
 - **The anatomy's ghost stacks** run only moments that are on, and no pill that is not on yet gets a member tag.
 
 **The field and the board keep their sample hour.** Every moment still plays its sample there, but its receipt says so: a "Not on yet" chip in the header beside the lane its sample plays to, and the status line in its last section (L4).
@@ -315,8 +315,8 @@ Desktop controls are unchanged at 20–38 px.
   - ink text on every lane colour 4.5:1 or more.
 
   The same test fails on any dark background outside `[data-showcase]`. Skipped nodes and steps keep their text at the muted colour and dim only their icons (7.82:1 at the least, measured in fix round 2).
-  The test reads the `--sc-*` tokens, so an inherited page colour slips past it: the app's global `small` (`--muted`, `#616660`) measured 3.0:1 on the stage in the anatomy's "Not on yet". Text on the stage takes an `--sc-*` colour; that suffix now uses `--sc-muted` (about 8:1), and `inherit` on a pressed button (28 October 2026).
-- **Canvases and SVG layers start at `width="0" height="0"`** (the field's rails and canvas, the playground's canvas) until the engine sizes them. Without the attributes they have the default 300 × 150 box, wider than a 320 px screen's content, and `/demo` scrolled sideways by 8 px for about half a second in CI (28 October 2026).
+  The test reads the `--sc-*` tokens, so an inherited page colour slips past it: the app's global `small` (`--muted`, `#616660`) measured 3.0:1 on the stage in the anatomy's "Not on yet". Text on the stage takes an `--sc-*` colour; that suffix now uses `--sc-muted`, measured 7.82:1 on the stage at 390 and 1440, and `inherit` on a pressed button, 16.00:1 (28 October 2026). In forced colours a pressed What-if takes the system highlight in `brain-anatomy.css` too: `brain-stage.css`'s rule had the same weight and lost to the later sheet, leaving a 1.1:1 fill in a light contrast theme.
+- **Canvases and SVG layers start at `width="0" height="0"`** (the field's rails and canvas, the playground's canvas) until the engine sizes them. Without the attributes they have the default 300 × 150 box, wider than a 320 px screen's content, and `/demo` scrolled sideways by 8 px in CI, until the engine sized the canvas (about half a second in local runs) (28 October 2026).
 - **Tokens.** `--sc-*` tokens are defined once, in `brain-stage.css`. `--sc-ease`, `--sc-enter` and `--sc-spring` point at the matching `--mk-*` tokens, and no showcase sheet defines a `--mk-*` token. `--sc-mono` is the system monospace stack, so there are no new font files.
 - **Scoping.** Every rule sits under `[data-showcase]` (the overlay layer included) or an `html.sc-*` state. Page sheets use their own prefixes: `.mk-hm-`, `.mk-tb-`, `.mk-dm-`, `.mk-pr-` and `.mk-pf-`. There is no CSS nesting, and the properties are logical throughout.
 - **What moves.** Only `opacity`, transforms and `stroke-dashoffset` animate, and nothing is `infinite`.
@@ -334,7 +334,7 @@ Desktop controls are unchanged at 20–38 px.
 
 ## Budgets
 
-**Judged in CI by unit tests** (`tests/marketing-showcase.test.ts`, gzipped after removing comments and whitespace). Measured by the docs pass on 28 October 2026 with the test's own arithmetic, on `41e3a4c`:
+**Judged in CI by unit tests** (`tests/marketing-showcase.test.ts`, gzipped after removing comments and whitespace). Measured by the docs pass on 28 October 2026 with the test's own arithmetic, on `41e3a4c`. Re-measured the same way on the final commit (after `451080b`, `3ac6da5`, `da806d9`, `8e3dd8a` and the What-if, forced-colour and sample-pill rules): first-frame 18,039 B (3,547 + 6,000 + 2,884 + 5,608), 393 B left; page sheets 8,125 B, 67 B left:
 
 | Budget | Limit | Measured |
 |---|---|---|
@@ -380,7 +380,7 @@ The long-task budget looser than the showcase spec is deliberate. It is in the o
 
 **What waits for real hardware.**
 - **The frame budgets.** They are judged only on GPU hardware. E's final runs measured every showcase within 20 ms, but earlier runs in the same container did not:
-  - the pinned anatomy's scroll measured a p95 of 33.3–50 ms through fix round 2 (WP3a, fix round 2's B and D), the same before and after the root-`:has()` fix. Its frames are bound by raster and compositing; script stays at about 2–4 ms. The prototype measured the same 33.4 ms. Why E's runs measured 16.8 ms is not established;
+  - the pinned anatomy's scroll measured a p95 of 33.3–50 ms through fix round 2 (WP3a, fix round 2's B and D), the same before and after the root-`:has()` fix. Its frames are bound by raster and compositing; script stays at about 2–4 ms. The prototype measured the same 33.4 ms. Why E's runs measured 16.8 ms is not established: the eleven full runs after them measured 16.7–16.8 ms in six, 33.3 ms in four and 50 ms in the run on the final commit's What-if change;
   - the field after a scroll and back measured 33.3 ms in 1 of 3 runs in fix round 2: the per-frame commit of its pixel-ratio-2 canvas, a CPU copy without a GPU (the final review's PERF-5).
 - **Corrected 28 October.** The WP7b table this page used to show (the `/trainer-brain` playground at 66.7 ms and tier `minimal`, the `/demo` playground at 33.3 ms and `lite`) was not paint. It was the whole-document restyle of the `:root:has()` rules ("Styles and the ink stage"). Fix round 2 removed them, and both playgrounds then measured 16.7–16.8 ms at tier `full`.
 - **The anatomy's mount**: see "Open".
@@ -468,17 +468,18 @@ The long-task budget looser than the showcase spec is deliberate. It is in the o
   - clears the flag.
 - **`npm run test:brand`** checks the hero field at 1440 and 390, the word budget, and the field in right to left.
 
-**Results so far** (all local Chromium in this sandbox; nothing here is a CI or real-hardware result).
+**Results so far** (local Chromium in this sandbox, except the bullet marked CI; nothing here is a real-hardware result).
 - WP7b's full run on `0dfc1dd`: exit 0, 0 failures, 6 min 5 s.
-- Fix round 2 (A2), three full runs on `c91de92`: 1 or 2 failures each, both since dealt with. The anatomy's Pause still wrote `aria-pressed` (fixed in the final pass, L1). One run overflowed by 8 px at `/demo` 320; the final pass traced it to the header's `nav.mk-mobile-nav`, outside the showcases (corrected 28 October: CI traced it to the playground canvas's default 300 px width, now fixed; "Styles"). Step 7 stepped down in 2.5 s; step 12 counted one callback per frame in every round.
+- Fix round 2 (A2), three full runs on `c91de92`: 1 or 2 failures each, both since dealt with. The anatomy's Pause still wrote `aria-pressed` (fixed in the final pass, L1). One run overflowed by 8 px at `/demo` 320; the final pass traced it to the header's `nav.mk-mobile-nav`, outside the showcases (corrected 28 October: CI on `5cd8e2d` failed on the same 8 px, and the lead traced it to the playground canvas's default 300 px width; fixed in `386cabd`, and gone from CI on `a9b9f4d`; "Styles"). Step 7 stepped down in 2.5 s; step 12 counted one callback per frame in every round.
 - The final fix pass, 28 October:
   - P's full run on `488b9d1`, while E's playground work was still in progress: exit 1, with 4 failures, all in the playground. The lazy sheets moved `.bp-out`, `.bp-change` and `.bp-set` by 9 px at 1440 with JavaScript off on `/trainer-brain` and `/demo`; a `/demo` setting change showed an empty before/now line; and in the open pass at 390 the largest paint on `/demo` was the longer `p.bp-banner`. Everything else passed.
   - E's last judged runs, on worktree builds made at 17:05 and 17:21 UTC: steps 3, 4, 6, 9, 10 (both passes), 11 and 16 passed at 17:11, and step 10 passed again beside the metrics at 17:26. They did not include steps 1, 5, 7, 8, 12, 14 or 15.
   - E's two metrics runs passed (reported figures in "Budgets").
   - E's full `npm test` at the end of the pass: 2,094 tests, 2,093 passed, 1 skipped, 0 failed (22 min 43 s).
 - **The milestone verification** (PLAN §4.6, 28 October): the full check passed on `da806d9` twice (421 s and 414 s) and on `218ea40` (402 s). The full record is in `docs/COMPLETION_STAGES.md`.
-- **CI, PR #105** (the `homepage-call` step, closed platform):
-  - on `5cd8e2d` it failed 4 lines: `/` overflowed 2 px at 320 in both directions; `/demo` overflowed 8 px at 320 right to left (the playground canvas's default 300 px width); and `/demo`'s largest paint at 390 was the banner. Fixed by the canvas and SVG size attributes ("Styles") and by drawing the banner as two blocks, its first two sentences and the rest, so the H1 is the largest paint at 390 and 1440;
+- **The final commit's What-if change**, before its colour rule (build `mvsqc7kr`, 28 October): the full check passed in 440 s. Its metrics are reported only, and this run was slower than the ten before it, with 6 figures over budget against 0–1: the home field 33.3 ms at tier `lite`; the anatomy scroll 50 ms with 4.4 ms of engine work; its mount [77, 88]; `/demo`'s playground 33.3 ms with 5.8 ms of work. The colour rule and the last three layout fixes (the 341–358 px What-if row, forced colours, the sample pill) were checked with probes in the live page; CI on the final head runs the full check.
+- **CI, PR #105** (the `homepage-call` step, closed and open passes):
+  - on `5cd8e2d` it failed 4 lines: `/` overflowed 2 px at 320 in both directions (closed pass); `/demo` overflowed 8 px at 320 right to left (closed pass; the playground canvas's default 300 px width); and in the open pass `/demo`'s largest paint at 390 was the banner. The `/demo` lines were fixed by the canvas and SVG size attributes ("Styles") and by drawing the banner as two blocks, its first two sentences and the rest, so the H1 is the largest paint at 390 and 1440;
   - on `a9b9f4d` only `/`'s 2 px remained. It never reproduced locally. Step 4 then named `span.mk-hm-l1` at [16, 321.8]: the H1 in the fallback font. Fixed in the home CSS;
   - on `e2a8cef` the step passed in 6 min 26 s.
 - The fallbacks, measured by WP7b from `data-sc-ready`:
@@ -578,7 +579,7 @@ The long-task budget looser than the showcase spec is deliberate. It is in the o
 
 ## Open
 
-These are open as of 28 October 2026, at `41e3a4c` (the first item, the full check on the final tree, has since passed: "Results so far").
+These are open as of 28 October 2026, at `41e3a4c`. The first item then, the full check on the final tree, is removed: it passed on `218ea40` (402 s) and, with the final commit's What-if change but before its colour rule and its last layout fixes, in 440 s; CI on the final head runs it with all of them ("Results so far").
 - **CLS is not judged in CI yet.** The measured CLS is within 0.001, but CI judges it only after three PR runs in a row pass. Then set `SHOWCASE_JUDGE_CLS: "1"` on the CI step.
 - **The anatomy's mount at 4× CPU.** It went over budget in about 2 of 7 loads in this GPU-less container: [86, 117] and [91, 92] in E's seven-load run. What remains is the page restyle forced inside `figure()`, plus the rendering task after it: over 8 profiled loads, `figure()` took 54–84 ms after its yield, 18–42 ms of it style and layout forced by `data-sc="on"`, and the next rendering task 63–85 ms of page restyle and paint. Moving the style flush into a task of its own would paint an in-between "on" frame before the figure's writes, so it was not done. Measure again on GPU hardware or a quiet machine before changing more. With more than one load, the metrics judge mounts and frames from the first load only, so one outlier can pass or fail a run by chance.
 - **Frame budgets on real hardware,** above all the pinned anatomy's scroll ("What waits for real hardware").
@@ -590,9 +591,9 @@ These are open as of 28 October 2026, at `41e3a4c` (the first item, the full che
 - **For the lead or the owner.**
   - With the model off, 5 of the 6 chips a phone shows in the playground read "Not on yet" (t1, t6, t8, t5 and t10); only the knee runs. That is accurate. Ordering runnable moments first would change the specialty's order, which tests pin.
   - Full lanes show fewer tiles plus "+N" (a design change from the storyboard).
-  - The two target-size deviations ("Accessibility") need PLAN §4.4's 44 px amended, or a design change.
+  - The two target-size deviations ("Accessibility") are recorded in PLAN §4.4 (amended 28 October, A11Y-10); the owner can still ask for a design change instead.
   - The watchdog's two-window rule may need tuning on real devices.
-- **Every route pays for the first-frame CSS.** Every route on the catch-all, the member app included, loads the four first-frame showcase sheets (17.5 KB gzipped) and the page sheets (7.93 KB). The catch-all route also ships about 835 KB gzipped of JavaScript to every marketing page, workspace and member chunks included. Splitting the marketing and app bundles (a marketing route group) is the lever, recommended for phase 2 or 3.
+- **Every route pays for the first-frame CSS.** Every route on the catch-all, the member app included, loads the four first-frame showcase sheets (17.6 KB gzipped on the final commit) and the page sheets (7.93 KB). The catch-all route also ships about 835 KB gzipped of JavaScript to every marketing page, workspace and member chunks included. Splitting the marketing and app bundles (a marketing route group) is the lever, recommended for phase 2 or 3.
 - **Later work:**
   - a TypeScript port of the engine;
   - in-browser safety rules for free text (the owner's default is no);

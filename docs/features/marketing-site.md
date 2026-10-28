@@ -715,7 +715,7 @@ belong to the calculator package.
 | Bullets | 12 words, 5 per list |
 | FAQ answers | 45 words; the first sentence answers |
 | Hub tiles | One line, 12 words |
-| Home page | Until 28 October 2026: 400 visible words in `main`, not counting the follower calculator block (reported separately). Since phase 1: 624, the measured figure (see "Phase 1", copy limits) |
+| Home page | Until 28 October 2026: 400 visible words in `main`, not counting the follower calculator block (reported separately). Since phase 1: 629, the measured figure (624 until 28 October 2026; see "Phase 1", copy limits) |
 
 Voice: second person, active, UAE/UK spelling. Not used: seamless,
 revolutionary, cutting-edge, unlock, empower, game-changing. Two text-only
@@ -1786,11 +1786,11 @@ The plan's §2 table lists every row.
 - Its showcase check: exit 1, with 4 failures, all in the playground, whose engine work was still in progress ([brain-showcase.md](brain-showcase.md), "Results so far").
 - The engines' half ran the full `npm test` at the end: 2,094 tests, 2,093 passed, 1 skipped, 0 failed (22 min 43 s).
 
-**Not run here:** the milestone run of PLAN.md §4.6 (running alongside this docs pass) and the PR's CI. The lead records them in `CLAUDE_HANDOFF.md` and `docs/COMPLETION_STAGES.md`.
+**Not run in this pass:** the milestone run of PLAN.md §4.6 and the PR's CI. Both have run since: `docs/COMPLETION_STAGES.md` (28 October entry) records them.
 
 ### For the owner (FYI)
 
-- **CSS on every page.** Every page of the site, the member app included, loads the showcases' first-frame CSS (17.5 KB gzipped) and the page sheets (7.93 KB). WP7a's deletions took 2.1 KB off `marketing.css`. Net, the first-load CSS grew by 18.6 KB gzipped in the final fix pass's measurement. This holds until the marketing and app bundles are split.
+- **CSS on every page.** Every page of the site, the member app included, loads the showcases' first-frame CSS (17.6 KB gzipped on the final commit) and the page sheets (7.93 KB). WP7a's deletions took 2.1 KB off `marketing.css`. Net, the first-load CSS grew by 18.6 KB gzipped in the final fix pass's measurement. This holds until the marketing and app bundles are split.
 - **JavaScript on every marketing page.** The catch-all route ships about 835 KB gzipped of JavaScript (about 2.9 MB raw) to every marketing page, the workspace and member chunks included. Phase 1 added 4.5 KB of it. A separate marketing route group would cut startup work far more than anything left in the page files (phase 2 or 3).
 - **Speed budgets.** Long tasks of 80 ms or less are looser than the showcase spec (50 ms). Page blocking time is judged only against the build before phase 1 measured in the same session (baseline + 100 ms; the spec said prototype + 50 ms), and the engine's own share has a fixed 100 ms budget ([brain-showcase.md](brain-showcase.md), "Budgets").
 - **Layout shift is reported in CI, not judged,** until it passes three PR runs in a row.
@@ -1817,11 +1817,11 @@ The plan's §2 table lists every row.
     - `/coaches` noindex.
   - **Phase 3:** Arabic strings, measurement events and the A/B route split.
   - **Open checks:**
-    - the milestone verification on the final tree (PLAN §4.6), the full showcase check included;
+    - CI on the final head. (The milestone verification ran on 28 October, `docs/COMPLETION_STAGES.md`; the full showcase check passed on `218ea40` and, before the final commit's colour rule and last layout fixes, in 440 s.)
     - judging CLS in CI after three PR runs in a row;
     - judging the frame budgets on real hardware, and the anatomy's mount, which went over budget in 2 of 7 loads at 4× CPU here ([brain-showcase.md](brain-showcase.md), "Open").
     - Done since: the brand check and the showcase check after fix round 1 (WP7b's second round).
-  - **Open in the pages:** while the consent bar is open it covers the anatomy's Pause at 1440×900 and on phones, and at `/demo` 320 the header's `nav.mk-mobile-nav` overflowed by 8 px in 1 of 3 runs.
+  - **Open in the pages:** while the consent bar is open it covers the anatomy's Pause at 1440×900 and on phones. (Corrected 28 October: the 8 px overflow at `/demo` 320 was the playground canvas's default 300 px width, not the header's `nav.mk-mobile-nav`; fixed in `386cabd`.)
   - **Later:**
     - a founder note and a card-processing rate (owner defaults);
     - splitting the marketing and app bundles (a marketing route group), so other routes stop paying for the showcases' CSS and marketing pages stop loading the workspace and member JavaScript. The final review's first-paint finding (PERF-7: first paint on `/` 150–400 ms later than before phase 1 at 4× CPU) was deferred to it: `content-visibility` on the lower bands measured no gain.

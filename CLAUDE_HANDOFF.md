@@ -2,38 +2,37 @@
 
 ## Work in progress
 
-### Status at 23:45 UTC on 28 October 2026 (Claude): marketing revamp phase 1, final commit before merge
+### Status at 23:53 UTC on 28 October 2026 (Claude): marketing revamp phase 1, final commit before merge
 
-**What it is:** phase 1 of the marketing revamp (`/`, `/trainer-brain`, `/demo`, `/pricing`), as the owner chose on 27 Oct ("Go with your recommendation"; each phase is its own PR, "checked and deployed"). It is in PR #105 from `claude/repository-overview-osejlw`. The full stage record, with every check run, is the 28 October entry in `docs/COMPLETION_STAGES.md`.
+**What it is:** phase 1 of the marketing revamp (`/`, `/trainer-brain`, `/demo`, `/pricing`), as the owner chose on 27 Oct ("Go with your recommendation"; each phase is its own PR, "checked and deployed"). It is in PR #105 from `claude/repository-overview-osejlw`. The checks and how it was built are in the 28 October entry of `docs/COMPLETION_STAGES.md`.
 
 **Finished:**
 - the build, both fix rounds, the final review and fix passes, the docs, and the milestone verification;
 - CI on `e2a8cef` (run 40781841666): all 8 jobs green, including the showcase step.
+- The final adversarial check (`wf_256d4cc2-b79`, 2 agents) is done.
+  - **Browser:** the What-if change held in right to left, dark, forced colours, reduced motion, desktop and landscape, and the accessible names are right. It found three older CSS defects, now fixed:
+    - from 341 to 358 px the What-if row covered the caption;
+    - in forced colours a pressed What-if had a 1.1:1 fill;
+    - at 320–362 px the sample pill ran under Pause.
+  - **Audit:** 25 record corrections, all applied.
 
 **Now:**
-- **The final commit** (one normal push, not `[skip ci]`):
-  - with the AI model off, the pinned anatomy's "Not on yet" takes a second line on phones, so the What-ifs no longer cover the caption. The label uses the stage's muted colour (the page's grey was 3.0:1 on the stage);
-  - the home word budget is 629 (the measured count, per PLAN §4.3);
-  - docs for the late CI fixes, and these records.
-- **Its checks:**
-  - unit tests 76/76;
-  - a build and a probe at six phone widths in both states: the closed layout matches the open one and nothing overlaps;
-  - the full showcase check passed in 440 s (`scratchpad/mv/showcase-11.log`);
-  - the suffix measures 7.82:1 on the stage and 16:1 pressed.
-- **Running:** a final verification workflow (`wf_256d4cc2-b79`, 2 agents):
-  - browser edge cases of the What-if change: right to left, dark, forced colours, reduced motion, desktop and landscape, and the accessible name;
-  - an audit of these records and the PR text against the evidence.
-  - Its fixes go into the final commit.
+- **The final commit** (one normal push, not `[skip ci]`): it carries the What-if fix, the colour, the three CSS fixes, the word budget 629, the docs and these records.
+- **Its checks so far:**
+  - unit tests 76/76 before the three CSS fixes;
+  - the full showcase check passed in 440 s on the build before the colour rule and those fixes;
+  - the contrast probe after the colour rule: 7.82:1 on the stage, 16:1 pressed.
+- **Running** (`scratchpad/mv/final-chain7.sh`): unit tests, a rebuild, probes across 320–414 px (the 341–358 band included), forced colours and the colour, then the full showcase check.
 
 **Next:**
-1. Push, then get CI green on the final head.
+1. Record the results, push, then get CI green on the final head.
 2. Fill the checks into the PR body (`scratchpad/pr105-body.md`), mark the PR ready, and squash-merge.
 3. Watch `main`'s run and the deploy (`scripts/watch-release.sh`), then live-check the four pages.
 4. Record the merge SHA and the live check in a follow-up docs PR (`COMPLETION_STAGES.md` and this section).
 
 **Deploy reconciliation:** this deploy rests on the owner's explicit 27 Oct instruction for phase 1, "checked and deployed" (`docs/PROJECT_MEMORY.md`). It does not rest on the coding handoff. The normal gates apply: green CI on the final head and on `main`'s run.
 
-**Waiting on the owner:** nothing. The FYI decisions are in the PR body and the stage entry. Delete the stray `/oq-daily.log` when convenient.
+**Waiting on the owner:** nothing. The FYI decisions are in the stage entry and in the PR body draft (`scratchpad/pr105-body.md`), which goes into PR #105 at step 2. Delete the stray `/oq-daily.log` when convenient.
 
 ### Home page as the owner's HTML design: live since 22:47 UTC on 25 October 2026 (Claude, checked 04:10 UTC on 26 Oct)
 

@@ -778,6 +778,15 @@
 [data-showcase="anatomy"] .ca-wb[aria-pressed="true"] small {
   color: inherit;
 }
+/* brain-stage.css gives a pressed What-if the system highlight in forced
+   colours; the rule above has the same weight and loads later. */
+@media (forced-colors: active) {
+  [data-showcase="anatomy"] .ca-wb[aria-pressed="true"] {
+    border-color: Highlight;
+    background: Highlight;
+    color: HighlightText;
+  }
+}
 [data-showcase="anatomy"] .ca-wb[disabled],
 [data-showcase="anatomy"] .ca-pause[disabled] {
   opacity: 0.55;
@@ -1343,6 +1352,10 @@
   html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-foot .sc-strip {
     font-size: 11px;
   }
+  /* The sample pill wraps rather than run under Pause (320 to 362 px). */
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-foot .sc-sample {
+    white-space: normal;
+  }
   html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-pause {
     grid-row: 2;
   }
@@ -1541,7 +1554,8 @@
     --r4: 172px;
   }
 }
-@media (min-height: 700px) and (max-width: 340px) {
+/* Below 359 px "Omar's reply" no longer fits beside level 1: four lines of What-ifs. */
+@media (min-height: 700px) and (max-width: 358px) {
   html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) {
     --r4: 204px;
   }
