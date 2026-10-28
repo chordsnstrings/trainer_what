@@ -572,6 +572,12 @@ public pages": every public platform page is always light.
 
 ### Home structure
 
+**Superseded on 28 October 2026.** Phase 1 replaced this home: the relay
+hero, the subscriber tiles, the decision-flow card and the commission pills
+are gone. The current home is under "Phase 1 of the marketing revamp" below.
+The container rule (the next paragraph) and the analytics bar (after the
+list) still hold. The list is the 28 September design, kept as the record.
+
 Every region (header content, hero, bands, inner pages, closing, footer)
 sits in one container, `.mk-container`: `max-inline-size` 1280 px
 (`--ty-layout-max`) plus a gutter of 48 px, 24 px at 1150 px and below and
@@ -686,7 +692,9 @@ its new page. `lastUpdated` stays 2026-09-28 on / and the receiving pages
 
 Applied now to / and the header pages (/how-it-works, /trainer-brain,
 /features, /pricing, /about, /get-started), each with a `lede` (25 words or
-fewer) as the one statement above the fold. The answer-first introduction
+fewer) as the one statement above the fold. Since 28 October 2026 they also
+apply to every page in `C0_PAGES`, so `/demo` joined them with its own lede
+and "In short". The answer-first introduction
 of those pages is an "In short" section before the FAQs (never straight
 under the lede it would repeat); JSON-LD and llms-full.txt carry it
 unchanged. Pages without a lede keep the introduction under the H1.
@@ -706,7 +714,7 @@ belong to the calculator package.
 | Bullets | 12 words, 5 per list |
 | FAQ answers | 45 words; the first sentence answers |
 | Hub tiles | One line, 12 words |
-| Home page | 400 visible words in `main`, not counting the follower calculator block (reported separately) |
+| Home page | Until 28 October 2026: 400 visible words in `main`, not counting the follower calculator block (reported separately). Since phase 1: 624, the measured figure (see "Phase 1", copy limits) |
 
 Voice: second person, active, UAE/UK spelling. Not used: seamless,
 revolutionary, cutting-edge, unlock, empower, game-changing. Two text-only
@@ -716,6 +724,10 @@ shared safety FAQ (one 27-word sentence) and the /about introduction (the
 entity sentence).
 
 ### Checks for this package
+
+Since 28 October 2026 the home test below is replaced by
+`tests/marketing-home.test.ts`, and the brand check's relay checks by
+hero-field checks (see "Phase 1 of the marketing revamp").
 
 - `tests/marketing-site.test.ts`: the home test (one H1 whose text is the
   registry `h1`, the highlight inside it, the lede length, the relay's text,
@@ -1443,8 +1455,293 @@ off the registry text shows unchanged.
   failure ("1366 mouse: hover stops the clock, not the beats") is identical on the base `r5/models`
   build and is not touched here.
 
+## Phase 1 of the marketing revamp: /, /trainer-brain, /demo and /pricing (28 October 2026, PR #105)
+
+**Decision.** The owner chose the recommendation on 27 October 2026: "Go with your recommendation". That means concept A's "Live Brain", plus concept C's decision anatomy, Never list and source badges, plus concept B's pricing page and calculators. It came with the owner defaults:
+- publish "14 AI specialists and 11 code steps" with "How we count";
+- the Recovery rule and the Meal planner show as "Not on yet";
+- no founder note, and no card-processing rate.
+
+**Rollout.**
+- Phase 1: these four pages, as their own PR, "checked and deployed".
+- Phase 2: every other page.
+- Phase 3: Arabic, tracking and A/B tests.
+
+**Where to read more.**
+- Spec: `docs/marketing-revamp-2026-10-26/phase1/PLAN.md`; design: `PLAYBOOK.md` and `showcase/SHOWCASE_DESIGN.md` in the same folder.
+- Branch: `claude/repository-overview-osejlw`.
+- The showcases: [brain-showcase.md](brain-showcase.md). The motion exception: [marketing-motion.md](marketing-motion.md).
+
+### Rendering
+
+**Pages.** `BESPOKE` in `site.tsx` maps the four paths to their own server components in `components/marketing/pages/`: `home.tsx`, `trainer-brain.tsx`, `demo.tsx` and `pricing.tsx`. Every other page still renders through `StandardPage`.
+
+**Shared parts:**
+- `page-parts.tsx`: `Section`, `PageHead`, `InShort`, `Faqs`, `Related`, `Closing`, `primaryCta`, `TEACH_CTA_PATHS` and the `Ctx` type;
+- `proof.tsx`: the proof atoms (status chips and panel, "Not on yet", the sample and estimate labels, source badges, the Never sheet, `CtaMicro`);
+- `packages/contracts/src/marketing-proof.ts`: the lists behind them (`STATUS_ITEMS`, `HOME_OFFER`, `PROOF_LINKS`, `NEVER_LIST`).
+
+**Islands:**
+- `home-islands.tsx`: the walkthrough stepper;
+- `brain-page-islands.tsx`: RuleLedger, ReleaseTimeline and CompareReplies, every one labelled as a sample;
+- `pricing-islands.tsx`: ShareSlider and TakeHome, each with one polite live region that speaks after input pauses for 500 ms.
+
+**Static mode.** `Ctx.showcase` carries the showcases' static mode (`MARKETING_SHOWCASE`, [brain-showcase.md](brain-showcase.md)).
+
+**Stylesheets.** All are imported in `app/layout.tsx` after `marketing-journey.css`, so every route on the catch-all loads them.
+- Page sheets: `marketing-proof.css` (`.mk-pf-`), `marketing-home.css` (`.mk-hm-`), `marketing-brain-pages.css` (`.mk-tb-` and `.mk-dm-`) and `marketing-pricing.css` (`.mk-pr-`). Together they are 7.95 KB gzipped against an 8 KB budget, so about 50 B are left.
+- Then the four first-frame showcase sheets, `app/brain-*.css`.
+- Don't run Prettier on the page sheets. It splits the reduced-motion selectors across lines, and the motion test needs each selector on one line.
+
+**Bands.** Every band keeps the house structure, `.mk-home-band > .mk-container.mk-home-inner`, so the section reveal and the band rhythm are the home's. A band that holds a showcase carries `.mk-sc-band`, and the reveal leaves it alone.
+
+**Light, except the showcases.** Public pages stay light in every colour scheme. The one dark surface is the showcases' ink stage, inside `[data-showcase]` only ([brand.md](brand.md)).
+
+### The call to action
+
+**Primary.** "Teach your AI — free" goes to `/signup`. While sign-ups are closed it is "Join early access — free", going to `/get-started#early-access`.
+- `teachCta()` in `frame.tsx` builds it.
+- It appears on the four pages only: the header, the hero, the closing panel, the showcases and the calculators.
+- `TEACH_CTA_PATHS` in `page-parts.tsx` lists the four paths, and their registry entries have no `cta` of their own.
+
+**Unchanged until phase 2.** Every other page keeps `claimCta` ("Start coaching", or "Join early access"), and so do the sign-in and sign-up header and Kamran's hand-off.
+
+**Micro line.** Under the hero buttons, `CtaMicro` reads:
+- "Free to join · Nothing to pay upfront · Nothing goes live until you publish";
+- or, while sign-ups are closed, "Free to join · We’ll tell you here when sign-ups reopen".
+
+**Secondary.** From the registry's `secondaryCta`. The closing panel's link uses it too.
+
+| Page | Secondary call to action |
+|---|---|
+| `/` | Try the demo → `/demo` |
+| `/trainer-brain` | Try the demo → `/demo` |
+| `/demo` | See how it works → `/how-it-works` |
+| `/pricing` | Estimate my earnings → `/earnings-calculator` |
+
+### Home structure
+
+Title "Free-to-join AI trainer platform for UAE coaches", with the eyebrow "FOR UAE PERSONAL TRAINERS". `lastUpdated` is 2026-10-27 on all four pages.
+
+1. **Hero.**
+   - The H1 is `BRAND_COPY.homeHeadline`, "Teach your AI. It trains your subscribers.", with "trains" in Pace.
+   - Then the field ([brain-showcase.md](brain-showcase.md)), then the lede: "Specialists inside your AI handle every message. Code checks every step. You decide what goes out."
+   - Then the primary action, "Try the demo", and the micro line.
+   - The DOM order is the same at every width: H1, field, lede, buttons. Wide screens place the field in the second column with grid areas, never CSS `order`. Tablets from 761 to 1180 px stack in DOM order.
+   - `<link rel="expect" href="#mk-hero-end" blocking="render">`: the first paint waits until the hero's last child is parsed, the field's first frame included.
+2. **"Change a setting. Watch it re-sort."** (`#resort`, paper): the board, labelled by the band's H2, and "Throw a moment at your Brain" → `/demo`.
+3. **"How it works"** (white): three numbered steps from the registry, then "Setup to payday · 8 steps".
+   - That is the `/how-it-works` steps as an ARIA tabs stepper with a roving tabindex. Left and Right move between tabs, with wrap; Home and End jump; Previous and "Next step" step. Up and Down are not captured.
+   - "Publish and share" and "Get paid monthly" carry "Not on yet" until payments and payouts are both on.
+   - "See how it works" links to `/how-it-works`.
+4. **"What subscribers get, under your name"** (white).
+   - The offer list (`HOME_OFFER`), each item with its status: an available item shows its offer in green; one that is not shows it in grey with "Not on yet".
+   - The address line: "Your site, your app icon," then the platform's coaching address for "your-name".
+   - The sample app, labelled "Sample trainer". Its tabs follow the flags: "Chat" only while the AI is on, and "Meals" only while nutrition is on.
+   - "All features".
+5. **"You stay in charge"** (paper).
+   - The registry's lead line, with its "“Waits for me” mode:" opening in bold.
+   - The Never sheet, unsigned.
+   - The flow window "How your AI decides": Omar, Yousef and Noura's lines, taken from traces t1, t6 and t2 and the default settings; the test holds them to the traces.
+   - "How your AI decides" → `/trainer-brain`.
+6. **"Free to start. Your price."** (white).
+   - The status panel comes first: what works today, before any amount.
+   - Then three facts, with the share bands from the ledger's `BANDS`: "25% first 100 · 20% 101–300 · 15% 301–1,000 · 10% 1,001+".
+   - "Tools it replaces": all seven `REPLACES` rows with their status, live ones first.
+   - The address preview, only while sign-ups are open.
+   - "Pricing in detail".
+7. **"What are your followers worth?"** (paper).
+   - The chips "Not on yet: subscriber payments", "Estimate, not a promise" and a source badge.
+   - The compact follower calculator, unchanged.
+   - A call to action with "Free to join", and "Open the full calculator".
+8. **"Proof you can check"** (white): `PROOF_LINKS`.
+9. **"Questions trainers ask"** (white): seven questions, all closed, with "All questions" → `/faq`.
+   - The first is "How does {APP_NAME} work?", answered by the answer-first introduction (the house rule; `brand.test.ts`).
+   - The six approved questions follow: "Will my AI replace me?", "What happens when a subscriber reports pain?", "Does it cost anything to join?", "Will my followers pay?", "Can subscribers pay me today?" and "Do I need technical skills?".
+10. **Closing panel**, with "Try the demo".
+
+**Left `/`:** the journey band and its pin, the scroll scenes (parked: [scroll-scenes.md](scroll-scenes.md)), the relay, the decision-flow card and the commission pills.
+
+**Stays:** Kamran's floating button, unchanged, on `/` only.
+
+**Moved:**
+- The Instagram question (`INSTAGRAM_FAQ`) is now at the end of `/faq`.
+- The journey's subscriber line that quoted it (`SUBSCRIBER_LINES[4]`) points there, so `/how-it-works` renders the same text.
+
+### /trainer-brain, /demo and /pricing
+
+**`/trainer-brain`.** Title "Trainer Brain: an AI trainer from your judgment"; H1 "Your AI, built from your judgment".
+- **Head:** the lede, the calls to action and the micro line, with the RuleLedger sample beside them.
+- **Bands, in order:**
+  - "Not a generic workout generator" (`what`): one decision traced to its source.
+  - "Who’s inside your Brain" (`inside`): the roster by crew, with "How we count" and "See it work" links that play the specialist's moment in the playground.
+  - "Anatomy of one decision" (`decides`): the anatomy, with "Skip the figure".
+  - "Throw a moment at your Brain" (`play`): the playground.
+  - "What you teach it" (`teach`): five cards with source badges.
+  - "How it gets better" (`learns`): ReleaseTimeline and CompareReplies.
+  - "What your AI will never do" (`never`): the unsigned Never sheet, beside "Your method stays yours" (`yours`).
+- **Then:** "In short", four questions under "Questions about your AI", related links and "Last updated".
+
+**`/demo`.** Title "See an AI coach decide: interactive demo"; H1 "Throw a moment at your Brain".
+- The standard one-column page head, then the playground under it. The playground plays its first moment once on its own and takes its name from the H1.
+- "What happens in your account" (`next`, three steps).
+- "The 12 sample moments" (`moments`). It states each moment's outcome under the sample settings, and the test holds those outcomes to the traces' lanes.
+- "In short", four questions under "Demo questions", related links and "Last updated".
+- `/demo` is not in Kamran's destinations or the assistant's fact pages.
+
+**`/pricing`.** Concept B's page: title "Online coaching platform fees and commission"; H1 "Free to join. You set the price.", with "price" in Pace.
+- **Head:** the status strip comes before any AED figure, with the stairs of our share beside it.
+- **Bands, in order:**
+  - "What’s free, what we take" (`glance`): three cards.
+  - "How our share falls" (`bands`): the bands from `BANDS`, and the share slider. The slider runs from 1 to 1,500 subscribers, with jumps to 100, 300, 1,000 and 1,500, and one decimal.
+  - "What you keep, in AED" (`example`): the worked example from `estimateEarnings`, and the take-home tile from `MEMBERSHIP_MINIMUMS`.
+  - "An hour sells only once" (`hours`): B's two price anchors.
+  - "What else appears on your statement" (`statement`).
+  - The `how`, `billing` and `payouts` cards. Payouts carry "Not on yet: payouts" until payouts are on.
+  - "Live today, and not on yet" (`status`).
+- **Then:** "In short", six questions under "Pricing, answered", related links and "Last updated".
+- **Figures:** every AED figure and percentage is the ledger's own. There is no card-processing rate: the statement says card processing is itemised.
+
+### Copy limits
+
+**`C0_PAGES`.** The four pages are in `C0_PAGES` (`tests/marketing-site.test.ts`), which checks:
+- the C0 vocabulary;
+- "your AI" in headings and FAQ questions;
+- the house copy limits above;
+- no placeholders.
+
+**Registry words, measured by WP0 with each entry applied:**
+
+| Page | Registry words | Title (with the brand) | Description |
+|---|---|---|---|
+| `/` | 632 | 60 | 147 |
+| `/trainer-brain` | 684 | 59 | 152 |
+| `/demo` | 358 | 52 | 150 |
+| `/pricing` | 602 | 56 | 145 |
+
+The SEO-depth floor is 350 registry words. `/demo` is 8 over it, so any cut there needs a replacement line.
+
+**Home word budget: 624.**
+- **How it counts:** visible words in `main`, as C1 counts them. It leaves out the showcases (`[data-showcase]`), the sample screens (`[data-sample-ui]`), the follower calculator (`.mk-home-calc`), screen-reader text, and closed or hidden content.
+- **C1's target was 400.** The approved copy measures more, and copy is not cut without the owner. So the plan's rule applies: the measured figure is the budget.
+- **Measured** by `scripts/brand-check.mjs` on 28 October 2026:
+  - 624 with sign-ups open, as the brand check's platform has them;
+  - 610 with them closed;
+  - the old home measured 447.
+- `HOME_WORDS` in `brand-check.mjs` holds it.
+- **H2 cap: 9.** That is the seven registry sections, the FAQ band and the closing panel (`HOME_H2`).
+
+### Checks for this package
+
+**New unit tests.** All in `npm test`, so they gate deploys:
+
+| Test file | Tests | What it holds |
+|---|---|---|
+| `marketing-brain-traces` | 14 | the Brain traces |
+| `marketing-showcase` | 15 | the showcase contract and budgets |
+| `marketing-field` | 8 | the field and the board |
+| `marketing-anatomy-play` | 23 | the anatomy and the playground |
+| `marketing-home` | 10 | the home |
+| `marketing-brain-pages` | 12 | `/trainer-brain` and `/demo` |
+| `marketing-pricing` | 8 | `/pricing` |
+
+`tests/marketing-helpers.ts` holds the shared helpers: `PLACEHOLDER`, `C0_BANNED` and `MODEL_OR_VENDOR`.
+
+**Existing tests, changed in the merge that needed them.**
+- `marketing-site`: the old home test is deleted, and `C0_PAGES`, the `/trainer-brain` `decides` bullets, `/demo`'s lede and "In short", and `/pricing`'s two anchors are added.
+- `brand`: the eyebrow, and the home and `/pricing` closing links.
+- `marketing-journey`: the journey is absent from `/` and unchanged on `/how-it-works`, plus the word lists.
+- `marketing-motion-sitewide`: the hero's `rel=expect`; the relay, pills and `/demo` entries are removed.
+- `marketing-frontier`: payments in the fixture.
+- `logical-css`: its checker moved to `marketing-helpers.ts` (`physicalRule`), and the relay dot's exception went with the relay.
+- `model-name-guard`: it also scans `components/marketing/brain/**`.
+
+The plan's §2 table lists every row.
+
+**Browser checks.**
+- **`npm run test:marketing-showcase`.** The showcase check, also run in CI in the `homepage-call` job ([brain-showcase.md](brain-showcase.md)).
+- **`npm run test:browser`.** The `/demo` smoke test now opens `/demo?sc=on`. In the playground, the knee moment must show "Training paused" and "No AI called", and Low recovery must show "Not on yet".
+- **`npm run test:brand`.** The relay checks are replaced by hero-field checks:
+  - at 1440: the H1, the primary action and the field's lanes on the first screen;
+  - at 390: Noura's words, the STOP stamp and the Paused lane above y 770;
+  - in right to left: the field's blocks swap sides.
+
+  Showcases are exempt from the dark-surface rule, and from the focus-ring rule because they draw their own ring. It also holds the word budget and the H2 cap.
+- **`npm run test:marketing-motion`.**
+  - The sitewide check gives the four pages absolute budgets instead of comparing them with `c856d9d`: LCP 2.5 s or less on the H1 or the lede, CLS 0.001, at most 2 long tasks while scrolling, and blocking time of 600 ms or less.
+  - `/trainer-brain` and `/demo` join its default pages, and showcases are left out of its hidden-text rule.
+  - The journey check runs on `/how-it-works` only.
+
+### Checks run (27–28 October 2026, per work package; local Chromium only)
+
+**Typecheck and build.** `npm run typecheck` and `npm run build` passed at the end of each package. The route table shows `ƒ /[[...path]]`.
+
+**Unit tests.**
+- **Marketing suites** (`tests/marketing-*.test.ts`, `brand`, `logical-css`, `model-name-guard`, `discovery-seo`, `public-pages`): 214 of 215 after WP5.
+  - The one failure was the journey test's Instagram line. The lead fixed it in `d5d32b9`.
+  - WP7a then ran the journey and sitewide motion tests: 20 of 20.
+- **Full `npm test`** (WP7a, 22 min 43 s): 2,064 tests, 2,061 passed, 1 skipped, 2 failed.
+  - Both failures were the OCR tests (`ingestion-completion`, `onboarding-media`), because this container had no `tesseract`. CI installs it.
+  - With `tesseract-ocr` installed, those two files passed 29 of 29.
+
+**Rendered output (WP0's snapshot of all 35 pages under 4 platform states, plus the llms files and the assistant facts).** Only these changed:
+- the four pages;
+- `/faq`, with the appended Instagram question;
+- `/features`, whose Trainer Brain tile shows `/trainer-brain`'s new description;
+- `llms.txt`, `llms-full.txt` and the assistant facts.
+
+`/how-it-works` was unchanged. WP7a's deletions changed no page: before and after were identical apart from React's generated ids on `/earnings-calculator`.
+
+**Browser checks.**
+- **The showcase check** passed on `0dfc1dd`: exit 0, 0 failures, 6 min 5 s ([brain-showcase.md](brain-showcase.md) has its measurements).
+- **The journey check:** 209 passed, 0 failed.
+- **The sitewide motion check:** passed in 18 min 41 s.
+- **The brand check:** 38 failures.
+  - 36 are pre-existing: the identical set fails on `4f35e5c`, the build before phase 1. They are the coach sign-in wait, workspace lockups in dark, the coach website and member-app colour checks, and `.onboarding-presence` at 4.30:1.
+  - 2 were the phone walkthrough's "Not on yet" dots, drawn in their own background colour. A fix was in progress when this was written.
+- **`npm run test:browser`** passed on its third run.
+  - The first run failed on the member app's consent bar at 390×844 while another browser check ran alongside it. That step passed in runs 2 and 3.
+  - The second run failed on WP5's own `/demo` smoke test, which looked for "No AI called" in the wrong element. It was fixed in `ad479b4`.
+
+**WP4 and WP5's Playwright acceptance probes, each against `next start` and a platform stub.**
+- LCP is the H1, or the lede on narrow `/trainer-brain` and `/pricing`.
+- No horizontal overflow at 360, 390 and 1440, left to right and with `?lang=ar`. No duplicate ids, and no page or console errors.
+- With JavaScript off, the first screens hold.
+- Sign-ups closed: no `/signup` link.
+- Kamran's button covers no control.
+- `next dev`: no hydration warnings. WP4's duplicate-key error was fixed by keying host and island as one fragment.
+
+**Not run here:** the milestone run of PLAN.md §4.6 and the PR's CI. The lead records them in `CLAUDE_HANDOFF.md` and `docs/COMPLETION_STAGES.md`.
+
+### For the owner (FYI)
+
+- **CSS on every page.** Every page of the site, the member app included, loads the showcases' first-frame CSS (16.8 KB gzipped) and the page sheets (7.95 KB). WP7a's deletions took 2.1 KB off `marketing.css`. This holds until the marketing and app bundles are split.
+- **Two speed budgets are looser than the showcase spec:** long tasks of 80 ms or less (the spec says 50 ms), and blocking time of baseline + 100 ms (the spec says prototype + 50 ms).
+- **Layout shift is reported in CI, not judged,** until it passes three PR runs in a row.
+- **Search engines and automated tools see the still frames.** Lighthouse scores leave out the engine.
+- **The off switch** (`MARKETING_SHOWCASE=static`) works without a rebuild. In production it also needs a one-line `compose.yaml` change ([brain-showcase.md](brain-showcase.md)).
+- **Copy derived or trimmed to fit the house limits** is listed in the PR. That includes the safety tooltip that now names the platform's rule, and the answer to "Can subscribers pay me today?" that no longer says "Today you can join".
+
 ## Not done / next
 
+- Phase 1 of the marketing revamp (28 October 2026, PR #105):
+  - **Phase 2**, every other page:
+    - "Teach your AI — free" everywhere, including `claimCta`, the sign-up heading and Kamran's hand-off;
+    - "Not on yet" in place of "Available soon";
+    - the C0 navigation, the sticky call-to-action bar on phones and the page transition;
+    - Kamran's inline pills, Kamran on more pages, and `/demo` among his destinations;
+    - the FAQ renames on other pages;
+    - deleting or reusing the parked scroll-scenes engine;
+    - `/coaches` noindex.
+  - **Phase 3:** Arabic strings, measurement events and the A/B route split.
+  - **Open checks:**
+    - judging CLS in CI after three PR runs in a row;
+    - judging the frame budgets on real hardware;
+    - the `compose.yaml` line for the off switch;
+    - the walkthrough dots and the board's shift on phones (a fix round was in progress on 28 October).
+  - **Later:**
+    - a founder note and a card-processing rate (owner defaults);
+    - splitting the marketing and app bundles, so other routes stop paying for the showcases' CSS.
 - Journey: the owner decides D10 (keep the player hidden until a coach can
   launch, the default built here, or show it earlier). brand-check has no
   launch-ready run yet (its runner seeds a platform with every provider

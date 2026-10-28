@@ -92,10 +92,11 @@ export async function mount(root, o) {
     }, 150);
   };
   try {
-    run = figure(root, d, S0, o, o.settled, say);
-    modes.forEach((m) => m.addEventListener("change", restart));
+    // on before the figure reads: the run sheet's restyle shares the mount's one style pass
     root.setAttribute("data-sc", "on");
     root.setAttribute("data-sc-tier", C.tier.name);
+    run = figure(root, d, S0, o, o.settled, say);
+    modes.forEach((m) => m.addEventListener("change", restart));
   } catch (e) {
     if (run) run.stop();
     if (L) L.release();

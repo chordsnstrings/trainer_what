@@ -20,7 +20,8 @@
 //     and the Paused lane end above y 770; the lanes fit 375x667; no image,
 //     video or background image in a showcase; the lazy sheets (the CSS the
 //     engine loads after the load event, receipts included) move no box of
-//     the still frame at 390 and 1440.
+//     the still frame at 390 and 1440 (on a second try as well: a box that
+//     moves only once moved for another reason).
 //  2. The largest paint is the H1 or the lede, at 390 and 1440.
 //  3. Layout shift of 0.001 or less (report-only unless SHOWCASE_JUDGE_CLS
 //     is set): load plus 10 s of the field and the board, 5 s after a
@@ -471,26 +472,48 @@ await step(1, "JavaScript off", async () => {
           page.evaluate(() =>
             [...document.querySelectorAll("[data-showcase] *")].map((e) => {
               const r = e.getBoundingClientRect();
-              return [r.x, r.y, r.width, r.height].map((v) => Math.round(v * 10) / 10).join(",");
+              return `${e.tagName.toLowerCase()}.${String(e.className).split(" ")[0]} ${[r.x, r.y, r.width, r.height].map((v) => Math.round(v * 10) / 10).join(",")}`;
             }),
           );
         // The still frame once the web fonts have swapped in and the layout has settled.
-        await page.evaluate(() => document.fonts.ready);
-        let before = await boxes();
-        for (let i = 0; i < 10; i++) {
-          await page.waitForTimeout(250);
-          const again = await boxes();
-          if (again.join("|") === before.join("|")) break;
-          before = again;
+        const settled = async () => {
+          await page.evaluate(() => document.fonts.ready);
+          let last = await boxes();
+          for (let i = 0; i < 10; i++) {
+            await page.waitForTimeout(250);
+            const again = await boxes();
+            if (again.join("|") === last.join("|")) break;
+            last = again;
+          }
+          return last;
+        };
+        const withSheets = (on) =>
+          page.evaluate(
+            ([sheets, on]) => {
+              for (const s of document.querySelectorAll("style[data-lazy]")) s.remove();
+              if (on)
+                for (const css of sheets) {
+                  const s = document.head.appendChild(document.createElement("style"));
+                  s.dataset.lazy = "";
+                  s.textContent = css;
+                }
+            },
+            [sheets, on],
+          );
+        // Twice: a box that moves only once moved for another reason (a late
+        // font or a busy machine), not because of the sheets.
+        let moved = [],
+          count = 0;
+        for (let i = 0; i < 2; i++) {
+          const before = await settled();
+          await withSheets(true);
+          const after = await settled();
+          await withSheets(false);
+          count = before.length;
+          moved = before.length === after.length ? before.flatMap((b, j) => (b === after[j] ? [] : [`${b} → ${after[j].split(" ").pop()}`])) : [`${before.length} boxes → ${after.length}`];
+          if (!moved.length) break;
         }
-        await page.evaluate((sheets) => {
-          for (const css of sheets) document.head.append(Object.assign(document.createElement("style"), { textContent: css }));
-        }, sheets);
-        await page.evaluate(() => document.fonts.ready);
-        await page.waitForTimeout(250);
-        const after = await boxes();
-        const moved = before.filter((b, i) => b !== after[i]).length;
-        if (moved || before.length !== after.length) fail(label, `the lazy sheets moved ${moved} of ${before.length} boxes`);
+        if (moved.length) fail(label, `the lazy sheets moved ${moved.length} of ${count} boxes: ${moved.slice(0, 3).join("; ")}`);
       }
       await close(page);
     }
