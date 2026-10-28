@@ -691,6 +691,8 @@ test("the engine core: Pause stays right through every pause reason, data-sc-run
     assert.deepEqual(changes, ["lite", "full"], "an isolated long frame is no slow window");
     restart();
     frames(2100, 16.7, 15, 33.4); // 1 frame in 15 misses one: a stutter
+    assert.deepEqual(changes, ["lite", "full"], "one window of stutter is no step down");
+    frames(2000, 16.7, 15, 33.4);
     assert.deepEqual(changes, ["lite", "full", "lite"], "a steady stutter steps down");
     restart();
     frames(8100, 16.7);

@@ -141,7 +141,7 @@ const tierNow = () => tierName || (tierTop = TIERS.indexOf((tierName = startTier
 function setTier(name, why) {
   tierName = name;
   tier.log.push([name, why]);
-  win = []; winMs = 0; good = 0;
+  win = []; winMs = 0; good = 0; bad = false;
   hold(500); // the engines measure and size their canvases again
   tierFns.forEach((f) => f(name));
 }
@@ -172,18 +172,18 @@ export const tier = {
 /* ---------------------------------------------------------------- loop */
 const subs = new Set();
 let raf = 0, nap = 0, napped = false, last = 0, idleAt = 0, slow = null;
-/* The watchdog judges frame gaps (under 250 ms) in windows of 2 s. A window is
-   slow when its median gap is over 20 ms, or when 1 frame in 20 (of 30 or
-   more) takes over 25 ms: a steady stutter can keep the median at one frame
-   and still break the p95 frame budget. A slow window steps the tier down;
-   two windows in a row with fewer than 1 frame in 40 over 25 ms step it back
-   up (tier.up). Page events are not the showcase's frame cost, so frames are
+/* The watchdog judges frame gaps (under 250 ms) in windows of 2 s. It steps
+   the tier down when a window's median gap is over 20 ms, or when two windows
+   in a row stutter: 1 frame in 20 (of 30 or more) over 25 ms, which keeps the
+   median at one frame and still breaks the p95 frame budget. Two windows in a
+   row with fewer than 1 frame in 40 over 25 ms step it back up (tier.up).
+   Page events are not the showcase's frame cost, so frames are
    not judged until 1 s after the load event (QA 27 Oct, concept C), in the
    500 ms after the loop (re)starts or the tier changes, after a nap, or in
    the 300 ms after a scroll starts, a resize, or a change to <html>'s
    attributes (a restyle of the whole document: QA 28 Oct, the consent bar's
    height on the first scroll). */
-let win = [], winMs = 0, good = 0, judgeFrom = 0, loadAt = null;
+let win = [], winMs = 0, good = 0, bad = false, judgeFrom = 0, loadAt = null;
 const hold = (ms) => (judgeFrom = Math.max(judgeFrom, now() + ms));
 function watchLoad() {
   if (loadAt != null) return;
@@ -192,10 +192,11 @@ function watchLoad() {
 }
 function judge() {
   const n = win.length, late = win.filter((g) => g > 25).length, mid = win.sort((a, b) => a - b)[n >> 1];
-  win = []; winMs = 0;
+  const stutter = n >= 30 && late / n >= 0.05, again = stutter && bad;
+  win = []; winMs = 0; bad = stutter;
   if (mid > 20) tier.down("median " + mid.toFixed(1) + " ms");
-  else if (n >= 30 && late / n >= 0.05) tier.down(late + "/" + n + " frames > 25 ms");
-  else if (n < 30 || late / n >= 0.025) good = 0;
+  else if (again) tier.down(late + "/" + n + " frames > 25 ms, a second window");
+  else if (stutter || n < 30 || late / n >= 0.025) good = 0;
   else if (++good >= 2) (good = 0), tier.up(late + "/" + n + " frames > 25 ms");
 }
 /** A subscriber's frame interval at its fps, capped by the tier (4 ms early is on time). */
@@ -225,7 +226,7 @@ function frame(t) {
     win.push(gap);
     if ((winMs += gap) >= 2000) judge();
   }
-  if (next == Infinity) (last = 0), (win = []), (winMs = 0);
+  if (next == Infinity) (last = 0), (win = []), (winMs = 0), (bad = false);
   // A kick in this frame (a subscriber woke, the tier changed) has asked for
   // the next one already: one frame a frame.
   else if (raf);
@@ -258,7 +259,7 @@ function marks() {
 function halt() {
   if (raf) W.cancelAnimationFrame(raf);
   if (nap) clearTimeout(nap);
-  raf = nap = last = 0; win = []; winMs = 0;
+  raf = nap = last = 0; win = []; winMs = 0; bad = false;
   marks();
 }
 /** Registers fn(dt, now) on the one loop. Return false from fn to sleep
