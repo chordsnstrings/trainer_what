@@ -74,8 +74,9 @@
 // per frame (4x CPU, ?tier=full) after a scroll down 200 px and back (the
 // field also partly under the header), the STOP stamp after load, blocking
 // time against scripts/marketing-showcase-baseline.json (measured on the
-// build before phase 1), long tasks from mounting (every long task from the
-// island's import, its performance mark, to "on" + 1 s), chip and slider
+// build before phase 1), long tasks from mounting (from the island's import,
+// its performance mark, to "on" + 1 s, in frames that ran the engine's or the
+// island's script, or only rendered), chip and slider
 // latency, engine chunk sizes, shared JavaScript and global CSS against the
 // baseline, and the showcase HTML on /trainer-brain. SHOWCASE_RUNS loads per
 // page (default 1; 3 when judging), median. SHOWCASE_BASELINE_OUT=<file> writes the
@@ -171,7 +172,7 @@ const kb = (bytes) => round(bytes / 1024, 1);
  * was then entirely below the viewport).
  */
 function instrument() {
-  const sc = (window.__sc = { frames: [], shifts: [], long: [], events: [], log: [], near: {}, lcp: null });
+  const sc = (window.__sc = { frames: [], shifts: [], long: [], loaf: [], events: [], log: [], near: {}, lcp: null });
   try {
     performance.setResourceTimingBufferSize(2000);
   } catch {}
@@ -212,6 +213,8 @@ function instrument() {
     sc.shifts.push({ t: e.startTime, v: e.value, input: e.hadRecentInput, nodes: e.sources.map((s) => describe(s.node)) }),
   );
   observe("longtask", (e) => sc.long.push([e.startTime, e.duration]));
+  // Long animation frames name the scripts that ran in them.
+  observe("long-animation-frame", (e) => sc.loaf.push([e.startTime, e.duration, e.scripts.map((x) => x.sourceURL)]));
   observe("event", (e) => e.interactionId && sc.events.push({ name: e.name, t: e.startTime, d: e.duration, id: e.interactionId }), {
     durationThreshold: 16,
   });
@@ -371,6 +374,13 @@ const lateResources = (page) =>
   });
 const isCss = (url) => new URL(url).pathname.endsWith(".css");
 const gzipped = async (url) => gzipSync(Buffer.from(await (await fetch(url)).arrayBuffer())).length;
+/** The island's chunks: the first HTML's scripts that call its mark (brain/mount.tsx), learnt once. */
+const ISLAND = new Map();
+async function islandChunks(page) {
+  const urls = await page.evaluate(() => performance.getEntriesByType("resource").map((r) => r.name).filter((u) => /\/_next\/static\/.*\.js(\?|$)/.test(u)));
+  for (const url of urls) if (!ISLAND.has(url)) ISLAND.set(url, (await (await fetch(url)).text()).includes("sc-mount:"));
+  return urls.filter((url) => ISLAND.get(url));
+}
 /** The engine's chunks per page (the JS and CSS it fetches after the load event), learnt once. */
 const ENGINE = new Map();
 async function engineChunks(path) {
@@ -1261,17 +1271,24 @@ await step("metrics", "metrics", async () => {
         if ((await scState(page, id))?.sc !== "on") await scrollToHost(page, id, kind === "anatomy" ? "start" : "center");
         await isOn(page, id);
         await page.waitForTimeout(1000);
-        // Every long task from the island's import (its mark, brain/mount.tsx:
-        // an engine module already loaded counts too, as for the board) or,
-        // without one, from the root coming near, to "on" + 1 s.
+        // The long tasks from the island's import (its mark, brain/mount.tsx)
+        // or, without one, from the root coming near, to "on" + 1 s, in long
+        // animation frames that ran the engine's chunks or the island's own
+        // (an engine module already loaded mounts in the island's callback,
+        // as the board does), or only rendered: not the page's other work in
+        // that second (the consent bar opening on the first scroll).
+        const ours = [...(await lateResources(page)).map((x) => x.url).filter((u) => !isCss(u)), ...(await islandChunks(page))];
         const tasks = await page.evaluate(
-          ([id, load]) => {
+          ([id, load, urls]) => {
             const sc = window.__sc;
             const from = performance.getEntriesByName(`sc-mount:${id}`)[0]?.startTime ?? Math.max(sc.near[id] ?? 0, load);
             const on = sc.log.find((e) => e.host === id && e.name === "data-sc" && e.value === "on")?.t ?? from;
-            return sc.long.filter(([t, d]) => t + d >= from && t <= on + 1000).map(([, d]) => Math.round(d));
+            const frames = sc.loaf.filter(([, , scripts]) => !scripts.length || scripts.some((u) => urls.includes(u)));
+            return sc.long
+              .filter(([t, d]) => t + d >= from && t <= on + 1000 && frames.some(([ft, fd]) => ft < t + d && ft + fd > t))
+              .map(([, d]) => Math.round(d));
           },
-          [id, load.load],
+          [id, load.load, ours],
         );
         r.mount.push({ kind, tasks });
         if (kind === "board") continue;
