@@ -17,7 +17,9 @@ import type {
   ShowcaseMode,
 } from "./engine/types";
 
-const RENDER: Record<ShowcaseKind, typeof field> = {
+/** What render.ts needs of each render module (they export more for their runtimes). */
+type RenderModule = Pick<typeof field, "ROOT" | "renderStatic">;
+const RENDER: Record<ShowcaseKind, RenderModule> = {
   field,
   board: field,
   play,

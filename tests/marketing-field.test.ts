@@ -11,7 +11,7 @@ import { readFileSync } from "node:fs";
 import { renderShowcase } from "../apps/web/components/marketing/brain/render.ts";
 import { prepare } from "../apps/web/components/marketing/brain/engine/data.js";
 import { decide, defaults, isOff, totals } from "../apps/web/components/marketing/brain/engine/decide.js";
-import { renderStatic } from "../apps/web/components/marketing/brain/engine/field.render.js";
+import { diffLine, renderStatic } from "../apps/web/components/marketing/brain/engine/field.render.js";
 import type { ShowcaseKind, ShowcaseOptions } from "../apps/web/components/marketing/brain/engine/types";
 import { C0_BANNED, MODEL_OR_VENDOR, PLACEHOLDER, cssRules } from "./marketing-helpers.ts";
 
@@ -74,11 +74,14 @@ test("the field's first frame: Noura's message and stop, the lanes at the storyb
   assert.ok(safety.includes('<span class="mc-v sc-res">STOP</span>'));
   assert.ok(html.includes(`<span class="mc-s1 is-on"><b>Noura:</b> “a <em class="mc-red">pop</em> in my <em class="mc-red">knee</em>” <i>→</i> Safety rules stopped it.`), "the subtitle tells her moment");
   // Lanes: the storyboard's start, plus Noura's tile and counts as results the engine plays.
-  const lane = (l: string) => element(html, html.indexOf(`<section class="mc-lane" data-lane="${l}"`));
+  const lane = (l: string) => element(html, html.indexOf(`<div class="mc-lane" data-lane="${l}"`));
   for (const l of ["sent", "waits", "paused"] as const) {
     const sec = lane(l), tiles = [...sec.matchAll(/<li class="mc-li( sc-res)?" data-t="(t\d+)">/g)].map((m) => m[2] + (m[1] ? "*" : ""));
     assert.deepEqual(tiles, l == "paused" ? ["t2*", ...START.paused] : START[l], l);
-    assert.match(sec, new RegExp(`<button type="button" class="mc-bin" data-bin="${l}" disabled>`), `${l}: its phone bin`);
+    // No landmark (A11Y-20): the tiles' list and the phone bin are named by the lane's heading (the bin also by its member).
+    assert.match(sec, new RegExp(`^<div class="mc-lane" data-lane="${l}"><p class="mc-lh" id="sc-field-l-${l}">`));
+    assert.match(sec, new RegExp(`<ul class="mc-tl" aria-labelledby="sc-field-l-${l}">`), `${l}: its list`);
+    assert.match(sec, new RegExp(`<button type="button" class="mc-bin" data-bin="${l}" id="sc-field-b-${l}" aria-labelledby="sc-field-l-${l} sc-field-b-${l}" disabled>`), `${l}: its phone bin`);
     const n = START[l].length;
     assert.ok(sec.includes(l == "paused" ? `<span class="mc-c" aria-hidden="true"><span class="mc-pre">${n}</span><span class="mc-fin">${n + 1}</span></span>` : `<span class="mc-c" aria-hidden="true">${n}</span>`), `${l}: count`);
     assert.ok(sec.includes(`: ${l == "paused" ? n + 1 : n} in this sample hour`), `${l}: the count as text`);
@@ -106,11 +109,11 @@ test("every moment is a named button; the board sorts every moment by decide(); 
   // Their receipts need the engine: until it arms them (and without it) the cards are disabled, like every other control.
   for (const c of cards) assert.match(c.html, /^<button type="button" class="mb-b" data-t="t\d+" disabled>/, c.id);
   for (const lane of ["sent", "waits", "paused", "member", "learn"]) {
-    const col = element(board, board.indexOf(`<section class="mb-col" data-lane="${lane}"`));
+    const col = element(board, board.indexOf(`<div class="mb-col" data-lane="${lane}"`));
     const ids = [...col.matchAll(/<li class="mb-c" data-t="(t\d+)">/g)].map((m) => m[1]);
     assert.deepEqual(ids, d.traces.filter((t) => !isOff(t, S) && decide(t, S, d).lane == lane).map(id0), lane);
     assert.ok(col.includes(`<span class="mb-n">${ids.length}</span>`), `${lane} count`);
-    assert.match(col, new RegExp(`^<section class="mb-col" data-lane="${lane}" aria-labelledby="sc-board-h-${lane}">`));
+    assert.match(col, new RegExp(`^<div class="mb-col" data-lane="${lane}"><p class="mb-ch" id="sc-board-h-${lane}">.*?<ul class="mb-list" aria-labelledby="sc-board-h-${lane}">`));
   }
   for (const c of cards) assert.match(text(c.html), new RegExp(`^ ${d.trace(c.id).member} ${d.trace(c.id).chip.replace(/[?().]/g, "\\$&")} `), c.id);
   assert.ok(board.includes(`<p class="mb-tot">${esc(totals(d, S))}</p>`));
@@ -160,6 +163,15 @@ test("the labels stay honest: the sample chip and rates line, the status strip o
     assert.equal((html.match(/<span class="sc-offchip">Not on yet<\/span>/g) || []).length, off.length);
     assert.ok(html.includes(`<span class="mc-noy" aria-hidden="true">Not on yet: ${off.length}</span>`));
   }
+  // The shelf holds only what is not on yet; once nutrition is on, the Meal planner joins the specialists, beside
+  // the Set logger (L2). The Recovery rule stays off in phase 1.
+  const shelf = (html: string) => [...element(html, html.indexOf('<div class="mc-shelf">')).matchAll(/data-sp="(\w+)"/g)].map((m) => m[1]);
+  const row3 = (html: string) => element(html, html.indexOf('<div class="mc-row mc-r3 mc-r3b'));
+  assert.deepEqual(shelf(field), ["meal_planner", "recovery"]);
+  assert.doesNotMatch(row3(field), /meal_planner|mc-r3p/);
+  const fed = render("field", { flags: { ...FLAGS, nutrition: true } });
+  assert.deepEqual(shelf(fed), ["recovery"]);
+  assert.match(row3(fed), /^<div class="mc-row mc-r3 mc-r3b mc-r3p"><div class="sc-node mc-n" data-sp="set_logger"[\s\S]*<div class="sc-node mc-n" data-sp="meal_planner" data-kind="ai" data-state="idle" title="[^"]*">(?:(?!sc-offchip).)*<\/div><span class="mc-cr">/);
   // How we count opens without the engine (and in the still frame): a details element.
   assert.ok(field.includes(`<details class="mc-how"><summary>How we count</summary><p class="mc-howp">${esc(d.labels.howWeCount as string)}</p></details>`));
 });
@@ -305,13 +317,13 @@ test("the runtime keeps to the page: its own CSS by static import, receipts by a
   assert.match(receipt, /classList\.remove\("sc-lock"\)/);
   // A modal receipt (dialog or phone sheet) owns the keyboard: the page behind is inert, Esc and Tab are
   // heard on the document, and Tab wraps from anywhere (its heading, the first focus, included).
-  assert.match(receipt, /const undo = inline \? null : inertOutside\(o\.layer\)/);
+  assert.match(receipt, /const undo = inline \? null : C\.inertOutside\(o\.layer\)/);
   assert.match(receipt, /\(inline \? box : document\)\.addEventListener\("keydown", key, !inline\)/);
   assert.match(receipt, /const i = f\.indexOf\(document\.activeElement\)/);
   // Closing lifts the opener's inert parts before focus goes back to it.
   assert.match(receipt, /o\.onClose && o\.onClose\(\);\s+if \(!quiet && opener/);
   // Receipts open one at a time, in the field and on the board; the phone sheet is a modal dialog.
-  assert.equal((field.match(/opening\) return;/g) || []).length, 2);
+  assert.equal((field.match(/(?:if \(|!b \|\| )opening\) return;/g) || []).length, 2);
   assert.match(field, /sheet\.setAttribute\("role", "dialog"\); sheet\.setAttribute\("aria-modal", "true"\)/);
   // Reduced motion: nothing replays through WAAPI; the auto-demo never overrides a level the visitor chose.
   assert.match(field, /if \(C\.reduced\(\)\) return;/);
@@ -319,4 +331,59 @@ test("the runtime keeps to the page: its own CSS by static import, receipts by a
   // The board clears its own pre-state; every Pause control is the scene's (aria-pressed, data-sc-pause).
   assert.match(field, /function mountBoard[\s\S]*?root\.setAttribute\("data-sc", "on"\)/);
   assert.match(field, /sc\.button\(pb, \{ pause: COPY\.pause, play: COPY\.playField \}\);\s+sc\.pause\(\);/, "reduced motion starts paused, on Play the field");
+});
+
+test("the board's line keeps the room of the longest it can say after one change, and its note is read out (ENG-5, A11Y-11)", () => {
+  const board = render("board"), d = data(), S = defaults(d);
+  const note = element(board, board.indexOf('<p class="mb-note">'));
+  // The level note is visible text: only its sizer is hidden from assistive tech.
+  assert.match(note, /^<p class="mb-note"><span>Up to 5 routine replies you choose can send automatically after a passing check\.<\/span><span class="mb-sz" aria-hidden="true">/);
+  const line = element(board, board.indexOf('<p class="mb-diff">'));
+  const sized = /^<p class="mb-diff"><span><\/span><span class="mb-sz" aria-hidden="true">([^<]+)<\/span><\/p>$/.exec(line)![1].replace(/&#39;/g, "'");
+  // Every line a change from the sample settings and from the repro's steps can give fits the reserved one.
+  const lane = (s: typeof S) => d.traces.map((t) => (isOff(t, s) ? null : decide(t, s, d).lane));
+  const said = (a: typeof S, b: typeof S, key: string) => {
+    const la = lane(a), lb = lane(b);
+    return diffLine(d, d.traces.flatMap((t, n) => (la[n] && lb[n] && la[n] != lb[n] ? [[t, la[n]!, lb[n]!] as [typeof t, (typeof la)[number] & string, (typeof la)[number] & string]] : [])), key, b);
+  };
+  let s = S;
+  for (const [key, v] of [["level", 1], ["supplementsTopic", false], ["level", 3], ["bar", 90], ["bar", 70], ["bar", 50], ["bar", 99]] as const) {
+    const next = { ...s, [key]: v };
+    const text = said(s, next, key);
+    assert.ok(text.length <= sized.length, `${key} ${v}: "${text}" fits "${sized}"`);
+    s = next;
+  }
+  assert.equal(said(S, { ...S, level: 1 }, "level"), "Omar moved to Waits for you.");
+  assert.match(sized, /^\w+ moved to .+\. \w+ moved to .+\.$/, "two plans crossing the bar at once is the longest");
+  // The engine writes the short line in the first span and keeps the reasons for the announcement.
+  const js = src(ENGINE + "field.js");
+  assert.match(js, /diff = root\.querySelector\("\.mb-diff > span"\)/);
+  assert.match(js, /line = user \? diffLine\(d, moved\.map\(\(\[t, b, r\]\) => \[t, b, r\.lane\]\), key, S\) : ""/);
+  assert.match(js, / Why: " \+ r\.why/, "the announcement keeps the reasons");
+  const stage = cssRules(src("apps/web/app/brain-field.css"));
+  assert.ok(stage.some((r) => r.selectors.includes('[data-showcase="board"] .mb-diff > span') && r.declarations.some((x) => x.property == "grid-area" && x.value == "1 / 1")));
+});
+
+test("the field's runtime: a receipt in the zoom turns into the phone's sheet, keyboard focus holds the field, the sheet hears Esc from anywhere, the mount yields first", () => {
+  const js = src(ENGINE + "field.js"), rx = src(ENGINE + "receipt.js");
+  // ENG-1: a layout that turns into the phone's closes the zoom and reopens the same moment as the sheet.
+  assert.match(js, /if \(!ph\) undock\(\);\s+else unfit\(\);/);
+  assert.match(js, /function unfit\(\) \{\s+if \(!ph \|\| !zoomHost \|\| !rx \|\| opening\) return;[\s\S]*?rx\.close\(true\);[\s\S]*?receipt\(id, from\);/);
+  // A11Y-3: keyboard focus on a moment holds the field (a "focus" reason, lifted when focus leaves the body).
+  assert.match(js, /k\.on\(body, "focusin", \(e\) => e\.target\.matches\(":focus-visible"\) && sc\.set\("focus", true\)\);/);
+  assert.match(js, /k\.on\(body, "focusout", \(e\) => !body\.contains\(e\.relatedTarget\) && sc\.set\("focus", false\)\);/);
+  // A11Y-5: the modal sheet's keys on the document, in the capture phase, only while it is open.
+  assert.match(js, /document\.addEventListener\("keydown", sheetKey, true\)/);
+  assert.match(js, /document\.removeEventListener\("keydown", sheetKey, true\)/);
+  assert.doesNotMatch(js, /k\.on\(sheet, "keydown"/);
+  // The inline receipt takes focus from a click on its text, so Esc reaches it.
+  assert.match(rx, /tabindex: inline \? "-1" : null/);
+  // L8: one inertOutside, the core's.
+  for (const f of [js, rx]) assert.doesNotMatch(f, /function inertOutside/);
+  assert.match(js, /C\.inertOutside\(L\.el\)/);
+  assert.match(rx, /C\.inertOutside\(o\.layer\)/);
+  // PERF-2: the chunk's evaluation and the mount are two tasks.
+  assert.match(js, /export async function mount\(root, o\) \{\s+await C\.nextTask\(\);/);
+  // L4: a receipt reads the moment's status as the page's flags make it.
+  assert.match(rx, /const status = r\.off \? "not_on_yet" : t\.status;/);
 });

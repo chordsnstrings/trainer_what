@@ -54,7 +54,10 @@ export function receiptHTML(d, t, r, o = {}) {
   if (hit) for (const w of hit.highlight || []) msg = msg.split(esc(w)).join(`<mark class="bp-hl">${esc(w)}</mark>`);
   const s = (i, body) => `<section class="ba-sec"><h3>${esc(H[i].replace("{name}", t.member))}</h3>${body}</section>`;
   const picked = r.steps.find((x) => x.sp in d.sp && d.sp[x.sp].kind == "ai");
-  return `<header class="ba-rh"><div><b id="${esc(o.id)}">${esc(t.member)} · ${esc(t.chip)}</b><span>${esc(t.when)} · sample</span></div>${U.lane(d, r.lane)}${hit ? `<span class="ba-stop">STOP · No AI called</span>` : ""}</header>` +
+  // Its status as the page's flags make it: a moment one of whose specialists is not on yet says so up top,
+  // beside the lane its sample plays to (decide()'s off), and where it comes from.
+  const status = r.off ? "not_on_yet" : t.status;
+  return `<header class="ba-rh"><div><b id="${esc(o.id)}">${esc(t.member)} · ${esc(t.chip)}</b><span>${esc(t.when)} · sample</span></div>${U.lane(d, r.lane)}${r.off ? `<span class="sc-offchip">${esc(d.labels.status.not_on_yet)}</span>` : ""}${hit ? `<span class="ba-stop">STOP · No AI called</span>` : ""}</header>` +
     U.strip(d) +
     s(0, `<div class="bp-msg ba-msg"><p class="bp-mt"${dir}>${msg}</p>${t.trigger.gloss ? `<p class="bp-gloss">${esc(t.trigger.gloss)}</p>` : ""}</div>`) +
     s(1, `<ol class="ba-steps">${r.steps.map((x, i) => (i == ai ? `<li class="sc-step bp-picks">${esc(d.labels.picks)}</li>` : "") + U.stepRow(d, t, x, { stream: o.stream })).join("")}</ol>`) +
@@ -62,7 +65,7 @@ export function receiptHTML(d, t, r, o = {}) {
     s(3, U.sure(d, t, r) + (r.note && !(t.sureNote || "").includes(r.note) ? `<p class="ba-note">${esc(r.note)}</p>` : "")) +
     s(4, U.phone(d, t, r).replace(/<figcaption>.*?<\/figcaption>/, "")) +
     s(5, U.today(d, t, r) || `<p class="sc-sure-n">No Today card.</p>`) +
-    s(6, `<p>${esc(t.basis.note)}</p><p><span class="sc-sample">${esc(d.labels.status[t.status])}</span> ${esc((picked && d.sp[picked.sp].statusTip) || t.statusNote || "")}</p><p class="ba-note">${esc(d.labels.long)}</p>`);
+    s(6, `<p>${esc(t.basis.note)}</p><p><span class="sc-sample">${esc(d.labels.status[status])}</span> ${esc((picked && d.sp[picked.sp].statusTip) || t.statusNote || "")}</p><p class="ba-note">${esc(d.labels.long)}</p>`);
 }
 /** The buttons under a receipt: Replay, Change this setting (the field only), the call to action, back. */
 const buttons = (o) => `<div class="ba-btns"><button type="button" class="bp-btn" data-a="replay">${U.icon("rotate-ccw")}${esc(COPY.replay)}</button>` +
@@ -79,15 +82,6 @@ function trap(box, e) {
   e.preventDefault();
   f[e.shiftKey ? (i <= 0 ? n - 1 : i - 1) : (i + 1) % n].focus();
 }
-/** Makes everything outside the overlay layer inert (the layer's ancestors'
-    other children): the page behind a modal is out of reach, for focus,
-    the pointer and assistive tech. Returns the undo. */
-function inertOutside(el) {
-  const set = [];
-  for (let n = el; n.parentElement && n.parentElement != document.documentElement; n = n.parentElement)
-    for (const s of n.parentElement.children) if (s != n && !s.inert && s.tagName != "SCRIPT") s.inert = true, set.push(s);
-  return () => set.forEach((s) => (s.inert = false));
-}
 let openOne = null, seq = 0;
 /** Opens a moment's receipt: open(traceId, {d, settings, from (DOMRect), mount,
     layer, id, cta, onChange, onClose}). In `mount` (the field's zoom, desktop)
@@ -98,7 +92,8 @@ export function open(id, o) {
   const d = o.d, t = d.trace(id), r = decide(t, o.settings || defaults(d), d);
   if (openOne) openOne.close(true);
   const RM = C.reduced(), inline = !!o.mount, sheet = !inline && C.phone(), opener = document.activeElement, hid = `${o.id}-rx${++seq}`;
-  const box = C.h("div.ba-sheet.sc-stage", { role: "dialog", "aria-modal": inline ? null : "true", "aria-labelledby": hid, "data-showcase": "receipt", "data-mode": inline ? "inline" : sheet ? "sheet" : "modal" });
+  // Inline, the box takes focus from a click on its text (tabindex -1), so its keys stay its own (A11Y-5).
+  const box = C.h("div.ba-sheet.sc-stage", { role: "dialog", "aria-modal": inline ? null : "true", tabindex: inline ? "-1" : null, "aria-labelledby": hid, "data-showcase": "receipt", "data-mode": inline ? "inline" : sheet ? "sheet" : "modal" });
   const back = inline ? null : C.h("div.ba-back", { on: { click: () => api.close() } });
   box.innerHTML = `<div class="ba-burst" aria-hidden="true"><div class="ba-stack">${slots(d, t, r).map(plateHTML).join("")}</div></div>` +
     `<div class="ba-receipt">${receiptHTML(d, t, r, { stream: !RM, id: hid })}${buttons(o)}</div>`;
@@ -111,7 +106,7 @@ export function open(id, o) {
   if (back) host.append(back);
   host.append(box);
   // A dialog or sheet is modal: the page behind is inert and scroll-locked, and Esc and Tab are its own.
-  const undo = inline ? null : inertOutside(o.layer);
+  const undo = inline ? null : C.inertOutside(o.layer);
   if (!inline) document.documentElement.classList.add("sc-lock");
   if (o.from && !RM && !sheet && !inline) {
     const b = box.getBoundingClientRect(), f = o.from;

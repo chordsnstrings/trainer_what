@@ -41,7 +41,7 @@ import * as C from "./core.js";
 import { prepare } from "./data.js";
 import { decide, defaults, isOff, pick, totals } from "./decide.js";
 import * as U from "./ui.js";
-import { AFTER, COPY, FIRST, SHELL, START, fill, id0, levelNote, msgHTML, subHTML, tileHTML, whyOf } from "./field.render.js";
+import { AFTER, COPY, FIRST, SHELL, START, diffLine, fill, id0, levelNote, msgHTML, subHTML, tileHTML, whyOf } from "./field.render.js";
 const { h, esc, clamp } = C;
 
 const BUB = { voice_lines: "Lines ready", learner: "Suggests: Upper body increments" };
@@ -76,6 +76,7 @@ function set(p, k, v, src, by) {
 
 /** Mounts on the root (brain/mount.tsx calls it after load, idle and near). */
 export async function mount(root, o) {
+  await C.nextTask(); // the chunk and its data in one task, the mount in the next (PERF-2: one task was over 80 ms at 4x CPU)
   const p = share(o);
   try {
     return o.kind == "board" ? mountBoard(root, o, p) : mountField(root, o, p);
@@ -96,16 +97,6 @@ function owned() {
     clear() { timers.forEach(clearTimeout); timers.clear(); offs.splice(0).forEach((f) => f()); },
   };
 }
-/** Makes everything outside the overlay layer inert (the layer's ancestors'
-    other children), while a modal sheet is open. Returns the undo.
-    (receipt.js keeps the same helper for its dialogs.) */
-function inertOutside(el) {
-  const set = [];
-  for (let n = el; n.parentElement && n.parentElement != document.documentElement; n = n.parentElement)
-    for (const s of n.parentElement.children) if (s != n && !s.inert && s.tagName != "SCRIPT") s.inert = true, set.push(s);
-  return () => set.forEach((s) => (s.inert = false));
-}
-
 /* ------------------------------------------------------------------ shared control wiring */
 function wireControls(box, p, k, root, say) {
   const d = p.d, lvs = [...box.querySelectorAll("[data-level]")], rng = box.querySelector(".mc-bar input"), out = box.querySelector(".mc-bari span");
@@ -227,8 +218,8 @@ function mountBoard(root, o, p) {
   let dead = false, rx = null, opening = false, seen = false, L = null;
   // The overlay layer comes with the first receipt or announcement.
   const lay = () => L || (L = C.layer(root)), say = (m) => (lay(), C.say(m));
-  // What shows is the note's first span and each column's first list; the hidden sizers after them (.mb-sz) hold the room.
-  const note = root.querySelector(".mb-note > span"), diff = root.querySelector(".mb-diff"), tot = root.querySelector(".mb-tot");
+  // What shows is the note's and the line's first span and each column's first list; the hidden sizers after them (.mb-sz) hold the room.
+  const note = root.querySelector(".mb-note > span"), diff = root.querySelector(".mb-diff > span"), tot = root.querySelector(".mb-tot");
   const lists = {}, cards = {};
   root.querySelectorAll(".mb-col").forEach((c) => (lists[c.dataset.lane] = c.querySelector(".mb-list")));
   root.querySelectorAll(".mb-c").forEach((c) => (cards[c.dataset.t] = c));
@@ -275,10 +266,12 @@ function mountBoard(root, o, p) {
     if (key == "level") note.textContent = levelNote(d, S.level);
     else if (key == "supplementsTopic" && !S.supplementsTopic) note.textContent = COPY.suppOff;
     tot.textContent = totals(d, S);
-    // Only a change the visitor made is described (and announced); the auto-demo says nothing.
-    const said = src != "user" ? "" : moved.length ? moved.map(([t, b, r]) => `${t.member}: before, ${d.labels.lanes[b]}. Now, ${d.labels.lanes[r.lane]}.${r.why ? " Why: " + r.why : ""}`).join(" ")
-      : key == "bar" ? "No moment crossed your bar." : key == "supplementsTopic" ? (S.supplementsTopic ? "Khalid's question waits for you personally." : "Khalid's question still waits for you, drafted for you. " + COPY.suppOff) : "";
-    diff.textContent = said;
+    // Only a change the visitor made is described: shortly on the line (its room is reserved), with the reasons
+    // in the announcement. The auto-demo says nothing.
+    const user = src == "user", line = user ? diffLine(d, moved.map(([t, b, r]) => [t, b, r.lane]), key, S) : "";
+    if (diff.textContent != line) diff.textContent = line;
+    const said = !user ? "" : moved.length ? moved.map(([t, b, r]) => `${t.member}: before, ${d.labels.lanes[b]}. Now, ${d.labels.lanes[r.lane]}.${r.why ? " Why: " + r.why : ""}`).join(" ")
+      : key == "supplementsTopic" && !S.supplementsTopic ? `${line} ${COPY.suppOff}` : line;
     if (said && by == root) say(said);
   }
   const resort = (key, src, by) => apply(key, src, seen && !RM && "move", by);
@@ -341,6 +334,7 @@ function mountField(root, o, p) {
   function measure() {
     ph = C.phone();
     if (!ph) undock();
+    else unfit();
     // The lists hold their tiles by transforms (desktop): set before the reads, since an in-flow list
     // that overflows its lane (larger text, text spacing) can stretch the lanes' last row.
     if (!ph) for (const l in lists) lists[l].classList.add("is-stack");
@@ -1211,15 +1205,27 @@ function mountField(root, o, p) {
     } finally {
       opening = false;
     }
+    unfit(); // the layout turned while it opened
+  }
+  /** A receipt in the zoom when the layout turns into the phone's (a phone turned upright, a window narrowed):
+      the zoom has no room there, so the same moment reopens as the phone's sheet, from its lane's bin (ENG-1). */
+  function unfit() {
+    if (!ph || !zoomHost || !rx || opening) return;
+    const id = d.short(rx.trace), from = $(`.mc-bin[data-bin="${laneOf(id)}"]`) || $(`.mc-m[data-t="${id}"]`), back = rx.el.contains(document.activeElement);
+    rx.close(true);
+    if (back) from.focus({ preventScroll: true }); // keyboard focus was in it: the sheet returns it there
+    receipt(id, from);
   }
 
   /* ---- the phone settings sheet: opened, it moves to the overlay layer, a
      modal dialog over a backdrop (the page behind inert and scroll-locked);
      on desktop it is part of the controls row (a group). */
   let sheetOpen = false, back = null, unInert = null;
+  // While the sheet is a modal dialog, Esc and Tab are its own wherever focus is (a tap on its text moves focus
+  // to the page's body): the document hears them first, as receipts do (A11Y-5).
   function modal(on) {
-    if (on && !unInert) unInert = inertOutside(L.el), document.documentElement.classList.add("sc-lock");
-    else if (!on && unInert) unInert(), (unInert = null), document.documentElement.classList.remove("sc-lock");
+    if (on && !unInert) unInert = C.inertOutside(L.el), document.documentElement.classList.add("sc-lock"), document.addEventListener("keydown", sheetKey, true);
+    else if (!on && unInert) unInert(), (unInert = null), document.documentElement.classList.remove("sc-lock"), document.removeEventListener("keydown", sheetKey, true);
   }
   function undock() {
     if (sheet.parentElement == sheetHome) return;
@@ -1252,13 +1258,13 @@ function mountField(root, o, p) {
     }
   }
   k.on(sheet, "click", (e) => { if (e.target.closest("[data-close]")) openSheet(false); });
-  k.on(sheet, "keydown", (e) => {
-    if (e.key == "Escape") return openSheet(false);
+  function sheetKey(e) {
+    if (e.key == "Escape") return e.stopPropagation(), openSheet(false);
     if (e.key != "Tab" || !sheetOpen) return; // Tab cycles inside the open sheet until Done or Esc
     const f = [...sheet.querySelectorAll("button:not([disabled]), input:not([disabled]), [tabindex='0']")];
     const i = f.indexOf(document.activeElement), n = e.shiftKey ? (i <= 0 ? f.length - 1 : i - 1) : i == f.length - 1 ? 0 : i + 1;
     if (f.length) { e.preventDefault(); f[n].focus(); }
-  });
+  }
 
   /* ---- interactions */
   k.on(root, "click", (e) => {
@@ -1320,10 +1326,14 @@ function mountField(root, o, p) {
   try {
     // Reads first (the scene reads a token, then every rect, the direction and the tiles' heights:
     // one style and one layout); the writes follow.
-    sc = C.scene(root, { onState: (run, why) => { $(".mc-reading").hidden = !why.includes("read"); } });
+    sc = C.scene(root, { onState: (run, why) => { $(".mc-reading").hidden = !why.includes("read") && !why.includes("focus"); } });
     measure();
     root.classList.add("sc-cv");
     ctl = wireControls($(".mc-ctrl"), p, k, root, say);
+    // Keyboard focus on a moment holds the field, as a receipt does: no tile moves, rolls into "+N" or is
+    // replaced (a new hour) under it (A11Y-3).
+    k.on(body, "focusin", (e) => e.target.matches(":focus-visible") && sc.set("focus", true));
+    k.on(body, "focusout", (e) => !body.contains(e.relatedTarget) && sc.set("focus", false));
     pb.disabled = false;
     $$(".mc-m, .mc-bin, .mc-moreb").forEach((b) => (b.disabled = false));
     k.add(C.tier.on((name) => { measure(); counts(); root.setAttribute("data-sc-tier", name); if (RM) draw(); }));

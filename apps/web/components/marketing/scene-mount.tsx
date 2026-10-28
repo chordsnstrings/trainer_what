@@ -25,7 +25,7 @@ function wanted() {
   const forced = /[?&]scenes=on(&|$)/.test(location.search);
   const robot =
     navigator.webdriver ||
-    /bot|crawl|spider|slurp|preview|lighthouse/i.test(navigator.userAgent);
+    /bot[/)-]|bot [0-9]|crawl|spider|slurp|preview|lighthouse/i.test(navigator.userAgent);
   return (
     location.pathname === "/" &&
     !reduced() &&

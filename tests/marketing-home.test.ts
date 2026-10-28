@@ -421,9 +421,14 @@ test("what works today follows the product's own gates: publishing waits for sig
           for (const voice of [false, true]) {
             const p = platform("on", { registrationOpen: open });
             p.availability = { ...p.availability, model, payments, payouts, voice };
-            const html = element(render(p), 'id="economics"');
+            const page = render(p);
+            const html = element(page, 'id="economics"');
             const label = JSON.stringify({ open, model, payments, payouts, voice });
             assert.deepEqual({ live: column(html, "live"), soon: column(html, "soon") }, expected(open, p.availability), label);
+            // The FAQ on the same page agrees: subscribers pay a published
+            // page, so "Yes" only once publishing is live.
+            const today = decode(page.match(/<summary>Can subscribers pay me today\?<\/summary><p>([\s\S]*?)<\/p>/)![1]);
+            assert.equal(today.startsWith("Yes."), open && payments && model, label + " " + today);
           }
   // The reviewer's case: payments on, payouts off. Publishing is live, and
   // the FAQ on the same page agrees that subscribers can pay.
@@ -432,7 +437,7 @@ test("what works today follows the product's own gates: publishing waits for sig
   assert.match(decode(html), /Can subscribers pay me today\? Yes\. Subscribers pay you by card in AED\./);
 });
 
-test("can subscribers pay me today: teaching and testing are offered only while the coaching assistant is on", () => {
+test("can subscribers pay me today: yes only once a page can be published; teaching and testing are offered only while the coaching assistant is on", () => {
   const answer = (p: PublicPlatform) => {
     const faq = render(p).match(/<summary>Can subscribers pay me today\?<\/summary><p>([\s\S]*?)<\/p>/)![1];
     return decode(faq);
@@ -441,8 +446,13 @@ test("can subscribers pay me today: teaching and testing are offered only while 
   const off = platform("off");
   assert.equal(answer(off), base + ", and teach and test your AI.");
   assert.equal(answer({ ...off, availability: { ...off.availability, model: false } }), base + ".");
+  // Payments on while publishing still waits (for the assistant, or for
+  // sign-ups, which in production follow the legal check): not yet.
   const on = platform("payments");
-  assert.equal(answer({ ...on, availability: { ...on.availability, model: false } }), "Yes. Subscribers pay you by card in AED.");
+  const waits = "Not yet. Subscriber payments are on, but publishing your page is not on yet. With an account you can already set up your page and app";
+  assert.equal(answer({ ...on, availability: { ...on.availability, model: false } }), waits + ".");
+  assert.equal(answer({ ...on, registrationOpen: false }), waits + ", and teach and test your AI.");
+  assert.equal(answer(on), "Yes. Subscribers pay you by card in AED.");
 });
 
 test("states and honesty: no /signup while sign-ups are closed, no brand on a renamed platform, no placeholder or model name, the still frame in static mode", () => {

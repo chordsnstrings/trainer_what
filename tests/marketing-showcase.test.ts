@@ -21,6 +21,7 @@ import { BrainShowcase } from "../apps/web/components/marketing/brain/showcase.t
 import { ShowcaseMount, engineWanted, showcaseClasses } from "../apps/web/components/marketing/brain/mount.tsx";
 import { fnv1a, renderShowcase } from "../apps/web/components/marketing/brain/render.ts";
 import { SHOWCASE_HEAD_SCRIPT, SHOWCASE_PATHS } from "../apps/web/components/marketing/brain/head.ts";
+import { SCENES_HEAD_SCRIPT } from "../apps/web/components/marketing/scenes-head.ts";
 import { showcaseMode, showcaseOptions } from "../apps/web/components/marketing/brain/options.ts";
 import type { ShowcaseKind, ShowcaseOptions } from "../apps/web/components/marketing/brain/engine/types";
 import { contrast, cssRules, hex, splitTop, type Rule } from "./marketing-helpers.ts";
@@ -174,9 +175,9 @@ test("the head script and the island decide alike: same reduced-motion and robot
   }
   assert.ok(pins > 20 && robotsIn > 20, `${pins} pinned, ${robotsIn} automated browsers let in`);
 
-  // The same reduced-motion and sticky tests as the scroll scenes'
-  // (scenes-head.ts, whose crawler test still matches "bot" anywhere), and
-  // neither file reads the marketing motion switch.
+  // The same reduced-motion, sticky and crawler tests as the scroll scenes'
+  // (scenes-head.ts, scene-mount.tsx), and neither file reads the marketing
+  // motion switch.
   const scenes = read(join(WEB, "components/marketing/scenes-head.ts"));
   const mount = read(join(BRAIN, "mount.tsx"));
   for (const part of [
@@ -188,6 +189,8 @@ test("the head script and the island decide alike: same reduced-motion and robot
     assert.ok(SHOWCASE_HEAD_SCRIPT.includes(part), "head.ts: " + part);
   }
   assert.ok(SHOWCASE_HEAD_SCRIPT.includes(`(n.webdriver||${ROBOT}.test(n.userAgent))`), "head.ts: the crawler test");
+  assert.ok(scenes.includes(`(n.webdriver||${ROBOT}.test(n.userAgent))`), "scenes-head.ts: the crawler test");
+  assert.ok(read(join(WEB, "components/marketing/scene-mount.tsx")).includes(`navigator.webdriver ||\n    ${ROBOT}.test(navigator.userAgent)`), "scene-mount.tsx: the crawler test");
   assert.match(mount, /const REDUCE = "\(prefers-reduced-motion: reduce\)";/);
   assert.match(mount, /const reduced = \(\) =>\s+\(typeof matchMedia === "function" && matchMedia\(REDUCE\)\.matches\) \|\|\s+document\.documentElement\.dataset\.reduceMotion === "on";/);
   assert.ok(mount.includes(`navigator.webdriver ||\n  ${ROBOT}.test(navigator.userAgent)`), "mount.tsx: the crawler test");
@@ -218,6 +221,8 @@ test("robots: a crawler's product token, never \"bot\" inside a phone's model (i
     ["Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36", false],
     ["Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Instagram 300.0.0.0 (iPhone14,2; iOS 17_0; en_US; en; scale=3.00; 1170x2532; 516789123)", false],
   ];
+  // The scroll scenes on "/" use the same test (L13): CUBOT's in-app visitors keep them too.
+  const scenes = new Script(SCENES_HEAD_SCRIPT);
   for (const [agent, robot] of AGENTS) {
     const e: Env = { path: "/", search: "", stored: false, deviceReduce: false, memberReduce: false, webdriver: false, agent, io: true, sticky: true };
     const head = environment(e);
@@ -225,6 +230,9 @@ test("robots: a crawler's product token, never \"bot\" inside a phone's model (i
     const island = environment(e);
     assert.equal(head.classes.has("sc-motion"), !robot, `head script: ${agent}`);
     assert.equal(withGlobals(island.globals, () => engineWanted()), !robot, `island: ${agent}`);
+    const scene = environment(e), context = createContext({ ...scene.globals, window: scene.globals });
+    scenes.runInContext(context);
+    assert.equal(scene.classes.has("scenes-on"), !robot, `scroll scenes: ${agent}`);
   }
 });
 
@@ -685,8 +693,8 @@ test("the engine core: Pause stays right through every pause reason, data-sc-run
     watched.loop(() => {});
     dom.visible();
     frames(600, 16.7);
-    frames(2100, 33.4); // most frames miss one
-    assert.deepEqual(changes, ["lite"], "a slow window steps down");
+    frames(2100, 33.4); // most frames miss one, or the browser caps frames at 30 Hz
+    assert.deepEqual(changes, ["lite"], "a slow window steps down: lite asks for 30 fps");
     restart();
     dom.fire("scroll"); // a scroll starts: 300 ms not judged
     frames(280, 70);
@@ -709,8 +717,13 @@ test("the engine core: Pause stays right through every pause reason, data-sc-run
     restart();
     frames(8100, 16.7);
     assert.deepEqual(changes, ["lite", "full", "lite"], "a tier left twice holds");
+    // A browser that caps frames at 30 Hz (iOS Low Power Mode, Chrome's Energy Saver) gives every gap 33.3 ms
+    // with little work: lite's own rate, so lite holds window after window, never minimal and DPR 1 (ENG-2).
     restart();
-    frames(2100, 33.4);
+    frames(8100, 33.4);
+    assert.deepEqual([changes, core.tier.name], [["lite", "full", "lite"], "lite"], "a 30 Hz cap holds lite");
+    restart();
+    frames(2100, 50); // 20 fps: lite's 30 out of reach
     assert.deepEqual(changes, ["lite", "full", "lite", "minimal"]);
     // A subscriber that slept at the lower tier looks again after a step up.
     let looks = 0;
@@ -1035,4 +1048,30 @@ test("the options come from the platform: its name, the page's call to action, t
 
 test("the island renders nothing on the server and needs no router there", () => {
   assert.equal(renderToStaticMarkup(createElement(ShowcaseMount, { id: "sc-field", kind: "field", options: options() })), "");
+});
+
+test("right to left (?lang=ar): English sample text takes its own direction from its first letter and the page's alignment; Arabic samples keep theirs", () => {
+  const rule = cssRules(read(join(WEB, "app/brain-stage.css"))).find((r) => r.selectors.some((s) => s.includes(":dir(rtl)")));
+  assert.ok(rule, "brain-stage.css: the right-to-left sample text rule");
+  const value = (p: string) => rule!.declarations.filter((x) => x.property == p).map((x) => x.value);
+  assert.deepEqual(value("unicode-bidi"), ["plaintext"]);
+  assert.deepEqual(value("text-align"), ["-webkit-match-parent", "match-parent"]);
+  const [selector] = rule!.selectors;
+  // Every text holder (the chips and What-ifs hold theirs directly), never an element with its own dir, at the weight
+  // of one class and :dir() so the sheets' own alignments that come later stand.
+  for (const tag of ["p", "li", "span", "b", "small", "summary", ".bp-chip", ".ca-wb"]) assert.match(selector, new RegExp(`[(, ]${tag.replace(".", "\\.")}[,)]`), tag);
+  assert.match(selector, /^\[data-showcase\] :where\([^)]+\):dir\(rtl\):where\(:not\(\[dir\]\)\)$/);
+});
+
+test("keyboard users meet armed controls: the first Tab mounts every showcase, focus in a host mounts it, and focus survives a reduced-motion change", () => {
+  const mount = code(read(join(BRAIN, "mount.tsx")));
+  // A11Y-2: the still frame's controls wait, disabled, for the engine; a Tab that met them first would pass them by.
+  assert.match(mount, /const onTab = \(e: KeyboardEvent\) => \{\s+if \(e\.key !== "Tab"\) return;\s+document\.removeEventListener\("keydown", onTab, true\);\s+void mount\(\);\s+\};/);
+  assert.match(mount, /document\.addEventListener\("keydown", onTab, true\);\s+host\.addEventListener\("focusin", onFocus\);/);
+  assert.match(mount, /document\.removeEventListener\("keydown", onTab, true\);\s+host\.removeEventListener\("focusin", onFocus\);/, "removed on unmount");
+  // Robots never get there: the listeners come after the engineWanted() gate.
+  assert.ok(mount.indexOf("if (!engineWanted()) return;\n    let alive") < mount.indexOf("const onTab"));
+  // A11Y-12: the control that had focus (by its moment, else its place) gets it back once the engine is armed again.
+  assert.match(mount, /const at = was instanceof HTMLElement && host\.contains\(was\) \? \{ cls: was\.classList\[0\], t: was\.dataset\.t, i: focusables\(host\)\.indexOf\(was\) \} : null;/);
+  assert.match(mount, /void mount\(\)\.then\(\(\) => \{[\s\S]*?to\?\.focus\(\{ preventScroll: true \}\);/);
 });

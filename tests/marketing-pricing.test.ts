@@ -6,14 +6,19 @@
 // to action never reaches /signup while sign-ups are closed.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   MEMBERSHIP_MINIMUMS,
+  PREPAY_REFUND_DAYS,
   brandText,
+  llmsFullTxt,
+  marketingAssistantFacts,
   monthlyMinimum,
   marketingPage,
   marketingPageFor,
+  prepayQuote,
   type MarketingPage,
 } from "@trainer/contracts";
 import { BANDS } from "@trainer/domain";
@@ -196,6 +201,14 @@ test("every figure is the ledger's: the worked example, the sample statement and
       decode(between(html, "Who sets the price?", "</details>")),
       new RegExp(`from ${MEMBERSHIP_MINIMUMS.training / 100} a month \\(${MEMBERSHIP_MINIMUMS.nutrition / 100} with nutrition or voice included, ${MEMBERSHIP_MINIMUMS.complete / 100} with both\\)`),
     );
+    // Every monthly offer also sells 6- and 12-month packs at checkout's
+    // fixed discounts, the trainer's share held through the refund window.
+    const [six, twelve] = ([6, 12] as const).map((months) => prepayQuote(MEMBERSHIP_MINIMUMS.training, months).discountBps / 100);
+    assert.ok(
+      tool.includes(`On a monthly offer, subscribers can also prepay 6 or 12 months at ${six}% or ${twelve}% off; your share of a pack is held until its ${PREPAY_REFUND_DAYS}-day refund window closes.`),
+      state,
+    );
+    assert.match(decode(between(html, "Who sets the price?", "</details>")), new RegExp(`prepay 6 or 12 months at ${six}% or ${twelve}% off\\.`));
     // Every amount on the page is one of these: no other figure ships.
     const allowed = new Set([
       ...[e.subscriptionMonthlyMinor, e.commissionMinor, e.beforeOtherCostsMinor, ...e.bands.map((b) => b.commissionMinor)].map(aed),
@@ -214,6 +227,8 @@ test("every figure is the ledger's: the worked example, the sample statement and
     // card-processing rate.
     const shares = new Set<number>([
       ...BANDS.map((band) => band.bps / 100),
+      // The prepaid packs' discounts (prepayQuote), not a rate we charge.
+      ...([6, 12] as const).map((months) => prepayQuote(MEMBERSHIP_MINIMUMS.training, months).discountBps / 100),
       ...[...JUMPS, 300].map((n) => compact(n, MIN_PRICE).effectiveCommissionPct),
       e.effectiveCommissionPct,
     ]);
@@ -332,8 +347,11 @@ test("payments off and on: the strip before any AED figure, the chips, the notes
       decode(section(html, "statement", "how")),
       payouts ? /Payouts are monthly, to your verified UAE IBAN\./ : /Payouts are monthly, to a verified UAE IBAN, once payouts are on\./,
     );
+    // The trainer's one optional purchase, a domain, is bought by card: its
+    // chip waits for custom domains and subscriber payments. The voice
+    // add-on is the subscribers' purchase, never a cost on this card.
     const optional = decode(section(html, "glance", "bands"));
-    assert.equal(/Not on yet: voice add-on/.test(optional), state !== "on", state);
+    assert.doesNotMatch(optional, /voice|add-on/i, state);
     assert.equal(/Not on yet: your own domain/.test(optional), state !== "on", state);
   }
 });
@@ -392,4 +410,79 @@ test("B's order in the house frame: one H1, In short, FAQs, related links, Last 
   assert.ok(decode(band).indexOf(hours.body![1]) < decode(band).indexOf(PRICE_ANCHORS[0].range));
   assert.ok(decode(band).indexOf(hours.body![0]) > decode(band).indexOf(PRICE_ANCHORS[1].range));
   assert.ok(decode(band).includes(hours.note!));
+});
+
+test("subscribers pay a published page: the strip, the paid answer and the notes follow the publish gates (sign-ups, payments, the coaching assistant)", () => {
+  const strip = (html: string) => decode(html.match(/<p class="mk-pf-strip[^"]*">([\s\S]*?)<\/p>/)![1]).trim();
+  const faq = (html: string) => decode(between(html, "Can subscribers pay me today?", "</details>")).replace("Can subscribers pay me today?", "").trim();
+  const of = (changes: Partial<PublicPlatform["availability"]>, registrationOpen = true): PublicPlatform => {
+    const p = platform("on");
+    return { ...p, registrationOpen, availability: { ...p.availability, ...changes } };
+  };
+  const shown = (p: PublicPlatform) => main(renderToStaticMarkup(createElement(MarketingSite, { page: PAGE, platform: p, origin: ORIGIN })));
+  const waits = "Not yet. Subscriber payments are on, but publishing your page is not on yet. With an account you can already set up your page and app";
+  const cases: Array<[string, PublicPlatform, RegExp, string]> = [
+    ["everything on", of({}), /^Subscriber payments and payouts are live\.$/, "Yes. Subscribers pay you by card in AED."],
+    ["the assistant off", of({ model: false }), /^Publishing your page is not on yet\. What works today$/, waits + "."],
+    ["sign-ups closed", of({}, false), /^Publishing your page is not on yet\. What works today$/, waits + ", and teach and test your AI."],
+    ["the assistant and payouts off", of({ model: false, payouts: false }), /^Publishing your page and payouts are not on yet\. What works today$/, waits + "."],
+    ["payouts off", of({ payouts: false }), /^Payouts are not on yet\. What works today$/, "Yes. Subscribers pay you by card in AED."],
+  ];
+  for (const [label, p, line, answer] of cases) {
+    const html = shown(p);
+    assert.match(strip(html), line, label);
+    assert.equal(faq(html), answer, label);
+    // "Live" never sits beside "Not on yet: Publishing…" in the status panel.
+    const publishing = /Not on yet[\s\S]*Publishing your page to subscribers/.test(decode(section(html, "status", "in-short")));
+    assert.equal(publishing, !answer.startsWith("Yes"), label);
+  }
+  // A domain is bought by card: its chip stays while payments are off.
+  assert.match(decode(section(shown(of({ payments: false })), "glance", "bands")), /Not on yet: your own domain/);
+  // The note under each amount offers teaching only while the assistant is on.
+  const notes = [...shown(of({ payments: false, payouts: false, model: false })).matchAll(/<p class="mk-pr-note">[\s\S]*?<span>([\s\S]*?)<\/span><\/p>/g)].map((m) => decode(m[1]).trim());
+  assert.deepEqual(notes, ["Subscriber payments are not on yet. Set up your page and app now.", "Subscriber payments are not on yet. Set up your page and app now."]);
+});
+
+test("llms-full.txt and the assistant facts carry the chips the page shows on How you earn, payouts, the worked example and the Optional card", () => {
+  const ctx = (on: boolean) => ({
+    origin: ORIGIN,
+    appName: APP,
+    registrationOpen: true,
+    availability: { ...platform(on ? "on" : "off").availability, payments: on, payouts: on, customDomains: on },
+  });
+  const pricing = (facts: string) => {
+    const at = facts.indexOf("## Pricing (/pricing)\n");
+    assert.ok(at >= 0, "the /pricing facts");
+    return facts.slice(at, facts.indexOf("\n## ", at));
+  };
+  const block = (text: string, heading: string) => text.slice(text.indexOf(heading), text.indexOf("###", text.indexOf(heading) + 3));
+  const off = pricing(marketingAssistantFacts(ctx(false)));
+  assert.match(block(off, "### How you earn"), /- Not on yet: subscriber payments\n- Not on yet: payouts\n/);
+  assert.match(block(off, "### Monthly payouts to a UAE bank"), /- Not on yet: payouts\n/);
+  assert.match(block(off, "### What you keep, in AED"), /- Not on yet: subscriber payments\n/);
+  assert.match(off, /- Optional: Your own domain, priced before you buy\. Not on yet: your own domain\.\n/);
+  const on = pricing(marketingAssistantFacts(ctx(true)));
+  assert.doesNotMatch(on, /Not on yet: (subscriber payments|payouts|your own domain)/);
+  const full = llmsFullTxt(ctx(false));
+  const page = full.slice(full.indexOf("URL: " + ORIGIN + "/pricing\n"));
+  assert.match(block(page, "### Monthly payouts to a UAE bank"), /\n- Not on yet: payouts\n/);
+  assert.match(page, /- \*\*Optional\*\*: Your own domain, priced before you buy\. Not on yet: your own domain\./);
+});
+
+test("what a trainer pays: a domain is the only optional purchase in every answer; the data answer is the terms'", () => {
+  const faq = (q: string) => PAGE.faqs.find((f) => f.q === q)!.a;
+  assert.match(faq("Does it cost anything to join?"), /Your own domain name is the only optional purchase/);
+  assert.match(faq("What will I pay?"), /Your own domain, if you choose one, is extra\./);
+  assert.doesNotMatch(faq("What will I pay?"), /voice|add-on/i);
+  assert.equal(PAGE.sections.find((s) => s.id === "glance")!.cards!.find((c) => c.title === "Optional")!.body, "Your own domain, priced before you buy.");
+  assert.doesNotMatch(text(marketingPage("/guides/pricing-online-coaching-uae")!), /optional services you choose, such as the voice add-on/i);
+  // The terms (docs/legal/uae-2026-10): each party keeps its rights in what
+  // it provides, with no ownership of a trainer's methods and no right to
+  // sell client information; ending a workspace looks after existing clients.
+  const terms = readFileSync(new URL("../docs/legal/uae-2026-10/terms-2026-10-14.en.md", import.meta.url), "utf8");
+  assert.match(terms, /You retain your rights in material you provide\..*does not give us ownership of a trainer’s methods or a right to sell private client information\./);
+  assert.match(terms, /Ending a trainer workspace must address existing clients/);
+  const data = faq("Who owns my subscribers’ data, and what if I leave?");
+  assert.match(data, /^You keep your rights in what you provide, and subscribers keep theirs: we never own your method or sell client information\./);
+  assert.match(data, /If you leave, you can download your data and close your workspace once your existing subscribers are looked after\.$/);
 });

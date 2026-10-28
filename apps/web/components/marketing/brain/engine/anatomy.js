@@ -69,8 +69,6 @@ function owned() {
 const STATES = ["data-trace", "data-tease", "data-step", "data-end", "data-stop"];
 /** Where the first frame's CSS changes mode (app/brain-anatomy.css). */
 const MODES = ["(min-height: 700px)", "(max-width: 760px)"];
-/** A task boundary (scheduler.yield where there is one): mounting stays clear of long tasks at 4x CPU. */
-const nextTask = () => (globalThis.scheduler && scheduler.yield ? scheduler.yield() : new Promise((r) => setTimeout(r)));
 
 /** Mounts on the root (brain/mount.tsx calls it after load, idle and near). */
 export async function mount(root, o) {
@@ -96,7 +94,7 @@ export async function mount(root, o) {
       run = figure(root, d, S0, o, true, say, held);
     }, 150);
   };
-  await nextTask(); // the chunk and the trace data in one task, the figure in the next
+  await C.nextTask(); // the chunk and the trace data in one task, the figure in the next
   try {
     // on before the figure reads: the run sheet's restyle shares the mount's one style pass
     root.setAttribute("data-sc", "on");

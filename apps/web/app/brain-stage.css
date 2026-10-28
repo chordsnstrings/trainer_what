@@ -91,6 +91,16 @@
   flex: none;
   display: block;
 }
+/* English sample text on a right-to-left page (?lang=ar): each text box
+   takes its direction from its first letter, so its punctuation stays at its
+   end ("Up in weight?", not "?Up in weight"), and keeps the page's alignment,
+   as globals.css does for <time>. Arabic samples carry their own dir. Later
+   rules of the same weight keep their own alignment. */
+[data-showcase] :where(p, li, span, b, small, em, mark, label, summary, a, h2, h3, pre, figcaption, .bp-chip, .ca-wb):dir(rtl):where(:not([dir])) {
+  unicode-bidi: plaintext;
+  text-align: -webkit-match-parent;
+  text-align: match-parent;
+}
 
 /* ---------- the overlay layer (engine/core.js layer()) ----------
    The last child of the marketing root: receipts, their backdrop, the phone

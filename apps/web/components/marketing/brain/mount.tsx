@@ -5,10 +5,13 @@
 // it over: after the page's load event, on idle, once the root is within
 // 200 px of the viewport, through one literal import() per runtime module
 // (each its own chunk, with its own CSS; nothing else here reaches the
-// engine). Crawlers and automated browsers keep the still frame unless the
-// URL carried ?sc=on. A root the engine has not started 6 s after it first
-// came near ends at data-sc="off", for good: the still frame, never a flash.
-// Unmounting destroys the engine and puts the server's frame back.
+// engine). Keyboard users get it sooner: the page's first Tab mounts every
+// showcase, and focus inside a host mounts it, so a Tab never meets a
+// control still waiting, disabled, for its engine. Crawlers and automated
+// browsers keep the still frame unless the URL carried ?sc=on. A root the
+// engine has not started 6 s after it first came near ends at
+// data-sc="off", for good: the still frame, never a flash. Unmounting
+// destroys the engine and puts the server's frame back.
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import type {
@@ -155,6 +158,11 @@ function fallback(host: Element, kind: ShowcaseKind) {
     flat();
   };
 }
+/** What can hold focus in a host, in order (its controls once the engine has armed them). */
+const focusables = (host: Element) =>
+  [...host.querySelectorAll<HTMLElement>("a[href], button, input, select, textarea, summary, [tabindex]")].filter(
+    (e) => !(e as HTMLButtonElement).disabled && e.tabIndex >= 0 && e.checkVisibility?.() !== false,
+  );
 /** A plain left click: no modifier key, not already handled. */
 const plainClick = (e: MouseEvent) =>
   !e.defaultPrevented && e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
@@ -250,19 +258,38 @@ export function ShowcaseMount({
           return null;
         }));
     const cancelSchedule = schedule(host, () => void mount());
+    // Keyboard users: the page's first Tab mounts every showcase (each island
+    // hears it), focus inside the host mounts it at once (A11Y-2).
+    const onTab = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      document.removeEventListener("keydown", onTab, true);
+      void mount();
+    };
+    const onFocus = () => void mount();
+    document.addEventListener("keydown", onTab, true);
+    host.addEventListener("focusin", onFocus);
 
     // Either reduced-motion setting changed: the classes again, and a running
-    // engine starts over from the server's frame.
+    // engine starts over from the server's frame. Focus inside it goes back
+    // to the same control once it is armed again, or to its root (A11Y-12).
     const changed = () => {
       applyClasses();
       if (!api) return;
+      const was = document.activeElement;
+      const at = was instanceof HTMLElement && host.contains(was) ? { cls: was.classList[0], t: was.dataset.t, i: focusables(host).indexOf(was) } : null;
       api.destroy();
       api = null;
       loading = null;
       host.innerHTML = snapshot;
       rearmed();
       rearmed = fallback(host, kind);
-      void mount();
+      void mount().then(() => {
+        if (!at || !alive || (document.activeElement && document.activeElement !== document.body)) return;
+        const all = focusables(host);
+        const to = (at.t && all.find((e) => e.dataset.t === at.t && e.classList.contains(at.cls))) || all[at.i] || (host.firstElementChild as HTMLElement | null);
+        if (to && !to.matches("a[href], button, input, select, textarea, summary, [tabindex]")) to.tabIndex = -1;
+        to?.focus({ preventScroll: true });
+      });
     };
     const query = typeof matchMedia === "function" ? matchMedia(REDUCE) : null;
     query?.addEventListener("change", changed);
@@ -306,6 +333,8 @@ export function ShowcaseMount({
     return () => {
       alive = false;
       cancelSchedule();
+      document.removeEventListener("keydown", onTab, true);
+      host.removeEventListener("focusin", onFocus);
       rearmed();
       flat();
       query?.removeEventListener("change", changed);

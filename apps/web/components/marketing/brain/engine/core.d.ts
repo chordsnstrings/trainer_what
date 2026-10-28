@@ -7,6 +7,8 @@ export declare const ease: { io(k: number): number; out(k: number): number; in(k
 export declare function rng(seed: number): () => number;
 export declare function h(sel: string, props?: Record<string, unknown> | null, ...kids: unknown[]): HTMLElement;
 export declare const esc: (s: unknown) => string;
+/** A task boundary: scheduler.yield() where there is one, else a zero timeout. */
+export declare const nextTask: () => Promise<void>;
 export declare function load<T extends object>(data: T): Promise<T & BrainData>;
 export declare function index<T extends object>(d: T): T & BrainData;
 export declare function reduced(): boolean;

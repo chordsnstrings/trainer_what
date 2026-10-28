@@ -17,7 +17,10 @@
      (the stale-Pause bug), and a Kamran call (html[data-mk-call]) pauses;
    - time in another tab is not idle time, and input ends any idle pause;
    - the watchdog ignores page events (a scroll starting, a resize, the
-     consent bar) and steps back up after a good spell (tier.up);
+     consent bar), steps back up after a good spell (tier.up), and judges
+     frames against its tier's own rate: a browser that caps frames at
+     30 Hz (iOS Low Power Mode, Chrome's Energy Saver) gets lite, never
+     minimal;
    - data-sc-run marks a showcase root exactly while a frame is scheduled
      for it; the last scene's destroy (or destroyAll) stops the loop and
      removes the document listeners;
@@ -36,6 +39,9 @@ function checkParam(name) {
   return browser() && W.navigator.webdriver ? new URLSearchParams(W.location.search).get(name) : null;
 }
 const now = () => performance.now();
+/** A task boundary (scheduler.yield where there is one): a mount's work starts in a task of its own, so the
+    chunk's evaluation and the mount are never one long task at 4x CPU. */
+export const nextTask = () => (globalThis.scheduler && scheduler.yield ? scheduler.yield() : new Promise((r) => setTimeout(r)));
 
 /* ---------------------------------------------------------------- utils */
 export const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -172,11 +178,17 @@ export const tier = {
 /* ---------------------------------------------------------------- loop */
 const subs = new Set();
 let raf = 0, nap = 0, napped = false, last = 0, idleAt = 0, slow = null;
-/* The watchdog judges frame gaps (under 250 ms) in windows of 2 s. It steps
-   the tier down when a window's median gap is over 20 ms, or when two windows
-   in a row stutter: 1 frame in 20 (of 30 or more) over 25 ms, which keeps the
-   median at one frame and still breaks the p95 frame budget. Two windows in a
-   row with fewer than 1 frame in 40 over 25 ms step it back up (tier.up).
+/* The watchdog judges frame gaps (under 250 ms) in windows of 2 s, against
+   the frame its tier asks for (16.7 ms at full's 60 fps, 33.3 ms at 30 fps).
+   It steps the tier down when a window's median gap is over 1.2 frames (20 ms
+   at full, 40 ms at 30 fps), or when two windows in a row stutter: 1 frame in
+   20 (of 30 or more) over 1.5 frames (25 ms, 50 ms), which keeps the median at
+   one frame and still breaks the p95 frame budget. Steady 30 fps is what lite
+   asks for, so a browser that caps frames at 30 Hz (iOS Low Power Mode,
+   Chrome's Energy Saver; every gap 33.3 ms while the work stays small) takes
+   full to lite and holds there, never minimal and DPR 1 (ENG-2). Two windows
+   in a row with fewer than 1 frame in 40 over 1.5 of the tier above's frames
+   step it back up (tier.up).
    Page events are not the showcase's frame cost, so frames are not judged
    until 1 s after the load event (QA 27 Oct, concept C), in the 500 ms after
    the loop (re)starts or the tier changes, after a nap, or in the 300 ms
@@ -190,14 +202,16 @@ function watchLoad() {
   loadAt = D.readyState == "complete" ? 0 : Infinity;
   if (loadAt) W.addEventListener("load", () => (loadAt = now()), { once: true });
 }
+const frameMs = (name) => 1000 / SPEC[name].fps;
 function judge() {
-  const n = win.length, late = win.filter((g) => g > 25).length, mid = win.sort((a, b) => a - b)[n >> 1];
-  const stutter = n >= 30 && late / n >= 0.05, again = stutter && bad;
+  const i = TIERS.indexOf(tierNow()), f = frameMs(TIERS[i]), above = frameMs(TIERS[Math.max(0, i - 1)]);
+  const n = win.length, late = win.filter((g) => g > f * 1.5).length, mid = win.sort((a, b) => a - b)[n >> 1];
+  const stutter = n >= 30 && late / n >= 0.05, again = stutter && bad, slowUp = win.filter((g) => g > above * 1.5).length;
   win = []; winMs = 0; bad = stutter;
-  if (mid > 20) tier.down("median " + mid.toFixed(1) + " ms");
-  else if (again) tier.down(late + "/" + n + " frames > 25 ms, a second window");
-  else if (stutter || n < 30 || late / n >= 0.025) good = 0;
-  else if (++good >= 2) (good = 0), tier.up(late + "/" + n + " frames > 25 ms");
+  if (mid > f * 1.2) tier.down("median " + mid.toFixed(1) + " ms");
+  else if (again) tier.down(late + "/" + n + " frames > " + (f * 1.5).toFixed(1) + " ms, a second window");
+  else if (stutter || n < 30 || slowUp / n >= 0.025) good = 0;
+  else if (++good >= 2) (good = 0), tier.up(slowUp + "/" + n + " frames > " + (above * 1.5).toFixed(1) + " ms");
 }
 /** A subscriber's frame interval at its fps, capped by the tier (4 ms early is on time). */
 const every = (s) => 1000 / Math.min(s.fps || 60, tier.spec.fps) - 4;
