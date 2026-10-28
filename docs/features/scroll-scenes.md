@@ -30,7 +30,7 @@ The rest of this page describes the engine as it ran on the home page until 28 O
 | Journey band (`JourneyBand`, `journey.tsx`) | `journey`, pinned (`--len: 480`, `--len-phone: 500`) | Nothing gets new styles. Scroll replaces the player's clock: chapter = floor(q × 8). The first 70% of a chapter's slice plays its beats, and the rest holds the complete picture. |
 | `#control` (`ControlFlow`) | `beats`, in 4 beats | The message, then the AI card, then the meter fill, then the lanes. The `data-from` poses are the old reveal's "before" poses. |
 
-Only these two are wired in `site.tsx` (the journey band and `scene="beats"` on `#control`). The hero, `#subscribers`, `#economics` and the closing panel have no scene: `Closing` is rendered without `scene`, so they keep the section reveal. The `depart`, `assemble`, `rise` and `reveal` recipes are still registered in `scenes.ts` and can be wired again (see "Add a scene to a section"). Nothing else gets a scene: the followers calculator, FAQs, Kamran button, header and footer. No other page has scenes.
+Only these two were wired in `site.tsx` (the journey band and `scene="beats"` on `#control`). The hero, `#subscribers`, `#economics` and the closing panel had no scene: `Closing` was rendered without `scene`, so they kept the section reveal. The `depart`, `assemble`, `rise` and `reveal` recipes are still registered in `scenes.ts` and can be wired again (see "Add a scene to a section"). Nothing else gets a scene: the followers calculator, FAQs, Kamran button, header and footer. No other page has scenes.
 
 ## Files
 
@@ -90,7 +90,7 @@ What a frame draws is unchanged. Progress comes from the same rects, read before
 ## Add a scene to a section
 
 1. Pick a scene from the table in the scroll-scenes library: `beats`, `assemble`, `rise`, `flip`, `reveal`, `depart` or `device`. Use each type at most once per page.
-2. Put `data-scene="<type>"` on the full-width section element. Only `reveal` may go on an inner element. For a `HomeSection`, pass `scene="…"`.
+2. Put `data-scene="<type>"` on the full-width section element. Only `reveal` may go on an inner element. (The old home's `HomeSection` took a `scene` prop; it was deleted on 28 October 2026.)
 3. Mark the parts that move with `data-beat`. Parts with the same number move together.
 4. Never mark inputs, forms, accordions or tabs, and never mark an element whose `transform` or `opacity` React sets.
 5. Copy each "before" pose from the site's CSS into `data-from`. For example, `opacity: 0; translate: 0 12px` becomes `data-from="y:12 o:0"`.

@@ -266,7 +266,7 @@ The showcases are the field and the board on `/`, the decision anatomy on `/trai
   - long tasks from mounting: at most 2, each 80 ms or less;
   - blocking time within the baseline + 100 ms.
 
-  `npm run test:marketing-showcase` reports these, and judges them only with `SHOWCASE_JUDGE_METRICS=1` on real hardware. The pinned anatomy's scroll paint measures a p95 of about 33 ms at 4× throttling in this GPU-less sandbox, and it waits for a real-hardware check. CLS of 0.001 or less is reported in CI until three PR runs in a row pass it. Figures: [brain-showcase.md](brain-showcase.md), "Budgets".
+  `npm run test:marketing-showcase` reports these, and judges them only with `SHOWCASE_JUDGE_METRICS=1` on real hardware. The pinned anatomy's scroll paint measured a p95 of about 33 ms at 4× throttling in this GPU-less sandbox (runs vary), and it waits for a real-hardware check. CLS of 0.001 or less is reported in CI until three PR runs in a row pass it. Figures: [brain-showcase.md](brain-showcase.md), "Budgets".
 
 ## Motion for every visitor (22 October 2026)
 
