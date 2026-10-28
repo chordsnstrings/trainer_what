@@ -1385,9 +1385,6 @@
     font-size: 11px;
   }
   html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-kt,
-  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-brk,
-  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-cite,
-  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-mean,
   html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-g[data-desk] {
     display: none;
   }
@@ -1492,9 +1489,6 @@
   html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-blv {
     margin-block-start: 4px;
     padding-block-start: 4px;
-  }
-  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-stop {
-    font-size: 16px;
   }
   html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-g {
     --gz: 0.7;
