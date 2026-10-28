@@ -49,16 +49,20 @@
    - the static-mode rehearsal;
    - screenshots.
 
-**Progress at 15:25 UTC:**
-- **Honesty lens done:** 11 findings (3 major). Among them:
-  - the `/demo` "12 sample moments" text ignores the flags;
-  - "Yes, subscribers pay you" is answered from the payments flag alone;
-  - the showcase statuses and strip ignore whether sign-ups are open.
-- **Engines lens done:** 6 findings (3 major). Among them:
-  - a receipt open while the phone rotates;
-  - the watchdog reads a 30 fps cap (iOS Low Power Mode, Chrome energy saver) as slowness;
-  - the anatomy still runs Omar's AI reply with the model off.
-- **Still running:** the accessibility and performance lenses. Then the fix pass, docs and the milestone.
+**Progress at 16:25 UTC:**
+- **Final review done:** 36 findings, each reproduced by its reviewer.
+  - **Honesty: 11 (3 major).**
+  - **Engines: 6 (3 major).**
+  - **Accessibility: 12 (3 major).**
+    - the sticky header hides keyboard focus;
+    - Tab skips the board and most of the playground;
+    - the field drops focus from a lane tile.
+  - **Performance and infra: 7 (2 major).**
+    - the consent bar's root custom property restyles the whole document;
+    - the field mount is over 80 ms in about a quarter of loads;
+    - without JavaScript the root marks never apply, so the public pages' light styles are missing;
+    - first paint on `/` is 150–400 ms later than the base at 4× CPU.
+- **Fix pass running since about 15:48:** E (engines) and P (pages and global). Then the docs and the milestone verification.
 
 **Done today:**
 - **Part 2:** WP4 home, WP5 brain pages, WP7a clean-up, WP7b checks and the CI step, WP8 docs.

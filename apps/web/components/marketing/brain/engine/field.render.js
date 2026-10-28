@@ -39,6 +39,7 @@ export const COPY = {
   lock: "Safety rules · can't switch off", stricter: "You can only make them stricter.",
   lastCheck: "Last check: passed (sample)", supp: "Supplement questions: I answer myself", suppSub: "Your choice · off by default",
   suppOff: "Supplements still never send on their own.", drafted: "Drafted for you", more: "More settings", done: "Done",
+  noCross: "No moment crossed your bar.", suppMine: "Khalid's question waits for you personally.", suppDraft: "Khalid's question still waits for you, drafted for you.",
   demo: "Demo", reading: "Paused while you read", pause: "Pause", play: "Play", playField: "Play the field",
   stop: "STOP · No AI called", noAi: "No AI called", openList: "open the list",
   members: "Sample members. Open any moment to see each step.", level: "Brain level",
@@ -133,17 +134,21 @@ function field(d, o) {
     const [a, b] = COPY.lanes[l], pre = START[l].length, n = pre + (l == "paused" ? 1 : 0);
     const last = (ids) => esc(d.trace(ids[0]).member);
     const count = n != pre ? `<span class="mc-pre">${pre}</span><span class="mc-fin">${n}</span>` : n;
-    return `<section class="mc-lane" data-lane="${l}" aria-labelledby="${id}-l-${l}">` +
+    // a lane is no landmark (eight on "/" were noise): its list is named by its heading, and so is its phone bin
+    return `<div class="mc-lane" data-lane="${l}">` +
       `<p class="mc-lh" id="${id}-l-${l}">${l == "waits" ? `<span class="mc-ls" aria-hidden="true">LS</span>` : ""}<span class="mc-ln">${l == "paused" ? `<span class="mc-lnx">Training </span><span class="mc-lnp">paused</span>` : esc(a)}</span><span class="mc-lsub">${esc(b)}</span><span class="mc-c" aria-hidden="true">${count}</span><span class="sc-sr mc-csr">: ${n} in this sample hour</span></p>` +
-      `<ul class="mc-tl">${l == "paused" ? tileHTML(d, "t2", " sc-res") : ""}${START[l].map((x) => tileHTML(d, x)).join("")}<li class="mc-more" aria-hidden="true" hidden></li></ul>` +
+      `<ul class="mc-tl" aria-labelledby="${id}-l-${l}">${l == "paused" ? tileHTML(d, "t2", " sc-res") : ""}${START[l].map((x) => tileHTML(d, x)).join("")}<li class="mc-more" aria-hidden="true" hidden></li></ul>` +
       (l == "waits" ? `<p class="mc-chk2">${esc(COPY.toCheck)}: <b>1</b></p>` : "") +
-      `<button type="button" class="mc-bin" data-bin="${l}" disabled><span class="mc-last">${l == "paused" ? `<span class="mc-pre">${last(START.paused)}</span><span class="mc-fin">${last(["t2"])}</span>` : last(START[l])}</span><span class="sc-sr"> — ${esc(COPY.openList)}</span></button></section>`;
+      `<button type="button" class="mc-bin" data-bin="${l}" id="${id}-b-${l}" aria-labelledby="${id}-l-${l} ${id}-b-${l}" disabled><span class="mc-last">${l == "paused" ? `<span class="mc-pre">${last(START.paused)}</span><span class="mc-fin">${last(["t2"])}</span>` : last(START[l])}</span><span class="sc-sr"> — ${esc(COPY.openList)}</span></button></div>`;
   };
   const members = ROWS.map((x, i) => {
     const t = d.trace(x);
     return `<li><button type="button" class="mc-m${i < 2 ? " is-on" : ""}" data-t="${x}" disabled><span class="mc-av" aria-hidden="true">${esc(t.member[0])}</span><span class="mc-mtx"><b>${esc(t.member)}</b><span class="mc-mc"${t.trigger.lang == "ar" ? ' dir="rtl" lang="ar"' : ""}>${esc(FX[x][1])}</span></span>${U.icon(FX[x][2], 12)}<span class="sc-sr"> — ${esc(t.chip)}. See each step.</span></button></li>`;
   }).join("");
   const off = d.specialists.filter((s) => s.status == "not_on_yet").length;
+  // The shelf holds only what is not on yet; the Meal planner joins the specialists once nutrition is on
+  // (beside the Set logger: it has no moment in the sample hour, so no route reaches it).
+  const shelf = ["meal_planner", "recovery"].filter((sp) => d.sp[sp].status == "not_on_yet"), planner = !shelf.includes("meal_planner");
   const conf = `<span class="mc-gauge" aria-hidden="true"><i></i><b style="--bar:${S.bar}%"></b></span>`;
   return `<p class="sc-sr">${esc(COPY.sr)}</p>` +
     `<div class="mc-head"><p class="mc-eyebrow">${esc(d.labels.eyebrow)}</p><span class="mc-reading" hidden>${esc(COPY.reading)}</span>` +
@@ -158,7 +163,7 @@ function field(d, o) {
     `<div class="mc-row mc-first">${FIRST.map((sp) => nodeHTML(d, sp, sp == "safety" ? { state: "hit", cls: "mc-hitres", who: "N", val: "STOP", valCls: "sc-res" } : {})).join("")}</div>` +
     `<div class="mc-shell"><p class="mc-st"><span class="mc-mono">LS</span><b>${esc(COPY.bands[1])}</b><span class="mc-cap">${esc(COPY.shellCap)}</span></p>` +
     SHELL.map((r) => `<div class="mc-row mc-r3">${r.map((sp) => nodeHTML(d, sp, sp == "reply_picker" ? { state: "lit", who: "O" } : {})).join("")}</div>`).join("") +
-    `<div class="mc-row mc-r3 mc-r3b">${nodeHTML(d, "set_logger")}<span class="mc-cr">${esc(COPY.codeRule)}</span></div>` +
+    `<div class="mc-row mc-r3 mc-r3b${planner ? " mc-r3p" : ""}">${nodeHTML(d, "set_logger")}${planner ? nodeHTML(d, "meal_planner") : ""}<span class="mc-cr">${esc(COPY.codeRule)}</span></div>` +
     `<span class="mc-noy" aria-hidden="true">${esc(COPY.bands[4])}: ${off}</span></div>` +
     `<p class="mc-stamp sc-res">${esc(COPY.stop)}</p>` +
     `<p class="mc-bl mc-bl2"><span>${esc(COPY.bands[2])}</span><span class="mc-br">${esc(COPY.rules)}</span></p>` +
@@ -166,7 +171,7 @@ function field(d, o) {
     `<div class="mc-learn"><span class="mc-k">${esc(COPY.bands[3])}</span>` +
     `<div class="sc-node mc-n mc-tiny" data-sp="privacy" data-kind="check" data-state="idle" title="Privacy: code turns the client's name into [client]. Their message is never sent."><span class="sc-mx"></span>${U.icon("eye-off", 12)}<span class="sc-nm">Privacy</span><span class="mc-v"></span></div>` +
     `${nodeHTML(d, "learner", { cls: "mc-tiny" })}${nodeHTML(d, "examiner", { cls: "mc-tiny" })}</div>` +
-    `<div class="mc-shelf"><span class="mc-k">${esc(COPY.bands[4])}</span>${nodeHTML(d, "meal_planner", { cls: "mc-tiny" })}${nodeHTML(d, "recovery", { cls: "mc-tiny" })}</div>` +
+    (shelf.length ? `<div class="mc-shelf"><span class="mc-k">${esc(COPY.bands[4])}</span>${shelf.map((sp) => nodeHTML(d, sp, { cls: "mc-tiny" })).join("")}</div>` : "") +
     `<div class="mc-spine"><span class="mc-bk"><b class="mc-bn">24</b> ${esc(COPY.book[1])}</span><span class="mc-bt2">${esc(COPY.book[0])}</span><span class="mc-new">${esc(COPY.rule)}</span></div>` +
     `</div>` +
     `<div class="mc-lanes"><p class="mc-lcap">${esc(COPY.hour)}</p>${["sent", "waits", "paused"].map(lane).join("")}</div>` +
@@ -189,6 +194,11 @@ export const BLANES = ["sent", "waits", "paused", "member", "learn"];
 export const whyOf = (id, S) => (id == "t9" && !S.supplementsTopic ? COPY.drafted : "");
 /** The note under the board's controls once the level changes. */
 export const levelNote = (d, n) => d.labels.levels[n].summary + (n > 1 ? " " + d.labels.levels.note : "");
+/** The board's line after one change the visitor made (moved: [trace, lane before, lane now]): who moved
+    where, or what stayed. Short: the reasons go to the live region (field.js apply()). */
+export const diffLine = (d, moved, key, S) => (moved.length ? moved.map(([t, , to]) => `${t.member} moved to ${d.labels.lanes[to]}.`).join(" ")
+  : key == "bar" ? COPY.noCross : key == "supplementsTopic" ? (S.supplementsTopic ? COPY.suppMine : COPY.suppDraft) : "");
+const SET = ["level", "bar", "supplementsTopic"];
 /** Every setting the controls reach from S: each level, each step of the plans slider, supplements either way. */
 function reach(d, S) {
   const { min, max } = d.labels.planSetting, out = [];
@@ -216,19 +226,32 @@ function board(d, o) {
   const S = defaults(d), lv = d.labels.levels, id = esc(o.id), cols = {}, room = {};
   BLANES.forEach((l) => ((cols[l] = []), (room[l] = new Map())));
   for (const t of d.traces) if (!isOff(t, S)) { const r = decide(t, S, d); cols[r.lane].push(boardCard(d, t, r, whyOf(id0(t), S))); }
-  for (const s of reach(d, S)) for (const t of d.traces) if (!isOff(t, s)) {
-    const m = room[decide(t, s, d).lane];
+  const states = reach(d, S), lanes = states.map((s) => d.traces.map((t) => (isOff(t, s) ? null : decide(t, s, d).lane)));
+  states.forEach((s, i) => d.traces.forEach((t, n) => {
+    if (!lanes[i][n]) return;
+    const m = room[lanes[i][n]];
     m.set(t, m.get(t) || whyOf(id0(t), s));
-  }
+  }));
+  // The line under the columns keeps the room of the longest it can say after one change, from any setting
+  // the controls reach (ENG-5: it grew and shrank with each change, moving everything below the board).
+  let said = "";
+  states.forEach((a, i) => states.forEach((b, j) => {
+    const keys = SET.filter((k) => a[k] !== b[k]);
+    if (keys.length != 1) return;
+    const line = diffLine(d, d.traces.flatMap((t, n) => (lanes[i][n] && lanes[j][n] && lanes[i][n] != lanes[j][n] ? [[t, lanes[i][n], lanes[j][n]]] : [])), keys[0], b);
+    if (line.length > said.length) said = line;
+  }));
   const sizer = (l) => {
     const m = room[l], fixed = m.size == cols[l].length && [...m.values()].every((w) => !w);
     return fixed ? "" : `<ul class="mb-list mb-sz" aria-hidden="true" inert>${d.traces.filter((t) => m.has(t)).map((t) => boardCard(d, t, decide(t, S, d), m.get(t), true)).join("")}</ul>`;
   };
   const longest = [1, 2, 3].map((n) => levelNote(d, n)).concat(COPY.suppOff).reduce((a, b) => (b.length > a.length ? b : a));
+  // A column is no landmark (A11Y-20): its list is named by its heading. The sizers are hidden from assistive tech,
+  // the note itself is not (A11Y-11).
   return `<div class="mb-ctrl">${levels(d, S, false)}${bar(d, S)}${supp(S)}${lock(d, `${id}-tip-k`)}</div>` +
-    `<p class="mb-note" aria-hidden="true"><span>${esc(lv[S.level].summary)}</span><span class="mb-sz">${esc(longest)}</span></p>` +
-    `<div class="mb-cols">${BLANES.map((l) => `<section class="mb-col" data-lane="${l}" aria-labelledby="${id}-h-${l}"><p class="mb-ch" id="${id}-h-${l}">${U.lane(d, l)}<span class="mb-n">${cols[l].length}</span></p><ul class="mb-list">${cols[l].join("")}</ul>${sizer(l)}</section>`).join("")}</div>` +
-    `<p class="mb-diff"></p><p class="mb-tot">${esc(totals(d, S))}</p>` +
+    `<p class="mb-note"><span>${esc(lv[S.level].summary)}</span><span class="mb-sz" aria-hidden="true">${esc(longest)}</span></p>` +
+    `<div class="mb-cols">${BLANES.map((l) => `<div class="mb-col" data-lane="${l}"><p class="mb-ch" id="${id}-h-${l}">${U.lane(d, l)}<span class="mb-n">${cols[l].length}</span></p><ul class="mb-list" aria-labelledby="${id}-h-${l}">${cols[l].join("")}</ul>${sizer(l)}</div>`).join("")}</div>` +
+    `<p class="mb-diff"><span></span><span class="mb-sz" aria-hidden="true">${esc(said)}</span></p><p class="mb-tot">${esc(totals(d, S))}</p>` +
     `<div class="sc-strip"><span class="sc-sample">${esc(d.labels.chip)}</span><span>${esc(d.labels.rates)}</span>${d.labels.subscribers ? `<span>${esc(d.labels.subscribers)}</span>` : ""}</div>` +
     cta(o);
 }

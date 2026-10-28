@@ -1,22 +1,6 @@
 import { z } from "zod";
-export const BANDS = [
-  { count: 100, bps: 2500 },
-  { count: 200, bps: 2000 },
-  { count: 700, bps: 1500 },
-  { count: Infinity, bps: 1000 },
-];
-export function commission(amountMinor: number, rank: number) {
-  if (
-    !Number.isSafeInteger(amountMinor) ||
-    amountMinor < 0 ||
-    !Number.isSafeInteger(rank) ||
-    rank < 1
-  )
-    throw new Error("Invalid commission inputs");
-  const bps =
-    rank <= 100 ? 2500 : rank <= 300 ? 2000 : rank <= 1000 ? 1500 : 1000;
-  return Number((BigInt(amountMinor) * BigInt(bps) + 5000n) / 10000n);
-}
+import { BANDS, commission } from "./commission-bands.ts";
+export { BANDS, commission };
 export function projectedCommission(count: number, priceMinor: number) {
   if (!Number.isSafeInteger(count) || count < 0 || count > 1000000)
     throw new Error("Invalid subscriber count");

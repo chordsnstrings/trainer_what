@@ -457,6 +457,10 @@
   [data-showcase="field"] .mc-after [data-sp="confidence"] .mc-v {
     font: 500 9.5px/12px var(--sc-mono);
   }
+  /* the Meal planner, once on, beside the Set logger (phones: off the shell) */
+  [data-showcase="field"] .mc-r3p {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 [data-showcase="field"] .mc-n .sc-mx {
   width: 16px;
@@ -483,6 +487,20 @@
 }
 [data-showcase="field"] .mc-n .sc-offchip {
   font-size: 9.5px;
+}
+/* "Not on yet" on a specialist's lower edge: its name keeps the node's width (L3). */
+[data-showcase="field"] .mc-n:not(.mc-tiny) .sc-offchip {
+  position: absolute;
+  inset-block-end: -6px;
+  inset-inline-end: 10px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--sc-stage);
+  font-size: 9px;
+  line-height: 11px;
+}
+[data-showcase="field"] .mc-tiny[data-off] .sc-badge {
+  display: none;
 }
 /* A lit specialist: Pace on an overlay, so lighting up fades in opacity only. */
 [data-showcase="field"] .mc-n::before {
@@ -1208,12 +1226,17 @@ html.sc-motion:not(.sc-late) [data-showcase][data-sc="pre"] .mc-stamp {
   [data-showcase="field"] .mc-gauge,
   [data-showcase="field"] .mc-lh .mc-ls,
   [data-showcase="field"] .mc-lsub,
-  [data-showcase="field"] .mc-lnx,
+  [data-showcase="field"] .mc-r3p [data-sp="meal_planner"],
   [data-showcase="field"] .mc-tl,
   [data-showcase="field"] .mc-chk2,
   [data-showcase="field"] .mc-lv .mc-k,
   [data-showcase="field"] .mc-sheet {
     display: none;
+  }
+  /* "Training" stays in the lane's name (its bin's), out of sight (A11Y-9) */
+  [data-showcase="field"] .mc-lnx {
+    position: absolute;
+    clip-path: inset(50%);
   }
   [data-showcase="field"] .mc-strip {
     order: 20;
@@ -1479,12 +1502,15 @@ html.sc-motion:not(.sc-late) [data-showcase][data-sc="pre"] .mc-stamp {
   color: var(--sc-text);
   font-size: 12.5px;
 }
-/* Reserved room (field.render.js): the note's longest text and each
-   column's every possible card sit, hidden, in the same cell as what shows. */
-[data-showcase="board"] .mb-note {
+/* Reserved room (field.render.js): the note's and the line's longest text
+   and each column's every possible card sit, hidden, in the same cell as
+   what shows. */
+[data-showcase="board"] .mb-note,
+[data-showcase="board"] .mb-diff {
   display: grid;
 }
-[data-showcase="board"] .mb-note > span {
+[data-showcase="board"] .mb-note > span,
+[data-showcase="board"] .mb-diff > span {
   grid-area: 1 / 1;
 }
 [data-showcase="board"] .mb-sz {

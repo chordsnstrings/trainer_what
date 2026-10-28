@@ -116,10 +116,13 @@ test("frontier lines: idempotent filter, copy limits, never 'only gets better'",
     assert.deepEqual(marketingPageFor(once, availability(true)), once, page.path);
   }
   // The copy limits of docs/features/marketing-site.md for each gated line,
-  // the frontier wording and the lines that follow subscriber payments or
-  // the coaching assistant.
+  // the frontier wording and the lines that follow the platform's money,
+  // publishing (sign-ups among its gates), the coaching assistant or the
+  // options a subscriber can add.
+  const GATES = ["frontier", "payments", "payouts", "model", "registration", "nutrition", "voice"];
   for (const line of AVAILABILITY_LINES) {
-    assert.ok(["frontier", "payments", "model"].includes(line.when), line.when);
+    for (const gate of typeof line.when === "string" ? [line.when] : line.when)
+      assert.ok(GATES.includes(gate), String(line.when));
     assert.doesNotMatch(JSON.stringify(line), /only gets better|always better|guarantee/i);
     if (line.bullet) {
       assert.ok(words(line.bullet.text) <= 12, line.bullet.text);
