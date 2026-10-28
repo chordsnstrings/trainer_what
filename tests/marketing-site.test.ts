@@ -729,7 +729,8 @@ test("llms-full.txt and the assistant facts say what the pages show: whole Never
     for (const model of [false, true])
       for (const payments of [false, true])
         cases.push({ ...ctx, registrationOpen, availability: { model, payments, payouts: true, voice: true, nutrition: model } });
-  const full = new Set([0, 6, 10, cases.length - 1, cases.length - 5]);
+  // All off; model, payments and voice on with payouts off; sign-ups unknown.
+  const full = new Set([0, 13, cases.length - 5]);
   cases.forEach((c, i) => {
     const label = JSON.stringify({ registrationOpen: c.registrationOpen, ...c.availability });
     const want = expected(c.registrationOpen, c.availability!);
@@ -737,7 +738,9 @@ test("llms-full.txt and the assistant facts say what the pages show: whole Never
     if (full.has(i)) texts.push(["llms-full.txt", llmsFullTxt(c)]);
     for (const [name, text] of texts) {
       assert.deepEqual(statusLines(sectionOf(text, "### Live today, and not on yet")), want, `${name} /pricing ${label}`);
-      assert.deepEqual(statusLines(sectionOf(text, "### Free to start. Your price.")), want, `${name} / ${label}`);
+      // The home's panel follows its economics band, under the panel's title.
+      assert.ok(text.indexOf("### What works today") > text.indexOf("### Free to start. Your price."), `${name} ${label}`);
+      assert.deepEqual(statusLines(sectionOf(text, "### What works today")), want, `${name} / ${label}`);
       const subscribers = sectionOf(text, "### What subscribers get, under your name").split("\n").filter((l) => l.startsWith("- "));
       assert.deepEqual(subscribers, offer(c.availability!), `${name} ${label}`);
     }

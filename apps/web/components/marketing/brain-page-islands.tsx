@@ -231,7 +231,7 @@ export function RuleLedger() {
  * go live once they pass the re-check.
  */
 const VERSIONS = [
-  { v: "v1", what: "Rules, quiz, 3 cases", when: "16 Oct" },
+  { v: "v1", what: "Rules, quiz, 3\u00a0cases", when: "16 Oct" },
   { v: "v2", what: "+ 17 cases", when: "18 Oct" },
   { v: "v3", what: "+ 1 rule", when: "19 Oct" },
   { v: "v4", what: "+ 2 corrections", when: "21 Oct" },
