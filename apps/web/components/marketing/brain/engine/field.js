@@ -18,8 +18,12 @@
    - the board sets its own data-sc="on" and has no live region (say());
    - the phone settings sheet and receipts mount in the overlay layer;
    - nothing moves in layout once it plays: lane tiles sit in their lists
-     by transforms, streamed text reserves its final size, counts and the
-     Pause label have fixed widths (zero layout shift). */
+     by transforms, Noura's tile keeps its slot until her stop lands it,
+     streamed and typed words reserve their final size, counts and the
+     Pause label have fixed widths, and the reduced-motion still frame adds
+     tiles under the ones already shown (zero layout shift);
+   - the Paused count holds each stop once in the reduced-motion frame (the
+     prototype landed Noura's twice). */
 import "./field.run.css";
 import raw from "../data/traces.client.json";
 import * as C from "./core.js";
