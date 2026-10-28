@@ -129,7 +129,8 @@ export async function mount(root, o) {
 
   /* ---------------- canvas state */
   const st = {}; // sp → {s, t0}
-  let lines = [], dot = null, trail = [], clock = 0, mode = "one", runTl = null, runEnd = null, allTl = null, allEnd = null;
+  // runTl lives until its AI words finish streaming (after the result shows); playing: until the result shows
+  let lines = [], dot = null, trail = [], clock = 0, mode = "one", runTl = null, runEnd = null, playing = false, allTl = null, allEnd = null;
   // the matrices draw the nodes' states as the frame has them, then as runs set them
   const sync = () => $$(".sc-node", dia).forEach((e) => (st[e.dataset.sp] = { s: e.dataset.state, t0: -1e9 }));
   const setNode = (sp, s) => {
@@ -194,7 +195,7 @@ export async function mount(root, o) {
 
   /* ---------------- the dot: keyframes along the run's route */
   function moveDot() {
-    const K = dot.keys, t = runTl ? runTl.t : Infinity;
+    const K = dot.keys, t = playing ? runTl.t : Infinity;
     const i = K.findIndex((q) => q.at > t);
     if (i == -1) { const q = K[K.length - 1].p(); dot.pos = q[q.length - 1]; return; }
     const q = K[i], a = Math.max(q.dep, i ? K[i - 1].at : 0), p = q.p();
@@ -231,6 +232,7 @@ export async function mount(root, o) {
   function stopRun() {
     if (runTl) runTl.stop(), (runTl = null);
     if (runEnd) runEnd(), (runEnd = null);
+    playing = false;
   }
   function resetStage(t, from, r) {
     if (!from) { for (const sp in G.n) setNode(sp, "idle"); $$(".sc-val", dia).forEach((e) => (e.textContent = "")); }
@@ -280,6 +282,7 @@ export async function mount(root, o) {
     showResult(resultHTML(d, t, r, before && before != r.lane ? before : null), true);
     if (note) C.say(note);
     const steps = r.steps, base = from ? steps[from].at - 300 : -500, tl = (runTl = C.timeline(sc));
+    playing = true;
     const floor = t.decide == "floor";
     let prev = (from && anchor(t, steps[from - 1])) || { id: "msg", f: MSG }, keys = [], lastAt = 0;
     const leg = (a, b) => () => route(a(), b());
@@ -349,7 +352,7 @@ export async function mount(root, o) {
     if (sp == "examiner") $(".bp-book b").textContent = "25";
   }
   function finish(t, r) {
-    runTl = null;
+    playing = false;
     const b = $(`.bp-bin[data-lane="${r.lane}"]`, dia);
     if (b) b.setAttribute("data-hot", "");
     if (t.decide == "floor") $$(".is-dim", stage).forEach((e) => e.classList.remove("is-dim"));
@@ -365,7 +368,7 @@ export async function mount(root, o) {
 
   /* ---------------- settings */
   function changed() {
-    if (runTl) return void (stale = true);
+    if (playing) return void (stale = true);
     const r = decide(cur, S, d), was = R ? R.lane : null;
     showResult(resultHTML(d, cur, r, was && was != r.lane ? was : null));
     again.classList.add("bp-btn-p");
@@ -392,7 +395,7 @@ export async function mount(root, o) {
       stopAll(); need();
       return Promise.resolve();
     }
-    if (runTl) runTl.skip(); // a run in progress ends first, so "Back to one moment" finds it whole
+    if (runTl) runTl.skip(); // a run in progress ends first (its words too), so "Back to one moment" finds it whole
     pend = null;
     mode = "all"; dot = null;
     const list = SPECS[0][2].map((i) => d.trace("t" + i)), noAi = d.labels.noAi;
@@ -497,7 +500,7 @@ export async function mount(root, o) {
       if (dirty) measure();
       if (dot && dot.keys) moveDot();
       paint(now);
-      sub.fps = runTl || lines.length ? 60 : 12;
+      sub.fps = playing || lines.some((l) => clock - l.t0 < l.draw + (l.keep ? 0 : l.hold + l.fade)) ? 60 : 12;
       return !RM && mode == "one";
     }, 12);
     const ro = new ResizeObserver(() => need());
@@ -509,7 +512,7 @@ export async function mount(root, o) {
     k.on(root, "click", (e) => {
       const c = e.target.closest(".bp-chip");
       if (c) { if (busy) return void e.preventDefault(); return void run(c.dataset.t); }
-      if (e.target.closest(".bp-skip")) { e.preventDefault(); if (runTl) runTl.skip(); out.focus(); return; }
+      if (e.target.closest(".bp-skip")) { e.preventDefault(); if (playing) runTl.skip(); out.focus(); return; }
       if (e.target.closest(".bp-all-b")) return void (busy || showAll(true));
       const m = e.target.closest(".bp-mini");
       if (m) return void run(m.dataset.t);
