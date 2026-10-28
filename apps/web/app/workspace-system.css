@@ -30,7 +30,8 @@
   font-size: 14px;
   line-height: 1.5;
 }
-:root:has(.workspace.platform-ui) { background: #ffffff; color-scheme: light; }
+/* The document behind it (data-shell on <html>, components/root-marks.tsx). */
+:root[data-shell~="workspace"] { background: #ffffff; color-scheme: light; }
 .workspace.platform-ui .brand-logo .brand-logo-light { display: block; }
 .workspace.platform-ui .brand-logo .brand-logo-dark { display: none; }
 .workspace.platform-ui .sidebar {

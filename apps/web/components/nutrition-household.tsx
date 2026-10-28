@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { Field } from "./field";
+import { holdRootMark } from "./root-marks";
 import { useLocale } from "../lib/i18n/react";
 import { translator } from "../lib/i18n/core";
 import copy from "../lib/i18n/messages/nutrition-household";
@@ -333,7 +334,12 @@ function KitchenDialog({
   useEffect(() => {
     dialog.current?.showModal();
     document.body.classList.add("nutrition-kitchen-open");
-    return () => document.body.classList.remove("nutrition-kitchen-open");
+    // Printing it, the document behind is white too (app/nutrition.css).
+    const release = holdRootMark("data-open", "kitchen");
+    return () => {
+      document.body.classList.remove("nutrition-kitchen-open");
+      release();
+    };
   }, []);
   const date = (value: string) =>
     formatDate(value, { locale, weekday: true, year: false });

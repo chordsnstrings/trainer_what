@@ -18,12 +18,15 @@ import type { ReactNode } from "react";
 import {
   HOME_OFFER,
   PROOF_LINKS,
+  PUBLISH_GATES,
   REPLACES,
+  TEACH_GATES,
   marketingPage,
   marketingPageFor,
   type HomeOfferItem,
   type MarketingPage,
   type MarketingSection,
+  type StatusGate,
 } from "@trainer/contracts";
 import { BANDS } from "@trainer/domain";
 import traces from "../brain/data/traces.client.json";
@@ -52,6 +55,7 @@ import {
   SourceBadge,
   StatusChip,
   StatusPanel,
+  gatesOn,
 } from "../proof";
 
 const pad = (i: number) => String(i + 1).padStart(2, "0");
@@ -83,6 +87,18 @@ function homeBands(): Array<{ rate: string; range: string }> {
     return { rate: `${band.bps / 100}%`, range };
   });
 }
+
+/**
+ * What a walkthrough step (a /how-it-works step title) waits for, as the
+ * status panel says: teaching and testing wait for the coaching assistant,
+ * publishing for the go-live checks, getting paid for payments and payouts.
+ */
+const STEP_GATES: Record<string, readonly StatusGate[]> = {
+  "Teach your Brain": TEACH_GATES,
+  "Test it": TEACH_GATES,
+  "Publish and share": PUBLISH_GATES,
+  "Get paid monthly": ["payments", "payouts"],
+};
 
 /** "A website builder" → "Website builder": the tool categories as short names. */
 const toolName = (tool: string) => tool.replace(/^An? /, "").replace(/^./, (c) => c.toUpperCase());
@@ -328,7 +344,7 @@ export function HomePage({ page, platform, showcase = "live" }: Ctx) {
   const cta = primaryCta(page, platform);
   const demo = secondaryCta(page);
   const options = showcaseOptions(platform, teachCta(platform.registrationOpen));
-  const { payments, payouts } = platform.availability;
+  const { payments } = platform.availability;
   const resort = sectionOf(page, "resort"),
     how = sectionOf(page, "how"),
     subscribers = sectionOf(page, "subscribers"),
@@ -337,13 +353,12 @@ export function HomePage({ page, platform, showcase = "live" }: Ctx) {
     followers = sectionOf(page, "followers"),
     proof = sectionOf(page, "proof");
   // The walkthrough is the /how-it-works steps (their availability lines
-  // included); publishing and getting paid wait for payments and payouts.
+  // included), each with "Not on yet" while what it waits for is off.
   const steps = sectionOf(marketingPageFor(marketingPage("/how-it-works")!, platform.availability), "steps").steps ?? [];
-  const waits = new Set(payments && payouts ? [] : ["Publish and share", "Get paid monthly"]);
   const walk = steps.map((step) => ({
     title: t(step.title),
     body: t(step.body),
-    flag: waits.has(step.title) ? <NotOnYet on={false} /> : undefined,
+    flag: gatesOn(platform, STEP_GATES[step.title]) ? undefined : <NotOnYet on={false} />,
   }));
   const tools = REPLACES.map((r) => ({ name: toolName(r.tool), on: live(platform, r.availability) }));
   const template = platform.coachAddressTemplate.replace(/^https?:\/\//, "");

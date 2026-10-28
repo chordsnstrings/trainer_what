@@ -358,8 +358,10 @@ test("the samples are the product's: Compare my replies rates the app's five poi
 test("what it never does and what stays yours: the registry's lists, the Never sheet unsigned", () => {
   const html = render(BRAIN, platform("off"));
   const never = element(html, 'id="never"');
-  const lines = [...never.matchAll(/<span class="mk-pf-never-word">Never<\/span><span>([^<]+)<\/span>/g)].map((m) => m[1]);
+  // Each line is whole ("Never hide pain…"), its first word set apart.
+  const lines = [...never.matchAll(/<span class="mk-pf-never-word">(Never)<\/span> <span>([^<]+)<\/span>/g)].map((m) => `${m[1]} ${m[2]}`);
   assert.deepEqual(lines, sectionOf(BRAIN, "never").bullets);
+  assert.equal(lines.length, 4);
   assert.ok(decode(never).endsWith(sectionOf(BRAIN, "never").note!));
   assert.doesNotMatch(never, /founder|signature|signed/i);
   const yours = [...element(html, 'id="yours"').matchAll(/<li>[\s\S]*?<span>([^<]+)<\/span><\/li>/g)].map((m) => m[1]);

@@ -12,6 +12,7 @@ import {
   NEVER_LIST,
   NEVER_NOTE,
   STATUS_ITEMS,
+  gatesState,
   sourceById,
   type StatusGate,
 } from "@trainer/contracts";
@@ -19,9 +20,7 @@ import type { PublicPlatform } from "./platform";
 
 /** Whether every gate is on for this platform; no gates is always on. */
 export function gatesOn(platform: PublicPlatform, gates: readonly StatusGate[] = []): boolean {
-  return gates.every((gate) =>
-    gate === "registration" ? platform.registrationOpen : platform.availability[gate] === true,
-  );
+  return gatesState(platform, gates) === true;
 }
 
 function PfChip({ tone, children }: { tone: "live" | "soon" | "estimate"; children: ReactNode }) {
@@ -141,8 +140,9 @@ export function SourceBadge({ id, label = "Source" }: { id: string; label?: stri
 }
 
 /**
- * What your AI never does, as a sheet: each NEVER_LIST line after "Never",
- * then NEVER_NOTE. Unsigned: there is no founder note.
+ * What your AI never does, as a sheet: each NEVER_LIST line with its first
+ * word, "Never", set apart, then NEVER_NOTE. Unsigned: there is no founder
+ * note.
  */
 export function NeverSheet({
   title = "What your AI will never do",
@@ -160,12 +160,14 @@ export function NeverSheet({
         {title}
       </H>
       <ol className="mk-pf-never-list">
-        {NEVER_LIST.map((line) => (
-          <li key={line}>
-            <span className="mk-pf-never-word">Never</span>
-            <span>{line}</span>
-          </li>
-        ))}
+        {NEVER_LIST.map((line) => {
+          const at = line.indexOf(" ");
+          return (
+            <li key={line}>
+              <span className="mk-pf-never-word">{line.slice(0, at)}</span> <span>{line.slice(at + 1)}</span>
+            </li>
+          );
+        })}
       </ol>
       <p className="mk-pf-never-note">
         <Lock size={16} aria-hidden="true" />

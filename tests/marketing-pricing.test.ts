@@ -11,6 +11,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
   MEMBERSHIP_MINIMUMS,
   brandText,
+  monthlyMinimum,
   marketingPage,
   marketingPageFor,
   type MarketingPage,
@@ -160,6 +161,13 @@ test("every figure is the ledger's: the worked example, the sample statement and
     [e.subscriptionMonthlyMinor, e.bands[0].commissionMinor, e.bands[1].commissionMinor, e.commissionMinor, e.beforeOtherCostsMinor, e.equivalentSessions],
     [2_985_000, 497_500, 199_000, 696_500, 2_288_500, 92],
   );
+  // The registry says the same example in words, for llms-full.txt and the
+  // assistant, which do not see the page's statement.
+  const [first, next] = e.bands;
+  assert.deepEqual(PAGE.sections.find((s) => s.id === "example")!.body, [
+    `${PRICING_EXAMPLE.subscribers} subscribers at ${aed(PRICING_EXAMPLE.priceAed * 100)} a month bring ${aed(e.subscriptionMonthlyMinor)}. Our share is ${first.ratePct}% of the first ${first.subscribers} and ${next.ratePct}% of the next ${next.subscribers}: ${aed(e.commissionMinor)}.`,
+    `You keep ${aed(e.beforeOtherCostsMinor)} before card processing and other costs, about ${e.equivalentSessions} sessions at AED ${PRICING_EXAMPLE.sessionRateAed}.`,
+  ]);
   for (const state of STATES) {
     const html = main(render(state));
     const example = decode(section(html, "example", "hours"));
@@ -172,9 +180,25 @@ test("every figure is the ledger's: the worked example, the sample statement and
     const statement = decode(section(html, "statement", "how"));
     assert.match(statement, new RegExp(`Subscriptions, 150 × AED 199 ${aed(e.subscriptionMonthlyMinor)}`));
     assert.match(statement, new RegExp(`Our share, by band −${aed(e.commissionMinor)}`));
+    // The lowest prices, beside the calculator and in "Who sets the price?",
+    // are the ones activation enforces (membership-pricing.ts).
+    const tool = decode(section(html, "example", "hours"));
+    assert.ok(
+      tool.includes(`Prices start at ${aed(MEMBERSHIP_MINIMUMS.training)} a month, ${aed(MEMBERSHIP_MINIMUMS.nutrition)} with nutrition or voice included and ${aed(MEMBERSHIP_MINIMUMS.complete)} with both.`),
+      state,
+    );
+    assert.deepEqual(
+      [monthlyMinimum({}), monthlyMinimum({ tier: "workout_nutrition" }), monthlyMinimum({ premiumVoice: true }), monthlyMinimum({ tier: "workout_nutrition", premiumVoice: true })],
+      [MEMBERSHIP_MINIMUMS.training, MEMBERSHIP_MINIMUMS.nutrition, MEMBERSHIP_MINIMUMS.nutrition, MEMBERSHIP_MINIMUMS.complete],
+    );
+    assert.match(
+      decode(between(html, "Who sets the price?", "</details>")),
+      new RegExp(`from ${MEMBERSHIP_MINIMUMS.training / 100} a month \\(${MEMBERSHIP_MINIMUMS.nutrition / 100} with nutrition or voice included, ${MEMBERSHIP_MINIMUMS.complete / 100} with both\\)`),
+    );
     // Every amount on the page is one of these: no other figure ships.
     const allowed = new Set([
       ...[e.subscriptionMonthlyMinor, e.commissionMinor, e.beforeOtherCostsMinor, ...e.bands.map((b) => b.commissionMinor)].map(aed),
+      ...Object.values(MEMBERSHIP_MINIMUMS).map(aed),
       aed(PRICING_EXAMPLE.priceAed * 100),
       "AED " + PRICING_EXAMPLE.sessionRateAed,
       aed(0),
@@ -284,7 +308,8 @@ test("payments off and on: the strip before any AED figure, the chips, the notes
     const faq = decode(between(html, "Can subscribers pay me today?", "</details>")).trim();
     if (!payments) {
       assert.match(strip(html), /Subscriber payments and payouts are not on yet\. What works today/);
-      assert.equal((shown.match(/Not on yet: subscriber payments/g) ?? []).length, 3, state);
+      // The example's head, the calculator, the sample statement and "How you earn".
+      assert.equal((shown.match(/Not on yet: subscriber payments/g) ?? []).length, 4, state);
       assert.match(decode(section(html, "status", "in-short")), /Not on yet .*Subscriber payments in AED/);
       assert.match(faq, /^Can subscribers pay me today\? Not yet\./);
       // Under every amount you keep; it invites a visit only while sign-ups are open.
@@ -298,6 +323,10 @@ test("payments off and on: the strip before any AED figure, the chips, the notes
       assert.match(strip(html), payouts ? /Subscriber payments and payouts are live\./ : /Payouts are not on yet\. What works today/);
     }
     assert.equal(/Not on yet: payouts/.test(decode(section(html, "payouts", "status"))), !payouts, state);
+    // "How you earn" says what is not on yet of what it describes.
+    const how = decode(section(html, "how", "billing"));
+    assert.equal(/Not on yet: subscriber payments/.test(how), !payments, state);
+    assert.equal(/Not on yet: payouts/.test(how), !payouts, state);
     assert.match(
       decode(section(html, "statement", "how")),
       payouts ? /Payouts are monthly, to your verified UAE IBAN\./ : /Payouts are monthly, to a verified UAE IBAN, once payouts are on\./,

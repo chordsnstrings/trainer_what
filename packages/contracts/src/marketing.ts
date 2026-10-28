@@ -16,6 +16,7 @@ import {
   BRAND_SHARE_IMAGE_ALT,
   usesBrandIdentity,
 } from "./brand.ts";
+import { HOME_OFFER, STATUS_ITEMS, gatesState } from "./marketing-proof.ts";
 export { AVAILABILITY_LINES, MARKETING_SOURCES, SETUP_CHECKLIST };
 
 /**
@@ -444,6 +445,8 @@ export type MarketingContext = {
   followerModel?: AssumptionFigures;
   /** Provider availability; lines gated on a flag show only while it is on. */
   availability?: Partial<Record<AvailabilityKey, boolean>>;
+  /** Whether new sign-ups are open; a status that waits for them is left out while this is unknown. */
+  registrationOpen?: boolean;
 };
 
 /**
@@ -778,6 +781,37 @@ function sectionMarkdown(section: MarketingSection, t: (s: string) => string) {
   if (section.sources?.length) out.push("");
   return out;
 }
+/**
+ * A section as its page shows it, where the page prints lines from the
+ * platform's flags instead of the registry text: the home offer with how
+ * each item is offered and whether it is on yet (pages/home.tsx), and the
+ * "Live today / Not on yet" panel (proof.tsx StatusPanel) after the home
+ * economics band and in the /pricing status band. Each line carries its own
+ * state, so it stays true when read alone. llms-full.txt and the assistant
+ * facts print sections through it.
+ */
+function shownSection(path: string, section: MarketingSection, ctx: MarketingContext): MarketingSection {
+  if (path === "/" && section.id === "subscribers")
+    return {
+      ...section,
+      bullets: HOME_OFFER.map((item) => {
+        const on = (item.availability ?? []).every((key) => ctx.availability?.[key] === true);
+        return `${item.text} (${item.offering.toLowerCase()}${on ? "" : ", not on yet"})`;
+      }),
+    };
+  if ((path === "/" && section.id === "economics") || (path === "/pricing" && section.id === "status")) {
+    const state = STATUS_ITEMS.map((item) => ({ item, on: gatesState(ctx, item.gates) }));
+    return {
+      ...section,
+      bullets: [
+        ...(section.bullets ?? []),
+        ...state.filter((s) => s.on === true).map((s) => `Live today: ${s.item.text}`),
+        ...state.filter((s) => s.on === false).map((s) => `Not on yet: ${s.item.offText ?? s.item.text}`),
+      ],
+    };
+  }
+  return section;
+}
 /** Every indexable marketing page as Markdown, for language models. */
 export function llmsFullTxt(ctx: MarketingContext): string {
   const t = (text: string) => brandText(text, ctx.appName, ctx.followerModel);
@@ -801,7 +835,7 @@ export function llmsFullTxt(ctx: MarketingContext): string {
       "",
     );
     for (const section of page.sections) {
-      out.push(...sectionMarkdown(section, t));
+      out.push(...sectionMarkdown(shownSection(page.path, section, ctx), t));
       if (page.path === "/get-started" && section.id === "checklist")
         out.push(...SETUP_CHECKLIST.map((step, i) => `${i + 1}. ${step.label} (about ${step.minutes} min): ${step.summary}`));
     }
@@ -851,7 +885,9 @@ export function marketingAssistantFacts(ctx: MarketingContext): string {
     // The calculator pages' own blocks are the calculators: the assistant asks
     // the code for numbers instead of reading the worked examples.
     if (!path.endsWith("-calculator"))
-      for (const s of page.sections) {
+      for (const s of page.sections.map((section) => shownSection(path, section, ctx))) {
+        // The note is the block's fine print ("Once your page is live."),
+        // kept so a line is never read without its qualifier.
         const lines = [
           ...(s.body ?? []),
           ...(s.bullets ?? []).map((b) => `- ${b}`),
@@ -860,6 +896,7 @@ export function marketingAssistantFacts(ctx: MarketingContext): string {
           ...(s.table
             ? [s.table.caption + ":", ...s.table.rows.map((r) => r.join(" | "))]
             : []),
+          ...(s.note ? [s.note] : []),
         ];
         if (lines.length) out.push(`### ${t(s.heading)}`, ...lines.map(t));
       }

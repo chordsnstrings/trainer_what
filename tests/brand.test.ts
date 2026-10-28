@@ -468,11 +468,12 @@ test("the backend and public platform stay light; member appearance is independe
   assert.match(backend, /color-scheme: light;/);
   assert.match(backend, /\.brand-logo-light \{ display: block;/);
   assert.match(backend, /\.brand-logo-dark \{ display: none;/);
-  // The public root and the document behind it stay light in any scheme.
+  // The public root and the document behind it stay light in any scheme
+  // (each public page marks <html>: components/root-marks.tsx).
   assert.match(css, /\n\.public\.platform-ui \{\s*color-scheme: light;\s*\}/);
   assert.match(
     css,
-    /\n:root:has\(\.public\.platform-ui\) \{\s*background: var\(--ty-white\);\s*color-scheme: light;\s*\}/,
+    /\n:root\[data-shell~="public"\] \{\s*background: var\(--ty-white\);\s*color-scheme: light;\s*\}/,
   );
   // The browser colour of public platform pages is white in every scheme;
   // the workspace keeps the root layout's paper and ink pair.

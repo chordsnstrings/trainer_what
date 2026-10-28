@@ -414,6 +414,11 @@ export function PricingPage({ page, platform }: Ctx) {
                 maxSubscribers={MAX_SUBSCRIBERS}
                 sessionRateAed={PRICING_EXAMPLE.sessionRateAed}
               />
+              {/* The lowest prices activation accepts (assertOfferPrice). */}
+              <p className="mk-pr-fine">
+                Prices start at {aed(MEMBERSHIP_MINIMUMS.training)} a month, {aed(MEMBERSHIP_MINIMUMS.nutrition)} with
+                nutrition or voice included and {aed(MEMBERSHIP_MINIMUMS.complete)} with both.
+              </p>
               {!payments && <PaymentsNote registrationOpen={platform.registrationOpen} />}
             </div>
             <Link className="text-link mk-link" href="/earnings-calculator">
@@ -466,7 +471,14 @@ export function PricingPage({ page, platform }: Ctx) {
 
       <Band tone="white">
         <div className="mk-cards mk-pr-cards">
-          <SectionCard section={how} t={t} />
+          <SectionCard section={how} t={t}>
+            {(!payments || !payouts) && (
+              <div className="mk-pr-chips">
+                <NotOnYet on={payments} what="subscriber payments" />
+                <NotOnYet on={payouts} what="payouts" />
+              </div>
+            )}
+          </SectionCard>
           <SectionCard section={billing} t={t}>
             <ul className="mk-pr-tags" aria-label="Billing options">
               {["Monthly", "Upfront", "Free trial days", "Promotion codes"].map((tag) => (

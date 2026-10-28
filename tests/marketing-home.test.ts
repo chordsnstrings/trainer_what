@@ -348,18 +348,29 @@ test("what subscribers get: the offer with its status, the sample app labelled a
   assert.doesNotMatch(src("apps/web/components/marketing/pages/home.tsx"), /\.trainsyou\.com|trainsyou\.example/);
 });
 
-test("the walkthrough: the /how-it-works steps as tabs; publishing and getting paid say Not on yet until payments and payouts are on", () => {
-  for (const state of STATES) {
-    const p = platform(state);
+test("the walkthrough: the /how-it-works steps as tabs; each says Not on yet while what it waits for is off", () => {
+  // Publishing follows the go-live checks (sign-ups, payments, the coaching
+  // assistant), never payouts; getting paid waits for payments and payouts;
+  // teaching and testing wait for the coaching assistant.
+  const waits = (p: PublicPlatform, title: string) => {
+    const { model, payments, payouts } = p.availability;
+    if (title === "Teach your Brain" || title === "Test it") return !model;
+    if (title === "Publish and share") return !(p.registrationOpen && payments && model);
+    if (title === "Get paid monthly") return !(payments && payouts);
+    return false;
+  };
+  const off = (changes: Partial<PublicPlatform["availability"]>) => (p: PublicPlatform) => ({ ...p, availability: { ...p.availability, ...changes } });
+  const cases = [...STATES.map((state) => platform(state)), off({ model: false })(platform("off")), off({ model: false })(platform("on"))];
+  for (const p of cases) {
+    const state = `${p.registrationOpen ? "open" : "closed"} ${JSON.stringify(p.availability)}`;
     const how = element(render(p), 'id="how"');
     const steps = marketingPageFor(marketingPage("/how-it-works")!, p.availability).sections.find((s) => s.id === "steps")!.steps!;
     const rail = element(how, '<div class="mk-hm-walk-rail" role="tablist"');
     assert.match(rail, new RegExp(`aria-label="Setup to payday, ${steps.length} steps"`));
     const tabs = [...rail.matchAll(/<button[^>]*role="tab"[^>]*>([\s\S]*?)<\/button>/g)].map((m) => decode(m[1]));
-    const live = p.availability.payments && p.availability.payouts;
     assert.deepEqual(
       tabs,
-      steps.map((s, i) => `0${i + 1} ${t(s.title)}${!live && ["Publish and share", "Get paid monthly"].includes(s.title) ? " Not on yet" : ""}`),
+      steps.map((s, i) => `0${i + 1} ${t(s.title)}${waits(p, s.title) ? " Not on yet" : ""}`),
       state,
     );
     // Tabs: the first selected and in the tab order, each with its panel;
@@ -379,6 +390,58 @@ test("the walkthrough: the /how-it-works steps as tabs; publishing and getting p
     const three = [...element(how, '<ol class="mk-hm-steps">').matchAll(/<li>([\s\S]*?)<\/li>/g)].map((m) => decode(m[1]));
     assert.deepEqual(three, PAGE.sections.find((s) => s.id === "how")!.steps!.map((s, i) => `0${i + 1} ${t(s.title)} ${t(s.body)}`));
   }
+});
+
+test("what works today follows the product's own gates: publishing waits for sign-ups, payments and the coaching assistant (never payouts); the voice add-on for payments; teaching and testing for the assistant", () => {
+  const column = (html: string, tone: "live" | "soon") => {
+    const at = html.indexOf(`<div class="mk-pf-status-col mk-pf-status-${tone}">`);
+    return at < 0 ? [] : [...html.slice(at, html.indexOf("</ul>", at)).matchAll(/<span>([^<]+)<\/span>/g)].map((m) => m[1]);
+  };
+  // Written out here, apart from STATUS_ITEMS: what each line waits for in
+  // apps/api (onboarding.ts go-live checks, app.ts activation).
+  const expected = (open: boolean, a: PublicPlatform["availability"]) => {
+    const live = [
+      ["Sign up free", "New sign-ups (early access for now)", open],
+      ["Set up your page and app", "", true],
+      ["Teach and test your AI", "Teaching and testing your AI", a.model],
+      ["Preview what subscribers will see", "", true],
+      ["Publish your page to subscribers", "Publishing your page to subscribers", open && a.payments && a.model],
+      ["Subscriber payments in AED", "Subscriber payments in AED", a.payments],
+      ["Payouts to a UAE bank", "Payouts to a UAE bank", a.payouts],
+      ["Paid bookings", "Paid bookings", a.payments],
+      ["Voice add-on for subscribers", "Voice add-on for subscribers", a.voice && a.payments],
+    ] as const;
+    return { live: live.filter((l) => l[2]).map((l) => l[0]), soon: live.filter((l) => !l[2]).map((l) => l[1]) };
+  };
+  for (const open of [false, true])
+    for (const model of [false, true])
+      for (const payments of [false, true])
+        for (const payouts of [false, true])
+          for (const voice of [false, true]) {
+            const p = platform("on", { registrationOpen: open });
+            p.availability = { ...p.availability, model, payments, payouts, voice };
+            const html = element(render(p), 'id="economics"');
+            const label = JSON.stringify({ open, model, payments, payouts, voice });
+            assert.deepEqual({ live: column(html, "live"), soon: column(html, "soon") }, expected(open, p.availability), label);
+          }
+  // The reviewer's case: payments on, payouts off. Publishing is live, and
+  // the FAQ on the same page agrees that subscribers can pay.
+  const html = render(platform("payments"));
+  assert.ok(column(html, "live").includes("Publish your page to subscribers"));
+  assert.match(decode(html), /Can subscribers pay me today\? Yes\. Subscribers pay you by card in AED\./);
+});
+
+test("can subscribers pay me today: teaching and testing are offered only while the coaching assistant is on", () => {
+  const answer = (p: PublicPlatform) => {
+    const faq = render(p).match(/<summary>Can subscribers pay me today\?<\/summary><p>([\s\S]*?)<\/p>/)![1];
+    return decode(faq);
+  };
+  const base = "Not yet. Subscriber payments are not on yet, and publishing your page waits for them. With an account you can already set up your page and app";
+  const off = platform("off");
+  assert.equal(answer(off), base + ", and teach and test your AI.");
+  assert.equal(answer({ ...off, availability: { ...off.availability, model: false } }), base + ".");
+  const on = platform("payments");
+  assert.equal(answer({ ...on, availability: { ...on.availability, model: false } }), "Yes. Subscribers pay you by card in AED.");
 });
 
 test("states and honesty: no /signup while sign-ups are closed, no brand on a renamed platform, no placeholder or model name, the still frame in static mode", () => {

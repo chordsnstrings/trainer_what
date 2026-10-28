@@ -31,6 +31,7 @@ import {
 } from "react";
 import { Check, Minus, Paperclip, Plus, X } from "lucide-react";
 import { useT } from "../lib/i18n/react";
+import { holdRootMark } from "./root-marks";
 import {
   EASE,
   MOTION,
@@ -279,6 +280,28 @@ export function BottomSheet({
     };
     el.addEventListener("cancel", cancel);
     return () => el.removeEventListener("cancel", cancel);
+  }, []);
+  // The page behind stays put while the sheet is open, its slide away
+  // included (app/phone-first.css): the dialog's open attribute marks
+  // <html>, whatever opened or closed it.
+  useEffect(() => {
+    const el = dialog.current;
+    if (!el) return;
+    let release: (() => void) | null = null;
+    const sync = () => {
+      if (el.open && !release) release = holdRootMark("data-open", "sheet");
+      else if (!el.open && release) {
+        release();
+        release = null;
+      }
+    };
+    const observer = new MutationObserver(sync);
+    observer.observe(el, { attributes: true, attributeFilter: ["open"] });
+    sync();
+    return () => {
+      observer.disconnect();
+      release?.();
+    };
   }, []);
   // Close on unmount so a navigation never leaves the page inert.
   useEffect(

@@ -65,7 +65,8 @@ test("flag off: 'frontier model' appears nowhere, including llms files and struc
     // Raw HTML includes the JSON-LD script with the FAQ structured data.
     assert.doesNotMatch(html(page, false), FRONTIER, page.path);
     assert.doesNotMatch(JSON.stringify(marketingJsonLd(page, ctx(false))), FRONTIER, page.path);
-    assert.equal(marketingPageFor(page, availability(false, false)), page, "unchanged");
+    // Every flag off: the registry text, unchanged.
+    assert.equal(marketingPageFor(page, { ...availability(false, false), model: false }), page, "unchanged");
   }
   assert.doesNotMatch(llmsTxt(ctx(false)), FRONTIER);
   assert.doesNotMatch(llmsFullTxt(ctx(false)), FRONTIER);
@@ -114,9 +115,10 @@ test("frontier lines: idempotent filter, copy limits, never 'only gets better'",
     assert.deepEqual(marketingPageFor(once, availability(true)), once, page.path);
   }
   // The copy limits of docs/features/marketing-site.md for each gated line,
-  // the frontier wording and the lines that follow subscriber payments.
+  // the frontier wording and the lines that follow subscriber payments or
+  // the coaching assistant.
   for (const line of AVAILABILITY_LINES) {
-    assert.ok(["frontier", "payments"].includes(line.when), line.when);
+    assert.ok(["frontier", "payments", "model"].includes(line.when), line.when);
     assert.doesNotMatch(JSON.stringify(line), /only gets better|always better|guarantee/i);
     if (line.bullet) {
       assert.ok(words(line.bullet.text) <= 12, line.bullet.text);

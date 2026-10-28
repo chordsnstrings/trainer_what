@@ -12,8 +12,12 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { Check, Lock } from "lucide-react";
 
-/** The rule to review: the sample trainer's progression, from the interview. */
-const RULE = "After two sessions at 3+ reps in reserve, add 2.5 kg";
+/**
+ * The rule to review: suggested from the sample trainer's edit of a reply
+ * (the traces' "You edit a reply"). Their progression rule from the
+ * interview is already confirmed and live (the trace chain on the page).
+ */
+const RULE = "When every set of an upper-body lift is done, add 2.5 kg";
 type RuleState = "pending" | "confirmed" | "edited" | "rejected";
 const RULE_STATUS: Record<RuleState, string> = {
   pending: "To review",
@@ -93,7 +97,7 @@ export function RuleLedger() {
         aria-labelledby="mk-tb-rule-h"
       >
         <p className="mk-tb-row mk-tb-mono">
-          <span>Interview · 12 Oct</span>
+          <span>Your edit · 22 Oct</span>
           <span>{RULE_STATUS[state]}</span>
         </p>
         {/* The card keeps its name (the rule) while the text box is open. */}
@@ -115,7 +119,7 @@ export function RuleLedger() {
             />
           </>
         )}
-        <p className="mk-tb-mono">Applies to · main lower-body lift</p>
+        <p className="mk-tb-mono">Applies to · upper-body lifts</p>
         <div className="button-row">
           {done ? (
             <button
@@ -220,10 +224,16 @@ export function RuleLedger() {
   );
 }
 
+/**
+ * The sample trainer's versions as the app makes them: the first goes live
+ * in "Waits for me" once rules, a practice quiz and 3 own cases are done;
+ * 20 own cases and a passing check allow sending on its own; later edits
+ * go live once they pass the re-check.
+ */
 const VERSIONS = [
-  { v: "v1", what: "Interview", when: "12 Oct" },
-  { v: "v2", what: "+ quiz", when: "14 Oct" },
-  { v: "v3", what: "+ 3 cases", when: "16 Oct" },
+  { v: "v1", what: "Rules, quiz, 3 cases", when: "16 Oct" },
+  { v: "v2", what: "+ 17 cases", when: "18 Oct" },
+  { v: "v3", what: "+ 1 rule", when: "19 Oct" },
   { v: "v4", what: "+ 2 corrections", when: "21 Oct" },
 ];
 

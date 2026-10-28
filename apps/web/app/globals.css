@@ -83,11 +83,13 @@
   font-size: 14px;
 }
 /* The backend uses its explicit light palette in workspace-system.css. */
-/* Public platform pages never follow the device into dark mode. */
+/* Public platform pages never follow the device into dark mode. The
+   document behind them too: each marks <html> with data-shell="public"
+   (components/root-marks.tsx). */
 .public.platform-ui {
   color-scheme: light;
 }
-:root:has(.public.platform-ui) {
+:root[data-shell~="public"] {
   background: var(--ty-white);
   color-scheme: light;
 }

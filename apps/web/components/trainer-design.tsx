@@ -38,6 +38,7 @@ import {
 import { directionOf, type Language } from "../document-language";
 import type { ColorSchemeChoice } from "../color-scheme";
 import { MEMBER_APP_VARIABLES } from "../lib/member-appearance";
+import { RootMark } from "./root-marks";
 
 import { PhotoUploader, MediaLibrary } from "./coach-site";
 import { useT } from "../lib/i18n/react";
@@ -143,6 +144,8 @@ export function TrainerTheme({
       data-brand-density={memberApp ? "balanced" : design.density}
       {...(colorScheme ? { "data-color-scheme": colorScheme } : {})}
     >
+      {/* The document behind follows the surface (app/appearance.css). */}
+      {colorScheme && <RootMark attribute="data-scheme" token={colorScheme} />}
       {children}
     </div>
   );

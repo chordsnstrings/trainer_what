@@ -93,17 +93,24 @@
   }
 }
 /* The board's level control needs 348px: below 380px wide it takes some of
-   the gutters rather than widen the page. */
+   the gutters, never more than the 16px they have, rather than widen the
+   page or start off screen. */
 .mk-hm-resort .mk-home-inner {
   grid-template-columns: minmax(0, 1fr);
 }
 @media (max-width: 379px) {
   .mk-hm-resort .sc-host {
-    margin-inline: calc((100vw - 380px) / 2);
+    margin-inline: max((100vw - 380px) / 2, -16px);
   }
 }
 
 /* ---------- bands ---------- */
+/* An in-page link ("Skip the figure", "What works today") lands its target
+   below the sticky header, 74px at its tallest. */
+.mk-home-band,
+.mk-pf-status {
+  scroll-margin-block-start: 74px;
+}
 .mk-hm-rule {
   border-block-start: 1px solid var(--mk-line);
 }
@@ -303,14 +310,15 @@
     color: var(--ink);
   }
 }
-/* The rail's ink under the chosen step: a transform, never a layout move. */
+/* The rail's ink under the chosen step: a transform, never a layout move.
+   The chosen step's marks are borders, never fills or shadows, so contrast
+   themes (forced colours) keep them. */
 .mk-hm-walk-ink {
   position: absolute;
   inset-block-start: -1px;
   inset-inline-start: 0;
   inline-size: calc(100% / var(--n));
-  block-size: 2px;
-  background: var(--ink);
+  border-block-start: 2px solid var(--ink);
   translate: calc(var(--k, 0) * 100% * var(--inline-sign, 1)) 0;
   transition: translate var(--mk-dur-base) var(--mk-ease-out);
 }
@@ -586,21 +594,18 @@
   font-size: 11px;
   font-weight: 400;
 }
-.mk-hm-flow,
-.mk-hm-flow-msg,
-.mk-hm-lanes {
+.mk-hm-flow {
   display: grid;
   gap: 14px;
   padding: 18px;
 }
 .mk-hm-flow-msg,
 .mk-hm-lanes {
+  display: grid;
   gap: 8px;
-  padding: 0;
-  justify-items: start;
 }
-.mk-hm-lanes {
-  justify-items: stretch;
+.mk-hm-flow-msg {
+  justify-items: start;
 }
 .mk-hm-bubble {
   padding-block: 9px;
@@ -824,11 +829,11 @@
     padding: 0;
     align-items: center;
     justify-content: center;
+    border: 1px solid var(--line);
     border-radius: var(--ty-radius-control);
-    box-shadow: inset 0 0 0 1px var(--line);
   }
   .mk-hm-walk-rail [aria-selected="true"] {
-    box-shadow: inset 0 0 0 2px var(--ink);
+    border: 2px solid var(--ink);
     font-weight: 700;
   }
   .mk-hm-walk-t,
@@ -853,6 +858,8 @@
     block-size: 7px;
     border-radius: 50%;
     background: var(--warning);
+    /* A contrast theme keeps the dot's colour, or drops the dot. */
+    forced-color-adjust: none;
   }
   .mk-hm-walk-body {
     grid-template-columns: minmax(0, 1fr);

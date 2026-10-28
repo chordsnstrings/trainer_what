@@ -841,8 +841,11 @@ test("the phone menu: a native details that animates in and out and closes on Es
   // the header the fixed overlay's containing block) pauses while open.
   assert.match(css, /\.mk-header \{[^}]*backdrop-filter: blur/);
   assert.match(css, /\.mk-header:has\(\.mk-mobile-menu\[open\]\) \{\s*backdrop-filter: none;/);
-  // Kamran's button does not cover the pinned buttons.
-  assert.match(css, /:root:has\(\.mk-header \.mk-mobile-menu\[open\]\) \.mk-assistant-fab \{\s*visibility: hidden;/);
+  // Kamran's button does not cover the pinned buttons: the menu's class on
+  // <html> hides it (never a :root:has() rule, which restyles the whole page
+  // on every DOM change), also for a menu opened before the code ran.
+  assert.match(css, /html\.mk-menu-open \.mk-assistant-fab \{\s*visibility: hidden;/);
+  assert.match(menu, /if \(menu\.open\) toggled\(\);/);
   // Past the breakpoint the menu closes, and the lock applies only below it.
   const breakpoint = menu.match(/const SHOWS = "\((max-width: \d+px)\)";/)?.[1];
   assert.ok(breakpoint && css.includes(`@media (${breakpoint}) {\n  .mk-nav,`), `menu breakpoint ${breakpoint} matches the CSS`);

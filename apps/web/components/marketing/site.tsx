@@ -37,6 +37,7 @@ import { availabilityChip, Chip } from "./chip";
 import { Journey, journeyAvailable } from "./journey";
 import { MarketingMotion } from "./motion";
 import { MARKETING_MOTION } from "./motion-mode";
+import { RootMark } from "../root-marks";
 import {
   Breadcrumbs,
   Closing,
@@ -858,6 +859,7 @@ export function MarketingSite({ page: registered, platform, origin, showcase = "
     // is "always", the reduced-motion rules skip this root and everything
     // inside it (header and footer included).
     <div className="public mk platform-ui" data-mk-motion={MARKETING_MOTION}>
+      <RootMark attribute="data-shell" token="public" />
       <MarketingHeader
         key={page.path}
         appName={platform.name}

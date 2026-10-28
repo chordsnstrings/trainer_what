@@ -29,9 +29,13 @@ import {
   isMarketingPath,
   isMarketingSitePath,
   isUnknownMarketingChild,
+  HOME_OFFER,
+  NEVER_LIST,
+  NEVER_NOTE,
   jsonLdScript,
   llmsFullTxt,
   llmsTxt,
+  marketingAssistantFacts,
   marketingBreadcrumbs,
   marketingFooter,
   marketingJsonLd,
@@ -41,6 +45,8 @@ import {
   marketingRedirect,
   MARKETING_REDIRECTS,
   robotsPolicy,
+  type AvailabilityKey,
+  type MarketingContext,
   type MarketingPage,
 } from "@trainer/contracts";
 import { MARKETING_CONTENT } from "../packages/contracts/src/marketing-content.ts";
@@ -610,8 +616,8 @@ test("shortened copy keeps the privacy, review and safety promises", () => {
   const teach = brain.sections.find((s) => s.id === "teach")!.cards!;
   assert.match(teach.find((c) => c.title === "Your documents")!.body, /you review the extracted text/);
   const never = brain.sections.find((s) => s.id === "never")!.bullets!;
-  assert.ok(never.includes("Hide pain or red flags from you."));
-  assert.ok(never.includes("Use your teaching for anyone else: it stays private to your workspace."));
+  assert.ok(never.includes("Never hide pain or red flags from you."));
+  assert.ok(never.includes("Never use your teaching for anyone else: it’s private to your workspace."));
   assert.match(brain.sections.find((s) => s.id === "never")!.note!, /Enforced in code, outside the AI/);
   assert.ok(brain.sections.find((s) => s.id === "decides")!.bullets!.some((b) => /safety rules in code/.test(b)));
   const steps = marketingPage("/how-it-works")!.sections.find((s) => s.id === "steps")!.steps!;
@@ -654,6 +660,89 @@ test("llms.txt follows llmstxt.org and llms-full.txt carries every page, FAQ and
   }
   for (const source of MARKETING_SOURCES) assert.ok(full.includes(source.url), source.id);
   assert.doesNotMatch(full, /\{APP_NAME\}/);
+});
+
+// llms-full.txt and the assistant facts print the registry, not the page,
+// so a line the page qualifies must carry its qualifier itself: a Never line
+// keeps its "Never" under any heading, and what the page draws from the
+// platform's flags (the status panel, the offer chips) comes with its state.
+test("llms-full.txt and the assistant facts say what the pages show: whole Never lines, the status and the offer for every flag", () => {
+  const sectionOf = (text: string, heading: string) => {
+    const at = text.indexOf(heading + "\n");
+    assert.ok(at >= 0, heading);
+    const end = text.indexOf("\n### ", at + heading.length);
+    return text.slice(at, end < 0 ? undefined : end);
+  };
+  for (const line of NEVER_LIST) assert.match(line, /^Never [a-z]/, line);
+  const all = { model: true, nutrition: true, voice: true, payments: true, payouts: true };
+  for (const availability of [undefined, all]) {
+    const full = llmsFullTxt({ ...ctx, availability });
+    const facts = marketingAssistantFacts({ ...ctx, availability });
+    for (const line of NEVER_LIST) {
+      // Under "You stay in charge" (/) and "What your AI will never do" (/trainer-brain).
+      assert.ok(sectionOf(full, "### You stay in charge").includes(`\n- ${line}\n`), line);
+      assert.ok(sectionOf(full, "### What your AI will never do").includes(`\n- ${line}\n`), line);
+      assert.ok(sectionOf(facts, "### You stay in charge").includes(`\n- ${line}\n`), line);
+    }
+    // No promise is printed as its opposite, and the note travels with it.
+    assert.doesNotMatch(full + facts, /^- (Hide pain|Pretend to be you|Give medical advice|Use your teaching)/m);
+    assert.ok(sectionOf(facts, "### You stay in charge").includes(NEVER_NOTE));
+  }
+  // What works today: each line with its state, as the panel shows it;
+  // a line that waits for sign-ups is left out while they are unknown.
+  const expected = (open: boolean | undefined, a: Partial<Record<AvailabilityKey, boolean>>) => {
+    const rows: Array<[string, string, boolean | undefined]> = [
+      ["Sign up free", "New sign-ups (early access for now)", open],
+      ["Set up your page and app", "", true],
+      ["Teach and test your AI", "Teaching and testing your AI", !!a.model],
+      ["Preview what subscribers will see", "", true],
+      ["Publish your page to subscribers", "Publishing your page to subscribers", a.payments && a.model ? open : false],
+      ["Subscriber payments in AED", "Subscriber payments in AED", !!a.payments],
+      ["Payouts to a UAE bank", "Payouts to a UAE bank", !!a.payouts],
+      ["Paid bookings", "Paid bookings", !!a.payments],
+      ["Voice add-on for subscribers", "Voice add-on for subscribers", !!(a.voice && a.payments)],
+    ];
+    return [
+      ...rows.filter((r) => r[2] === true).map((r) => "- Live today: " + r[0]),
+      ...rows.filter((r) => r[2] === false).map((r) => "- Not on yet: " + r[1]),
+    ];
+  };
+  const statusLines = (text: string) => text.split("\n").filter((l) => /^- (Live today|Not on yet): /.test(l));
+  const offer = (a: Partial<Record<AvailabilityKey, boolean>>) => [
+    "- A daily plan, your way (included)",
+    "- Guided workouts, offline too (included)",
+    "- Progress they can see (included)",
+    `- Nutrition: meals, groceries, food diary (optional tier${a.nutrition ? "" : ", not on yet"})`,
+    `- Sessions led in your voice (add-on${a.voice ? "" : ", not on yet"})`,
+  ];
+  assert.equal(HOME_OFFER.length, 5);
+  // Every provider combination with sign-ups open; sign-ups closed and
+  // unknown against payments and the coaching assistant. llms-full.txt (a
+  // second a run) for a few of them: both print through the same sections.
+  const cases: MarketingContext[] = [];
+  for (const model of [false, true])
+    for (const payments of [false, true])
+      for (const payouts of [false, true])
+        for (const voice of [false, true])
+          cases.push({ ...ctx, registrationOpen: true, availability: { model, payments, payouts, voice, nutrition: model && !voice } });
+  for (const registrationOpen of [undefined, false])
+    for (const model of [false, true])
+      for (const payments of [false, true])
+        cases.push({ ...ctx, registrationOpen, availability: { model, payments, payouts: true, voice: true, nutrition: model } });
+  const full = new Set([0, 6, 10, cases.length - 1, cases.length - 5]);
+  cases.forEach((c, i) => {
+    const label = JSON.stringify({ registrationOpen: c.registrationOpen, ...c.availability });
+    const want = expected(c.registrationOpen, c.availability!);
+    const texts: Array<[string, string]> = [["facts", marketingAssistantFacts(c)]];
+    if (full.has(i)) texts.push(["llms-full.txt", llmsFullTxt(c)]);
+    for (const [name, text] of texts) {
+      assert.deepEqual(statusLines(sectionOf(text, "### Live today, and not on yet")), want, `${name} /pricing ${label}`);
+      assert.deepEqual(statusLines(sectionOf(text, "### Free to start. Your price.")), want, `${name} / ${label}`);
+      const subscribers = sectionOf(text, "### What subscribers get, under your name").split("\n").filter((l) => l.startsWith("- "));
+      assert.deepEqual(subscribers, offer(c.availability!), `${name} ${label}`);
+    }
+    assert.ok(sectionOf(texts[0][1], "### What subscribers get, under your name").includes("Once your page is live."), label);
+  });
 });
 
 test("hidden specialties (combat, endurance, yoga, pilates) are in no public list and are not offered as choices", () => {

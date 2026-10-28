@@ -349,8 +349,9 @@ a.mk-nav-top {
 .mk-header:has(.mk-mobile-menu[open]) {
   backdrop-filter: none;
 }
-/* Kamran's button would cover the pinned buttons at the panel's foot. */
-:root:has(.mk-header .mk-mobile-menu[open]) .mk-assistant-fab {
+/* Kamran's button would cover the pinned buttons at the panel's foot
+   (mobile-menu.tsx marks <html> while the menu is open). */
+html.mk-menu-open .mk-assistant-fab {
   visibility: hidden;
 }
 /* The page behind stops scrolling; the scrollbar's space stays, so nothing

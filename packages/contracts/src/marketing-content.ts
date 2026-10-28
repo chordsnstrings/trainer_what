@@ -16,6 +16,7 @@ import { SETUP_STEPS, SETUP_BRAIN_MINIMUM } from "./coach-setup.ts";
 import { SITE_BUILDER_MODULES, SITE_BUILDER_PRESET_COUNT } from "./site-builder.ts";
 import { BRAND_COPY } from "./brand.ts";
 import { HOME_OFFER, NEVER_LIST, NEVER_NOTE, PROOF_LINKS } from "./marketing-proof.ts";
+import { MEMBERSHIP_MINIMUMS } from "./membership-pricing.ts";
 import type {
   AvailabilityLine,
   MarketingCard,
@@ -26,6 +27,8 @@ import type {
 } from "./marketing.ts";
 
 const UPDATED = "2026-09-28";
+/** Whole dirhams from fils, as copy prints a price: 19900 → "199". */
+const dirhams = (fils: number) => String(fils / 100);
 const RETRIEVED = "2026-09-28";
 
 export const MARKETING_SOURCES: MarketingSource[] = [
@@ -669,28 +672,34 @@ const FREE_FAQ: MarketingFaq = {
 };
 const TRAINED_FAQ: MarketingFaq = {
   q: "Is the AI trained on my data?",
-  a: "It is taught with your material: confirmed rules, coaching cases, examples and corrections. Each version is tested on held-out scenarios and can be rolled back. We do not claim to fine-tune a separate model on you, and your teaching stays private to your workspace.",
+  a: "It is taught with your material: confirmed rules, coaching cases, examples and corrections. It sends on its own only once it passes your held-out scenarios. We do not claim to fine-tune a separate model on you, and your teaching stays private to your workspace.",
 };
 // The phase 1 pages (/, /trainer-brain, /demo and /pricing) ask these as
 // "my AI" (the AI always belongs to someone), with the plain words for
 // "held-out scenarios". The originals stay on /how-it-works, /features and
-// /faq until those pages are revised.
+// /faq until those pages are revised. A version is not always checked
+// before it goes live: the first one, in "Waits for me", goes live on the
+// practice quiz and 3 own cases (apps/api/src/brain-teach.ts), and every
+// reply waits for the trainer. What always holds is that nothing sends on
+// its own without a passing check (20 or more own cases), and that once a
+// Brain is live every edit is re-checked (apps/api/src/brain-check.ts).
 const MY_AI_REPLACE_FAQ: MarketingFaq = {
   q: "Will my AI replace me?",
   a: "No. Your AI is built from your rules, cases and corrections and coaches under your name. It hands you anything it is not confident about, and safety issues always come to you. You can take over any subscriber or conversation at any time.",
 };
 const MY_AI_TRAINED_FAQ: MarketingFaq = {
   q: "Is my AI trained on my data?",
-  a: "It is taught with your material: confirmed rules, coaching cases, examples and corrections. Each version is checked against your test cases and can be rolled back. We do not claim to fine-tune a separate model on you, and your teaching stays private to your workspace.",
+  a: "It is taught with your material: confirmed rules, coaching cases, examples and corrections. It sends on its own only once it passes your test cases. We do not claim to fine-tune a separate model on you, and your teaching stays private to your workspace.",
 };
 /**
- * The answer while subscriber payments are off; AVAILABILITY_LINES carries
- * the answer once they are on. One answer on every page that asks it (/ and
- * /pricing), so their FAQ structured data never disagrees.
+ * The answer while subscriber payments and the coaching assistant are off;
+ * AVAILABILITY_LINES carries the answers once they are on. One answer on
+ * every page that asks it (/ and /pricing), so their FAQ structured data
+ * never disagrees.
  */
 const PAY_TODAY_FAQ: MarketingFaq = {
   q: "Can subscribers pay me today?",
-  a: "Not yet. Subscriber payments are not on yet, and publishing your page waits for them. With an account you can already set up your page and app, and teach and test your AI.",
+  a: "Not yet. Subscriber payments are not on yet, and publishing your page waits for them. With an account you can already set up your page and app.",
 };
 /**
  * The answer while subscriber payments are off; AVAILABILITY_LINES carries
@@ -722,7 +731,7 @@ export const AVAILABILITY_LINES: readonly AvailabilityLine[] = [
     when: "frontier",
     faq: {
       q: TRAINED_FAQ.q,
-      a: "It runs on a frontier model, taught with your confirmed rules, cases, examples and corrections. Each version is tested on held-out scenarios and can be rolled back. We do not fine-tune a model on you; your teaching stays private to your workspace.",
+      a: "It runs on a frontier model, taught with your confirmed rules, cases, examples and corrections. It sends on its own only once it passes your held-out scenarios. We do not fine-tune a model on you; your teaching stays private to your workspace.",
     },
   },
   {
@@ -730,7 +739,7 @@ export const AVAILABILITY_LINES: readonly AvailabilityLine[] = [
     when: "frontier",
     faq: {
       q: MY_AI_TRAINED_FAQ.q,
-      a: "It runs on a frontier model, taught with your confirmed rules, cases, examples and corrections. Each version is checked against your test cases and can be rolled back. We do not fine-tune a model on you; your teaching stays private to your workspace.",
+      a: "It runs on a frontier model, taught with your confirmed rules, cases, examples and corrections. It sends on its own only once it passes your test cases. We do not fine-tune a model on you; your teaching stays private to your workspace.",
     },
   },
   {
@@ -738,7 +747,7 @@ export const AVAILABILITY_LINES: readonly AvailabilityLine[] = [
     path: "/faq",
     faq: {
       q: "Does it get better over time?",
-      a: "Yes. Your Brain runs on a frontier model, and every correction and approval becomes teaching. Each new version is tested on your held-out scenarios before it reaches subscribers, so it keeps getting better with time.",
+      a: "Yes. Your Brain runs on a frontier model, and every correction and approval becomes teaching. Once you are live, every edit is re-checked on your held-out scenarios, so it keeps getting better with time.",
     },
   },
   {
@@ -748,6 +757,15 @@ export const AVAILABILITY_LINES: readonly AvailabilityLine[] = [
       section: "steps",
       title: "You correct, it learns",
       text: "Approve or correct what comes to you. Each tested release learns from it and keeps getting better.",
+    },
+  },
+  {
+    // Payments still off, the coaching assistant on: teaching and testing
+    // work today. Listed before the payments answer, which replaces it.
+    when: "model",
+    faq: {
+      q: PAY_TODAY_FAQ.q,
+      a: "Not yet. Subscriber payments are not on yet, and publishing your page waits for them. With an account you can already set up your page and app, and teach and test your AI.",
     },
   },
   {
@@ -814,7 +832,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         steps: [
           { title: "You teach", body: "Rules, cases and an 8-answer quiz shape your AI (we call it your Trainer Brain)." },
           { title: "It coaches", body: "A dated plan daily, guided workouts, adjusted as they train." },
-          { title: "You decide", body: "Your approved reply fits → sent on its own. Anything else waits for you. Pain → paused." },
+          { title: "You decide", body: "Replies wait for you. Your choice: approved reply fits → sent on its own. Pain → paused." },
         ],
       },
       {
@@ -949,9 +967,9 @@ export const MARKETING_CONTENT: MarketingPage[] = [
       "Teach an AI trainer your rules, cases and examples. It plans and adapts training for each subscriber, learns from your corrections and asks when unsure.",
     h1: "Your AI, built from your judgment",
     eyebrow: "TRAINER BRAIN",
-    lede: "Built from your rules and corrections. Routine replies use your approved words. Anything else waits for you.",
+    lede: "Built from your rules and corrections. Routine replies use your approved words. Every reply waits for you until you choose otherwise.",
     intro:
-      "The Trainer Brain is a private, versioned set of your coaching rules, cases and examples. It plans and adapts training for each subscriber. It is taught by you, checked against your test cases, and sends on its own only within your rules. It learns from your corrections.",
+      "The Trainer Brain is a private, versioned set of your coaching rules, cases and examples. It plans and adapts training for each subscriber. It is taught by you. Once it passes your test cases, it can send on its own, only within your rules. It learns from your corrections.",
     primaryKeyword: "AI trained on my coaching method",
     sections: [
       {
@@ -1024,7 +1042,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         heading: "How it gets better",
         bullets: [
           "Your corrections become suggested rules you confirm.",
-          "Each release is checked against your test cases first.",
+          "Once you’re live, every edit is re-checked against your test cases.",
           "Every release is versioned, so you can roll back.",
           "Compare my replies: rate its reply blind against yours, on five points.",
         ],
@@ -1059,7 +1077,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
       },
       {
         q: "What if my AI gets something wrong?",
-        a: "Correct it. The correction is recorded with its reason, becomes teaching, and is checked against your test cases before the next release. You can also roll back to an earlier release at any time.",
+        a: "Correct it. The correction is recorded with its reason and becomes a suggested rule you confirm, and your AI is re-checked against your test cases. You can also roll back to an earlier release at any time.",
       },
     ],
     related: ["/demo", "/features/safety", "/features/ai-training-plans", "/guides/writing-coaching-rules"],
@@ -1119,7 +1137,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
     faqs: [
       {
         q: "Can I test my AI before launch?",
-        a: "Yes. You write test cases with the answer you expect, and your AI is checked against them before a version can be published.",
+        a: "Yes. The practice quiz shows replies from your rules to approve or change. You also write test cases with the answer you expect and can check your AI against them. Nothing sends on its own until it passes a check of 20 or more cases.",
       },
       {
         q: "Is this a real AI response?",
@@ -1991,9 +2009,16 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         note: "Reaching a new band lowers the rate for subscribers in that band only; earlier bands keep their rate.",
       },
       {
-        // The page computes the example from the ledger (WorkedExample).
+        // The page computes the example from the ledger (WorkedExample) and
+        // shows it as a statement; the body says the same figures for
+        // llms-full.txt and the assistant (tests/marketing-pricing.test.ts
+        // holds them to estimateEarnings).
         id: "example",
         heading: "What you keep, in AED",
+        body: [
+          "150 subscribers at AED 199 a month bring AED 29,850. Our share is 25% of the first 100 and 20% of the next 50: AED 6,965.",
+          "You keep AED 22,885 before card processing and other costs, about 92 sessions at AED 250.",
+        ],
         note: "An arithmetic example, not a forecast or promise.",
       },
       {
@@ -2039,8 +2064,9 @@ export const MARKETING_CONTENT: MarketingPage[] = [
     faqs: [
       FREE_FAQ,
       {
+        // The lowest prices are the ones activation enforces (assertOfferPrice).
         q: "Who sets the price?",
-        a: "You do. You set the monthly or upfront price in AED, the programme length, trials and promotions. {APP_NAME} takes a transparent commission on subscription revenue: our share for each group of subscribers is 25%, 20%, 15% or 10%.",
+        a: `You do: the price in AED, from ${dirhams(MEMBERSHIP_MINIMUMS.training)} a month (${dirhams(MEMBERSHIP_MINIMUMS.nutrition)} with nutrition or voice included, ${dirhams(MEMBERSHIP_MINIMUMS.complete)} with both), the programme length, monthly or upfront billing, trials and promotions. Our share of subscription revenue for each group of subscribers is 25%, 20%, 15% or 10%.`,
       },
       {
         q: "What will I pay?",

@@ -19,25 +19,50 @@ export type StatusItem = {
 };
 
 /**
- * "Live today / Not on yet" (the status panel and strip). Publishing waits
- * for both subscriber payments and payouts (the publish step in
- * apps/api/src/onboarding.ts needs a published offer and a payout account).
+ * What publishing a page waits for: the go-live checks trainsyou owns
+ * (apps/api/src/onboarding.ts): card payments ("payments"), the coaching
+ * assistant ("model") and approved legal documents, which in production
+ * are also what opens sign-ups ("registration"). Bank details are asked at
+ * the first payout, not before launch, so payouts are not among them.
  */
+export const PUBLISH_GATES: StatusGate[] = ["registration", "payments", "model"];
+/** Teaching and testing your AI need the coaching assistant (the same "model" check). */
+export const TEACH_GATES: StatusGate[] = ["model"];
+
+/** "Live today / Not on yet" (the status panel and strip). */
 export const STATUS_ITEMS: StatusItem[] = [
   { text: "Sign up free", offText: "New sign-ups (early access for now)", gates: ["registration"] },
   { text: "Set up your page and app" },
-  { text: "Teach and test your AI" },
+  { text: "Teach and test your AI", offText: "Teaching and testing your AI", gates: TEACH_GATES },
   { text: "Preview what subscribers will see" },
   {
     text: "Publish your page to subscribers",
     offText: "Publishing your page to subscribers",
-    gates: ["payments", "payouts"],
+    gates: PUBLISH_GATES,
   },
   { text: "Subscriber payments in AED", gates: ["payments"] },
   { text: "Payouts to a UAE bank", gates: ["payouts"] },
   { text: "Paid bookings", gates: ["payments"] },
-  { text: "Voice add-on for subscribers", gates: ["voice"] },
+  // Subscribers buy it at checkout, so it waits for their payments too.
+  { text: "Voice add-on for subscribers", gates: ["voice", "payments"] },
 ];
+
+/** The platform flags a status reads; llms-full.txt may not know whether sign-ups are open. */
+export type StatusFlags = {
+  registrationOpen?: boolean;
+  availability?: Partial<Record<AvailabilityKey, boolean>>;
+};
+/**
+ * Whether every gate is on: false once one is off, undefined while the
+ * others are on and sign-ups are unknown, true otherwise (no gates: true).
+ */
+export function gatesState(flags: StatusFlags, gates: readonly StatusGate[] = []): boolean | undefined {
+  const states = gates.map((gate) =>
+    gate === "registration" ? flags.registrationOpen : flags.availability?.[gate] === true,
+  );
+  if (states.includes(false)) return false;
+  return states.includes(undefined) ? undefined : true;
+}
 
 export type HomeOfferItem = {
   text: string;
@@ -69,14 +94,17 @@ export const PROOF_LINKS: Array<{ label: string; href: string }> = [
 
 /**
  * What a trainer's AI never does: the Never sheet and the registry's
- * "never" bullets. Each is enforced outside the AI: safety rules in code,
- * the labelled digital coach, workspace isolation.
+ * "never" bullets. Each line is a whole sentence that starts with "Never",
+ * so it says the same wherever it is printed: the sheet sets the word apart,
+ * llms-full.txt and the assistant facts print the line under any heading.
+ * Each is enforced outside the AI: safety rules in code, the labelled
+ * digital coach, workspace isolation.
  */
 export const NEVER_LIST: string[] = [
-  "Hide pain or red flags from you.",
-  "Pretend to be you: subscribers see a labelled digital coach.",
-  "Give medical advice.",
-  "Use your teaching for anyone else: it stays private to your workspace.",
+  "Never hide pain or red flags from you.",
+  "Never pretend to be you: subscribers see a labelled digital coach.",
+  "Never give medical advice.",
+  "Never use your teaching for anyone else: it’s private to your workspace.",
 ];
 export const NEVER_NOTE =
   "Pain and red flags pause the workout and come to you. Enforced in code, outside the AI.";
