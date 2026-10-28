@@ -226,11 +226,14 @@ function frame(t) {
     if ((winMs += gap) >= 2000) judge();
   }
   if (next == Infinity) (last = 0), (win = []), (winMs = 0);
+  // A kick in this frame (a subscriber woke, the tier changed) has asked for
+  // the next one already: one frame a frame.
+  else if (raf);
   // Nothing due in the next two frames (12 fps breathing, the 10 fps
-  // reduced-motion field): nap until the frame before it is due instead of
-  // waking at every frame. 30 and 60 fps wake at every frame: the watchdog
+  // reduced-motion field): nap until it is due, then ask for a frame, instead
+  // of waking at every frame. 30 and 60 fps wake at every frame: the watchdog
   // judges those gaps.
-  else if (next - t > 42) (napped = true), (nap = setTimeout(() => { nap = 0; raf = W.requestAnimationFrame(frame); }, next - t - 8));
+  else if (next - t > 42) (napped = true), (nap = setTimeout(() => { nap = 0; raf = W.requestAnimationFrame(frame); }, next - now()));
   else raf = W.requestAnimationFrame(frame);
   marks();
 }
