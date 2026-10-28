@@ -42,32 +42,28 @@
 4. WP7b CI step.
 5. WP8 docs.
 
-**Progress at 05:25 UTC:**
-- **WP4 home is done** (`0e836cc`). Typecheck, build, and 203/203 marketing tests pass. Kamran's button covers nothing; the LCP is the H1; CLS stays within 0.001.
-- **WP5 /trainer-brain and /demo are done** (`0dfc1dd`):
-  - typecheck, build and `npm run test:browser` pass;
-  - 214/215 marketing tests, the failure being the journey line, now fixed by the lead;
-  - CLS 0 on both pages.
-- **WP7b round 1 is done.**
-  - `scripts/marketing-showcase-check.mjs` passes on all four pages in 6 min 5 s.
-  - The baseline was measured on `4f35e5c`.
-  - The brand, journey and sitewide motion scripts were updated. The journey check passes 209/209; the sitewide check passes.
-  - The brand check's 36 remaining failures are pre-existing: the identical set fails on `4f35e5c`.
-- **Lead fixes so far:**
-  - the keyed-fragment fix for the duplicate React key;
-  - the honest copy while sign-ups are closed: the status strip without "today", and the Instagram answer;
-  - the status panel uses one full-width column when everything is live;
-  - the traces test's "N cases." pattern no longer misreads "8 quiz answers and 3 cases.";
-  - the journey test's expected Instagram line.
-- **Running:**
-  - WP7a dead-code removal, in workflow `wf_2044b74e-e8b`;
-  - then WP7b round 2 (the CI step and final runs) and WP8 docs;
-  - fix round 1, workflow `wf_b98be2ed-50e`, working in its own worktrees:
-    - the board's 92 px shift on phones (CLS 0.153 at 390 px);
-    - the anatomy mount's 291 ms long task at 4× CPU;
-    - still-frame controls restyled by `subscriber-public.css`;
-    - the walkthrough "Not on yet" dot contrast.
-- **Reports:** `scratchpad/report-wp*.md`. Subagents cannot write files there, so `report-sync.py` copies them from the workflow journal.
+**Progress at 06:45 UTC:**
+- **WP4 home is done** (`0e836cc`).
+- **WP5 /trainer-brain and /demo are done** (`0dfc1dd`).
+- **WP7a is done:** dead code removed.
+  - `site.tsx` went from 1,335 to 885 lines; `marketing.css` is 2.1 KB smaller gzipped.
+  - Typecheck and build pass.
+  - Full `npm test`: 2,061/2,064. The 2 failures were OCR tests, because this container lacks `tesseract`, which CI installs; with it installed they pass 29/29.
+- **WP8 docs are done:** `docs/features/brain-showcase.md` is new; `marketing-site.md`, `marketing-motion.md`, `scroll-scenes.md`, `brand.md`, `dark-mode.md`, `PROJECT_MEMORY.md` (with the deploy reconciliation) and the revamp README are updated.
+- **WP7b round 1 is done.** Round 2 is running: the CI step is in `check.yml`, and the final runs are on the main tree.
+- **Fix round 1, F1, is done** (`22d1a1a`):
+  - the board reserves its lanes' room, so CLS on `/` at 390 px went from 0.15271 to 0.00040;
+  - the walkthrough dots' contrast is fixed; the brand check is back to its 36 pre-existing failures;
+  - `.mc-new` and `.mc-demo` are hidden in the still frame by design.
+- **Fix round 1, F2, is running:** the anatomy mount's long task and the still-frame control reset.
+- **Lead:**
+  - `compose.yaml` now passes `MARKETING_SHOWCASE` to `web`, so the off switch works in production through `runtime.env` plus a re-apply. WP8 found it was unwired.
+  - The compose render test pins it; the deployment suite passes 160 tests, 3 skipped.
+  - The comment and the docs say "re-apply", not "restart".
+- **Left for the review and fix stage:**
+  - the field's plan slider snaps back if another control is touched within its 120 ms debounce;
+  - `/` total blocking time measured 444 ms on a loaded machine, against a 326 ms baseline plus a 100 ms allowance; measure again at the milestone;
+  - add a cross-reference in `kamran-assistant.md`.
 
 **Lead decision for the owner's FYI list:** the "Can subscribers pay me today?" answer no longer says "Today you can join". It now reads "With an account you can already set up your page and app, and teach and test your AI", which stays true while sign-ups are closed.
 
