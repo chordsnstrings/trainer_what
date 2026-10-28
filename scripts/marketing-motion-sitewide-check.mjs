@@ -258,9 +258,18 @@ function instrument() {
       mk.lcpNode = e.element;
     }
   }).observe({ type: "largest-contentful-paint", buffered: true });
+  // Each shift keeps the nodes that moved (and by how much, down), for the failure message.
+  const tag = (n) =>
+    (n = n?.nodeType === 1 ? n : n?.parentElement) ? n.tagName.toLowerCase() + (typeof n.className === "string" && n.className.trim() ? "." + n.className.trim().split(/\s+/)[0] : "") : "?";
   new PerformanceObserver((list) => {
     for (const e of list.getEntries())
-      if (!e.hadRecentInput) mk.shifts.push({ value: e.value, at: e.startTime, phase: mk.phase });
+      if (!e.hadRecentInput)
+        mk.shifts.push({
+          value: e.value,
+          at: e.startTime,
+          phase: mk.phase,
+          nodes: (e.sources ?? []).map((s) => `${tag(s.node)} ${Math.round(s.currentRect.y - s.previousRect.y)}px`),
+        });
   }).observe({ type: "layout-shift", buffered: true });
   new PerformanceObserver((list) => {
     for (const e of list.getEntries()) mk.longTasks.push({ duration: e.duration, at: e.startTime, phase: mk.phase });
@@ -431,6 +440,7 @@ async function coldLoad(browser, device, base, path, reducedMotion = "no-prefere
     lcpRole: paint.lcpRole,
     clsLoad: cls(mk.shifts.filter((s) => s.phase === "load")),
     clsScroll: cls(mk.shifts.filter((s) => s.phase === "scroll")),
+    shiftNodes: [...new Set(mk.shifts.filter((s) => s.phase === "load").flatMap((s) => s.nodes))].slice(0, 3),
     longTasksLoad: phase("load").length,
     tbtLoad: tbt(phase("load")),
     longTasksScroll: phase("scroll").map((t) => Math.round(t.duration)),
@@ -856,12 +866,15 @@ async function measure(browser, builds, reducedBuilds) {
 /** A per-page summary: medians, the usual LCP element, worst CLS and scroll long tasks. */
 function summarise(build, which = "pages") {
   const out = {};
-  for (const [key, runs] of Object.entries(build[which] ?? {}))
+  for (const [key, runs] of Object.entries(build[which] ?? {})) {
+    const worst = runs.reduce((a, r) => (r.clsLoad > a.clsLoad ? r : a));
     out[key] = {
       lcp: median(runs.map((r) => r.lcp)),
       lcpElement: mode(runs.map((r) => r.lcpElement)),
       lcpRole: mode(runs.map((r) => r.lcpRole)),
       clsLoad: Math.max(...runs.map((r) => r.clsLoad)),
+      // The run with the worst shift on load, and the nodes that moved in it.
+      clsLoadAt: worst.clsLoad ? `run ${runs.indexOf(worst) + 1} of ${runs.length}: ${(worst.shiftNodes ?? []).join(", ")}` : "",
       clsScroll: Math.max(...runs.map((r) => r.clsScroll)),
       tbtLoad: median(runs.map((r) => r.tbtLoad)),
       longTasksLoad: median(runs.map((r) => r.longTasksLoad)),
@@ -870,6 +883,7 @@ function summarise(build, which = "pages") {
       motionSetupMax: runs.some((r) => r.motionSetup !== null) ? Math.max(...runs.map((r) => r.motionSetup ?? 0)) : null,
       motionCallbackMax: runs.some((r) => r.motionCallbackMax !== null) ? Math.max(...runs.map((r) => r.motionCallbackMax ?? 0)) : null,
     };
+  }
   return out;
 }
 
@@ -929,7 +943,7 @@ try {
         if (r.motionClass || r.pendingAtLoad) fail(key, "the reveal ran under reduced motion");
         if (r.hiddenAfterScroll.length) fail(key, `hidden after a scroll-through: ${r.hiddenAfterScroll.slice(0, 3).join("; ")}`);
       }
-      if (r.clsLoad > 0.001) fail(key, `CLS on load ${r.clsLoad.toFixed(4)}`);
+      if (r.clsLoad > 0.001) fail(key, `CLS on load ${r.clsLoad.toFixed(4)} (${(r.shiftNodes ?? []).join(", ")})`);
       if (r.clsScroll > 0.001) fail(key, `CLS while scrolling ${r.clsScroll.toFixed(4)}`);
     }
   for (const [device, byPath] of Object.entries(results.builds.new.noScript))
@@ -1046,7 +1060,7 @@ try {
     if (!redesigned(key)) continue;
     if (n.lcp > BUDGETS.lcp) fail(key, `LCP ${Math.round(n.lcp)} ms (budget ${BUDGETS.lcp} ms)`);
     if (!n.lcpRole) fail(key, `the LCP element is ${n.lcpElement}, not the H1 or the lede`);
-    if (n.clsLoad > BUDGETS.cls) fail(key, `CLS on load ${n.clsLoad.toFixed(4)} (budget ${BUDGETS.cls})`);
+    if (n.clsLoad > BUDGETS.cls) fail(key, `CLS on load ${n.clsLoad.toFixed(4)} (budget ${BUDGETS.cls}; ${n.clsLoadAt})`);
     if (n.clsScroll > BUDGETS.cls) fail(key, `CLS while scrolling ${n.clsScroll.toFixed(4)} (budget ${BUDGETS.cls})`);
     if (n.longTasksScroll > BUDGETS.longTasksScroll)
       fail(key, `${n.longTasksScroll} long task(s) while scrolling through the reveals (budget ${BUDGETS.longTasksScroll})`);
