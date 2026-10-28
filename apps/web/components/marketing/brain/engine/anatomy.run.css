@@ -229,6 +229,7 @@
     display: flex;
     background: var(--sc-stage);
     box-shadow: 0 0 0 8px var(--sc-stage);
+    transform: translateY(var(--bh, 0px));
   }
   html.sc-pin [data-showcase="anatomy"][data-sc="on"][data-trace="t1"]:not([data-end], [data-sc-flat]) .ca-wi:not(:focus-within) {
     position: absolute;

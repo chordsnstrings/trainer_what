@@ -124,7 +124,7 @@ export async function mount(root, o) {
 function figure(root, d, S0, o, settled, say) {
   const $ = (s) => root.querySelector(s), $$ = (s) => [...root.querySelectorAll(s)];
   const frame = $(".ca-frame"), grid = $(".ca-grid"), scene = $(".ca-scene"), cam = $(".ca-cam"), stack = $(".ca-stack"), svg = $(".ca-svg"), book = $(".ca-book");
-  const noteLis = $$(".ca-nl li"), dots = $$(".ca-dots i"), ghosts = $$(".ca-g"), nl = $(".ca-nl"), pb = $(".ca-pause");
+  const noteLis = $$(".ca-nl li"), dots = $$(".ca-dots i"), ghosts = $$(".ca-g"), nl = $(".ca-nl"), col = $(".ca-side"), pb = $(".ca-pause");
   const RM = C.reduced(), phone = C.phone(), flat = getComputedStyle(frame).position != "sticky", k = owned();
   const link = new RegExp(`^#${o.id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-([a-j])$`);
   let dead = false, M = model(d, d.trace("t1"), S0), plates = [], mores = [], tagEl = null, gsc = null, gscIntro = null, wtl = null;
@@ -553,7 +553,8 @@ function figure(root, d, S0, o, settled, say) {
     });
     root.toggleAttribute("data-step", !!list);
     dots.forEach((x, i) => x.toggleAttribute("data-on", phone && i <= dot));
-    if (!phone) nl.style.setProperty("--bh", (foc && BH[foc] ? BH[foc] : 0) + "px");
+    // on the side column: the titles below the open note and a What-if group shown by focus slide by it
+    if (!phone) col.style.setProperty("--bh", (foc && BH[foc] ? BH[foc] : 0) + "px");
     noteAt = null;
   }
   // reading scrollY lays the page out: y, when given, is the position layout() has just read

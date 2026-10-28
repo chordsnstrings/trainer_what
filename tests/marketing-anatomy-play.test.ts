@@ -238,7 +238,11 @@ test("the anatomy's stylesheets: the pin, its frame and the card under the gate;
   const wi = lazy.find((r) => r.selector.endsWith(".ca-wi:not(:focus-within)"))!;
   assert.ok(wi.selector.includes('[data-trace="t1"]:not([data-end], [data-sc-flat])'), wi.selector);
   assert.deepEqual(["position", "clip-path"].map((p) => value(wi, p)), ["absolute", "inset(50%)"]);
-  assert.ok(lazy.some((r) => r.selector.endsWith(':not([data-end], [data-sc-flat]) .ca-wi') && value(r, "display") == "flex"), "displayed, so focusable");
+  const shown = lazy.find((r) => r.selector.endsWith(':not([data-end], [data-sc-flat]) .ca-wi') && value(r, "display") == "flex");
+  assert.ok(shown, "displayed, so focusable");
+  // Shown by focus, the group sits on the stage's colour and slides with the notes' titles, clear of the last two.
+  assert.deepEqual(["background", "transform"].map((p) => value(shown!, p)), ["var(--sc-stage)", "translateY(var(--bh, 0px))"]);
+  assert.match(src(ENGINE + "anatomy.js"), /col\.style\.setProperty\("--bh"/, "--bh is set on the side column, which holds both");
 });
 
 test("every runtime state the anatomy's lazy sheet styles is one its runtime sets", () => {
@@ -513,6 +517,9 @@ test("the playground's sheets hold every size the engine writes into: the steps'
   assert.equal(decl(first, `${P} .bp-tg`, "display", PHONE), "flex");
   for (const s of [`${P} .bp-log`, `${P} .bp-set`, `${P} .bp-chg-h`]) assert.equal(decl(first, s, "display", PHONE), "none", s);
   for (const s of [`${P} [data-open] > .bp-log`, `${P} [data-open] > .bp-set`]) assert.equal(decl(lazy, s, "display", PHONE), "block", s);
+  // Phones: the chip row's padding holds a focus ring, and a chip with keyboard focus is not snapped back out of view.
+  assert.equal(decl(first, `${P} .bp-chips`, "scroll-padding-inline", PHONE), "var(--mk-gutter, 16px)");
+  assert.equal(decl(lazy, `${P}[data-sc="on"] .bp-chips:has(:focus-visible)`, "scroll-snap-type", PHONE), "none");
   // Nothing sticks or pins: the playground scrolls with the page.
   for (const r of [...first, ...lazy]) for (const x of r.declarations) assert.ok(!(x.property == "position" && /sticky|fixed/.test(x.value)), r.selector);
   for (const r of [...first, ...lazy])
@@ -553,5 +560,6 @@ test("the playground's runtime: its own CSS and render module, the overlay layer
   assert.match(body, /const wait = !!o\.attract && !RM && !o\.settled/, "attract: only with the option, never under reduced motion or from a settled frame");
   assert.match(body, /own = !attract;/, "a run is the visitor's unless attract started it");
   assert.match(body, /if \(own\) C\.say\(`Result: \$\{d\.labels\.lanes\[r\.lane\]\}`\);/, "the self-started run says nothing, even after the visitor presses a key");
+  assert.match(body, /k\.on\(chips, "focusin", \(e\) => e\.target\.matches\("\.bp-chip:focus-visible"\) && e\.target\.scrollIntoView\(\{ block: "nearest", inline: "nearest" \}\)\);/, "a chip reached from the keyboard comes fully into view");
   assert.match(body, /run\(id\) \{/, "run(traceId) for the island");
 });

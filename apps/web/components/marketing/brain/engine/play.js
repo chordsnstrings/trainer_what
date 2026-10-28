@@ -557,6 +557,9 @@ export async function mount(root, o) {
       const ord = SPECS.find((s) => s[0] == e.target.value)[2];
       ord.forEach((i) => chips.append(chips.querySelector(`[data-t="t${i}"]`)));
     });
+    // A chip reached from the keyboard comes fully into view, ring and all: browsers leave a chip that is
+    // partly showing where it is, and the phone row scrolls sideways (its snapping is off while it has focus).
+    k.on(chips, "focusin", (e) => e.target.matches(".bp-chip:focus-visible") && e.target.scrollIntoView({ block: "nearest", inline: "nearest" }));
     // The keyword table is a chunk of its own: it loads when a visitor starts typing (most never do).
     const keys = () => import("./play.keys.js");
     k.on($(".bp-free textarea"), "input", () => keys().catch(() => {}), { once: true });
