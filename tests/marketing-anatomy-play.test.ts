@@ -573,5 +573,8 @@ test("the playground's runtime: its own CSS and render module, the overlay layer
   assert.match(body, /own = !attract;/, "a run is the visitor's unless attract started it");
   assert.match(body, /if \(own\) C\.say\(`Result: \$\{d\.labels\.lanes\[r\.lane\]\}`\);/, "the self-started run says nothing, even after the visitor presses a key");
   assert.match(body, /k\.on\(chips, "focusin", \(e\) => e\.target\.matches\("\.bp-chip:focus-visible"\) && e\.target\.scrollIntoView\(\{ block: "nearest", inline: "nearest" \}\)\);/, "a chip reached from the keyboard comes fully into view");
+  // The Confidence node's state goes through setNode, so its dots follow it; the % compared is the one shown.
+  assert.match(body, /setNode\(sp, \(r\.sure\.pct != null \? r\.sure\.pct : Math\.round\(r\.sure\.score \* 100\)\) >= r\.sure\.bar \? "pass" : "warn"\)/);
+  assert.doesNotMatch(body, /dataset\.state = "warn"/);
   assert.match(body, /run\(id\) \{/, "run(traceId) for the island");
 });
