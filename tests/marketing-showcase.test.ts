@@ -487,8 +487,8 @@ function fakeDom() {
     },
     scheduled: () => frames.size,
     /** A window or document event, as the browser dispatches it. */
-    fire(type: string) {
-      for (const f of [...(listeners.get(type) ?? []), ...(html.events.get("doc:" + type) ?? [])]) f({ type });
+    fire(type: string, init: Record<string, unknown> = {}) {
+      for (const f of [...(listeners.get(type) ?? []), ...(html.events.get("doc:" + type) ?? [])]) f({ type, ...init });
     },
     /** Every scene's root comes on screen. */
     visible() {
@@ -599,28 +599,39 @@ test("the engine core: Pause stays right through every pause reason, data-sc-run
   assert.deepEqual([dom.scheduled(), dom.listening(), dom.observing()], [0, 0, 0]);
   assert.ok(!root.hasAttribute("data-sc-run"));
 
-  // Time in another tab is not idle time, and input ends an idle pause, also
-  // for a scene that did not ask for it (the field's; ENG-2). Real time: idle
-  // is looked at once a second.
-  const away = core.scene(root as unknown as HTMLElement, { idle: 0.3 }), toggle = new dom.El("button");
-  away.button(toggle as unknown as HTMLElement);
-  away.loop(() => {});
-  dom.visible();
-  dom.frame(performance.now());
-  doc.hidden = true;
-  dom.fire("visibilitychange");
-  assert.equal(away.running, false, "a hidden tab pauses");
-  await wait(1100);
-  doc.hidden = false;
-  dom.fire("visibilitychange");
-  dom.frame(performance.now());
-  assert.deepEqual([away.running, toggle.textContent], [true, "Pause"], "back from another tab after its idle time: still playing");
-  await wait(1100);
-  dom.frame(performance.now());
-  assert.deepEqual([away.running, [...away.reasons], toggle.textContent], [false, ["idle"], "Play"], "idle on the page: paused");
-  dom.fire("keydown");
-  assert.deepEqual([away.running, toggle.textContent], [true, "Pause"], "input ends an idle pause");
-  away.destroy();
+  // Time in another tab (or in the back/forward cache) is not idle time, and
+  // input ends an idle pause, also for a scene that did not ask for it (the
+  // field's; ENG-2). Frames and performance.now() on one made-up clock.
+  const realNow = performance.now;
+  let t = realNow.call(performance);
+  performance.now = () => t;
+  try {
+    const away = core.scene(root as unknown as HTMLElement, { idle: 2 }), toggle = new dom.El("button");
+    away.button(toggle as unknown as HTMLElement);
+    away.loop(() => {});
+    dom.visible();
+    const later = (ms: number) => dom.frame((t += ms));
+    later(1100); // idle (2 s here) is looked at once a second
+    doc.hidden = true;
+    dom.fire("visibilitychange");
+    assert.equal(away.running, false, "a hidden tab pauses");
+    t += 5000;
+    doc.hidden = false;
+    dom.fire("visibilitychange");
+    later(1100);
+    assert.deepEqual([away.running, toggle.textContent], [true, "Pause"], "back from another tab: still playing");
+    t += 5000; // the back/forward cache: no frames, and no visibility change in some browsers
+    dom.fire("pageshow", { persisted: true });
+    later(1100);
+    assert.deepEqual([away.running, toggle.textContent], [true, "Pause"], "back from the back/forward cache: still playing");
+    later(1100);
+    assert.deepEqual([away.running, [...away.reasons], toggle.textContent], [false, ["idle"], "Play"], "idle on the page: paused");
+    dom.fire("keydown");
+    assert.deepEqual([away.running, toggle.textContent], [true, "Pause"], "input ends an idle pause");
+    away.destroy();
+  } finally {
+    performance.now = realNow;
+  }
 
   // A 12 fps subscriber naps between its frames instead of waking at every
   // frame (PERF-6); its root keeps data-sc-run, and a wake ends the nap.
@@ -644,9 +655,8 @@ test("the engine core: Pause stays right through every pause reason, data-sc-run
   slow.destroy();
   assert.deepEqual([dom.scheduled(), root.hasAttribute("data-sc-run")], [0, false]);
 
-  // The watchdog, on frames whose time performance.now() follows.
-  const realNow = performance.now;
-  let t = realNow.call(performance);
+  // The watchdog, on the made-up clock again (it only moves forward).
+  t = Math.max(t, realNow.call(performance));
   performance.now = () => t;
   try {
     const changes: string[] = [];
@@ -673,6 +683,8 @@ test("the engine core: Pause stays right through every pause reason, data-sc-run
     frames(280, 70);
     frames(4100, 16.7);
     assert.deepEqual(changes, ["lite", "full"], "two good windows step back up");
+    frames(4100, 16.7);
+    assert.deepEqual([changes, core.tier.name], [["lite", "full"], "full"], "never past the starting tier");
     restart();
     frames(2100, 20, 60, 240); // one long frame among frames of 20 ms: a mean over 20 ms, a median of 20
     assert.deepEqual(changes, ["lite", "full"], "an isolated long frame is no slow window");
@@ -704,12 +716,12 @@ test("the engine core: Pause stays right through every pause reason, data-sc-run
   for (const k of Object.keys(globals)) delete (globalThis as Record<string, unknown>)[k];
 });
 
-test("?tier= and ?slow= are the browser checks' switches: automated browsers only", () => {
+test("?tier= and ?slow= are the browser checks' switches: automated browsers only; a device that starts at lite never steps up", () => {
   // In a fresh process each (core.js decides its tier once a document).
-  const probe = (webdriver: boolean) => `
+  const probe = (webdriver: boolean, cores = 8) => `
     const frames = [];
     globalThis.window = {
-      navigator: { webdriver: ${webdriver}, userAgent: "Mozilla/5.0 Chrome/141", hardwareConcurrency: 8 },
+      navigator: { webdriver: ${webdriver}, userAgent: "Mozilla/5.0 Chrome/141", hardwareConcurrency: ${cores} },
       location: { search: "?tier=minimal&slow=40" },
       document: { readyState: "complete", hidden: false },
       devicePixelRatio: 1,
@@ -724,14 +736,26 @@ test("?tier= and ?slow= are the browser checks' switches: automated browsers onl
     core.loop(() => {});
     const t0 = performance.now();
     frames.shift()(t0);
-    process.stdout.write(JSON.stringify({ tier, ms: performance.now() - t0 }));
+    const ms = performance.now() - t0;
+    // 6 s of good frames on a made-up clock (without ?slow): no step up past the starting tier.
+    if (!${webdriver}) {
+      let t = t0 + 100;
+      performance.now = () => t;
+      while (t < t0 + 6100) frames.shift()((t += 16.7));
+    }
+    process.stdout.write(JSON.stringify({ tier, ms, after: core.tier.name }));
   `;
+  const run = (webdriver: boolean, cores?: number) => {
+    const args = ["--disable-warning=MODULE_TYPELESS_PACKAGE_JSON", "--input-type=module", "-e", probe(webdriver, cores)];
+    return JSON.parse(execFileSync(process.execPath, args, { cwd: ROOT, encoding: "utf8" }));
+  };
   for (const webdriver of [false, true]) {
-    const args = ["--disable-warning=MODULE_TYPELESS_PACKAGE_JSON", "--input-type=module", "-e", probe(webdriver)];
-    const out = JSON.parse(execFileSync(process.execPath, args, { cwd: ROOT, encoding: "utf8" }));
+    const out = run(webdriver);
     assert.equal(out.tier, webdriver ? "minimal" : "full", `webdriver ${webdriver}`);
     assert.equal(out.ms >= 40, webdriver, `webdriver ${webdriver}: a frame took ${out.ms.toFixed(0)} ms`);
   }
+  const four = run(false, 4);
+  assert.deepEqual([four.tier, four.after], ["lite", "lite"], "4 cores: lite, and good frames never step it up");
 });
 
 // ---------------------------------------------------------------- styles

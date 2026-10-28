@@ -292,6 +292,7 @@ function listen() {
     scenes.forEach((s) => s.reasons.has("idle") && s.o.resumeOnInput !== false && s.set("idle", false));
   };
   const hidden = () => scenes.forEach((s) => s.set("hidden", D.hidden));
+  const shown = (e) => e.persisted && (lastInput = now()); // back from the back/forward cache: no idle time
   const call = () => scenes.forEach((s) => s.set("call", html.hasAttribute("data-mk-call")));
   const motion = () => {
     rmv = null;
@@ -302,6 +303,7 @@ function listen() {
   const INPUT = ["pointerdown", "keydown", "wheel", "touchstart", "scroll"], opt = { passive: true, capture: true };
   INPUT.forEach((e) => W.addEventListener(e, bump, opt));
   W.addEventListener("resize", resize);
+  W.addEventListener("pageshow", shown);
   D.addEventListener("visibilitychange", hidden);
   if (rmq && rmq.addEventListener) rmq.addEventListener("change", motion);
   const mo = W.MutationObserver ? new MutationObserver((list) => {
@@ -311,6 +313,7 @@ function listen() {
   watching = () => {
     INPUT.forEach((e) => W.removeEventListener(e, bump, opt));
     W.removeEventListener("resize", resize);
+    W.removeEventListener("pageshow", shown);
     D.removeEventListener("visibilitychange", hidden);
     if (rmq && rmq.removeEventListener) rmq.removeEventListener("change", motion);
     if (mo) mo.disconnect();
