@@ -451,10 +451,10 @@ The two budgets looser than the showcase spec are deliberate. They are in the ow
 
 ## Open
 
-These are open as of 28 October 2026, at `289ed10`.
+These are open as of 28 October 2026, at `848538b`.
 - **Static mode in production:** the `compose.yaml` line above.
 - **CLS is not judged in CI yet.** After the board fix the measured CLS is within 0.001, but CI judges it only after three PR runs in a row pass. Then set `SHOWCASE_JUDGE_CLS: "1"` on the CI step.
-- **The anatomy's mount.** It measured long tasks of 291 and 79 ms in WP7b's first run (the budget is 2 tasks of 80 ms or less). The fix round then changed the mount (`26fbe25`, `289ed10`): it reads before it writes, inserts no node at mount or per frame, and skips layout writes that change nothing. WP7b's second round measures the final tree.
+- **The anatomy's mount.** It measured long tasks of 291 and 79 ms in WP7b's first run (the budget is 2 tasks of 80 ms or less). The fix round then changed the mount (`26fbe25`, `289ed10`, `e66afb8`). It now reads before it writes, inserts no node at mount or per frame, skips layout writes that change nothing, turns on before it measures, and mounts the figure in its own task. WP7b's second round measures the final tree.
 - **Frame budgets on real hardware,** above all the pinned anatomy's scroll paint. The sandbox measures a p95 of about 33 ms at 4× throttling, and its runs vary (see "Budgets").
 - **Every route pays for the first-frame CSS.** Every route on the catch-all, the member app included, loads the four first-frame showcase sheets (17.0 KB gzipped) and the page sheets (7.94 KB). WP7a took 2.1 KB off `marketing.css`. The fix is splitting the marketing and app bundles, recommended for phase 2 or 3.
 - **Later work:**
