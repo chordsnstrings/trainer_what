@@ -340,9 +340,9 @@ Desktop controls are unchanged at 20–38 px.
 | Page sheets (`marketing-proof`, `-home`, `-brain-pages`, `-pricing`) | 8 KB (8,192 B) | 7.93 KB (8,118 B), 74 B left |
 | Lazy sheets, per page | 8 KB | `/` 4.4 KB (field and receipt), `/trainer-brain` 3.7 KB, `/demo` 1.6 KB |
 
-**Reported by `npm run test:marketing-showcase`, and judged only with `SHOWCASE_JUDGE_METRICS=1`.** That switch is meant for real hardware: CI and this sandbox have no GPU, and with software compositing (SwiftShader here) the check reports frame gaps without judging them. The figures below are from the final fix pass's two metrics runs on 28 October (E, on a worktree build made at 17:21 UTC from the tree of the time): one load per page at about 17:26 UTC, and a run at 17:32 UTC of seven loads of `/` and `/trainer-brain` (medians, apart from mounts and frames, which come from the first load). Both runs: 390×844 at a pixel ratio of 3, 4× CPU throttling, `?tier=full`.
+**Reported by `npm run test:marketing-showcase`, and judged only with `SHOWCASE_JUDGE_METRICS=1`.** That switch is meant for real hardware: CI and this sandbox have no GPU, and with software compositing (SwiftShader here) the check reports frame gaps without judging them. The figures below are from the final fix pass's two metrics runs on 28 October (E, on a worktree build made at 17:21 UTC from the tree of the time): three loads per page at about 17:26 UTC, and seven loads of `/` and `/trainer-brain` at 17:32 UTC. Figures are medians, apart from mounts and frames, which come from each run's first load. Both runs: 390×844 at a pixel ratio of 3, 4× CPU throttling, `?tier=full`.
 
-| Metric | Budget | Measured (one load; seven loads) |
+| Metric | Budget | Measured (three loads; seven loads) |
 |---|---|---|
 | Field frame gap, p95, after a scroll down 200 px and back | 20 ms | 16.8 ms (tier `full`); 16.8 ms (tier `lite` by the end) |
 | The same, with the field partly under the sticky header | 20 ms | 16.8 ms; 16.7 ms |
@@ -350,8 +350,8 @@ Desktop controls are unchanged at 20–38 px.
 | Playground frame gap, p95 (one knee run, start to end) | 20 ms | `/trainer-brain` 16.8 ms, `/demo` 16.8 ms |
 | Engine work per frame, p95 | 4 ms | 0.6–2.8 ms everywhere |
 | `load` to the STOP stamp | 2.5 s | 1,531 ms; 1,477 ms |
-| The engine's own blocking time, from the response's end to 5 s after `load` | 100 ms | `/` 0, `/trainer-brain` 0, `/demo` 2 ms |
-| Page blocking time (TBT), same window | the build before phase 1, served in the same session (`SHOWCASE_BASELINE_URL`), + 100 ms | Not judged: no baseline build was served. Reported: `/` 314 ms (median 339), `/trainer-brain` 149 (177), `/demo` 199, `/pricing` 296 |
+| The engine's own blocking time, from the response's end to 5 s after `load` | 100 ms | `/` 0, `/trainer-brain` 0, `/demo` 2 ms; `/` 0 ms (0–34 over the seven loads), `/trainer-brain` 0 |
+| Page blocking time (TBT), same window | the build before phase 1, served in the same session (`SHOWCASE_BASELINE_URL`), + 100 ms | Not judged: no baseline build was served. Reported: `/` 314 ms; 339 ms (221–407 over the seven loads). `/trainer-brain` 149; 177 ms. `/demo` 199 ms, `/pricing` 296 ms |
 | Long tasks from mounting | at most 2, each 80 ms or less. **Looser than SHOWCASE_DESIGN §1.6** (no task over 50 ms) | Field [51, 60], board none, anatomy [50], both playgrounds none. Over the seven loads the field stayed within budget, and the anatomy went over in 2: [86, 117] and [91, 92] (see "Open") |
 | Chip and slider input latency | 200 ms | 72 ms (`/demo`, the knee chip), 56 ms (`/pricing`) |
 | Engine chunks | `/` 45 KB plus the receipt 7 KB on demand; `/trainer-brain` 50 KB; `/demo` 37 KB | 43.7 + 4.5 KB, 48.1 KB, 34.9 KB |
@@ -362,7 +362,7 @@ Desktop controls are unchanged at 20–38 px.
 
 **How blocking time is measured since the final fix pass.** It runs from the response's end, not from the first paint, which the framework's own script task falls on either side of. The engine's share (long tasks in frames that ran its chunks or the island's) is judged against a fixed 100 ms. The page's total is judged only against the build before phase 1 measured in the same session, interleaved run by run. The number stored in `scripts/marketing-showcase-baseline.json` (`/` 326 ms) came from another machine and the first paint, so it is shown for reference only: measured the same way, the baseline build sat over it too (the final review's PERF-4).
 
-**Mount windows.** A long task counts as a mount task only between the island's `sc-mount:<id>` mark (or the root coming near) and `"on"` + 1 s, and only in a frame that ran the engine's or the island's script, or only rendered. The consent bar opens on the first scroll and is reported on its own ("consent", none on the four pages in these runs).
+**Mount windows.** A long task counts as a mount task only between the island's `sc-mount:<id>` mark (or the root coming near) and `"on"` + 1 s, and only in a frame that ran the engine's or the island's script, or only rendered. The consent bar opens on the first scroll, so the check opens it first (a 60 px scroll and back) and reports its long tasks on its own ("consent": none on the four pages in these runs).
 
 **These are runs in a shared container without a GPU, and they vary.** The anatomy's mount, for example, measured 291 and 79 ms in WP7b's first run, [158, 52, 67], [223, 61, 58] and [114, 50, 50] in fix round 2, [57, 62] in P's final-pass run and [50] in E's. Part of fix round 2's figures was the consent bar's restyle of the whole document, which no longer happens on marketing pages ([analytics-consent.md](analytics-consent.md)). Every CI run uploads `test-results/marketing-showcase.json` in the `homepage-call-evidence` artifact.
 
@@ -575,7 +575,7 @@ The long-task budget looser than the showcase spec is deliberate. It is in the o
 These are open as of 28 October 2026, at `41e3a4c`.
 - **The full browser check on the final tree.** It belongs to the milestone verification ("Checks", "Results so far").
 - **CLS is not judged in CI yet.** The measured CLS is within 0.001, but CI judges it only after three PR runs in a row pass. Then set `SHOWCASE_JUDGE_CLS: "1"` on the CI step.
-- **The anatomy's mount at 4× CPU.** It went over budget in about 2 of 7 loads in this GPU-less container: [86, 117] and [91, 92] in E's seven-load run. What remains is the page restyle forced inside `figure()`, plus the rendering task after it. Measure again on GPU hardware or a quiet machine before changing more. With more than one load, the metrics judge mounts and frames from the first load only, so one outlier can pass or fail a run by chance.
+- **The anatomy's mount at 4× CPU.** It went over budget in about 2 of 7 loads in this GPU-less container: [86, 117] and [91, 92] in E's seven-load run. What remains is the page restyle forced inside `figure()`, plus the rendering task after it: over 8 profiled loads, `figure()` took 54–84 ms after its yield, 18–42 ms of it style and layout forced by `data-sc="on"`, and the next rendering task 63–85 ms of page restyle and paint. Moving the style flush into a task of its own would paint an in-between "on" frame before the figure's writes, so it was not done. Measure again on GPU hardware or a quiet machine before changing more. With more than one load, the metrics judge mounts and frames from the first load only, so one outlier can pass or fail a run by chance.
 - **Frame budgets on real hardware,** above all the pinned anatomy's scroll ("What waits for real hardware").
 - **Page blocking time is not judged** unless the build before phase 1 is served alongside (`SHOWCASE_BASELINE_URL`).
 - **The playground's scroll and focus (E's files).**
