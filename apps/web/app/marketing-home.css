@@ -29,6 +29,9 @@
   background: var(--lime);
   box-shadow: inset 0 0 0 1px rgb(23 25 23 / 25%);
 }
+.mk-hm-hero h1 {
+  text-wrap: balance;
+}
 .mk-hm-hero-media {
   min-inline-size: 0;
   margin-block-start: 16px;
@@ -106,6 +109,16 @@
     padding-block-start: 56px;
   }
 }
+/* The board's level control needs 348px: below 380px wide it takes some of
+   the gutters rather than widen the page. */
+.mk-hm-resort .mk-home-inner {
+  grid-template-columns: minmax(0, 1fr);
+}
+@media (max-width: 379px) {
+  .mk-hm-resort .sc-host {
+    margin-inline: calc((100vw - 380px) / 2);
+  }
+}
 /* The band after the hero is paper: its full top space (phones: above). */
 @media (min-width: 761px) {
   .mk-hm-hero + .mk-hm-resort {
@@ -119,6 +132,7 @@
 }
 .mk-hm-head h2 {
   margin: 0;
+  text-wrap: balance;
   font-size: clamp(28px, 3.2vw, 44px);
   line-height: 1.12;
   letter-spacing: -0.04em;
@@ -774,6 +788,7 @@
   background: color-mix(in srgb, var(--lime) 22%, var(--white));
 }
 .mk-hm-lane {
+  justify-self: start;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -881,6 +896,23 @@
 }
 .mk-hm-econ-lower {
   margin-block-start: 16px;
+}
+/* The address preview's card holds the hint too. */
+.mk-hm-econ-lower .mk-econ {
+  gap: 12px;
+  padding: 20px;
+  border: 1px solid var(--mk-line);
+  border-radius: var(--radius);
+  background: var(--white);
+  box-shadow: var(--mk-shadow);
+}
+.mk-hm-econ-lower .mk-econ .mk-address {
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+}
+.mk-hm-econ-lower .mk-econ .mk-hm-note {
+  margin: 0;
 }
 @media (min-width: 1001px) {
   .mk-hm-facts > li:first-child {

@@ -166,11 +166,11 @@ function instrument() {
     performance.setResourceTimingBufferSize(2000);
   } catch {}
   const describe = (el) =>
-    el
+    el?.nodeType === 1
       ? el.tagName.toLowerCase() +
         (el.id ? "#" + el.id : "") +
         (typeof el.className === "string" && el.className.trim() ? "." + el.className.trim().split(/\s+/).join(".") : "")
-      : null;
+      : (el?.nodeName ?? null);
   const request = window.requestAnimationFrame;
   let at = -1,
     count = 0,
@@ -268,23 +268,28 @@ const scState = (page, id) =>
     const r = document.getElementById(id)?.firstElementChild;
     return r ? { sc: r.getAttribute("data-sc"), run: r.hasAttribute("data-sc-run"), tier: r.getAttribute("data-sc-tier"), flat: r.hasAttribute("data-sc-flat") } : null;
   }, id);
-/** Waits until fn(root) holds for the host's root; false on timeout. */
-const until = (page, id, fn, timeout) =>
+/**
+ * Waits until the host's root has the attribute (`value`: with that value;
+ * `not`: the opposite); false on timeout.
+ */
+const until = (page, id, test, timeout) =>
   page
     .waitForFunction(
-      ([id, body]) => {
+      ([id, { attr, value, not }]) => {
         const r = document.getElementById(id)?.firstElementChild;
-        return !!r && new Function("r", "return " + body)(r);
+        if (!r) return false;
+        const v = r.getAttribute(attr);
+        return (value === undefined ? v !== null : v === value) !== !!not;
       },
-      [id, fn],
+      [id, test],
       { timeout, polling: 50 },
     )
     .then(
       () => true,
       () => false,
     );
-const isOn = (page, id, timeout = 15_000) => until(page, id, 'r.getAttribute("data-sc") === "on"', timeout);
-const running = (page, id, on, timeout) => until(page, id, on ? 'r.hasAttribute("data-sc-run")' : '!r.hasAttribute("data-sc-run")', timeout);
+const isOn = (page, id, timeout = 15_000) => until(page, id, { attr: "data-sc", value: "on" }, timeout);
+const running = (page, id, on, timeout) => until(page, id, { attr: "data-sc-run", not: !on }, timeout);
 const scrollToHost = (page, id, block = "center") =>
   page.evaluate(([id, block]) => document.getElementById(id).scrollIntoView({ block, behavior: "instant" }), [id, block]);
 const scrollTop = (page, y = 0) => page.evaluate((y) => scrollTo({ top: y, behavior: "instant" }), y);
@@ -391,6 +396,8 @@ const motionSwitch = (page) => page.evaluate(() => document.querySelector(".mk")
 // The closed platform (503: the pages' fallback, sign-ups closed).
 stub?.set("closed");
 if (!stub) console.log("No platform stub: one pass against the running server's platform; 8 and the open pass are skipped.");
+
+await step(4, "pages (with 2 and 13)", () => pagePass("closed", [360, 390, 1440], ["ltr", "rtl"]));
 
 await step(1, "JavaScript off", async () => {
   const lazy = new Set();
@@ -508,7 +515,6 @@ async function pagePass(state, widths, directions) {
         await close(page);
       }
 }
-await step(4, "pages (with 2 and 13)", () => pagePass("closed", [360, 390, 1440], ["ltr", "rtl"]));
 
 await step(3, "layout shift", async () => {
   const cls = (results.cls = {});
@@ -602,26 +608,25 @@ await step(5, "lifecycle", async () => {
     page.on("load", () => (loaded = true));
     await page.route(/\/_next\/static\/.*\.(js|css)(\?|$)/, (route) => (loaded ? route.abort() : route.continue()));
   };
+  const offAt = (page, id) => page.evaluate((id) => window.__sc.log.find((e) => e.host === id && e.name === "data-sc" && e.value === "off")?.t ?? null, id);
   if (PAGES.includes("/")) {
+    const label = "5. / hero, engine aborted";
     const page = await open({ viewport: PHONE });
     await abortAfterLoad(page);
     await go(page, "/");
     const id = await hostOf(page, "field");
-    const off = await until(page, id, 'r.getAttribute("data-sc") === "off"', 10_000);
-    const m = await page.evaluate((id) => {
-      const log = window.__sc.log;
-      const ready = log.find((e) => e.name === "data-sc-ready")?.t ?? null;
-      const ended = log.find((e) => e.host === id && e.name === "data-sc" && e.value === "off")?.t ?? null;
-      const r = document.getElementById(id).firstElementChild;
-      const hidden = [...r.querySelectorAll(".sc-res, .mc-stamp, .mc-hl, .mc-lane")]
-        .filter((e) => e.checkVisibility() && !e.checkVisibility({ opacityProperty: true, visibilityProperty: true }))
-        .map((e) => String(e.className).split(" ")[0]);
-      return { ready, ended, hidden, flat: r.hasAttribute("data-sc-flat") };
-    }, id);
-    const after = m.ready !== null && m.ended !== null ? Math.round(m.ended - m.ready) : null;
+    const off = await until(page, id, { attr: "data-sc", value: "off" }, 10_000);
+    const ready = await page.evaluate(() => window.__sc.log.find((e) => e.name === "data-sc-ready")?.t ?? null);
+    const ended = await offAt(page, id);
+    const after = ready !== null && ended !== null ? Math.round(ended - ready) : null;
     results.fallback = { hero: after };
-    if (!off || after === null || after > 7000) fail("5. / engine aborted", `the hero did not end at "off" within 7 s of data-sc-ready (${after} ms)`);
-    if (m.hidden.length) fail("5. / engine aborted", `final frame not visible: ${m.hidden.slice(0, 4).join(", ")}`);
+    if (!off || after === null || after > 7000) fail(label, `not "off" within 7 s of html[data-sc-ready] (${after} ms)`);
+    const hidden = await page.evaluate((id) =>
+      [...document.getElementById(id).firstElementChild.querySelectorAll(".sc-res, .mc-stamp, .mc-hl, .mc-lane")]
+        .filter((e) => e.checkVisibility() && !e.checkVisibility({ opacityProperty: true, visibilityProperty: true }))
+        .map((e) => String(e.className).split(" ")[0]),
+    id);
+    if (hidden.length) fail(label, `final frame not visible: ${hidden.slice(0, 4).join(", ")}`);
     await close(page);
   }
   if (PAGES.includes("/trainer-brain"))
@@ -631,22 +636,41 @@ await step(5, "lifecycle", async () => {
       await abortAfterLoad(page);
       await go(page, "/trainer-brain");
       const id = await hostOf(page, "anatomy");
-      await page.waitForTimeout(1500); // load → idle: the island now waits for the root to come near
+      await page.waitForTimeout(1500); // load, then idle: the island now waits for the root to come near
       const top = await page.evaluate((id) => document.getElementById(id).getBoundingClientRect().top + scrollY, id);
-      const viewport = page.viewportSize();
-      // Below: the root's top 100 px under the viewport (within the 200 px margin). In view: its top at 100 px.
-      await scrollTop(page, where === "below" ? top - viewport.height - 100 : top - 100);
-      const near = await now(page);
-      const off = await until(page, id, 'r.getAttribute("data-sc") === "off"', 9000);
-      const ended = await page.evaluate((id) => window.__sc.log.find((e) => e.host === id && e.name === "data-sc" && e.value === "off")?.t ?? null, id);
-      if (!off || ended === null || ended - near > 7000) fail(label, `not "off" within 7 s of coming near (${ended === null ? "never" : Math.round(ended - near) + " ms"})`);
+      const height = page.viewportSize().height;
+      if (where === "below" && top < height + 200) {
+        report(label, `skipped: the anatomy starts at y ${Math.round(top)}, near from the start`);
+        await close(page);
+        continue;
+      }
+      // Below: the root's top 100 px under the viewport (inside the island's
+      // 200 px margin). In view: its top 100 px from the viewport's top.
+      const near = top < height + 200 ? await page.evaluate(() => window.__sc.log.find((e) => e.name === "data-sc-ready")?.t ?? 0) : null;
+      await scrollTop(page, where === "below" ? top - height - 100 : top - 100);
+      const from = near ?? (await now(page));
+      const off = await until(page, id, { attr: "data-sc", value: "off" }, 9000);
+      const ended = await offAt(page, id);
+      if (!off || ended === null || ended - from > 7000) fail(label, `not "off" within 7 s of coming near (${ended === null ? "never" : Math.round(ended - from) + " ms"})`);
       if (where === "in view") {
         await page.waitForTimeout(1500);
-        if ((await scState(page, id)).flat) fail(label, "went flat while in view");
+        const flat = await page.evaluate((id) => window.__sc.log.find((e) => e.host === id && e.name === "data-sc-flat" && e.value !== null) ?? null, id);
+        if (flat?.below) {
+          report(label, "skipped: it went flat (correctly) while below the viewport, before it came into view");
+          await close(page);
+          continue;
+        }
+        if (flat) fail(label, "went flat while in view");
         await scrollTop(page, 0);
-        if (!(await until(page, id, 'r.hasAttribute("data-sc-flat")', 3000))) fail(label, "not flat once entirely below the viewport");
-      } else if (!(await until(page, id, 'r.hasAttribute("data-sc-flat")', 3000))) fail(label, "not flat while entirely below the viewport");
-      const m = await page.evaluate((id) => ({ flats: window.__sc.log.filter((e) => e.host === id && e.name === "data-sc-flat" && e.value !== null), shifts: window.__sc.shifts.filter((s) => !s.input) }), id);
+      }
+      if (!(await until(page, id, { attr: "data-sc-flat" }, 3000))) fail(label, "not flat once entirely below the viewport");
+      const m = await page.evaluate(
+        ([id, from]) => ({
+          flats: window.__sc.log.filter((e) => e.host === id && e.name === "data-sc-flat" && e.value !== null),
+          shifts: window.__sc.shifts.filter((s) => !s.input && s.t >= from),
+        }),
+        [id, from],
+      );
       if (m.flats.some((e) => !e.below)) fail(label, "data-sc-flat was set while the root was in view");
       if (m.shifts.length) fail(label, `layout shift ${m.shifts.reduce((n, s) => n + s.v, 0).toFixed(5)} from ${[...new Set(m.shifts.flatMap((s) => s.nodes))].slice(0, 3).join(", ")}`);
       await close(page);
@@ -755,7 +779,7 @@ await step(7, "watchdog", async () => {
   const tier = (await scState(page, id)).tier;
   if (tier !== "full") fail("7. watchdog", `?tier=full started at "${tier}"`);
   const t = Date.now();
-  const down = await until(page, id, 'r.getAttribute("data-sc-tier") !== "full"', 5000);
+  const down = await until(page, id, { attr: "data-sc-tier", value: "full", not: true }, 5000);
   results.watchdog = { ms: Date.now() - t, tier: (await scState(page, id)).tier };
   if (!down) fail("7. watchdog", "?slow=30 did not step data-sc-tier down within 5 s");
   await close(page);
@@ -996,29 +1020,25 @@ await step(14, "pricing calculators", async () => {
   const estimate = (subscribers, price) =>
     estimateEarnings({ ...DEFAULT_EARNINGS_INPUTS, subscribers, billing: "monthly", workoutPriceAed: price, nutritionSharePct: 0, voiceSharePct: 0, sessionsPerMonth: 0, yourSessionRateAed: 250 });
   const share = page.locator("#bands .mk-pr-calc");
-  for (const [n, shown] of [[100, "25%"], [300, "21.7%"], [1000, "17%"], [1500, "14.7%"]]) {
-    await share.locator(".mk-pr-jumps button", { hasText: whole(n) }).first().click();
+  for (const [i, [n, shown]] of [[100, "25%"], [300, "21.7%"], [1000, "17%"], [1500, "14.7%"]].entries()) {
+    await share.locator(".mk-pr-jumps button").nth(i).click();
     await page.waitForTimeout(100);
     const got = clean(await share.locator(".mk-pr-marker b").innerText());
     if (got !== shown || got !== pct(estimate(n, minPrice).effectiveCommissionPct)) fail(label, `${n} subscribers: ${got} (expected ${shown})`);
   }
   const tile = page.locator("#example .mk-pr-calc");
   const [price, count] = [tile.locator("input[type=range]").nth(0), tile.locator("input[type=range]").nth(1)];
+  /** As a visitor sets a range: PageUp/PageDown (10% of the range), then the arrows. */
   const setRange = async (input, value) => {
     await input.scrollIntoViewIfNeeded();
     await input.focus();
-    await page.keyboard.press("Home");
-    const [min, step] = await input.evaluate((e) => [Number(e.min), Number(e.step) || 1]);
-    let cur = min;
-    while (value - cur >= step * 10 && (await input.evaluate((e) => Number(e.value))) + step * 10 <= value) {
-      await page.keyboard.press("PageUp");
-      cur = await input.evaluate((e) => Number(e.value));
-      if (cur >= value) break;
-    }
-    cur = await input.evaluate((e) => Number(e.value));
-    while (cur !== value) {
-      await page.keyboard.press(value > cur ? "ArrowRight" : "ArrowLeft");
-      cur = await input.evaluate((e) => Number(e.value));
+    const read = () => input.evaluate((e) => Number(e.value));
+    const step = await input.evaluate((e) => Number(e.step) || 1);
+    let cur = await read();
+    for (let i = 0; i < 400 && cur !== value; i++) {
+      const far = Math.abs(value - cur) >= step * 20;
+      await page.keyboard.press(value > cur ? (far ? "PageUp" : "ArrowRight") : far ? "PageDown" : "ArrowLeft");
+      cur = await read();
     }
   };
   for (const [p, n] of [[minPrice, 150], [299, 300], [999, 1500]]) {
@@ -1097,44 +1117,64 @@ await step("metrics", "metrics", async () => {
             { timeout: 15_000, polling: 50 },
           )
           .then((h) => h.jsonValue(), () => null);
-      if (first) await isOn(page, first.id);
-      await page.waitForTimeout(Math.max(0, 5000 - (stamp ?? 0)));
+      // Blocking time from the first paint to 5 s after the load event (the engine mounts in it).
+      await page.waitForTimeout(Math.max(0, await page.evaluate(() => performance.getEntriesByType("navigation")[0].loadEventStart + 5000 - performance.now())));
       const load = await page.evaluate(() => {
         const nav = performance.getEntriesByType("navigation")[0];
         const fcp = performance.getEntriesByName("first-contentful-paint")[0]?.startTime ?? 0;
-        const end = nav.loadEventStart + 5000;
-        const tasks = window.__sc.long.filter(([t]) => t >= fcp && t < end);
-        return { load: nav.loadEventStart, fcp, lcp: window.__sc.lcp?.t ?? null, tbt: tasks.reduce((n, [, d]) => n + Math.max(0, d - 50), 0), long: window.__sc.long };
+        const tasks = window.__sc.long.filter(([t]) => t >= fcp && t < nav.loadEventStart + 5000);
+        return { load: nav.loadEventStart, tbt: tasks.reduce((n, [, d]) => n + Math.max(0, d - 50), 0), lcp: window.__sc.lcp?.t ?? null };
       });
-      // Long tasks from mounting: from the first late chunk to "on" + 1 s, per showcase.
-      const mounts = [];
-      const r = { tbt: load.tbt, lcp: load.lcp, stamp, frames: {}, mount: mounts };
+      const r = { tbt: load.tbt, lcp: load.lcp, stamp, frames: {}, mount: [] };
+      // Per showcase: long tasks from mounting (from its first chunk, or from
+      // coming near, to "on" + 1 s), then frames while it runs.
       for (const { id, kind } of await hosts(page)) {
-        const fromT = await now(page);
-        if (id !== first?.id) await scrollToHost(page, id, kind === "anatomy" ? "start" : "center");
+        let startAt = await now(page);
+        if ((await scState(page, id))?.sc === "on") startAt = (await lateResources(page))[0]?.at ?? load.load;
+        else await scrollToHost(page, id, kind === "anatomy" ? "start" : "center");
         await isOn(page, id);
+        await page.waitForTimeout(1000);
         const onAt = await page.evaluate((id) => window.__sc.log.find((e) => e.host === id && e.name === "data-sc" && e.value === "on")?.t ?? null, id);
-        const startAt = id === first?.id ? (await lateResources(page))[0]?.at ?? load.load : fromT;
-        const tasks = (await page.evaluate(() => window.__sc.long)).filter(([t, d]) => t + d >= startAt && t <= (onAt ?? startAt) + 1000).map(([, d]) => Math.round(d));
-        mounts.push({ kind, tasks });
+        const tasks = await page.evaluate(([from, to]) => window.__sc.long.filter(([t, d]) => t + d >= from && t <= to).map(([, d]) => Math.round(d)), [startAt, (onAt ?? startAt) + 1000]);
+        r.mount.push({ kind, tasks });
         if (kind === "board") continue;
         if (kind === "anatomy") await scrollTop(page, await page.evaluate((id) => document.getElementById(id).getBoundingClientRect().top + scrollY + innerHeight * 0.4, id));
-        if (kind === "play") await settlePlay(page, id).catch(() => {});
-        if (kind === "play") await page.click(`#${id} .bp-chip[data-t="t1"]`).catch(() => {});
+        if (kind === "play") {
+          await settlePlay(page, id).catch(() => {});
+          await page.click(`#${id} .bp-chip[data-t="t1"]`).catch(() => {});
+        }
         await running(page, id, true, 3000);
         const f = await frames(page, 4000);
         r.frames[kind] = { gap: round(p95(f.gaps)), work: round(p95(f.work), 2), count: f.count, tier: (await scState(page, id)).tier };
+        if (kind === "anatomy") {
+          // While scrolling through the pin.
+          const [scrolled] = await Promise.all([
+            frames(page, 3000),
+            page.evaluate(async () => {
+              for (let i = 0; i < 60; i++) {
+                scrollBy({ top: 30, behavior: "instant" });
+                await new Promise((done) => setTimeout(done, 40));
+              }
+            }),
+          ]);
+          r.frames["anatomy scrolling"] = { gap: round(p95(scrolled.gaps)), work: round(p95(scrolled.work), 2), count: scrolled.count, tier: (await scState(page, id)).tier };
+        }
       }
-      // Engine chunks: what loaded after the load event; on / the receipt's on demand.
-      const engine = (await lateResources(page)).map((x) => x.url);
-      r.engine = engine.length ? (await Promise.all([...new Set(engine)].map(gzipped))).reduce((a, b) => a + b, 0) : 0;
+      // Engine chunks: what loads after the load event. The receipt's chunk
+      // (the only one that knows html.sc-lock) loads on demand: open one on /.
       if (path === "/" && first) {
         await scrollTop(page);
         await openReceipt(page, first.id).catch(() => {});
         await page.waitForTimeout(800);
-        const extra = (await lateResources(page)).map((x) => x.url).filter((u) => !engine.includes(u));
-        r.receipt = (await Promise.all([...new Set(extra)].map(gzipped))).reduce((a, b) => a + b, 0);
         await page.keyboard.press("Escape");
+      }
+      r.engine = 0;
+      r.receipt = path === "/" ? 0 : null;
+      for (const url of new Set((await lateResources(page)).map((x) => x.url))) {
+        const body = Buffer.from(await (await fetch(url)).arrayBuffer());
+        const size = gzipSync(body).length;
+        if (body.includes("sc-lock")) r.receipt += size;
+        else r.engine += size;
       }
       // Input latency: a chip on /demo, the share slider on /pricing (Event Timing).
       if (path === "/demo" && first) {
@@ -1144,8 +1184,9 @@ await step("metrics", "metrics", async () => {
         await page.waitForTimeout(600);
         r.input = await page.evaluate((from) => Math.max(0, ...window.__sc.events.filter((e) => e.t >= from).map((e) => e.d)), from);
       }
-      if (path === "/pricing") {
-        const input = page.locator("#bands .mk-pr-calc input[type=range]");
+      const slider = page.locator("#bands .mk-pr-calc input[type=range]");
+      if (path === "/pricing" && (await slider.count())) {
+        const input = slider.first();
         await input.scrollIntoViewIfNeeded();
         await input.focus();
         const from = await now(page);

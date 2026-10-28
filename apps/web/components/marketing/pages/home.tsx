@@ -425,11 +425,13 @@ export function HomePage({ page, platform, showcase = "live" }: Ctx) {
                 </li>
               ))}
             </ul>
-            <p className="mk-hm-brand">
-              Your site, your app icon,{" "}
-              <span className="ltr-data mk-hm-mono">{template.replace("{slug}", "your-name")}</span>.
-            </p>
-            {subscribers.note && <p className="mk-hm-note">{t(subscribers.note)}</p>}
+            <div>
+              <p className="mk-hm-brand">
+                Your site, your app icon,{" "}
+                <span className="ltr-data mk-hm-mono">{template.replace("{slug}", "your-name")}</span>.
+              </p>
+              {subscribers.note && <p className="mk-hm-note">{t(subscribers.note)}</p>}
+            </div>
             <More href="/features">All features</More>
           </div>
           <div className="mk-hm-media">

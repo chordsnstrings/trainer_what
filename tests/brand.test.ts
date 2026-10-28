@@ -197,7 +197,9 @@ test("the approved lines lead the home page, its description and llms.txt", () =
   const home = marketingPage("/")!;
   // The home H1 says what happens; the brand line closes every page instead.
   assert.equal(home.h1, BRAND_COPY.homeHeadline);
-  assert.equal(home.eyebrow, BRAND_COPY.audience.toUpperCase());
+  // The phase 1 home names the UAE in its eyebrow; BRAND_COPY.audience
+  // still leads llms.txt (below).
+  assert.equal(home.eyebrow, "FOR UAE PERSONAL TRAINERS");
   assert.ok(home.intro.startsWith("Teach your own AI how you coach"));
   assert.ok(home.intro.includes("Build a paid coaching offering around your methods, your identity and your standards"));
   assert.ok(home.description.startsWith(BRAND_COPY.line));
@@ -249,7 +251,8 @@ test("the brand line is the closing heading on every marketing page; a renamed p
     assert.match(panel, /Guided setup\. Nothing goes live until you publish\./);
     assert.doesNotMatch(panel, /class="eyebrow"/, "the closing panel has no eyebrow");
   }
-  assert.match(closing("/"), /href="\/how-it-works"/);
+  // The phase 1 home's second link is the demo (its secondaryCta).
+  assert.match(closing("/"), /href="\/demo"/);
   assert.match(closing("/pricing"), /href="\/earnings-calculator"/);
   const acme = closing("/", "Acme Coaching");
   assert.match(acme, /<h2[^>]*>Ready to teach your AI\?<\/h2>/);

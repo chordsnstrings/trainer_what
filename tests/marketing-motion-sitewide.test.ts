@@ -759,20 +759,30 @@ test("the concept pass (22 October 2026): pills, FAQ rows, the arrow hand-offs a
   );
 });
 
-test("the home page's first paint waits for the whole hero copy (CLS 0 when the parser yields mid-hero)", async () => {
-  // The hero copy's two columns sit on their bottom edge, so a first paint
-  // between its buttons and the line under them moved the column up when
-  // the line arrived (0.0022 at 1366x900, 22 October 2026). A render-blocking
-  // rel=expect on the element right after the copy (the relay's caption)
-  // keeps the first paint whole.
+test("the home page's first paint waits for the whole hero (CLS 0 when the parser yields mid-hero)", async () => {
+  // A render-blocking rel=expect on an empty marker that closes the hero
+  // keeps the first paint whole: the H1, the field's first frame, the lede
+  // and the calls to action arrive together (the earlier relay hero moved
+  // 0.0022 at 1366x900 when a paint fell between its buttons and the line
+  // under them, 22 October 2026).
+  const home = await readFile(web("components/marketing/pages/home.tsx"), "utf8");
+  const hero = home.match(/<section className="mk-hero mk-hm-hero" aria-labelledby="mk-hero-h">[\s\S]*?<\/section>/)![0];
+  assert.match(hero, /<link rel="expect" href="#mk-hero-end" blocking="render" \/>/);
+  assert.ok(hero.indexOf('<link rel="expect"') < hero.indexOf('className="eyebrow"'), "the link comes before the copy");
+  // The marker is the hero's last child, always rendered.
+  assert.match(hero, /<span id="mk-hero-end" hidden \/>\s+<\/section>$/);
+  // Only the home hero blocks the first paint, across the renderers
+  // (site.tsx's legacy Home, which no path reaches since BESPOKE["/"], goes
+  // with the phase 1 clean-up).
   const site = await readFile(web("components/marketing/site.tsx"), "utf8");
-  const hero = site.match(/<section className="mk-hero" aria-labelledby="mk-hero-h">[\s\S]*?<HeroFlow /)![0];
-  assert.match(hero, /<link rel="expect" href="#mk-relay-cap" blocking="render" \/>/);
-  assert.ok(hero.indexOf('<link rel="expect"') < hero.indexOf('className="mk-hero-copy"'), "the link comes before the copy");
-  const relay = await readFile(web("components/marketing/hero-flow.tsx"), "utf8");
-  // The caption is the relay's first element, always rendered.
-  assert.match(relay, /<figure className="mk-relay" aria-labelledby="mk-relay-cap">\s+<figcaption id="mk-relay-cap" className="sr-only">/);
-  assert.equal([...site.matchAll(/rel="expect"/g)].length, 1, "only the home hero blocks the first paint");
+  assert.match(site, /"\/": \(c\) => <HomePage \{\.\.\.c\} \/>/);
+  const pages = await Promise.all(
+    (await readdir(web("components/marketing/pages")))
+      .filter((file) => file.endsWith(".tsx"))
+      .map((file) => readFile(web("components/marketing/pages/" + file), "utf8")),
+  );
+  const live = site.replace(/\nfunction Home\(\{[\s\S]*?\n\}\n/, "\n");
+  assert.equal([live, ...pages].join("\n").match(/rel="expect"/g)?.length, 1, "only the home hero blocks the first paint");
 });
 
 test('the Pace sweep behind "trains": once at load, from the left, scale only, and at rest the fill the span had', async () => {
