@@ -117,6 +117,14 @@
     - `451080b`: with the model off, the playground's safety-lock still frame moved 9 px when the lazy sheet arrived;
     - `3ac6da5`: a `/demo` frame painted mid-parse stretched the playground rows, a load shift at 1366 px (CLS up to 0.025 in 4 of 14 loads, now 0 of 20).
   - **CI started early:** the lead pushed a commit without `[skip ci]` at 21:05, so PR #105's checks run alongside the milestone's last checks.
+  - **CI on `5cd8e2d`: the new showcase step failed `homepage-call`** (run 40768666839). Four failures:
+    - 320 px horizontal overflow on `/`, 2 px in both left-to-right and right-to-left;
+    - 320 px overflow on `/demo` right to left, 8 px;
+    - the largest paint on `/demo` at 390 px (open) is the longer `.bp-banner` instead of the H1 or lede.
+  - **The lead found the cause of the overflow:**
+    - the playground's runtime `<canvas class="bp-cv">` has its default 300 px intrinsic width until `C.fit` sizes it (about 0.5 s), so it reaches 328 px at 320;
+    - the field's first-frame canvas and SVG rails (`.mc-cv`) have the same intrinsic 300 px box.
+  - **Fix after the milestone finishes:** give them no intrinsic size until fitted, either `width="0" height="0"` or a size in the first-frame CSS. Also shorten or split the banner.
 
 **Done today:**
 - **Part 2:** WP4 home, WP5 brain pages, WP7a clean-up, WP7b checks and the CI step, WP8 docs.
