@@ -42,22 +42,31 @@ export const COPY = {
   sr: "A sample figure, taken apart in layers. Omar’s message passes four code checks, then one AI specialist that code picks, then more code checks, and is sent on its own, within your rules. The notes list every layer.",
 };
 /* The margin notes (SHOWCASE_DESIGN.md §6 C), (a)–(j). The trace test checks
-   their numbers against the code (tests/marketing-brain-traces.test.ts). */
+   their numbers against the code (tests/marketing-brain-traces.test.ts); (f)
+   counts the specialists not on yet under the page's flags (note()). */
 export const NOTES = {
   a: ["The message", "Omar logged four sets with 2 reps in reserve. He asks to go up."],
   b: ["Safety rules", "Read first, every time. Pain or red flags stop here. Nine kinds, in English and Arabic."],
   c: ["Your topics", "Topics you chose to answer yourself, like supplements. Not this one."],
   d: ["Memory", "His intake and his last 28 days of training. Facts from your app only."],
   e: ["Rule finder", "Which approved replies fit? One: +2.5 kg. That’s 4.2%, inside your 5% cap."],
-  f: ["One specialist", "Seven coaching specialists. One is not on yet. Code picks one from the kind of moment. A rule fits, so it’s the Reply picker. It picks. It never writes."],
+  f: ["One specialist", "Seven coaching specialists. {off}Code picks one from the kind of moment. A rule fits, so it’s the Reply picker. It picks. It never writes."],
   g: ["Checks after", "Does it cite your rule? Only facts it was shown? Nothing changed meanwhile? All pass."],
   h: ["The lane", "Your Brain is at level 2 and passed its last check. So it sends on its own."],
   i: ["What Omar reads", "Your words, plus one line of numbers from your rule. No AI wording."],
   j: ["Your correction", "Edit any reply. Your AI suggests a rule. You confirm. About a minute later, your AI answers your test cases and code marks them. It goes live only if they pass."],
 };
 export const LET = "abcdefghij";
-/* What code can pick from, each with its moment (SHOWCASE_DESIGN.md §4 (f));
-   any specialist not on yet sits on the shelf beside them. */
+const COUNT = ["One", "Two", "Three", "Four", "Five", "Six"];
+/** A note's text, (f) with how many coaching specialists are not on yet. */
+export function note(d, k) {
+  if (k != "f") return NOTES[k][1];
+  const coach = d.specialists.filter((s) => s.crew == "coach" && s.kind == "ai"), n = coach.filter((s) => s.status == "not_on_yet").length;
+  return NOTES.f[1].replace("{off}", !n ? "" : n == coach.length ? "None is on yet. " : `${COUNT[n - 1]} ${n > 1 ? "are" : "is"} not on yet. `);
+}
+/* What code can pick from, each with its moment (SHOWCASE_DESIGN.md §4 (f)):
+   one not on yet keeps its place, marked; any other coaching specialist sits
+   on the shelf beside them while it is not on yet and joins them once it is. */
 const COACH = [["reply_picker", "a rule fits"], ["draft_writer", "no rule fits"], ["plan_writer", "new plan"], ["week_reviewer", "week ends"], ["meal_photo", "meal photo"], ["voice_lines", "before a voice session"], ["set_logger", "during a workout"]];
 /* Other members' moments (the ghost stacks): trace, moment, shown on phones. Each lights only its own
    node; the runtime runs them (data-run), and the still figure shows them unlit. */
@@ -144,12 +153,14 @@ function moreHTML(d, M, p, S) {
    plate never reflows (no layout shift, no transform-origin jump); the
    drawer (.ca-more) hangs under the overlay. */
 function brainHTML(d, M, more) {
-  const pills = (x) => COACH.map(([sp, m]) => {
-    const s = d.sp[sp], on = sp == M.pick;
-    return `<span class="ca-sp" data-sp="${sp}" data-kind="${s.kind}"${on ? " data-pick" : ""}>${on ? MX(s.kind, true) : ""}${U.icon(s.icon, 14)}<b>${esc(s.name)}</b>${x ? `<small>${esc(m)}</small>${on ? `<em class="ca-tag">${esc(M.tag)}</em>` : ""}` : ""}</span>`;
+  const rest = d.specialists.filter((s) => s.crew == "coach" && !COACH.some(([sp]) => sp == s.id)), notYet = d.labels.status.not_on_yet;
+  const list = [...COACH, ...rest.filter((s) => s.status != "not_on_yet").map((s) => [s.id, ""])];
+  const pills = (x) => list.map(([sp, m]) => {
+    const s = d.sp[sp], on = sp == M.pick, off = s.status == "not_on_yet", sub = [m, off && notYet].filter(Boolean).join(" · ");
+    return `<span class="ca-sp" data-sp="${sp}" data-kind="${s.kind}"${on ? " data-pick" : ""}${off ? " data-off" : ""}>${on ? MX(s.kind, true) : ""}${U.icon(s.icon, 14)}<b>${esc(s.name)}</b>${x ? `${sub ? `<small>${esc(sub)}</small>` : ""}${on ? `<em class="ca-tag">${esc(M.tag)}</em>` : ""}` : ""}</span>`;
   }).join("");
-  const shelf = d.specialists.filter((s) => s.crew == "coach" && s.status == "not_on_yet")
-    .map((s) => `<span class="ca-shelf">${U.icon(s.icon, 13)}${esc(s.name)} · ${esc(d.labels.status.not_on_yet)}</span>`).join("");
+  const shelf = rest.filter((s) => s.status == "not_on_yet")
+    .map((s) => `<span class="ca-shelf">${U.icon(s.icon, 13)}${esc(s.name)} · ${esc(notYet)}</span>`).join("");
   return `<div class="ca-shell">${pills(0)}</div>${shelf}<div class="ca-x"><p class="ca-picks ca-xpick">${esc(d.labels.picks)}</p><div class="ca-shell">${pills(1)}</div>${shelf}${more}</div>`;
 }
 /** One plate, lit (the finished figure: the runtime dims and relights it). */
@@ -159,7 +170,7 @@ export function plateHTML(d, M, p, i, S) {
     `<div class="ca-f">${brain ? `<span class="ca-mono">LS</span>` : MX(p.kind, !dark(p))}<span class="ca-l">(${p.k})</span><b class="ca-n">${esc(p.name)}</b>` +
     `<span class="ca-kt">${brain ? "Code picks one specialist per moment" : p.kind == "check" ? "Code, no AI" : ""}</span>${statHTML(d, p)}</div>` +
     (brain ? brainHTML(d, M, more) : (p.k == "i" ? memberHTML(d, M) : `<p class="ca-s"${p.k == "a" ? dirOf(M.t) : ""}>${p.k == "a" && M.stop ? hl(p.say, stepOf(M.r, "safety").highlight) : esc(p.say)}</p>`) + more) +
-    `<p class="ca-pn">${esc(NOTES[p.k][1])}</p></div>`;
+    `<p class="ca-pn">${esc(note(d, p.k))}</p></div>`;
 }
 export const stackHTML = (d, M, S) => M.plates.map((p, i) => plateHTML(d, M, p, i, S)).join("");
 function ghostHTML(d, S) {
@@ -182,8 +193,9 @@ function bookHTML(d, S, t) {
 /** The root's inner HTML: Omar's reply (t1) under the sample trainer's settings. */
 export function renderStatic(d, o) {
   const S = defaults(d), t = d.trace("t1"), M = model(d, t, S), id = esc(o.id);
-  const head = o.heading === false ? "" : `<header class="ca-head"><p class="ca-eb">${esc(COPY.eyebrow)}</p><h2 class="ca-h2" id="${id}-h">${esc(COPY.h2)}</h2><p class="ca-lede">${esc(COPY.lede)}</p></header>`;
-  const notes = LET.split("").map((k) => `<li data-k="${k}" id="${id}-${k}"><button type="button" class="ca-nb" data-k="${k}" disabled><span class="ca-l">(${k})</span><b>${esc(NOTES[k][0])}</b></button><div class="ca-nt"><p>${esc(NOTES[k][1])}${k == "f" ? `<em>${esc(d.labels.picks)}</em><small>${esc(COPY.ghosts)}</small>` : ""}</p></div></li>`).join("");
+  // its own heading's id is not "-h": that is note (h)'s
+  const head = o.heading === false ? "" : `<header class="ca-head"><p class="ca-eb">${esc(COPY.eyebrow)}</p><h2 class="ca-h2" id="${id}-title">${esc(COPY.h2)}</h2><p class="ca-lede">${esc(COPY.lede)}</p></header>`;
+  const notes = LET.split("").map((k) => `<li data-k="${k}" id="${id}-${k}"><button type="button" class="ca-nb" data-k="${k}" disabled><span class="ca-l">(${k})</span><b>${esc(NOTES[k][0])}</b></button><div class="ca-nt"><p>${esc(note(d, k))}${k == "f" ? `<em>${esc(d.labels.picks)}</em><small>${esc(COPY.ghosts)}</small>` : ""}</p></div></li>`).join("");
   const whatIf = COPY.whatIf.map(([k, l]) => `<button type="button" class="ca-wb" data-w="${k}" aria-pressed="false" disabled>${esc(l)}</button>`).join("") +
     `<button type="button" class="ca-wb" data-w="base" aria-pressed="true" disabled>${esc(COPY.back)}</button>`;
   return `<div class="ca-frame"><div class="ca-grid">` +

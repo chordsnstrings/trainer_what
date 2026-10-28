@@ -108,6 +108,15 @@
     - targeted tests 237/237; typecheck passes;
     - the showcase check passes, with CLS 0.00039.
   - The FYI copy list is in `scratchpad/fix2-C.json`.
+- **Fix round 2, D (root `:has()` rules), is done.** PERF-1 is fixed.
+  - The code landed in WIP commits `6b50ea6` and `b8f9def`.
+  - `components/root-marks.tsx` marks `<html>` with `data-shell`, `data-scheme` and `data-open` from each surface. It uses an inline SSR script and a layout effect, so client navigation is handled too. No stylesheet hangs `:has()` on `:root`, `html` or `body`, and a test guards it.
+  - **Performance at 4× CPU:** the field after a scroll went from p95 83 to 16.8 ms; a playground run from 100 to 16.7 ms; the playground mount from long tasks of `[161,76,139]` to none.
+  - **No visual change:** 130 before/after comparisons. 126 are pixel-identical and 4 differ only in relative-time text.
+  - **Dark and phone checks:** `test:dark` fails 48 identically before and after. `test:phone` had 11 failures before and 9 after; those 9 occur in both builds.
+  - **Tests:** 238/238 across 23 unit files, plus 82/82.
+  - **Left for A2, in the notes:** the consent bar's first appearance restyles the whole document once, and the watchdog never steps back up.
+  - **Docs to update:** `brand.md:362` and `dark-mode.md:108` still name the old selectors. The "paint" explanation for the playground and `/demo` slowness was wrong (it was `:has()`); correct it in `brain-showcase.md` and `COMPLETION_STAGES.md:34`.
 - **Lead follow-ups done:** `registrationOpen` is passed to `llmsFullTxt` and `marketingAssistantFacts`; the traces' Examiner line now reads "Sending on its own needs a pass".
 - **Docs to update at records time:**
   - PLAN §1.5's publish row and PLAN line 610;

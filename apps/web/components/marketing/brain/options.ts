@@ -10,7 +10,8 @@ import type { ShowcaseMode, ShowcaseOptions } from "./engine/types";
  * call to action (teachCta) and the flags from the platform's availability.
  * `extra` adds heading, labelledBy or attract; the name, the call to action
  * and the flags always come from the platform. Recovery stays off in phase 1
- * (the owner's default), whatever the platform says.
+ * (the owner's default), whatever the platform says. While the AI model is
+ * off, every specialist that uses it is not on yet (prepare()).
  */
 export function showcaseOptions(
   platform: PublicPlatform,
@@ -27,6 +28,7 @@ export function showcaseOptions(
       payouts: a.payouts,
       voice: a.voice,
       nutrition: a.nutrition,
+      model: a.model,
       recovery: false,
     },
   };

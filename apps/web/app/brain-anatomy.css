@@ -309,6 +309,10 @@
 [data-showcase="anatomy"] .ca-sp[data-kind="check"] {
   border-radius: 4px;
 }
+[data-showcase="anatomy"] .ca-sp[data-off] {
+  border-style: dashed;
+  color: var(--sc-muted);
+}
 [data-showcase="anatomy"] .ca-sp > .sc-ic,
 [data-showcase="anatomy"] .ca-sp small,
 [data-showcase="anatomy"] .ca-sp .ca-mx {

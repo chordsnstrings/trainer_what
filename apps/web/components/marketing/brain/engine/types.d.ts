@@ -6,8 +6,10 @@
 export type ShowcaseKind = "field" | "board" | "play" | "anatomy";
 /** "static": the still frame with no engine (MARKETING_SHOWCASE=static). */
 export type ShowcaseMode = "live" | "static";
-/** From PublicPlatform.availability; recovery is fixed off in phase 1. */
-export type ShowcaseFlags = { payments: boolean; payouts: boolean; voice: boolean; nutrition: boolean; recovery: boolean };
+/** From PublicPlatform.availability; recovery is fixed off in phase 1. model:
+    the AI model is connected (showcaseOptions() always sets it; a fixture
+    without it counts as connected). */
+export type ShowcaseFlags = { payments: boolean; payouts: boolean; voice: boolean; nutrition: boolean; recovery: boolean; model?: boolean };
 export type ShowcaseOptions = {
   appName: string;
   /** teachCta(): "Teach your AI — free", or early access while sign-ups are closed. */
@@ -54,7 +56,7 @@ export type Specialist = {
   statusTip?: string;
   /** For "not_on_yet": the setting it waits for. */
   flag?: string;
-  /** The second flag (after payments) a "try it on yourself" item needs to be live. */
+  /** The flag (besides payments) an item needs to be on at all; not on yet while it is off. */
   needs?: "nutrition" | "voice";
   usesAi?: boolean;
   /** traces.json only: "identifier · repo path" (the trace test checks it). */

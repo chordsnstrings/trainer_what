@@ -26,6 +26,7 @@ export type Decision = {
   steps: Step[];
   memberSees: { verbatim: boolean; parts: Array<{ by: string; text: string }> } | null;
   trainerSees: { where: string; title: string; detail: string } | null;
+  /** pct: whole percents, or one decimal where rounding would reach the bar the score misses. */
   sure: { display: string; score: number; bar: number; pct?: number } | null;
   reasons: string[] | null;
   tag: string | null;

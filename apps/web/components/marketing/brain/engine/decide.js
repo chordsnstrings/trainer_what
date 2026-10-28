@@ -78,7 +78,10 @@ export function planScore(t, s) {
     ...(s.planMode == "supervised" ? [`Supervised mode: every ${noun} goes to you`] : []),
     ...(!confident ? [`Confidence ${score.toFixed(2)} is below your threshold ${bar.toFixed(2)}`, ...why] : []),
   ];
-  return { score, pct: Math.round(score * 100), bar: s.bar, confident, auto, reasons, display: `${Math.round(score * 100)}% · your bar ${s.bar}%` };
+  // Whole percents, as the app shows them (brain-plans.tsx percent()), except where rounding would hide what
+  // decides the lane: 0.705 against a bar of 71% shows 70.5%, never "71% is below your bar of 71%".
+  const whole = Math.round(score * 100), pct = confident || whole < s.bar ? whole : Math.round(score * 1000) / 10;
+  return { score, pct, bar: s.bar, confident, auto, reasons, display: `${pct}% · your bar ${s.bar}%` };
 }
 const swap = (st, sp, patch) => st.map((x) => (x.sp == sp ? { ...x, ...patch } : x));
 const vr = (t, key) => (t.variants || []).find((v) => key in v.when) || {};
@@ -133,7 +136,8 @@ export function decide(t, s, d) {
     r.steps = swap(swap(t.steps, "confidence", { say: p.display }), "lane_gate", p.auto
       ? { result: "sent", say: ad ? "Meets your bar, so it is sent on its own." : "Sent on its own. Picked for a spot check." }
       : { result: "waits", say: s.planMode == "supervised" ? `Supervised mode: every ${ad ? "adjustment" : "plan"} goes to you.` : "Below your bar, so it waits for you." });
-    if (r.lane != t.lane) Object.assign(r, { trainerSees: v.trainerSees, memberSees: ad ? t.memberSees : null });
+    // A changed lane reads the variant: the member's notice when an adjustment is sent on its own, nothing while it waits.
+    if (r.lane != t.lane) Object.assign(r, { trainerSees: v.trainerSees, memberSees: v.memberSees ? member(v.memberSees) : null });
     if (!p.auto) r.tag = r.note = null;
   } else if (k == "voice") {
     const kg = t.inputs ? t.inputs.loadKg : 60, n = reducedLoad(kg, s.tooHeavyPct);
