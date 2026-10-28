@@ -114,26 +114,10 @@
 }
 
 /* ---------- settings only some moments read ---------- */
-[data-showcase="play"] .bp-lock {
-  display: inline-flex;
-  justify-self: start;
-  align-items: center;
-  gap: 8px;
-  min-block-size: 44px;
-  padding: 0 12px;
-  border: 1px solid var(--sc-pline);
-  border-radius: 999px;
-  background: var(--sc-paper);
-  color: var(--sc-ink);
-  font: 600 13px/1 var(--sc-font);
-  cursor: not-allowed;
-}
+/* .bp-lock and .bp-locktip are in app/brain-play.css: the still frame carries them (the knee, with the AI
+   model off). */
 [data-showcase="play"] .bp-lock.is-shake {
   animation: sc-shake 240ms var(--sc-ease) 1;
-}
-[data-showcase="play"] .bp-locktip {
-  margin: 0;
-  font-size: 12.5px;
 }
 [data-showcase="play"] .bp-offcard {
   display: grid;

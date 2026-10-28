@@ -909,13 +909,14 @@ test("--sc-top is the site header's height, as the scroll scenes' --scene-top", 
   assert.deepEqual(showcase.map(([, v]) => v), ["74px", "69px", "65px"]);
 });
 
-/** What the static first frames emit, across the option sets the pages use. */
+/** What the static first frames emit, across the option sets the pages use (the AI model off too: the
+    fallback platform's frames, where the playground opens on the knee and its safety lock). */
 function staticVocabulary() {
   const classes = new Set<string>(), attrs = new Set<string>();
   for (const kind of KINDS)
-    for (const payments of [false, true])
+    for (const flags of [{ payments: false }, { payments: true }, { payments: false, model: false }])
       for (const mode of ["live", "static"] as const) {
-        const html = renderShowcase(kind, { ...options({ flags: { ...FLAGS, payments } }), kind, id: "sc-" + kind, label: "x" }, mode);
+        const html = renderShowcase(kind, { ...options({ flags: { ...FLAGS, ...flags } }), kind, id: "sc-" + kind, label: "x" }, mode);
         for (const m of html.matchAll(/\sclass="([^"]*)"/g)) for (const c of m[1].split(/\s+/)) classes.add(c);
         for (const m of html.matchAll(/\s([\w-]+)(?:="([^"]*)")?/g)) {
           attrs.add(m[1]);
