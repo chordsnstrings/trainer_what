@@ -123,9 +123,12 @@ function nodesHTML(d, S, t, r, a) {
     const e = end[sp], html = U.node(sp, d, o);
     return e ? html.replace('data-state="idle"', `data-state="${e[0]}"`).replace('<span class="sc-val" aria-hidden="true"></span>', `<span class="sc-val" aria-hidden="true">${esc(e[1])}</span>`) : html;
   };
+  // The safety node is the platform's rule, as a stop's result names it ("Platform safety rules", "{APP_NAME}. Can't switch off.").
+  const safe = d.sp.safety, rule = d.trace("t2").rule;
+  const safety = n("safety", { title: false }).replace('data-sp="safety"', `data-sp="safety" title="${esc(`${safe.name}: ${safe.line} ${rule.title}: ${rule.source}`)}"`);
   const lanes = [["sent", d.labels.lanes.sent.split(",")[0]], ["waits", "Your Today"], ["paused", d.labels.lanes.paused]];
   return msgHTML(t) +
-    `<div class="bp-band" data-band="before"><div class="bp-bl"><span>Checks first</span><span class="bp-rules">Your rules</span></div><div class="bp-row bp-r4">${["safety", "topics", "memory", "rule_finder"].map((s) => n(s)).join("")}</div></div>` +
+    `<div class="bp-band" data-band="before"><div class="bp-bl"><span>Checks first</span><span class="bp-rules">Your rules</span></div><div class="bp-row bp-r4">${safety}${["topics", "memory", "rule_finder"].map((s) => n(s)).join("")}</div></div>` +
     `<div class="bp-shell"><div class="bp-sh-h"><span class="bp-mono">LS</span><b>Your Brain</b><span class="bp-cap">Code picks one specialist per moment</span><span class="bp-kind${a}">${esc(kindTag(t, r))}</span></div>` +
     `<div class="bp-pills">${COACH.map((s) => n(s)).join("")}</div><div class="bp-row2">${n("set_logger", { name: "Set logger" })}${S.recoveryFlag ? n("recovery", { on: 1 }) : ""}<span class="bp-cl">code rules for workouts</span></div></div>` +
     `<div class="bp-band" data-band="after"><div class="bp-bl"><span>Checks after</span><span class="bp-rules">Your rules</span></div><div class="bp-row bp-r3">${["checker", "confidence", "lane_gate"].map((s) => n(s)).join("")}</div></div>` +

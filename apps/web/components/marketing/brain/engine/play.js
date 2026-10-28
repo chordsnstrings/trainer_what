@@ -31,7 +31,7 @@ import * as C from "./core.js";
 import { prepare } from "./data.js";
 import { decide, defaults, pick, totals } from "./decide.js";
 import * as U from "./ui.js";
-import { COACH, COPY, FIRST, RES, SPECS, closest, controlsHTML, hlText, isPick, kindTag, msgHTML, picksRow, resultHTML, stateOf, sureVal } from "./play.render.js";
+import { COACH, COPY, FIRST, SPECS, closest, controlsHTML, hlText, isPick, kindTag, msgHTML, picksRow, resultHTML, stateOf, sureVal } from "./play.render.js";
 const { h, esc } = C;
 
 const COL = { text: "#F3F4F0", line: "#3A3F39", lime: "#D5F24A", ink: "#171917", red: "#F08A80", amber: "#E0B25C", green: "#7FCB9F" };
@@ -130,6 +130,8 @@ export async function mount(root, o) {
   /* ---------------- canvas state */
   const st = {}; // sp → {s, t0}
   let lines = [], dot = null, trail = [], clock = 0, mode = "one", runTl = null, runEnd = null, allTl = null, allEnd = null;
+  // the matrices draw the nodes' states as the frame has them, then as runs set them
+  const sync = () => $$(".sc-node", dia).forEach((e) => (st[e.dataset.sp] = { s: e.dataset.state, t0: -1e9 }));
   const setNode = (sp, s) => {
     const e = nodeEl(sp);
     if (e) e.dataset.state = s;
@@ -137,7 +139,7 @@ export async function mount(root, o) {
     if (RM) paint();
   };
   function matrix(c, sp, now) {
-    const m = G.mx[sp], e = st[sp] || { s: nodeEl(sp) ? nodeEl(sp).dataset.state : "idle", t0: -1e9 }, ai = G.ai[sp], age = clock - e.t0, idx = G.idx[sp];
+    const m = G.mx[sp], e = st[sp] || { s: "idle", t0: -1e9 }, ai = G.ai[sp], age = clock - e.t0, idx = G.idx[sp];
     let col = COL.text, on = () => 1;
     const s = e.s;
     if (s == "idle") { const a = RM ? 0.25 : 0.25 + 0.07 * Math.sin(((now + idx * 230) / 2800) * Math.PI * 2); on = () => a; }
@@ -176,7 +178,7 @@ export async function mount(root, o) {
       c.save(); c.globalAlpha = Math.max(0, fade); c.strokeStyle = l.col; c.lineWidth = l.w || 1.5;
       const P = typeof l.p == "function" ? l.p() : l.p;
       stroke(c, P, l.ease ? C.ease.in(q) : C.ease.out(q));
-      if (l.label && q >= 1) { c.fillStyle = l.col; c.font = G.font; c.textAlign = G.rtl ? "end" : "start"; c.fillText(l.label, P[P.length - 1][0] + (G.rtl ? -6 : 6), P[P.length - 1][1] - 6); }
+      if (l.label && q >= 1) { c.fillStyle = l.col; c.font = G.font; c.fillText(l.label, P[P.length - 1][0] + (G.rtl ? -6 : 6), P[P.length - 1][1] - 6); }
       c.restore();
     }
     lines = lines.filter((l) => clock - l.t0 < l.draw + l.hold + l.fade || l.keep);
@@ -219,19 +221,19 @@ export async function mount(root, o) {
     $$(".bp-chip, .bp-all-b, .bp-free button").forEach((b) => b.setAttribute("aria-disabled", String(on)));
     skip.hidden = !on || RM;
   }
-  /** Writes a result; due: it shows when the run ends, and keeps its space until then. */
+  /** Writes a result; due: it shows when the run ends (reveal()), and keeps its space until then. */
   function showResult(html, due) {
     res.innerHTML = html;
+    due ? res.classList.remove("is-in") : reveal();
     res.classList.toggle("is-due", !!due);
-    res.classList.toggle("is-in", !due);
   }
+  const reveal = () => (res.classList.remove("is-due"), res.classList.add("is-in"));
   function stopRun() {
     if (runTl) runTl.stop(), (runTl = null);
     if (runEnd) runEnd(), (runEnd = null);
   }
   function resetStage(t, from, r) {
-    for (const sp in G.n) if (!from) setNode(sp, "idle");
-    $$(".sc-val", dia).forEach((e) => (e.textContent = ""));
+    if (!from) { for (const sp in G.n) setNode(sp, "idle"); $$(".sc-val", dia).forEach((e) => (e.textContent = "")); }
     $$(".bp-bin", dia).forEach((b) => b.removeAttribute("data-hot"));
     $$(".is-dim", stage).forEach((e) => e.classList.remove("is-dim"));
     stamp.hidden = noai.hidden = true;
@@ -242,7 +244,7 @@ export async function mount(root, o) {
     const tag = kindTag(t, r);
     kindEl.hidden = !tag; kindEl.textContent = tag || "";
     const conf = nodeEl("confidence");
-    conf.querySelector(".sc-val").textContent = t.sure ? "" : sureVal(t, r);
+    if (!from) conf.querySelector(".sc-val").textContent = t.sure ? "" : sureVal(t, r);
     conf.title = t.sure ? d.sp.confidence.line : d.labels.noChatScore;
   }
   /** Plays a moment (from a step: "Run it again" replays only what changed). note: said first. */
@@ -271,7 +273,7 @@ export async function mount(root, o) {
       return Promise.resolve();
     }
     resetStage(t, from, r);
-    if (from) [...old.slice(from), ...r.steps.slice(from)].forEach((s) => G.n[s.sp] && setNode(s.sp, "idle"));
+    if (from) [...old.slice(from), ...r.steps.slice(from)].forEach((s) => { if (G.n[s.sp]) setNode(s.sp, "idle"), (nodeEl(s.sp).querySelector(".sc-val").textContent = ""); });
     else msgBox().outerHTML = msgHTML(t);
     need();
     // The result is known now: it is written with the click and shown when the run ends, so nothing moves then.
@@ -352,7 +354,7 @@ export async function mount(root, o) {
     if (b) b.setAttribute("data-hot", "");
     if (t.decide == "floor") $$(".is-dim", stage).forEach((e) => e.classList.remove("is-dim"));
     if (r.lane == "member") msgBox().dataset.tag = `${t.member} confirms`;
-    showResult(res.innerHTML);
+    reveal();
     again.classList.remove("bp-btn-p");
     chipsBusy(false);
     if (!attract) C.say(`Result: ${d.labels.lanes[r.lane]}`); // the self-started run announces nothing
@@ -390,7 +392,8 @@ export async function mount(root, o) {
       stopAll(); need();
       return Promise.resolve();
     }
-    stopRun(); pend = null;
+    if (runTl) runTl.skip(); // a run in progress ends first, so "Back to one moment" finds it whole
+    pend = null;
     mode = "all"; dot = null;
     const list = SPECS[0][2].map((i) => d.trace("t" + i)), noAi = d.labels.noAi;
     allBox.innerHTML = `<div class="bp-all-h"><b>${esc(COPY.allTitle)}</b><button type="button" class="bp-btn bp-back">${esc(COPY.back)}</button></div><div class="bp-minis">` +
@@ -440,6 +443,7 @@ export async function mount(root, o) {
     if (!pend) return;
     pend.forEach(([e, a, v]) => (v == null ? e.removeAttribute(a) : e.setAttribute(a, v)));
     pend = null;
+    sync();
     R = decide(cur, S, d);
     [kindEl, logOl, res, change].forEach((e) => e.classList.remove("is-due"));
     paint();
@@ -481,6 +485,7 @@ export async function mount(root, o) {
       io.observe(stage);
       k.add(() => io.disconnect());
     } else R = decide(cur, S, d);
+    sync();
     // a tap or a key (not a scroll that starts on it) is the visitor's: attract stands down
     const touch = () => { touched = true; attract = false; settle(); };
     ["click", "keydown", "change"].forEach((ev) => k.on(root, ev, touch, { capture: true }));
@@ -551,7 +556,8 @@ export async function mount(root, o) {
       const b = e.target;
       if (b.getAttribute("role") != "radio" || !/Arrow(Left|Right|Up|Down)/.test(e.key)) return;
       e.preventDefault();
-      const all = [...b.parentElement.children], i = all.indexOf(b), fwd = /Down/.test(e.key) || (e.key == "ArrowRight") != G.rtl;
+      const all = [...b.parentElement.children], i = all.indexOf(b), rtl = getComputedStyle(b).direction == "rtl";
+      const fwd = e.key == "ArrowDown" || (e.key != "ArrowUp" && (e.key == "ArrowRight") != rtl);
       const n = all[(i + (fwd ? 1 : all.length - 1)) % all.length];
       pickRadio(n); n.focus();
     });

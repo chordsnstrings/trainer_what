@@ -424,8 +424,6 @@
 
 /* ---------- the result and its settings (paper) ---------- */
 [data-showcase="play"] .bp-out {
-  position: sticky;
-  inset-block-start: calc(var(--sc-top) + 14px);
   display: grid;
   gap: 14px;
   outline: none;
@@ -571,9 +569,6 @@ html.sc-motion:not(.sc-late) [data-showcase="play"][data-sc="pre"] [data-attract
   }
   [data-showcase="play"] .bp-pick {
     grid-column: 1 / -1;
-  }
-  [data-showcase="play"] .bp-out {
-    position: static;
   }
 }
 /* ---------- phone: a chip row, a compact stage, the result, two toggles ---------- */
