@@ -29,6 +29,22 @@ your subscribers" (same capability count). The trainer-facing billing label
 page, every rendered site page, the feature matrix and the earnings
 calculator.
 
+## Current state — 28 October 2026: phase 1 of the marketing revamp
+
+`/`, `/trainer-brain`, `/demo` and `/pricing` were rebuilt in phase 1 of the marketing revamp (PR #105). They follow the owner's choice of 27 October 2026 ("Go with your recommendation"): concept A's "Live Brain", C's decision anatomy and Never list, and B's pricing page.
+- **Where the details are:**
+  - "Phase 1 of the marketing revamp" below: the page structure, the call to action, copy limits and checks;
+  - [brain-showcase.md](brain-showcase.md): the animated Brain showcases.
+- **Removed from the site then:**
+  - the hero relay (`hero-flow.tsx`);
+  - the old home bands: subscriber tiles, the decision-flow card and the commission pills;
+  - the home's journey band and its scroll scenes;
+  - the old `/demo` tabs;
+  - the old `/pricing` parts: the three price anchors, the old worked example and the compact earnings calculator. The new page has its own example and calculators.
+
+  The dated sections below that describe them are the record of their time.
+- **Unchanged:** every other page, the header, the phone menu, the footer, Kamran's button and `/how-it-works` with its journey player.
+
 ## Current refresh — 3 October 2026
 
 See [marketing refresh](../MARKETING_REFRESH_2026-10-03.md) for the owner-approved audit fixes and verification. Public copy now describes the desktop multipage builder, catalogue-derived layout counts, AI module starters, transformation galleries, six-step setup, current member languages and voice modes. The shared registry feeds search and bounded assistant facts. Product illustrations use current navigation labels and remain explicitly illustrative.
@@ -71,9 +87,11 @@ Derived from it, so nothing drifts:
 - Core: `/`, `/how-it-works` (8 HowTo steps and a who-does-what table),
   `/trainer-brain`, `/demo` (four scripted decisions, rewritten to the
   28 September concept: applied automatically, rescheduled automatically,
-  handed to the trainer, pain pauses the workout), `/features`, `/pricing`
+  handed to the trainer, pain pauses the workout; since 28 October 2026 the
+  Brain playground with 12 sample moments), `/features`, `/pricing`
   (bands, worked example computed by the calculator function, what else is on
-  the statement, billing, payouts, compact calculator), `/earnings-calculator`,
+  the statement, billing, payouts, compact calculator; since 28 October 2026
+  concept B's page with two calculators, see "Phase 1" below), `/earnings-calculator`,
   `/follower-calculator`, `/security-and-privacy`, `/faq` (rewritten in
   customer language; no build-status notes, no payout provider name),
   `/about`, `/methodology`, `/get-started` (the setup checklist and the
@@ -110,7 +128,12 @@ Marketing pages are server components (`components/marketing/site.tsx`)
 rendered by `app/[[...path]]/page.tsx` before the workspace: the 5,000-line
 client workspace no longer renders them (`marketing-pages.tsx` was removed).
 Client islands are small (`components/marketing/islands.tsx`): follower and
-earnings calculators, the live address preview and the demo tabs. The header
+earnings calculators, the live address preview and the demo tabs (removed on
+28 October 2026). Since then the four phase-1 pages render through their own
+components (`components/marketing/pages/`, mapped in `BESPOKE` in `site.tsx`)
+with their own islands (`home-islands.tsx`, `brain-page-islands.tsx`,
+`pricing-islands.tsx`) and the Brain showcases (`components/marketing/brain/`,
+[brain-showcase.md](brain-showcase.md)). The header
 and footer (`components/marketing/frame.tsx`) have no hooks, so the directory
 and the sign-in pages share them. Dropdowns open on hover or keyboard focus
 without JavaScript; the mobile menu is a `<details>` element. A skip link,
@@ -359,6 +382,19 @@ the old "bought a USD 20 plan", "1-3% ... creators say", "sell far more" or
 the brief can be tested with the existing landing wording experiments
 ("landing-welcome" slot); only true variants should be tested.
 
+**Added with phase 1 (28 October 2026).**
+- **No prototype placeholders.** `PLACEHOLDER` in `tests/marketing-helpers.ts` matches text such as "[rate: owner to state]", "owner to confirm" and "decision 3". The page tests and the trace test fail on any match in a page's rendered HTML, its registry entry or the Brain traces.
+- **`C0_PAGES`** (`tests/marketing-site.test.ts`) holds `/`, `/trainer-brain`, `/demo` and `/pricing`. A page in it gets four checks:
+  - its registry text avoids the C0 vocabulary (`C0_BANNED`);
+  - its headings and FAQ questions say "your AI";
+  - the copy limits apply;
+  - the placeholder check runs on its registry text and rendered page.
+- **No invented figures on `/pricing`.** Every AED amount and percentage comes from the ledger (`BANDS`, `estimateEarnings`, `MEMBERSHIP_MINIMUMS`). The test fails if a card-processing rate appears.
+- **Statements that depend on payments follow the payments flag:** the "Not on yet" chips, the status panel and strip, and the answer to "Can subscribers pay me today?". Nothing says subscribers can pay while payments are off.
+- **No `/signup` link while sign-ups are closed** on the four pages, including the showcases' calls to action. Unit tests and browser check 13 hold this.
+- **The Brain showcases are labelled samples, and no AI model is called.** `tests/marketing-brain-traces.test.ts` holds their claims to the code ([brain-showcase.md](brain-showcase.md)). `tests/model-name-guard.test.ts` also scans `components/marketing/brain/**`.
+- **"Download your data and request deletion"** replaces the prototype's "Export or delete it whenever you like", because deletion is a reviewed request. The Never sheet ships unsigned: there is no founder note yet.
+
 ## Checks run
 
 - `npx tsc --noEmit` (whole repository): passes.
@@ -399,6 +435,8 @@ the brief can be tested with the existing landing wording experiments
   lives in `marketing-calculators.ts` (`aedWhole`).
 - Not run: the full repository suite, the PostgreSQL sandbox suite and the
   e2e harness.
+- These are the checks of the first package (28 September 2026). Phase 1's
+  checks and results are under "Phase 1 of the marketing revamp" below.
 
 ## Review fixes (28 September 2026, second pass)
 
