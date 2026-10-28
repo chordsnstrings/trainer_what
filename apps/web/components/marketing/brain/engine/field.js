@@ -22,6 +22,9 @@
      streamed and typed words reserve their final size, counts and the
      Pause label have fixed widths, and the reduced-motion still frame adds
      tiles under the ones already shown (zero layout shift);
+   - the board's columns and note keep the room every setting needs (hidden
+     sizers, field.render.js), and on screen every re-sort is a FLIP, the
+     catch-up when it mounts included, so its boxes never move in layout;
    - the Paused count holds each stop once in the reduced-motion frame (the
      prototype landed Noura's twice). */
 import "./field.run.css";
@@ -30,7 +33,7 @@ import * as C from "./core.js";
 import { prepare } from "./data.js";
 import { decide, defaults, isOff, pick, totals } from "./decide.js";
 import * as U from "./ui.js";
-import { AFTER, COPY, FIRST, SHELL, START, fill, id0, msgHTML, subHTML, tileHTML } from "./field.render.js";
+import { AFTER, COPY, FIRST, SHELL, START, fill, id0, levelNote, msgHTML, subHTML, tileHTML, whyOf } from "./field.render.js";
 const { h, esc, clamp } = C;
 
 const BUB = { voice_lines: "Lines ready", learner: "Suggests: Upper body increments" };
@@ -164,13 +167,16 @@ function replay(el, cls, sign = 1) {
   if (k && el.animate && (!k[1].pseudoElement || PSEUDO_FX())) { try { el.animate(k[0], k[1]); return; } catch { /* the class restart below */ } }
   el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls);
 }
-/** FLIP: first rects in, animate every moved element from there (WAAPI, finite). */
-function flip(first, ms) {
+/** FLIP: first rects in, animate every moved element from there (WAAPI, finite).
+    With fade (reduced motion) a moved element fades in where it lands instead:
+    nothing travels, and it is not seen moving. */
+function flip(first, ms, fade) {
   let i = 0;
   first.forEach((a, el) => {
     const b = el.getBoundingClientRect(), dx = a.left - b.left, dy = a.top - b.top;
     if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
-    el.animate([{ transform: `translate(${dx}px,${dy}px)` }, { transform: "none" }], { duration: ms, delay: 40 * i++, easing: EASE, fill: "backwards" });
+    if (fade) el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: ms, easing: EASE });
+    else el.animate([{ transform: `translate(${dx}px,${dy}px)` }, { transform: "none" }], { duration: ms, delay: 40 * i++, easing: EASE, fill: "backwards" });
   });
 }
 
@@ -193,7 +199,8 @@ function mountBoard(root, o, p) {
   const d = p.d, RM = C.reduced(), L = C.layer(root), k = owned();
   let dead = false, rx = null, seen = false;
   wireControls(root.querySelector(".mb-ctrl"), p, k, root);
-  const note = root.querySelector(".mb-note"), diff = root.querySelector(".mb-diff"), tot = root.querySelector(".mb-tot");
+  // What shows is the note's first span and each column's first list; the hidden sizers after them (.mb-sz) hold the room.
+  const note = root.querySelector(".mb-note > span"), diff = root.querySelector(".mb-diff"), tot = root.querySelector(".mb-tot");
   const lists = {}, cards = {};
   root.querySelectorAll(".mb-col").forEach((c) => (lists[c.dataset.lane] = c.querySelector(".mb-list")));
   root.querySelectorAll(".mb-c").forEach((c) => (cards[c.dataset.t] = c));
@@ -208,6 +215,7 @@ function mountBoard(root, o, p) {
     const api = await openReceipt(b.dataset.t, b, { p, o, layer: L.el, dead: () => dead, onClose: () => (rx = null) });
     if (api) rx = api;
   });
+  /** Re-sorts every card by the page's settings: anim "move" (a FLIP) or "fade" (reduced motion), or at once. */
   function apply(key, src, anim, by) {
     const S = p.S, moved = [], first = new Map();
     if (anim) Object.values(cards).forEach((c) => first.set(c, c.getBoundingClientRect()));
@@ -215,12 +223,12 @@ function mountBoard(root, o, p) {
       const t = d.trace(id), r = decide(t, S, d), c = cards[id], col = c.closest(".mb-col").dataset.lane;
       const su = c.querySelector(".mb-sure");
       if (su) { su.textContent = r.sure ? r.sure.display : ""; su.dataset.ok = r.lane == "sent" ? 1 : 0; }
-      c.querySelector(".mb-why").textContent = id == "t9" && !S.supplementsTopic ? COPY.drafted : "";
+      c.querySelector(".mb-why").textContent = whyOf(id, S);
       if (col != r.lane) { lists[r.lane].append(c); moved.push([t, col, r]); }
     }
     root.querySelectorAll(".mb-col").forEach((c) => (c.querySelector(".mb-n").textContent = c.querySelectorAll(".mb-c").length));
-    if (anim) flip(first, 420);
-    if (key == "level") note.textContent = d.labels.levels[S.level].summary + (S.level > 1 ? " " + d.labels.levels.note : "");
+    if (anim) flip(first, anim == "fade" ? 280 : 420, anim == "fade");
+    if (key == "level") note.textContent = levelNote(d, S.level);
     else if (key == "supplementsTopic" && !S.supplementsTopic) note.textContent = COPY.suppOff;
     tot.textContent = totals(d, S);
     // Only a change the visitor made is described (and announced); the auto-demo says nothing.
@@ -229,10 +237,15 @@ function mountBoard(root, o, p) {
     diff.textContent = said;
     if (said && by == root) C.say(said);
   }
-  const resort = (key, src, by) => apply(key, src, seen && !RM, by);
+  const resort = (key, src, by) => apply(key, src, seen && !RM && "move", by);
   p.subs.add(resort);
   k.add(() => p.subs.delete(resort));
-  apply(null, "", false); // the field may have changed a setting already
+  // The field may have changed a setting already (its auto-demo, or the
+  // visitor): the board catches up, on screen as a re-sort (a fade under
+  // reduced motion), so no card jumps where the visitor is looking.
+  const S0 = defaults(d), at = root.getBoundingClientRect();
+  seen = at.bottom > 0 && at.top < innerHeight;
+  apply(p.S.level != S0.level ? "level" : p.S.supplementsTopic != S0.supplementsTopic ? "supplementsTopic" : null, "", seen && (RM ? "fade" : "move"));
   root.setAttribute("data-sc", "on");
   root.setAttribute("data-sc-tier", C.tier.name);
   return {
@@ -521,7 +534,7 @@ function mountField(root, o, p) {
     const S = p.S, moved = [], first = new Map();
     for (const id in tiles) first.set(tiles[id].li, { l: tiles[id].lane, y: Y.get(tiles[id].li) || 0 });
     for (const id in tiles) {
-      const tl = tiles[id], to = laneOf(id), s2 = tl.li.querySelector(".mc-sub2"), why = id == "t9" && !S.supplementsTopic ? COPY.drafted : "";
+      const tl = tiles[id], to = laneOf(id), s2 = tl.li.querySelector(".mc-sub2"), why = whyOf(id, S);
       if (s2.textContent != why) s2.textContent = why;
       if (to != tl.lane) { lists[to].prepend(tl.li); tl.lane = to; Y.delete(tl.li); moved.push(id); }
     }

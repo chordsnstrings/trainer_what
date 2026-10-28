@@ -188,7 +188,7 @@ function figure(root, d, S0, o, settled, say) {
     } else G.fx = 0;
     centres();
     notesGeo(g);
-    svg.setAttribute("viewBox", `0 0 ${G.W} ${G.H}`);
+    attr(svg, "viewBox", `0 0 ${G.W} ${G.H}`);
     noteAt = null; last = {};
     draw();
   }
@@ -268,7 +268,7 @@ function figure(root, d, S0, o, settled, say) {
       const full = rs.dataset.full;
       let n = V.k == 5 ? Math.round(full.length * clamp((V.q - 0.25) / 0.5, 0, 1)) : V.lit > 5 ? full.length : 0;
       if (n > 0 && n < full.length) n = Math.max(0, full.lastIndexOf(" ", n)); // word by word: ~20 text layouts, not one a frame
-      if (last.rs != n) { rs.firstChild.data = full.slice(0, n) || " "; last.rs = n; }
+      if (last.rs != n) { const t = rs.firstChild, s = full.slice(0, n) || " "; if (t.data != s) t.data = s; last.rs = n; }
     }
     const dim = V.k >= 0 && V.f > 0.12 ? "k" : V.j > 0.02 ? "j" : "";
     if ((stack.dataset.dim || "") != dim) dim ? (stack.dataset.dim = dim) : stack.removeAttribute("data-dim");
@@ -292,7 +292,7 @@ function figure(root, d, S0, o, settled, say) {
     const e = V.e, vis = e >= 0.3 ? clamp((e - 0.3) / 0.4, 0, 1) : 0, svv = fx(vis);
     labs.brk.forEach((x) => put(x, "--sv", root.hasAttribute("data-step") || (V.k >= 0 && V.f > 0.15) ? "0" : svv)); // hidden while a plate is inspected (also the intro teaser)
     for (const c in labs.cite) put(labs.cite[c], "--sv", svv);
-    if (!vis) { for (const p of sv) p.setAttribute("d", ""); svg.classList.remove("has-dot"); return; }
+    if (!vis) { for (const p of sv) p.setAttribute("d", ""); svg.classList.toggle("has-dot", false); return; }
     put(svg, "opacity", svv);
     svg.classList.toggle("is-insp", V.k >= 0 && V.f > 0.15);
     const top = at(0, V), bot = at(8, V);
@@ -333,10 +333,8 @@ function figure(root, d, S0, o, settled, say) {
       lead.setAttribute("d", noteAt ? `M${a[0].toFixed(1)} ${a[1].toFixed(1)}L${(noteAt[0] - 24).toFixed(1)} ${noteAt[1].toFixed(1)}L${noteAt[0].toFixed(1)} ${noteAt[1].toFixed(1)}` : "");
     } else lead.setAttribute("d", "");
     // pulse dot
-    if (pu != null) {
-      for (const c of [sv[8], sv[9]]) c.setAttribute("cx", top[0].toFixed(1)), c.setAttribute("cy", py.toFixed(1));
-      svg.classList.add("has-dot");
-    } else svg.classList.remove("has-dot");
+    if (pu != null) for (const c of [sv[8], sv[9]]) c.setAttribute("cx", top[0].toFixed(1)), c.setAttribute("cy", py.toFixed(1));
+    svg.classList.toggle("has-dot", pu != null);
   }
 
   /* ---------------- matrices: code sweep / AI sparkle (one plate at a time) */
@@ -413,8 +411,17 @@ function figure(root, d, S0, o, settled, say) {
   }
 
   /* ---------------- ghosts: other members' moments, one specialist each */
+  // Pause follows the ambient scene through onState, as core's button() would, except that the label
+  // changes in its text node: button() replaces the node at every change of reasons (a page restyle).
+  const label = pb.querySelector("[data-label]").firstChild, held = () => gsc.reasons.has("user") || gsc.reasons.has("idle");
+  const pauseState = () => {
+    const p = held();
+    pb.setAttribute("aria-pressed", String(p));
+    if (label.data != (p ? COPY.play : COPY.pause)) label.data = p ? COPY.play : COPY.pause;
+    pb.setAttribute("data-state", p ? "paused" : "playing");
+  };
   // both scenes read the header's height (--sc-top): before any write
-  gsc = C.scene(scene, { resumeOnInput: true });
+  gsc = C.scene(scene, { resumeOnInput: true, onState: pauseState });
   gscIntro = C.scene(root, { idle: 0 });
   const G0 = ghosts.map((g, i) => ({ g, t: i * 420, run: -1 }));
   // the pill a ghost member's moment uses, in the inspected Brain card (base trace only)
@@ -553,11 +560,14 @@ function figure(root, d, S0, o, settled, say) {
   layout(); // the mount's reads, then its first writes
   const noIntro = settled || progress(G && G.y) > 0.015 || link.test(location.hash);
   arm();
-  gsc.button(pb, { pause: COPY.pause, play: COPY.play });
+  pb.setAttribute("data-sc-pause", "");
   pb.disabled = false;
-  gsc.pause("intro"); // ghosts start after the burst (they are invisible before it; no frames spent on them)
+  gsc.pause("intro"); // ghosts start after the burst (they are invisible before it; no frames spent on them); Pause's first state
   // the intro runs ~7 s (burst + teaser), so Pause stops it too (WCAG 2.2.2), not only the ambient stacks
-  k.on(pb, "click", () => (gsc.reasons.has("user") || gsc.reasons.has("idle") ? gscIntro.pause() : gscIntro.play()));
+  k.on(pb, "click", () => {
+    held() ? gsc.play() : gsc.pause();
+    held() ? gscIntro.pause() : gscIntro.play();
+  });
   if (noIntro) { finish(G && G.y); fromHash(); }
   else {
     card0();

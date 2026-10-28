@@ -182,23 +182,49 @@ function field(d, o) {
 
 /* ------------------------------------------------------------------ the board */
 export const BLANES = ["sent", "waits", "paused", "member", "learn"];
+/** The line under a card that says why it waits: Khalid's question while the
+    trainer leaves supplement questions to a draft. */
+export const whyOf = (id, S) => (id == "t9" && !S.supplementsTopic ? COPY.drafted : "");
+/** The note under the board's controls once the level changes. */
+export const levelNote = (d, n) => d.labels.levels[n].summary + (n > 1 ? " " + d.labels.levels.note : "");
+/** Every setting the controls reach from S: each level, each step of the plans slider, supplements either way. */
+function reach(d, S) {
+  const { min, max } = d.labels.planSetting, out = [];
+  for (const level of [1, 2, 3]) for (let bar = min; bar <= max; bar++) for (const supplementsTopic of [true, false]) out.push({ ...S, level, bar, supplementsTopic });
+  return out;
+}
 /** One card per moment: who handled it (the specialist code picked, or the
-    code that stopped it) and, for plans, how sure it is. */
-export function boardCard(d, t, r) {
+    code that stopped it) and, for plans, how sure it is. A sizer's copy (sz)
+    names no moment: it only holds the card's size. */
+export function boardCard(d, t, r, why = "", sz = false) {
   const id = id0(t), st = r.steps.find((x) => x.sp in d.sp && d.sp[x.sp].kind == "ai" && x.sp != "learner");
   const who = st ? d.sp[st.sp] : null, hit = r.steps.find((x) => x.result == "hit");
   const by = hit ? `${d.sp[hit.sp].name} · ${COPY.noAi}` : who ? who.name : COPY.noAi;
   const code = t.decide == "voice" ? `<span class="mb-by" data-kind="check"><i aria-hidden="true"></i>Set logger · your rule</span>` : "";
-  return `<li class="mb-c" data-t="${id}"><button type="button" class="mb-b" data-t="${id}"><span class="mb-h"><span class="mc-av" aria-hidden="true">${esc(t.member[0])}</span><b>${esc(t.member)}</b><span>${esc(t.chip)}</span></span>` +
-    `<span class="mb-by" data-kind="${who ? "ai" : "check"}"><i aria-hidden="true"></i>${esc(by)}</span>${code}${r.sure ? `<span class="mb-sure" data-ok="${r.lane == "sent" ? 1 : 0}">${esc(r.sure.display)}</span>` : ""}<span class="mb-why"></span></button></li>`;
+  return (sz ? `<li><button type="button" class="mb-b" tabindex="-1">` : `<li class="mb-c" data-t="${id}"><button type="button" class="mb-b" data-t="${id}">`) +
+    `<span class="mb-h"><span class="mc-av" aria-hidden="true">${esc(t.member[0])}</span><b>${esc(t.member)}</b><span>${esc(t.chip)}</span></span>` +
+    `<span class="mb-by" data-kind="${who ? "ai" : "check"}"><i aria-hidden="true"></i>${esc(by)}</span>${code}${r.sure ? `<span class="mb-sure" data-ok="${r.lane == "sent" ? 1 : 0}">${esc(r.sure.display)}</span>` : ""}<span class="mb-why">${esc(why)}</span></button></li>`;
 }
+/* Reserved room, so a re-sort moves no box: each column keeps the size of
+   every card it can hold at any setting the controls reach (each in its
+   tallest form), from an inert copy laid in the same cell as its list, and
+   the note keeps the size of its longest text. */
 function board(d, o) {
-  const S = defaults(d), lv = d.labels.levels, id = esc(o.id), cols = {};
-  BLANES.forEach((l) => (cols[l] = []));
-  for (const t of d.traces) if (!isOff(t, S)) { const r = decide(t, S, d); cols[r.lane].push(boardCard(d, t, r)); }
+  const S = defaults(d), lv = d.labels.levels, id = esc(o.id), cols = {}, room = {};
+  BLANES.forEach((l) => ((cols[l] = []), (room[l] = new Map())));
+  for (const t of d.traces) if (!isOff(t, S)) { const r = decide(t, S, d); cols[r.lane].push(boardCard(d, t, r, whyOf(id0(t), S))); }
+  for (const s of reach(d, S)) for (const t of d.traces) if (!isOff(t, s)) {
+    const m = room[decide(t, s, d).lane];
+    m.set(t, m.get(t) || whyOf(id0(t), s));
+  }
+  const sizer = (l) => {
+    const m = room[l], fixed = m.size == cols[l].length && [...m.values()].every((w) => !w);
+    return fixed ? "" : `<ul class="mb-list mb-sz" aria-hidden="true" inert>${d.traces.filter((t) => m.has(t)).map((t) => boardCard(d, t, decide(t, S, d), m.get(t), true)).join("")}</ul>`;
+  };
+  const longest = [1, 2, 3].map((n) => levelNote(d, n)).concat(COPY.suppOff).reduce((a, b) => (b.length > a.length ? b : a));
   return `<div class="mb-ctrl">${levels(d, S, false)}${bar(d, S)}${supp(S)}${lock(d, `${id}-tip-k`)}</div>` +
-    `<p class="mb-note" aria-hidden="true">${esc(lv[S.level].summary)}</p>` +
-    `<div class="mb-cols">${BLANES.map((l) => `<section class="mb-col" data-lane="${l}" aria-labelledby="${id}-h-${l}"><p class="mb-ch" id="${id}-h-${l}">${U.lane(d, l)}<span class="mb-n">${cols[l].length}</span></p><ul class="mb-list">${cols[l].join("")}</ul></section>`).join("")}</div>` +
+    `<p class="mb-note" aria-hidden="true"><span>${esc(lv[S.level].summary)}</span><span class="mb-sz">${esc(longest)}</span></p>` +
+    `<div class="mb-cols">${BLANES.map((l) => `<section class="mb-col" data-lane="${l}" aria-labelledby="${id}-h-${l}"><p class="mb-ch" id="${id}-h-${l}">${U.lane(d, l)}<span class="mb-n">${cols[l].length}</span></p><ul class="mb-list">${cols[l].join("")}</ul>${sizer(l)}</section>`).join("")}</div>` +
     `<p class="mb-diff"></p><p class="mb-tot">${esc(totals(d, S))}</p>` +
     `<div class="sc-strip"><span class="sc-sample">${esc(d.labels.chip)}</span><span>${esc(d.labels.rates)}</span>${d.labels.subscribers ? `<span>${esc(d.labels.subscribers)}</span>` : ""}</div>` +
     cta(o);

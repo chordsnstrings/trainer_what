@@ -812,8 +812,8 @@
   .mk-hm-steps .mk-hm-n {
     margin-block-end: 8px;
   }
-  /* Numbered squares; each title stays in its tab's name, and a "Not on
-     yet" chip shrinks to a dot that keeps its words. */
+  /* Numbered squares; each title stays in its tab's name, and so do a
+     "Not on yet" chip's words while the flag shows as a dot. */
   .mk-hm-walk-rail {
     gap: 6px;
     border: 0;
@@ -831,10 +831,13 @@
     box-shadow: inset 0 0 0 2px var(--ink);
     font-weight: 700;
   }
-  .mk-hm-walk-t {
+  .mk-hm-walk-t,
+  .mk-hm-walk-flag .mk-pf-chip {
     position: absolute;
     inline-size: 1px;
     block-size: 1px;
+    min-block-size: 0;
+    padding: 0;
     overflow: hidden;
     clip-path: inset(50%);
     white-space: nowrap;
@@ -846,16 +849,10 @@
     position: absolute;
     inset-block-start: 5px;
     inset-inline-end: 5px;
-    line-height: 0;
-  }
-  .mk-hm-walk-flag .mk-pf-chip {
     inline-size: 7px;
     block-size: 7px;
-    min-block-size: 0;
-    padding: 0;
-    overflow: hidden;
+    border-radius: 50%;
     background: var(--warning);
-    font-size: 0;
   }
   .mk-hm-walk-body {
     grid-template-columns: minmax(0, 1fr);
