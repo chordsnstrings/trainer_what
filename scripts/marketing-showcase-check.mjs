@@ -27,7 +27,7 @@
 //     is set): load plus 10 s of the field and the board, 5 s after a
 //     playground click (input excluded), scrolling the anatomy, and the
 //     /pricing sliders (input excluded).
-//  4. No horizontal overflow at 360, 390 and 1440, left to right and in
+//  4. No horizontal overflow at 320, 360, 390 and 1440, left to right and in
 //     ?lang=ar; no duplicate id, page error or console error; each page has
 //     its showcases and each reaches data-sc="on" within 15 s of coming near.
 //  5. With the engine's requests aborted after the load event, the hero ends
@@ -37,7 +37,8 @@
 //     "off" within 7 s of coming near and goes flat only while entirely below
 //     the viewport, with no layout shift.
 //  6. While visible and running, data-sc-run is on the root and frames run;
-//     it is gone within 1 s off screen, in a hidden document, after Pause,
+//     it is gone within 1 s off screen, in a hidden document, after Pause
+//     (which then reads "Play…", with no aria-pressed: its name changes),
 //     under emulated reduced motion, with the member's reduce-motion cookie
 //     and during a Kamran call (html[data-mk-call]); the rest of the
 //     marketing motion still follows its switch (data-mk-motion); nothing in
@@ -47,11 +48,11 @@
 //  8. Kamran's button (the assistant stub on) meets no showcase control at
 //     390x844 and 360x800, scroll 0.
 //  9. A receipt takes focus, Esc closes it and returns focus; open, Pause,
-//     close leaves "Play" pressed and no frames; with the consent bar open
+//     close leaves "Play" and no frames; with the consent bar open
 //     the phone receipt and settings sheet are topmost at their centres;
 //     leaving with a receipt open leaves no overlay layer or scroll lock.
-// 10. The /demo playground: knee, deload, low recovery, free text, a setting
-//     change and the keyboard.
+// 10. The /demo playground: knee, deload, low recovery, free text (a close
+//     sample, and none for "hello there"), a setting change and the keyboard.
 // 11. /trainer-brain: the pin (html.sc-pin, more than 3 viewports, steps
 //     advance), the pinned frame flush under the header at 1440, 1000 and
 //     390, flat plates under reduced motion and at 1440x650, and "See it
@@ -70,10 +71,12 @@
 //
 // Reported (judged only with SHOWCASE_JUDGE_METRICS=1, meant for real
 // hardware; this container and CI have no GPU): frame gaps and engine work
-// per frame (4x CPU, ?tier=full), the STOP stamp after load, blocking time
-// against scripts/marketing-showcase-baseline.json (measured on the build
-// before phase 1), long tasks from mounting (those in which the engine's
-// chunks ran, named by long animation frames), chip and slider latency, engine
+// per frame (4x CPU, ?tier=full) after a scroll down 200 px and back (the
+// field also partly under the header), the STOP stamp after load, blocking
+// time against scripts/marketing-showcase-baseline.json (measured on the
+// build before phase 1), long tasks from mounting (every long task from the
+// island's import, its performance mark, to "on" + 1 s), chip and slider
+// latency, engine
 // chunk sizes, shared JavaScript and global CSS against the baseline, and
 // the showcase HTML on /trainer-brain. SHOWCASE_RUNS loads per page (default
 // 1; 3 when judging), median. SHOWCASE_BASELINE_OUT=<file> writes the
@@ -169,7 +172,7 @@ const kb = (bytes) => round(bytes / 1024, 1);
  * was then entirely below the viewport).
  */
 function instrument() {
-  const sc = (window.__sc = { frames: [], shifts: [], long: [], loaf: [], events: [], log: [], near: {}, lcp: null });
+  const sc = (window.__sc = { frames: [], shifts: [], long: [], events: [], log: [], near: {}, lcp: null });
   try {
     performance.setResourceTimingBufferSize(2000);
   } catch {}
@@ -210,8 +213,6 @@ function instrument() {
     sc.shifts.push({ t: e.startTime, v: e.value, input: e.hadRecentInput, nodes: e.sources.map((s) => describe(s.node)) }),
   );
   observe("longtask", (e) => sc.long.push([e.startTime, e.duration]));
-  // Long animation frames name the scripts that ran in them: the engine's own long tasks.
-  observe("long-animation-frame", (e) => sc.loaf.push([e.startTime, e.duration, e.scripts.map((x) => x.sourceURL)]));
   observe("event", (e) => e.interactionId && sc.events.push({ name: e.name, t: e.startTime, d: e.duration, id: e.interactionId }), {
     durationThreshold: 16,
   });
@@ -418,7 +419,7 @@ const motionSwitch = (page) => page.evaluate(() => document.querySelector(".mk")
 stub?.set("closed");
 if (!stub) console.log("No platform stub: one pass against the running server's platform; 8 and the open pass are skipped.");
 
-await step(4, "pages (with 2 and 13)", () => pagePass("closed", [360, 390, 1440], ["ltr", "rtl"]));
+await step(4, "pages (with 2 and 13)", () => pagePass("closed", [320, 360, 390, 1440], ["ltr", "rtl"]));
 
 await step(1, "JavaScript off", async () => {
   const lazy = new Set();
@@ -525,14 +526,14 @@ async function pagePass(state, widths, directions) {
   for (const width of widths)
     for (const dir of directions)
       for (const path of PAGES) {
-        const viewport = width === 1440 ? DESKTOP : { width, height: width === 360 ? 800 : 844 };
+        const viewport = width === 1440 ? DESKTOP : { width, height: { 320: 568, 360: 800 }[width] ?? 844 };
         const label = `${state} ${width} ${dir} ${path}`;
         const page = await open({ viewport });
         await go(page, path, dir === "rtl" ? "sc=on&lang=ar" : "sc=on");
         const found = (await hosts(page)).map((h) => h.kind);
         const missing = (KINDS[path] ?? []).filter((k) => !found.includes(k));
         if (missing.length) fail(`4. ${label}`, `missing showcase(s): ${missing.join(", ")} (found ${found.join(", ") || "none"})`);
-        if (want(2) && dir === "ltr" && width !== 360) {
+        if (want(2) && dir === "ltr" && (width === 390 || width === 1440)) {
           // The largest paint once the showcases near the first screen have started.
           for (const id of await page.evaluate(() => Object.keys(window.__sc.near))) await isOn(page, id, 5000);
           await page.waitForTimeout(800);
@@ -790,8 +791,9 @@ async function framesPass(path, kind, viewport, label) {
     await apply();
     if (!(await running(page, id, false, 1000))) problems.push(`data-sc-run still set 1 s after ${what}`);
     if (what === "Pause") {
+      // Its label says what a press does, so no aria-pressed: a toggle's name never changes.
       const p = await pauseState(page, id);
-      if (p?.pressed !== "true") problems.push(`Pause: aria-pressed ${p?.pressed}`);
+      if (!/^Play/.test(p?.label ?? "") || p.pressed !== null) problems.push(`Pause leaves ${JSON.stringify(p)} ("Play…" and no aria-pressed expected)`);
     }
     if (what.startsWith("reduced")) {
       await isOn(page, id, 5000);
@@ -888,7 +890,7 @@ await step(9, "receipts and overlays", async () => {
     if (m.open) fail(label, "Esc did not close the receipt");
     if (!/mc-tile/.test(m.focus)) fail(label, `focus returned to "${m.focus}", not the tile that opened it`);
     const p = await pauseState(page, id);
-    if (p?.pressed !== "true" || !/^Play/.test(p.label)) fail(label, `open → Pause → close leaves ${JSON.stringify(p)}`);
+    if (!/^Play/.test(p?.label ?? "") || p.pressed !== null) fail(label, `open → Pause → close leaves ${JSON.stringify(p)}`);
     if (!(await running(page, id, false, 1000))) fail(label, "data-sc-run after open → Pause → close");
     if (page.errors.length) fail(label, page.errors.slice(0, 3).join(" | "));
     await close(page);
@@ -967,12 +969,24 @@ await step(10, "playground", async () => {
     return { card: r.querySelector(".bp-offcard")?.textContent ?? "", due: !!r.querySelector(".bp-res.is-due"), steps: r.querySelectorAll(".bp-logs li").length };
   }, id);
   if (!/Not on yet/.test(low.card) || low.due || low.steps) fail(label, `low recovery: ${JSON.stringify(low)}`);
-  await settlePlay(page, id);
-  await page.fill(`#${id} .bp-free textarea`, "my knee hurts");
-  await page.click(`#${id} .bp-free button`);
-  await page.waitForTimeout(300);
-  const closest = await page.evaluate((id) => document.querySelector(`#${id} .bp-closest`)?.textContent.trim() ?? "", id);
+  // Free text: its keyword table loads when typing starts, so wait for the line.
+  const ask = async (text) => {
+    await settlePlay(page, id);
+    await page.fill(`#${id} .bp-free textarea`, text);
+    await page.click(`#${id} .bp-free button`);
+    return page
+      .waitForFunction((id) => document.querySelector(`#${id} .bp-closest`)?.textContent.trim() || null, id, { timeout: 5000, polling: 50 })
+      .then((h) => h.jsonValue(), () => "");
+  };
+  const closest = await ask("my knee hurts");
   if (!/^Closest sample: /.test(closest)) fail(label, `free text: "${closest}"`);
+  await settlePlay(page, id);
+  const pressed = () => page.evaluate((id) => document.querySelector(`#${id} .bp-chip[aria-pressed="true"]`)?.dataset.t ?? null, id);
+  const was = await pressed();
+  await page.evaluate((id) => (document.querySelector(`#${id} .bp-closest`).textContent = ""), id);
+  const none = await ask("hello there");
+  await page.waitForTimeout(300);
+  if (!/^No sample is close/.test(none) || (await pressed()) !== was) fail(label, `"hello there": "${none}", chip ${await pressed()} (no sample, nothing new plays)`);
   await play("t1");
   await page.$eval(`#${id} input[data-k="capPct"]`, (e) => {
     e.value = "3";
@@ -1243,38 +1257,53 @@ await step("metrics", "metrics", async () => {
         return { load: nav.loadEventStart, tbt: tasks.reduce((n, [, d]) => n + Math.max(0, d - 50), 0), lcp: window.__sc.lcp?.t ?? null };
       });
       const r = { tbt: load.tbt, lcp: load.lcp, stamp, frames: {}, mount: [] };
-      // Per showcase: long tasks from mounting (from its first chunk, or from
-      // coming near, to "on" + 1 s), then frames while it runs.
+      // Per showcase: long tasks from mounting, then frames while it runs.
       for (const { id, kind } of await hosts(page)) {
         if ((await scState(page, id))?.sc !== "on") await scrollToHost(page, id, kind === "anatomy" ? "start" : "center");
         await isOn(page, id);
         await page.waitForTimeout(1000);
-        // The long tasks in which the engine's chunks ran (long animation
-        // frames name their scripts), from the root coming near (the island
-        // loads nothing before the load event) to "on" + 1 s.
-        const engineUrls = (await lateResources(page)).map((x) => x.url).filter((u) => !isCss(u));
+        // Every long task from the island's import (its mark, brain/mount.tsx:
+        // an engine module already loaded counts too, as for the board) or,
+        // without one, from the root coming near, to "on" + 1 s.
         const tasks = await page.evaluate(
-          ([id, load, urls]) => {
+          ([id, load]) => {
             const sc = window.__sc;
-            const from = Math.max(sc.near[id] ?? 0, load);
+            const from = performance.getEntriesByName(`sc-mount:${id}`)[0]?.startTime ?? Math.max(sc.near[id] ?? 0, load);
             const on = sc.log.find((e) => e.host === id && e.name === "data-sc" && e.value === "on")?.t ?? from;
-            const engine = sc.loaf.filter(([, , scripts]) => scripts.some((u) => urls.includes(u)));
-            return sc.long
-              .filter(([t, d]) => t + d >= from && t <= on + 1000 && engine.some(([ft, fd]) => ft < t + d && ft + fd > t))
-              .map(([, d]) => Math.round(d));
+            return sc.long.filter(([t, d]) => t + d >= from && t <= on + 1000).map(([, d]) => Math.round(d));
           },
-          [id, load.load, engineUrls],
+          [id, load.load],
         );
         r.mount.push({ kind, tasks });
         if (kind === "board") continue;
         if (kind === "anatomy") await scrollTop(page, await page.evaluate((id) => document.getElementById(id).getBoundingClientRect().top + scrollY + innerHeight * 0.4, id));
+        // As a visitor who has scrolled: down 200 px and back, the root in view.
+        const y = await page.evaluate(() => scrollY);
+        await scrollTop(page, y + 200);
+        await page.waitForTimeout(400);
+        await scrollTop(page, y);
+        await page.waitForTimeout(600);
         if (kind === "play") {
+          // A run plays at 60 fps; at rest the playground breathes at 12 fps.
           await settlePlay(page, id).catch(() => {});
           await page.click(`#${id} .bp-chip[data-t="t1"]`).catch(() => {});
         }
         await running(page, id, true, 3000);
-        const f = await frames(page, 4000);
-        r.frames[kind] = { gap: round(p95(f.gaps)), work: round(p95(f.work), 2), count: f.count, tier: (await scState(page, id)).tier };
+        const sample = async (name, ms) => {
+          const f = await frames(page, ms);
+          r.frames[name] = { gap: round(p95(f.gaps)), work: round(p95(f.work), 2), count: f.count, tier: (await scState(page, id)).tier };
+        };
+        await sample(kind, kind === "play" ? 3000 : 4000);
+        if (kind === "field") {
+          // Partly under the sticky header: its top 100 px above the header's bottom.
+          await page.evaluate((id) => {
+            const header = document.querySelector(".mk-header")?.getBoundingClientRect().bottom ?? 0;
+            scrollBy({ top: document.getElementById(id).getBoundingClientRect().top - header + 100, behavior: "instant" });
+          }, id);
+          await page.waitForTimeout(600);
+          await sample("field under the header", 2000);
+          await scrollTop(page, y);
+        }
         if (kind === "anatomy") {
           // While scrolling through the pin.
           const [scrolled] = await Promise.all([
@@ -1290,7 +1319,7 @@ await step("metrics", "metrics", async () => {
         }
       }
       // Engine chunks: what loads after the load event. The receipt's chunk
-      // (the only one that knows html.sc-lock) loads on demand: open one on /.
+      // and sheet (the only ones that know .ba-burst) load on demand: open one on /.
       if (path === "/" && first) {
         await scrollTop(page);
         await openReceipt(page, first.id).catch(() => {});
@@ -1302,7 +1331,7 @@ await step("metrics", "metrics", async () => {
       for (const url of new Set((await lateResources(page)).map((x) => x.url))) {
         const body = Buffer.from(await (await fetch(url)).arrayBuffer());
         const size = gzipSync(body).length;
-        if (body.includes("sc-lock")) r.receipt += size;
+        if (body.includes("ba-burst")) r.receipt += size;
         else r.engine += size;
       }
       // Input latency: a chip on /demo, the share slider on /pricing (Event Timing).
