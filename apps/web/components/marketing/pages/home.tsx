@@ -1,9 +1,11 @@
 // The home page (docs/marketing-revamp-2026-10-26/phase1/PLAN.md WP4):
-// concept A's "Live Brain" home in the house tokens. Every word comes from
-// the "/" registry entry (packages/contracts/src/marketing-content.ts),
-// apart from the labels of the sample mock-ups, the flow window's sample
-// lines (the traces' own: the Brain showcases tell the same moments) and a
-// few link labels. What is live follows the platform's flags (proof.tsx).
+// concept A's "Live Brain" home in the house tokens. Every claim comes from
+// the "/" registry entry (packages/contracts/src/marketing-content.ts) or
+// the shared proof lists (marketing-proof.ts, REPLACES); the components add
+// only labels (the walkthrough's, the sample mock-ups', the address hint,
+// links) and the flow window's sample lines, which are the traces' own (the
+// Brain showcases tell the same moments). What is live follows the
+// platform's flags (proof.tsx).
 // The hero's first frame is the field, the band after it the board
 // (brain/showcase.tsx); their bands carry .mk-sc-band, so the section
 // reveal leaves them alone while the engine measures them. Every other band

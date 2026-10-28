@@ -74,6 +74,7 @@
 // 1; 3 when judging), median. SHOWCASE_BASELINE_OUT=<file> writes the
 // metrics as a new baseline. SHOWCASE_CHECKS=1,4,metrics runs a subset.
 // Results: test-results/marketing-showcase.json (SHOWCASE_OUT).
+import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -359,6 +360,7 @@ const lateResources = (page) =>
       .filter((r) => r.startTime >= load && /\.(js|css)(\?|$)/.test(new URL(r.name).pathname))
       .map((r) => ({ url: r.name, at: r.startTime }));
   });
+const isCss = (url) => new URL(url).pathname.endsWith(".css");
 const gzipped = async (url) => gzipSync(Buffer.from(await (await fetch(url)).arrayBuffer())).length;
 /** The engine's chunks per page (the JS and CSS it fetches after the load event), learnt once. */
 const ENGINE = new Map();
@@ -411,7 +413,7 @@ await step(4, "pages (with 2 and 13)", () => pagePass("closed", [360, 390, 1440]
 
 await step(1, "JavaScript off", async () => {
   const lazy = new Set();
-  for (const path of withShowcases()) for (const url of await engineChunks(path)) if (url.endsWith(".css")) lazy.add(url);
+  for (const path of withShowcases()) for (const url of await engineChunks(path)) if (isCss(url)) lazy.add(url);
   // The receipt's own sheet comes with its chunk, on demand.
   if (PAGES.includes("/")) {
     const page = await open();
@@ -421,7 +423,7 @@ await step(1, "JavaScript off", async () => {
     const before = new Set((await lateResources(page)).map((r) => r.url));
     await openReceipt(page, id);
     await page.waitForTimeout(500);
-    for (const r of await lateResources(page)) if (!before.has(r.url) && r.url.endsWith(".css")) lazy.add(r.url);
+    for (const r of await lateResources(page)) if (!before.has(r.url) && isCss(r.url)) lazy.add(r.url);
     await close(page);
   }
   const sheets = await Promise.all([...lazy].map(async (url) => (await fetch(url)).text()));
@@ -500,8 +502,8 @@ async function pagePass(state, widths, directions) {
         const missing = (KINDS[path] ?? []).filter((k) => !found.includes(k));
         if (missing.length) fail(`4. ${label}`, `missing showcase(s): ${missing.join(", ")} (found ${found.join(", ") || "none"})`);
         if (want(2) && dir === "ltr" && width !== 360) {
-          const near = (await hosts(page))[0];
-          if (near) await isOn(page, near.id, 5000);
+          // The largest paint once the showcases near the first screen have started.
+          for (const id of await page.evaluate(() => Object.keys(window.__sc.near))) await isOn(page, id, 5000);
           await page.waitForTimeout(800);
           const lcp = await page.evaluate(() => {
             const n = window.__sc.lcp?.node;
@@ -630,26 +632,38 @@ await step(5, "lifecycle", async () => {
   };
   results.fallback = {};
   const offAt = (page, id) => page.evaluate((id) => window.__sc.log.find((e) => e.host === id && e.name === "data-sc" && e.value === "off")?.t ?? null, id);
-  if (PAGES.includes("/")) {
-    const label = "5. / hero, engine aborted";
-    const page = await open({ viewport: PHONE });
-    await abortAfterLoad(page);
-    await go(page, "/");
-    const id = await hostOf(page, "field");
-    const off = await until(page, id, { attr: "data-sc", value: "off" }, 10_000);
-    const ready = await page.evaluate(() => window.__sc.log.find((e) => e.name === "data-sc-ready")?.t ?? null);
-    const ended = await offAt(page, id);
-    const after = ready !== null && ended !== null ? Math.round(ended - ready) : null;
-    results.fallback.hero = after;
-    if (!off || after === null || after > 7000) fail(label, `not "off" within 7 s of html[data-sc-ready] (${after} ms)`);
-    const hidden = await page.evaluate((id) =>
-      [...document.getElementById(id).firstElementChild.querySelectorAll(".sc-res, .mc-stamp, .mc-hl, .mc-lane")]
-        .filter((e) => e.checkVisibility() && !e.checkVisibility({ opacityProperty: true, visibilityProperty: true }))
-        .map((e) => String(e.className).split(" ")[0]),
-    id);
-    if (hidden.length) fail(label, `final frame not visible: ${hidden.slice(0, 4).join(", ")}`);
-    await close(page);
-  }
+  // The hero: its chunks aborted (the load fails at once) or stalled (they
+  // never answer, so the island's 6 s fallback ends it, timed from
+  // html[data-sc-ready]: the hero is near from the start).
+  if (PAGES.includes("/"))
+    for (const how of ["aborted", "stalled"]) {
+      const label = `5. / hero, engine ${how}`;
+      const page = await open({ viewport: PHONE });
+      if (how === "aborted") await abortAfterLoad(page);
+      else {
+        let loaded = false;
+        page.on("load", () => (loaded = true));
+        await page.route(/\/_next\/static\/.*\.(js|css)(\?|$)/, (route) => (loaded ? undefined : route.continue()));
+      }
+      await go(page, "/");
+      const id = await hostOf(page, "field");
+      const off = await until(page, id, { attr: "data-sc", value: "off" }, 10_000);
+      const ready = await page.evaluate(() => window.__sc.log.find((e) => e.name === "data-sc-ready")?.t ?? null);
+      const ended = await offAt(page, id);
+      const after = ready !== null && ended !== null ? Math.round(ended - ready) : null;
+      results.fallback[`hero ${how}`] = after;
+      if (!off || after === null || after > 7000) fail(label, `not "off" within 7 s of html[data-sc-ready] (${after} ms)`);
+      else if (how === "stalled" && after < 5900) fail(label, `"off" ${after} ms after html[data-sc-ready], before the 6 s fallback`);
+      const hidden = await page.evaluate(
+        (id) =>
+          [...document.getElementById(id).firstElementChild.querySelectorAll(".sc-res, .mc-stamp, .mc-hl, .mc-lane")]
+            .filter((e) => e.checkVisibility() && !e.checkVisibility({ opacityProperty: true, visibilityProperty: true }))
+            .map((e) => String(e.className).split(" ")[0]),
+        id,
+      );
+      if (hidden.length) fail(label, `final frame not visible: ${hidden.slice(0, 4).join(", ")}`);
+      await close(page);
+    }
   if (PAGES.includes("/trainer-brain"))
     for (const where of ["below", "in view"]) {
       const label = `5. /trainer-brain anatomy, engine aborted, ${where}`;
@@ -1131,7 +1145,7 @@ await step(15, "robot path", async () => {
     }));
     const late = await lateResources(page);
     const fetched = late.filter((r) => engine.has(r.url)).map((r) => r.url.split("/").pop());
-    for (const r of late.filter((r) => r.url.endsWith(".js")))
+    for (const r of late.filter((r) => !isCss(r.url)))
       if ((await (await fetch(r.url)).text()).includes("data-sc-tier")) fetched.push(r.url.split("/").pop());
     if (fetched.length) fail(label, `engine chunk(s) requested without ?sc=on: ${[...new Set(fetched)].join(", ")}`);
     if (m.classes.length) fail(label, `html has ${m.classes.join(", ")}`);
@@ -1256,8 +1270,8 @@ await step("metrics", "metrics", async () => {
           const load = performance.getEntriesByType("navigation")[0].loadEventStart;
           return performance.getEntriesByType("resource").filter((x) => x.startTime < load && /\/_next\/static\//.test(x.name) && /\.(js|css)(\?|$)/.test(x.name)).map((x) => x.name);
         });
-        r.js = (await Promise.all(firstLoad.filter((u) => u.endsWith(".js")).map(gzipped))).reduce((a, b) => a + b, 0);
-        r.css = (await Promise.all(firstLoad.filter((u) => u.endsWith(".css")).map(gzipped))).reduce((a, b) => a + b, 0);
+        r.js = (await Promise.all(firstLoad.filter((u) => !isCss(u)).map(gzipped))).reduce((a, b) => a + b, 0);
+        r.css = (await Promise.all(firstLoad.filter(isCss).map(gzipped))).reduce((a, b) => a + b, 0);
       }
       r.errors = page.errors;
       runs.push(r);
@@ -1281,7 +1295,18 @@ await step("metrics", "metrics", async () => {
   }
   if (env.SHOWCASE_BASELINE_OUT) {
     const pagesOut = Object.fromEntries(Object.entries(metrics.pages).map(([p, m]) => [p, { tbt: m.tbt, lcp: m.lcp, js: m.js, css: m.css }]));
-    await writeFile(env.SHOWCASE_BASELINE_OUT, JSON.stringify({ measured: new Date().toISOString().slice(0, 10), conditions: metrics.conditions, pages: pagesOut }, null, 2) + "\n");
+    let commit = null;
+    try {
+      commit = execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: root }).toString().trim();
+    } catch {}
+    const baselineOut = {
+      about: "The build before phase 1 (PLAN.md §4.3): blocking time from the first paint to 5 s after the load event, the largest paint, and the first HTML's JavaScript and CSS (gzipped bytes). scripts/marketing-showcase-check.mjs compares with it.",
+      commit,
+      measured: new Date().toISOString().slice(0, 10),
+      conditions: metrics.conditions,
+      pages: pagesOut,
+    };
+    await writeFile(env.SHOWCASE_BASELINE_OUT, JSON.stringify(baselineOut, null, 2) + "\n");
     console.log(`Baseline written: ${env.SHOWCASE_BASELINE_OUT}`);
     return;
   }

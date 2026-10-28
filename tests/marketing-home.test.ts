@@ -30,7 +30,7 @@ import type { RawBrainData, Trace } from "../apps/web/components/marketing/brain
 import { MarketingSite } from "../apps/web/components/marketing/site.tsx";
 import { TEACH_CTA_PATHS } from "../apps/web/components/marketing/page-parts.tsx";
 import type { PublicPlatform } from "../apps/web/components/marketing/platform.ts";
-import { PLACEHOLDER } from "./marketing-helpers.ts";
+import { MODEL_OR_VENDOR, PLACEHOLDER } from "./marketing-helpers.ts";
 
 const ORIGIN = "https://trainsyou.example";
 const APP = "trainsyou";
@@ -376,7 +376,7 @@ test("the walkthrough: the /how-it-works steps as tabs; publishing and getting p
   }
 });
 
-test("states and honesty: no /signup while sign-ups are closed, no brand on a renamed platform, no placeholder, the still frame in static mode", () => {
+test("states and honesty: no /signup while sign-ups are closed, no brand on a renamed platform, no placeholder or model name, the still frame in static mode", () => {
   const closed = render(platform("closed"));
   assert.doesNotMatch(closed, /href="\/signup/);
   assert.match(closed, /Join early access — free/);
@@ -391,6 +391,7 @@ test("states and honesty: no /signup while sign-ups are closed, no brand on a re
   for (const state of STATES) {
     const html = render(platform(state));
     assert.doesNotMatch(decode(html), PLACEHOLDER, state);
+    assert.doesNotMatch(decode(html), MODEL_OR_VENDOR, state);
     assert.doesNotMatch(html, /signup\.html|\[(owner|rate)/, state);
   }
   // A renamed platform: its own name, never trainsyou, anywhere on the page.
