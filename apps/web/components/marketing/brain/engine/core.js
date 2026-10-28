@@ -177,12 +177,12 @@ let raf = 0, nap = 0, napped = false, last = 0, idleAt = 0, slow = null;
    in a row stutter: 1 frame in 20 (of 30 or more) over 25 ms, which keeps the
    median at one frame and still breaks the p95 frame budget. Two windows in a
    row with fewer than 1 frame in 40 over 25 ms step it back up (tier.up).
-   Page events are not the showcase's frame cost, so frames are
-   not judged until 1 s after the load event (QA 27 Oct, concept C), in the
-   500 ms after the loop (re)starts or the tier changes, after a nap, or in
-   the 300 ms after a scroll starts, a resize, or a change to <html>'s
-   attributes (a restyle of the whole document: QA 28 Oct, the consent bar's
-   height on the first scroll). */
+   Page events are not the showcase's frame cost, so frames are not judged
+   until 1 s after the load event (QA 27 Oct, concept C), in the 500 ms after
+   the loop (re)starts or the tier changes, after a nap, or in the 300 ms
+   after a scroll starts, a resize, or a change to <html>'s attributes (a
+   restyle of the whole document: QA 28 Oct, the consent bar's height on the
+   first scroll). */
 let win = [], winMs = 0, good = 0, bad = false, judgeFrom = 0, loadAt = null;
 const hold = (ms) => (judgeFrom = Math.max(judgeFrom, now() + ms));
 function watchLoad() {
