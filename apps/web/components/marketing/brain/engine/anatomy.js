@@ -120,7 +120,7 @@ export async function mount(root, o) {
 /** One run of the figure on the root's current markup: pinned or flat, as the CSS lays it out.
     It reads first (style, geometry, scroll: one style and layout pass) and writes after. Text changes
     go through the text node's data: on these pages an inserted or removed node, anywhere, restyles the
-    whole document (a global :has() rule; 35–55 ms at 4x CPU), so mounting inserts none of its own. */
+    whole document (a global :has() rule; 35–60 ms at 4x CPU), so mounting inserts none of its own. */
 function figure(root, d, S0, o, settled, say) {
   const $ = (s) => root.querySelector(s), $$ = (s) => [...root.querySelectorAll(s)];
   const frame = $(".ca-frame"), grid = $(".ca-grid"), scene = $(".ca-scene"), cam = $(".ca-cam"), stack = $(".ca-stack"), svg = $(".ca-svg"), book = $(".ca-book");

@@ -40,6 +40,8 @@ html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-svg 
   overflow: visible;
   pointer-events: none;
 }
+/* The still figure's paths are empty: no [data-sc="on"] here, so turning on
+   restyles no icon's path. */
 html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-svg path {
   fill: none;
 }
@@ -124,7 +126,7 @@ html.sc-pin [data-showcase="anatomy"][data-sc="on"]:not([data-sc-flat]) .ca-stop
 
 /* A finished moment (data-run="4"): every layer lit, white text on its lane's tint. Only
    the engine sets data-run, so these rules need no [data-sc="on"]: turning on then
-   restyles no ghost node (nor, below, an icon's path). */
+   restyles no ghost node. */
 html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-g[data-run="4"] :is([data-k="m"], [data-k="c"]) {
   border-color: var(--sc-text);
 }
