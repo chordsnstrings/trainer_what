@@ -18,6 +18,7 @@ export declare const tier: {
   readonly spec: { ghosts: [number, number]; halos: boolean; dpr: number; fps: number };
   readonly ghosts: number;
   down(why: string): void;
+  up(why: string): void;
   on(fn: (name: TierName) => void): () => void;
   log: Array<[TierName, string]>;
 };
@@ -28,6 +29,8 @@ export type Scene = {
   root: HTMLElement;
   reasons: Set<string>;
   running: boolean;
+  /** When the scene last started running (performance.now()): idle counts from it or the last input. */
+  since: number;
   idleMs: number;
   set(reason: string, on: boolean): void;
   pause(reason?: string): void;
@@ -38,6 +41,7 @@ export type Scene = {
 };
 export declare function scene(
   el: HTMLElement,
+  /** resumeOnInput: input ends an idle pause unless false. */
   o?: { idle?: number; resumeOnInput?: boolean; onState?(running: boolean, reasons: string[]): void },
 ): Scene;
 export declare function destroyAll(): void;
@@ -51,6 +55,7 @@ export type Timeline = {
 };
 export declare function timeline(sc?: Scene): Timeline;
 export declare function layer(root: HTMLElement): { el: HTMLElement; release(): void };
+export declare function inertOutside(el: Element): () => void;
 export declare function say(msg: string): void;
 export declare function fit(cv: HTMLCanvasElement, w: number, h: number): CanvasRenderingContext2D;
 export declare function bitmap(w: number, h: number): { cv: OffscreenCanvas | HTMLCanvasElement; c: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D };

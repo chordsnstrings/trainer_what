@@ -121,6 +121,9 @@ function withGlobals<T>(globals: Record<string, unknown>, fn: () => T): T {
   }
 }
 
+/** The crawler test, in the head script and the island alike (SEC-3). */
+const ROBOT = "/bot[/)-]|bot [0-9]|crawl|spider|slurp|preview|lighthouse/i";
+
 /** The head script, run in one reusable context with an environment's globals. */
 const headScript = new Script(SHOWCASE_HEAD_SCRIPT);
 const headContext = createContext({});
@@ -171,27 +174,58 @@ test("the head script and the island decide alike: same reduced-motion and robot
   }
   assert.ok(pins > 20 && robotsIn > 20, `${pins} pinned, ${robotsIn} automated browsers let in`);
 
-  // The same tests as the scroll scenes' (scenes-head.ts), and neither file
-  // reads the marketing motion switch.
+  // The same reduced-motion and sticky tests as the scroll scenes'
+  // (scenes-head.ts, whose crawler test still matches "bot" anywhere), and
+  // neither file reads the marketing motion switch.
   const scenes = read(join(WEB, "components/marketing/scenes-head.ts"));
   const mount = read(join(BRAIN, "mount.tsx"));
   for (const part of [
     'if(d.getAttribute("data-reduce-motion")==="on")return;',
     'if(window.matchMedia&&matchMedia("(prefers-reduced-motion: reduce)").matches)return;',
-    '(n.webdriver||/bot|crawl|spider|slurp|preview|lighthouse/i.test(n.userAgent))',
     'CSS.supports("position","sticky")',
   ]) {
     assert.ok(scenes.includes(part), "scenes-head.ts: " + part);
     assert.ok(SHOWCASE_HEAD_SCRIPT.includes(part), "head.ts: " + part);
   }
+  assert.ok(SHOWCASE_HEAD_SCRIPT.includes(`(n.webdriver||${ROBOT}.test(n.userAgent))`), "head.ts: the crawler test");
   assert.match(mount, /const REDUCE = "\(prefers-reduced-motion: reduce\)";/);
   assert.match(mount, /const reduced = \(\) =>\s+\(typeof matchMedia === "function" && matchMedia\(REDUCE\)\.matches\) \|\|\s+document\.documentElement\.dataset\.reduceMotion === "on";/);
-  assert.match(mount, /navigator\.webdriver \|\|\s+\/bot\|crawl\|spider\|slurp\|preview\|lighthouse\/i\.test\(navigator\.userAgent\)/);
+  assert.ok(mount.includes(`navigator.webdriver ||\n  ${ROBOT}.test(navigator.userAgent)`), "mount.tsx: the crawler test");
   for (const file of files(BRAIN))
     assert.doesNotMatch(code(read(file)), /MARKETING_MOTION|motion-mode|data-mk-motion/, `${relative(ROOT, file)} must not read the marketing switch`);
   // app/layout.tsx renders it after the scroll scenes' script.
   const layout = read(join(WEB, "app/layout.tsx"));
   assert.ok(layout.indexOf("__html: SCENES_HEAD_SCRIPT") < layout.indexOf("__html: SHOWCASE_HEAD_SCRIPT"));
+});
+
+test("robots: a crawler's product token, never \"bot\" inside a phone's model (in-app browsers send it)", () => {
+  const AGENTS: Array<[string, boolean]> = [
+    ["Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)", true],
+    ["Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm) Chrome/116.0.1938.76 Safari/537.36", true],
+    ["Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)", true],
+    ["Mozilla/5.0 (compatible; Baiduspider/2.0; +http://www.baidu.com/search/spider.html)", true],
+    ["Mozilla/5.0 (compatible; Yahoo! Slurp; http://help.yahoo.com/help/us/ysearch/slurp)", true],
+    ["Mozilla/5.0 (compatible; AdsBot-Google; +http://www.google.com/adsbot.html)", true],
+    ["Slackbot-LinkExpanding 1.0 (+https://api.slack.com/robots)", true],
+    ["Slackbot 1.0 (+https://api.slack.com/robots)", true],
+    ["TelegramBot (like TwitterBot)", true],
+    ["Mozilla/5.0 (compatible;PetalBot;+https://webmaster.petalsearch.com/site/petalbot)", true],
+    ["Mozilla/5.0 (Linux; Android 11; moto g power (2022)) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36 Chrome-Lighthouse", true],
+    ["Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 SkypeUriPreview Preview/0.5", true],
+    ["Mozilla/5.0 (Linux; Android 11; CUBOT X50 Build/RP1A.200720.011; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/118.0.5993.80 Mobile Safari/537.36 Instagram 307.0.0.34.111 Android (30/11; 480dpi; 1080x2160; CUBOT; X50; X50; mt6765; en_US; 532277166)", false],
+    ["Mozilla/5.0 (Linux; Android 11; CUBOT_NOTE_20 Build/RP1A.200720.011; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/118.0.5993.80 Mobile Safari/537.36 [FBAN/FB4A;FBAV/435.0.0.42.112;FBMF/CUBOT;FBBD/CUBOT;FBDV/CUBOT_NOTE_20;FBSV/11;]", false],
+    ["Mozilla/5.0 (Linux; Android 13; KINGKONG POWER Build/TP1A.220624.014; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/120.0.6099.43 Mobile Safari/537.36 trill_310203 JsSdk/1.0 NetType/WIFI Channel/googleplay AppName/musical_ly app_version/31.2.3 ByteLocale/en ByteFullLocale/en Region/AE BytedanceWebview/d8a21c6", false],
+    ["Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36", false],
+    ["Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Instagram 300.0.0.0 (iPhone14,2; iOS 17_0; en_US; en; scale=3.00; 1170x2532; 516789123)", false],
+  ];
+  for (const [agent, robot] of AGENTS) {
+    const e: Env = { path: "/", search: "", stored: false, deviceReduce: false, memberReduce: false, webdriver: false, agent, io: true, sticky: true };
+    const head = environment(e);
+    runHead(head.globals);
+    const island = environment(e);
+    assert.equal(head.classes.has("sc-motion"), !robot, `head script: ${agent}`);
+    assert.equal(withGlobals(island.globals, () => engineWanted()), !robot, `island: ${agent}`);
+  }
 });
 
 test("the island reaches the engine only through literal import()s of the runtime modules", () => {
@@ -278,7 +312,12 @@ test("importing the server and pure engine modules touches no browser API, timer
     for (const m of ["core", "decide", "ui", "data", "field.render", "play.render", "anatomy.render"]) await import(brain + "/engine/" + m + ".js");
     process.stdout.write(JSON.stringify(touched));
   `;
-  const out = execFileSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", probe], { cwd: ROOT, encoding: "utf8" });
+  // tsx without its disk cache: a cold cache's writes are setImmediate calls of tsx's own (SEC-1).
+  const out = execFileSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", probe], {
+    cwd: ROOT,
+    encoding: "utf8",
+    env: { ...process.env, TSX_DISABLE_CACHE: "1" },
+  });
   assert.deepEqual(JSON.parse(out), []);
 });
 
@@ -286,7 +325,7 @@ test("importing the server and pure engine modules touches no browser API, timer
 
 /** Just enough DOM for engine/core.js: elements with attributes, a tree, events and observers. */
 function fakeDom() {
-  const mutationObservers: Array<{ target: El; filter: string[]; fn: (m: unknown[]) => void; on: boolean }> = [];
+  const mutationObservers: Array<{ target: El; filter: string[] | null; fn: (m: unknown[]) => void; on: boolean }> = [];
   const intersections: Array<{ fn: (e: unknown[]) => void; targets: El[]; on: boolean }> = [];
   const listeners = new Map<string, Set<(e: unknown) => void>>();
   const frames = new Map<number, (t: number) => void>();
@@ -296,9 +335,16 @@ function fakeDom() {
     children: El[] = [];
     parent: El | null = null;
     text = "";
+    inert = false;
     style: Record<string, string> = {};
     events = new Map<string, Set<(e: unknown) => void>>();
     constructor(public tag: string) {}
+    get tagName() {
+      return this.tag.toUpperCase();
+    }
+    get parentElement() {
+      return this.parent;
+    }
     setAttribute(k: string, v: string) {
       this.attrs.set(k, String(v));
       this.notify(k);
@@ -314,7 +360,7 @@ function fakeDom() {
     }
     notify(k: string) {
       for (const o of mutationObservers)
-        if (o.on && o.target === this && o.filter.includes(k)) queueMicrotask(() => o.on && o.fn([{ attributeName: k, target: this }]));
+        if (o.on && o.target === this && (!o.filter || o.filter.includes(k))) queueMicrotask(() => o.on && o.fn([{ attributeName: k, target: this }]));
     }
     set className(v: string) {
       this.setAttribute("class", v);
@@ -395,7 +441,8 @@ function fakeDom() {
   const win: Record<string, unknown> = {
     document: doc,
     navigator: { webdriver: false, userAgent: "Mozilla/5.0 Chrome/141", hardwareConcurrency: 8 },
-    location: { search: "" },
+    // The browser checks' switches, which only automated browsers obey.
+    location: { search: "?tier=minimal&slow=40" },
     devicePixelRatio: 1,
     matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
     addEventListener: (t: string, f: (e: unknown) => void) => (listeners.get(t) ?? listeners.set(t, new Set()).get(t)!).add(f),
@@ -418,8 +465,8 @@ function fakeDom() {
     },
     MutationObserver: class {
       constructor(public fn: (m: unknown[]) => void) {}
-      observe(target: El, o: { attributeFilter: string[] }) {
-        mutationObservers.push({ target, filter: o.attributeFilter, fn: this.fn, on: true });
+      observe(target: El, o: { attributeFilter?: string[] }) {
+        mutationObservers.push({ target, filter: o.attributeFilter ?? null, fn: this.fn, on: true });
       }
       disconnect() {
         for (const o of mutationObservers) if (o.fn === this.fn) o.on = false;
@@ -439,6 +486,10 @@ function fakeDom() {
       for (const [, f] of due) f(t);
     },
     scheduled: () => frames.size,
+    /** A window or document event, as the browser dispatches it. */
+    fire(type: string) {
+      for (const f of [...(listeners.get(type) ?? []), ...(html.events.get("doc:" + type) ?? [])]) f({ type });
+    },
     /** Every scene's root comes on screen. */
     visible() {
       for (const o of intersections) if (o.on) for (const target of o.targets) o.fn([{ isIntersecting: true, target }]);
@@ -454,6 +505,8 @@ test("the engine core: Pause stays right through every pause reason, data-sc-run
   const globals = { ...dom.win, MutationObserver: dom.win.MutationObserver, IntersectionObserver: dom.win.IntersectionObserver };
   for (const [k, v] of Object.entries(globals)) Object.defineProperty(globalThis, k, { value: v, configurable: true, writable: true });
   const core = await import("../apps/web/components/marketing/brain/engine/core.js");
+  const doc = dom.win.document as { hidden: boolean };
+  const wait = (ms: number) => new Promise((done) => setTimeout(done, ms));
   const mk = new dom.El("div");
   mk.className = "mk";
   dom.body.append(mk);
@@ -463,9 +516,11 @@ test("the engine core: Pause stays right through every pause reason, data-sc-run
   const states: string[][] = [];
   const sc = core.scene(root as unknown as HTMLElement, { onState: (_running, reasons) => states.push(reasons) });
   const button = new dom.El("button");
+  button.setAttribute("aria-pressed", "false"); // as the server's frame has it
   sc.button(button as unknown as HTMLElement);
   assert.equal(button.getAttribute("data-sc-pause"), "", "every Pause control carries [data-sc-pause]");
-  assert.equal(button.getAttribute("aria-pressed"), "false");
+  // Its label says what a press does, so it is no toggle: a toggle's name never changes (A11Y-11).
+  assert.equal(button.getAttribute("aria-pressed"), null);
   let ticks = 0;
   sc.loop(() => {
     ticks++;
@@ -474,8 +529,11 @@ test("the engine core: Pause stays right through every pause reason, data-sc-run
   dom.visible();
   assert.equal(sc.running, true);
   assert.ok(root.hasAttribute("data-sc-run") && dom.scheduled() === 1, "running: a frame is scheduled and the root says so");
+  // The location carries ?tier=minimal&slow=40: a real visitor's frames ignore both.
+  const started = performance.now();
   dom.frame(16);
   dom.frame(33);
+  assert.ok(performance.now() - started < 30, `two frames took ${(performance.now() - started).toFixed(0)} ms (?slow=40 obeyed)`);
   assert.ok(ticks >= 1 && root.hasAttribute("data-sc-run"));
 
   // The prototype's stale Pause: a receipt pauses it for reading, the visitor
@@ -484,12 +542,12 @@ test("the engine core: Pause stays right through every pause reason, data-sc-run
   assert.ok(!root.hasAttribute("data-sc-run"), "paused: the mark goes at once");
   assert.equal(button.textContent, "Pause");
   button.click();
-  assert.deepEqual([button.textContent, button.getAttribute("aria-pressed")], ["Play", "true"], "Pause while reading");
+  assert.deepEqual([button.textContent, button.getAttribute("data-state")], ["Play", "paused"], "Pause while reading");
   sc.set("read", false);
-  assert.deepEqual([button.textContent, button.getAttribute("aria-pressed"), sc.running], ["Play", "true", false], "the receipt closed: still paused");
+  assert.deepEqual([button.textContent, sc.running], ["Play", false], "the receipt closed: still paused");
   assert.deepEqual(states.at(-1), ["user"], "onState hears every change of reasons");
   button.click();
-  assert.deepEqual([button.textContent, button.getAttribute("aria-pressed"), sc.running], ["Pause", "false", true]);
+  assert.deepEqual([button.textContent, button.getAttribute("data-state"), button.getAttribute("aria-pressed"), sc.running], ["Pause", "playing", null, true]);
   assert.ok(root.hasAttribute("data-sc-run"));
 
   // A Kamran call (html[data-mk-call], assistant-button.tsx) pauses it.
@@ -509,6 +567,17 @@ test("the engine core: Pause stays right through every pause reason, data-sc-run
   core.say("Paused");
   core.say("Playing");
   assert.equal(mk.querySelectorAll("[data-sc-live]").length, 1, "one live region, reused");
+  // A modal in the layer makes the rest of the page inert; the undo restores only what it set.
+  const aside = new dom.El("aside"), held = new dom.El("p");
+  dom.body.append(aside);
+  held.inert = true;
+  mk.append(held);
+  const undo = core.inertOutside(a.el as unknown as Element);
+  assert.deepEqual([root.inert, held.inert, aside.inert, mk.inert, (a.el as unknown as { inert: boolean }).inert], [true, true, true, false, false]);
+  undo();
+  assert.deepEqual([root.inert, held.inert, aside.inert], [false, true, false]);
+  aside.remove();
+  held.remove();
   a.release();
   a.release();
   assert.ok((a.el as unknown as { isConnected: boolean }).isConnected, "a second release of one hold changes nothing");
@@ -529,11 +598,140 @@ test("the engine core: Pause stays right through every pause reason, data-sc-run
   core.destroyAll();
   assert.deepEqual([dom.scheduled(), dom.listening(), dom.observing()], [0, 0, 0]);
   assert.ok(!root.hasAttribute("data-sc-run"));
-  // ?tier and ?slow are ignored for real visitors; the tier is kept for the document.
-  assert.equal(core.tier.name, "full");
-  core.tier.down("test");
-  assert.equal(core.tier.name, "lite");
+
+  // Time in another tab is not idle time, and input ends an idle pause, also
+  // for a scene that did not ask for it (the field's; ENG-2). Real time: idle
+  // is looked at once a second.
+  const away = core.scene(root as unknown as HTMLElement, { idle: 0.3 }), toggle = new dom.El("button");
+  away.button(toggle as unknown as HTMLElement);
+  away.loop(() => {});
+  dom.visible();
+  dom.frame(performance.now());
+  doc.hidden = true;
+  dom.fire("visibilitychange");
+  assert.equal(away.running, false, "a hidden tab pauses");
+  await wait(1100);
+  doc.hidden = false;
+  dom.fire("visibilitychange");
+  dom.frame(performance.now());
+  assert.deepEqual([away.running, toggle.textContent], [true, "Pause"], "back from another tab after its idle time: still playing");
+  await wait(1100);
+  dom.frame(performance.now());
+  assert.deepEqual([away.running, [...away.reasons], toggle.textContent], [false, ["idle"], "Play"], "idle on the page: paused");
+  dom.fire("keydown");
+  assert.deepEqual([away.running, toggle.textContent], [true, "Pause"], "input ends an idle pause");
+  away.destroy();
+
+  // A 12 fps subscriber naps between its frames instead of waking at every
+  // frame (PERF-6); its root keeps data-sc-run, and a wake ends the nap.
+  const slow = core.scene(root as unknown as HTMLElement, { idle: 0 });
+  let breaths = 0;
+  const breath = slow.loop(() => {
+    breaths++;
+  }, 12);
+  dom.visible();
+  const t1 = performance.now();
+  dom.frame(t1);
+  assert.deepEqual([breaths, dom.scheduled(), root.hasAttribute("data-sc-run")], [1, 0, true], "napping: no frame requested, the root still runs");
+  await wait(100); // the nap ends a frame before the next breath is due (79 ms on)
+  assert.equal(dom.scheduled(), 1);
+  dom.frame(t1 + 83.3);
+  assert.deepEqual([breaths, dom.scheduled()], [2, 0]);
+  const fast = slow.loop(() => {});
+  assert.equal(dom.scheduled(), 1, "a new 60 fps subscriber ends the nap");
+  fast.stop();
+  breath.stop();
+  slow.destroy();
+  assert.deepEqual([dom.scheduled(), root.hasAttribute("data-sc-run")], [0, false]);
+
+  // The watchdog, on frames whose time performance.now() follows.
+  const realNow = performance.now;
+  let t = realNow.call(performance);
+  performance.now = () => t;
+  try {
+    const changes: string[] = [];
+    const off = core.tier.on((name) => changes.push(name));
+    assert.equal(core.tier.name, "full", "?tier=minimal is ignored for real visitors");
+    const watched = core.scene(root as unknown as HTMLElement, { idle: 0 });
+    const frames = (ms: number, gap: number, every = 1, slower = gap) => {
+      for (let i = 1, end = t + ms; t < end; i++) dom.frame((t += i % every ? gap : slower));
+    };
+    /** The loop stops and starts again: a new window, whose first 500 ms are not judged. */
+    const restart = () => {
+      watched.pause();
+      frames(17, 17);
+      watched.play();
+      frames(600, 16.7);
+    };
+    watched.loop(() => {});
+    dom.visible();
+    frames(600, 16.7);
+    frames(2100, 33.4); // most frames miss one
+    assert.deepEqual(changes, ["lite"], "a slow window steps down");
+    restart();
+    dom.fire("scroll"); // a scroll starts: 300 ms not judged (the consent bar's restyle)
+    frames(280, 70);
+    frames(4100, 16.7);
+    assert.deepEqual(changes, ["lite", "full"], "two good windows step back up");
+    restart();
+    frames(2100, 20, 60, 240); // one long frame among frames of 20 ms: a mean over 20 ms, a median of 20
+    assert.deepEqual(changes, ["lite", "full"], "an isolated long frame is no slow window");
+    restart();
+    frames(2100, 16.7, 15, 33.4); // 1 frame in 15 misses one: a stutter
+    assert.deepEqual(changes, ["lite", "full", "lite"], "a steady stutter steps down");
+    restart();
+    frames(8100, 16.7);
+    assert.deepEqual(changes, ["lite", "full", "lite"], "a tier left twice holds");
+    restart();
+    frames(2100, 33.4);
+    assert.deepEqual(changes, ["lite", "full", "lite", "minimal"]);
+    // A subscriber that slept at the lower tier looks again after a step up.
+    let looks = 0;
+    watched.loop(() => (looks++, false));
+    restart();
+    assert.equal(looks, 1);
+    frames(4100, 16.7);
+    assert.deepEqual([changes, core.tier.name], [["lite", "full", "lite", "minimal", "lite"], "lite"], "back up into a tier left once");
+    frames(17, 17);
+    assert.equal(looks, 2, "woken by the step up");
+    assert.deepEqual(core.tier.log.map(([name]) => name), changes);
+    off();
+    watched.destroy();
+  } finally {
+    performance.now = realNow;
+  }
+  core.destroyAll();
   for (const k of Object.keys(globals)) delete (globalThis as Record<string, unknown>)[k];
+});
+
+test("?tier= and ?slow= are the browser checks' switches: automated browsers only", () => {
+  // In a fresh process each (core.js decides its tier once a document).
+  const probe = (webdriver: boolean) => `
+    const frames = [];
+    globalThis.window = {
+      navigator: { webdriver: ${webdriver}, userAgent: "Mozilla/5.0 Chrome/141", hardwareConcurrency: 8 },
+      location: { search: "?tier=minimal&slow=40" },
+      document: { readyState: "complete", hidden: false },
+      devicePixelRatio: 1,
+      matchMedia: () => ({ matches: false }),
+      requestAnimationFrame: (f) => frames.push(f),
+      cancelAnimationFrame() {},
+      addEventListener() {},
+      removeEventListener() {},
+    };
+    const core = await import(${JSON.stringify(join(BRAIN, "engine/core.js"))});
+    const tier = core.tier.name;
+    core.loop(() => {});
+    const t0 = performance.now();
+    frames.shift()(t0);
+    process.stdout.write(JSON.stringify({ tier, ms: performance.now() - t0 }));
+  `;
+  for (const webdriver of [false, true]) {
+    const args = ["--disable-warning=MODULE_TYPELESS_PACKAGE_JSON", "--input-type=module", "-e", probe(webdriver)];
+    const out = JSON.parse(execFileSync(process.execPath, args, { cwd: ROOT, encoding: "utf8" }));
+    assert.equal(out.tier, webdriver ? "minimal" : "full", `webdriver ${webdriver}`);
+    assert.equal(out.ms >= 40, webdriver, `webdriver ${webdriver}: a frame took ${out.ms.toFixed(0)} ms`);
+  }
 });
 
 // ---------------------------------------------------------------- styles

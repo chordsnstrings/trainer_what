@@ -46,7 +46,7 @@ function forced() {
 }
 const robot = () =>
   navigator.webdriver ||
-  /bot|crawl|spider|slurp|preview|lighthouse/i.test(navigator.userAgent);
+  /bot[/)-]|bot [0-9]|crawl|spider|slurp|preview|lighthouse/i.test(navigator.userAgent);
 
 /** Whether the engine may load here: not for robots, unless ?sc=on. */
 export function engineWanted() {
@@ -218,8 +218,14 @@ export function ShowcaseMount({
       if (router) router.push(href);
       else location.assign(href);
     };
+    // A mark where the import starts: the browser check times the mount's
+    // long tasks from it (scripts/marketing-showcase-check.mjs).
+    const load = () => {
+      performance.mark(`sc-mount:${id}`);
+      return LOADERS[kind]();
+    };
     const mount = () =>
-      (loading ??= LOADERS[kind]()
+      (loading ??= load()
         .then(async (module) => {
           const root = host.firstElementChild;
           if (!alive || ENDED.has(host) || !(root instanceof HTMLElement)) return null;

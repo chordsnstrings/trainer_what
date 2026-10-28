@@ -15,6 +15,9 @@
      browsers (navigator.webdriver), the browser checks' own switches;
    - set() syncs the Pause buttons and onState on every change of reasons
      (the stale-Pause bug), and a Kamran call (html[data-mk-call]) pauses;
+   - time in another tab is not idle time, and input ends any idle pause;
+   - the watchdog ignores page events (a scroll starting, a resize, the
+     consent bar) and steps back up after a good spell (tier.up);
    - data-sc-run marks a showcase root exactly while a frame is scheduled
      for it; the last scene's destroy (or destroyAll) stops the loop and
      removes the document listeners;
@@ -132,85 +135,127 @@ function startTier() {
   return (n.hardwareConcurrency && n.hardwareConcurrency <= 4) || (n.deviceMemory && n.deviceMemory <= 3) || (c && c.saveData) ? "lite" : "full";
 }
 const tierFns = new Set();
-let tierName = null; // decided on first use; kept for the document's lifetime
-const tierNow = () => tierName || (tierName = startTier());
+let tierName = null, tierTop = 0; // decided on first use; kept for the document (client navigation included)
+const left = { full: 0, lite: 0 }; // step downs from each tier
+const tierNow = () => tierName || (tierTop = TIERS.indexOf((tierName = startTier())), tierName);
+function setTier(name, why) {
+  tierName = name;
+  tier.log.push([name, why]);
+  win = []; winMs = 0; good = 0;
+  hold(500); // the engines measure and size their canvases again
+  tierFns.forEach((f) => f(name));
+}
 export const tier = {
   get name() { return tierNow(); },
   get spec() { return SPEC[tierNow()]; },
   get ghosts() { return SPEC[tierNow()].ghosts[phone() ? 1 : 0]; },
-  /** Step down one tier (never up within a document, client navigation included). */
+  /** Step down one tier. */
   down(why) {
     const i = TIERS.indexOf(tierNow());
-    if (i < 2) { tierName = TIERS[i + 1]; this.log.push([tierName, why]); tierFns.forEach((f) => f(tierName)); }
+    if (i < 2) left[TIERS[i]]++, setTier(TIERS[i + 1], why);
   },
-  /** fn(name) on every step down. Returns the unsubscribe. */
+  /** Step back up one tier: never above the starting tier, and only into a tier
+      left once (a tier left twice holds for the document). A step up wakes every
+      sleeping loop subscriber, so one that slept for the lower tier looks again. */
+  up(why) {
+    const i = TIERS.indexOf(tierNow());
+    if (i <= tierTop || left[TIERS[i - 1]] > 1) return;
+    setTier(TIERS[i - 1], "up: " + why);
+    subs.forEach((s) => (s.awake = true));
+    kick();
+  },
+  /** fn(name) on every change of tier. Returns the unsubscribe. */
   on(fn) { tierFns.add(fn); return () => tierFns.delete(fn); },
   log: [],
 };
 
 /* ---------------------------------------------------------------- loop */
 const subs = new Set();
-let raf = 0, last = 0, win = [0, 0, 0, 0], idleAt = 0, warm = 0, slow = null;
-// Watchdog warm-up (QA 27 Oct, concept C): page load and module mount jank are not the showcase's frame cost.
-// Frames are not judged until 1 s after the load event, nor in the first 500 ms after the loop (re)starts.
-let loadAt = null;
+let raf = 0, nap = 0, napped = false, last = 0, idleAt = 0, slow = null;
+/* The watchdog judges frame gaps (under 250 ms) in windows of 2 s. A window is
+   slow when its median gap is over 20 ms, or when 1 frame in 20 (of 30 or
+   more) takes over 25 ms: a steady stutter can keep the median at one frame
+   and still break the p95 frame budget. A slow window steps the tier down;
+   two windows in a row with fewer than 1 frame in 40 over 25 ms step it back
+   up (tier.up). Page events are not the showcase's frame cost, so frames are
+   not judged until 1 s after the load event (QA 27 Oct, concept C), in the
+   500 ms after the loop (re)starts or the tier changes, after a nap, or in
+   the 300 ms after a scroll starts, a resize, or a change to <html>'s
+   attributes (a restyle of the whole document: QA 28 Oct, the consent bar's
+   height on the first scroll). */
+let win = [], winMs = 0, good = 0, judgeFrom = 0, loadAt = null;
+const hold = (ms) => (judgeFrom = Math.max(judgeFrom, now() + ms));
 function watchLoad() {
   if (loadAt != null) return;
   loadAt = D.readyState == "complete" ? 0 : Infinity;
   if (loadAt) W.addEventListener("load", () => (loadAt = now()), { once: true });
 }
+function judge() {
+  const n = win.length, late = win.filter((g) => g > 25).length, mid = win.sort((a, b) => a - b)[n >> 1];
+  win = []; winMs = 0;
+  if (mid > 20) tier.down("median " + mid.toFixed(1) + " ms");
+  else if (n >= 30 && late / n >= 0.05) tier.down(late + "/" + n + " frames > 25 ms");
+  else if (n < 30 || late / n >= 0.025) good = 0;
+  else if (++good >= 2) (good = 0), tier.up(late + "/" + n + " frames > 25 ms");
+}
+/** A subscriber's frame interval at its fps, capped by the tier (4 ms early is on time). */
+const every = (s) => 1000 / Math.min(s.fps || 60, tier.spec.fps) - 4;
 function frame(t) {
   raf = 0;
-  const gap = last ? t - last : 0;
-  if (!last) warm = t + 500;
-  last = t;
+  const gap = last && !napped ? t - last : 0;
+  if (!last) hold(500);
+  last = t; napped = false;
   const t0 = now();
   if (slow == null) slow = +checkParam("slow") || 0; // ?slow=30 burns 30 ms a frame to force the watchdog
   if (slow) while (now() - t0 < slow);
-  let live = false;
+  let next = Infinity; // when the next subscriber is due
   for (const s of subs) {
     if (!s.awake || (s.sc && !s.sc.running)) continue;
-    live = true;
-    const fps = Math.min(s.fps || 60, tier.spec.fps);
-    if (s.t && t - s.t < 1000 / fps - 4) continue;
+    if (s.t && t - s.t < every(s)) { next = Math.min(next, s.t + every(s)); continue; }
     const dt = s.t ? Math.min(t - s.t, 100) : 16.7;
     s.t = t;
-    if (s.fn(dt, t) === false) { s.awake = false; s.t = 0; }
+    if (s.fn(dt, t) === false) (s.awake = false), (s.t = 0);
+    else next = Math.min(next, t + every(s));
   }
   if (t - idleAt > 1000) {
     idleAt = t;
-    scenes.forEach((s) => s.running && s.idleMs && t - lastInput > s.idleMs && s.set("idle", true));
+    scenes.forEach((s) => s.running && s.idleMs && t - Math.max(lastInput, s.since) > s.idleMs && s.set("idle", true));
   }
-  if (gap && gap < 250 && t > warm && t > loadAt + 1000) {
-    win[0] += gap; win[1]++; win[2] += gap; if (gap > 25) win[3]++;
-    // step down when frames average over 20 ms for 2 s, or when 1 frame in 20 is slow (> 25 ms) over 2 s:
-    // a steady stutter can average under 20 ms and still break the p95 frame budget
-    if (win[2] >= 2000) {
-      if (win[0] / win[1] > 20) tier.down("avg " + (win[0] / win[1]).toFixed(1) + " ms");
-      else if (win[1] >= 30 && win[3] / win[1] >= 0.05) tier.down(win[3] + "/" + win[1] + " frames > 25 ms");
-      win = [0, 0, 0, 0];
-    }
+  if (gap && gap < 250 && t > judgeFrom && t > loadAt + 1000) {
+    win.push(gap);
+    if ((winMs += gap) >= 2000) judge();
   }
-  if (live) raf = W.requestAnimationFrame(frame);
-  else (last = 0), (win = [0, 0, 0, 0]);
+  if (next == Infinity) (last = 0), (win = []), (winMs = 0);
+  // Nothing due in the next two frames (12 fps breathing, the 10 fps
+  // reduced-motion field): nap until the frame before it is due instead of
+  // waking at every frame. 30 and 60 fps wake at every frame: the watchdog
+  // judges those gaps.
+  else if (next - t > 42) (napped = true), (nap = setTimeout(() => { nap = 0; raf = W.requestAnimationFrame(frame); }, next - t - 8));
+  else raf = W.requestAnimationFrame(frame);
   marks();
 }
 function kick() {
-  if (!raf && browser()) watchLoad(), (raf = W.requestAnimationFrame(frame));
+  if (!raf && browser()) {
+    if (nap) clearTimeout(nap), (nap = 0);
+    watchLoad();
+    raf = W.requestAnimationFrame(frame);
+  }
   marks();
 }
-/* data-sc-run: on a showcase root exactly while a frame is scheduled that
-   will run one of its scenes' subscribers (the browser checks read it). */
+/* data-sc-run: on a showcase root exactly while a frame is scheduled (or a
+   nap runs) that will run one of its scenes' subscribers (the browser checks
+   read it). */
 const marked = new Set();
 function marks() {
   const on = new Set();
-  if (raf) for (const s of subs) if (s.awake && s.sc && s.sc.running) on.add(s.sc.root);
+  if (raf || nap) for (const s of subs) if (s.awake && s.sc && s.sc.running) on.add(s.sc.root);
   for (const r of marked) if (!on.has(r)) r.removeAttribute("data-sc-run"), marked.delete(r);
   for (const r of on) if (!marked.has(r)) r.setAttribute("data-sc-run", ""), marked.add(r);
 }
 function halt() {
   if (raf) W.cancelAnimationFrame(raf);
-  raf = 0; last = 0; win = [0, 0, 0, 0];
+  if (nap) clearTimeout(nap);
+  raf = nap = last = 0; win = []; winMs = 0;
   marks();
 }
 /** Registers fn(dt, now) on the one loop. Return false from fn to sleep
@@ -228,18 +273,23 @@ export function loop(fn, o = {}) {
 }
 
 /* ---------------------------------------------------------------- scenes */
-let lastInput = 0;
+let lastInput = 0, scrollAt = 0;
 const scenes = new Set();
 /* The document listeners live while a scene exists: input (idle resume),
-   the hidden tab, a Kamran call and both reduced-motion settings. */
+   the hidden tab, a Kamran call, both reduced-motion settings, and what the
+   watchdog does not judge (a scroll starting, a resize, <html>'s attributes). */
 let watching = null;
 function listen() {
   if (watching) return;
   lastInput = now();
   const html = D.documentElement, rmq = W.matchMedia ? W.matchMedia(REDUCE) : null;
-  const bump = () => {
+  const bump = (e) => {
     lastInput = now();
-    scenes.forEach((s) => s.reasons.has("idle") && s.o.resumeOnInput && s.set("idle", false));
+    if (e.type == "scroll") {
+      if (lastInput - scrollAt > 500) hold(300); // a scroll starts
+      scrollAt = lastInput;
+    }
+    scenes.forEach((s) => s.reasons.has("idle") && s.o.resumeOnInput !== false && s.set("idle", false));
   };
   const hidden = () => scenes.forEach((s) => s.set("hidden", D.hidden));
   const call = () => scenes.forEach((s) => s.set("call", html.hasAttribute("data-mk-call")));
@@ -248,16 +298,19 @@ function listen() {
     const v = reduced();
     rmFns.forEach((f) => f(v));
   };
+  const resize = () => hold(300);
   const INPUT = ["pointerdown", "keydown", "wheel", "touchstart", "scroll"], opt = { passive: true, capture: true };
   INPUT.forEach((e) => W.addEventListener(e, bump, opt));
+  W.addEventListener("resize", resize);
   D.addEventListener("visibilitychange", hidden);
   if (rmq && rmq.addEventListener) rmq.addEventListener("change", motion);
   const mo = W.MutationObserver ? new MutationObserver((list) => {
-    for (const m of list) m.attributeName == "data-mk-call" ? call() : motion();
+    for (const m of list) m.attributeName == "data-mk-call" ? call() : m.attributeName == "data-reduce-motion" ? motion() : hold(300);
   }) : null;
-  if (mo) mo.observe(html, { attributes: true, attributeFilter: ["data-mk-call", "data-reduce-motion"] });
+  if (mo) mo.observe(html, { attributes: true });
   watching = () => {
     INPUT.forEach((e) => W.removeEventListener(e, bump, opt));
+    W.removeEventListener("resize", resize);
     D.removeEventListener("visibilitychange", hidden);
     if (rmq && rmq.removeEventListener) rmq.removeEventListener("change", motion);
     if (mo) mo.disconnect();
@@ -268,12 +321,15 @@ function quiet() {
 }
 /** A showcase region. Pauses its loop subscribers when off screen, when the
     tab is hidden, during a Kamran call, after idle (90 s, 60 s on phones; 0
-    disables) and on pause(). o: {idle, resumeOnInput, onState(running, reasons)}. */
+    disables) and on pause(). Idle counts from the last input or from when the
+    scene last started running (back from another tab, on screen again), and
+    input ends an idle pause unless resumeOnInput is false.
+    o: {idle, resumeOnInput, onState(running, reasons)}. */
 export function scene(el, o = {}) {
   browser();
   listen();
   const s = {
-    el, o, root: el.closest("[data-showcase]") || el, reasons: new Set(["offscreen"]), running: false,
+    el, o, root: el.closest("[data-showcase]") || el, reasons: new Set(["offscreen"]), running: false, since: 0,
     idleMs: o.idle === 0 ? 0 : (o.idle || (phone() ? 60 : 90)) * 1000,
     set(r, on) {
       if (s.reasons.has(r) == !!on) return;
@@ -288,9 +344,12 @@ export function scene(el, o = {}) {
     },
     loop(fn, fps) { return loop(fn, { scene: s, fps }); },
     btns: [],
-    /** Binds a Pause/Play button (visible label + aria-pressed); every Pause control carries [data-sc-pause]. */
+    /** Binds a Pause/Play button; every Pause control carries [data-sc-pause].
+        Its label says what a press does ("Pause", or "Play" while the visitor's
+        pause or idle holds), so it carries no aria-pressed: a toggle's name
+        never changes (ARIA practices). */
     button(b, lab = { pause: "Pause", play: "Play" }) {
-      b._lab = lab; b.setAttribute("data-sc-pause", ""); s.btns.push(b); sync(b);
+      b._lab = lab; b.setAttribute("data-sc-pause", ""); b.removeAttribute("aria-pressed"); s.btns.push(b); sync(b);
       b.addEventListener("click", () => (s.reasons.has("user") || s.reasons.has("idle") ? s.play() : s.pause()));
     },
     destroy() {
@@ -307,17 +366,16 @@ export function scene(el, o = {}) {
   // "Play" (the prototype's stale label).
   function apply() {
     const run = !s.reasons.size;
-    if (run != s.running) { s.running = run; if (run) kick(); }
+    if (run != s.running) { s.running = run; if (run) (s.since = now()), kick(); }
     o.onState && o.onState(run, [...s.reasons]);
     s.btns.forEach(sync);
     marks();
   }
+  // Writes only what changed: a label written again is a new text node (a restyle).
   const sync = (b) => {
-    const p = s.reasons.has("user") || s.reasons.has("idle");
-    b.setAttribute("aria-pressed", String(p));
-    const t = b.querySelector("[data-label]") || b;
-    t.textContent = p ? b._lab.play : b._lab.pause;
-    b.setAttribute("data-state", p ? "paused" : "playing");
+    const p = s.reasons.has("user") || s.reasons.has("idle"), t = b.querySelector("[data-label]") || b, label = p ? b._lab.play : b._lab.pause;
+    if (t.textContent != label) t.textContent = label;
+    if (b.getAttribute("data-state") != (p ? "paused" : "playing")) b.setAttribute("data-state", p ? "paused" : "playing");
   };
   if (D.hidden) s.reasons.add("hidden");
   if (D.documentElement.hasAttribute("data-mk-call")) s.reasons.add("call");
@@ -397,6 +455,17 @@ export function layer(root) {
       if (layers.get(host) == l) layers.delete(host);
     },
   };
+}
+/** Makes everything outside el inert (the other children of el and of each
+    of its ancestors below <html>): the page behind a modal in the overlay
+    layer is out of reach for focus, the pointer and assistive tech. Returns
+    the undo, which restores only what it set. */
+export function inertOutside(el) {
+  browser();
+  const set = [];
+  for (let n = el; n.parentElement && n.parentElement != D.documentElement; n = n.parentElement)
+    for (const s of n.parentElement.children) if (s != n && !s.inert && s.tagName != "SCRIPT") (s.inert = true), set.push(s);
+  return () => set.forEach((s) => (s.inert = false));
 }
 
 /* ---------------------------------------------------------------- live region */
