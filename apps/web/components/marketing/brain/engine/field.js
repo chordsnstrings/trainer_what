@@ -472,12 +472,15 @@ function mountField(root, o, p) {
       y += ht + 4;
     }
   }
-  function land(id, lane) {
+  /** A moment lands in its lane: on top, or (the reduced-motion still frame)
+      under the tiles already there, so none of them moves. */
+  function land(id, lane, under) {
     let tl = tiles[id];
     const list = lists[lane];
     if (!tl) {
-      list.insertAdjacentHTML("afterbegin", tileHTML(d, id));
-      tl = tiles[id] = { li: list.firstElementChild, lane, n: 0 };
+      const at = under ? list.querySelector(".mc-more") : list.firstElementChild;
+      at.insertAdjacentHTML("beforebegin", tileHTML(d, id));
+      tl = tiles[id] = { li: at.previousElementSibling, lane, n: 0 };
     } else { list.prepend(tl.li); tl.lane = lane; Y.delete(tl.li); }
     tl.n++;
     tl.li.classList.remove("is-due");
@@ -1052,7 +1055,7 @@ function mountField(root, o, p) {
 
   /* ---- reduced motion: a still frame after the stop; "Play the field" changes the state every 2.5 s */
   function staticFinal() {
-    for (const t of d.traces) { const id = id0(t); if (isOff(t, p.S) || id == "t4") continue; if (!tiles[id]) land(id, laneOf(id)); }
+    for (const t of d.traces) { const id = id0(t); if (isOff(t, p.S) || id == "t4") continue; if (!tiles[id]) land(id, laneOf(id), true); }
     land("t2", "paused");
     $$(".mc-m.is-on").forEach((m) => m.classList.remove("is-on"));
     memberOn("t2", true); memberOn("t1", true); // Omar's moment holds the lit Reply picker (its "O" badge)

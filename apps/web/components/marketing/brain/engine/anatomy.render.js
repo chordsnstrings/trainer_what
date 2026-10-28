@@ -57,7 +57,7 @@ export const NOTES = {
 };
 export const LET = "abcdefghij";
 /* What code can pick from, each with its moment (SHOWCASE_DESIGN.md §4 (f));
-   the coaching specialists not on yet sit on the shelf beside them. */
+   any specialist not on yet sits on the shelf beside them. */
 const COACH = [["reply_picker", "a rule fits"], ["draft_writer", "no rule fits"], ["plan_writer", "new plan"], ["week_reviewer", "week ends"], ["meal_photo", "meal photo"], ["voice_lines", "before a voice session"], ["set_logger", "during a workout"]];
 /* Other members' moments (the ghost stacks): trace, moment, shown on phones. Each lights only its own node. */
 export const GHOSTS = [["t8", "week ends", 1], ["t2", "knee", 1], ["t4", "meal photo", 1], ["t9", "creatine", 0], ["t10", "first plan", 0]];
@@ -100,6 +100,8 @@ export const dark = (p) => p.state == "skip" || p.state == "na";
 const MX = (kind, on) => `<span class="ca-mx" data-kind="${kind}" aria-hidden="true">${(on ? '<i class="on"></i>' : "<i></i>").repeat(9)}</span>`;
 const TICK = U.icon("check", 14), STOPI = U.icon("octagon-x", 14);
 const chip = (d, lane) => U.lane(d, lane, "ca-lane");
+/** The platform's safety rules (the knee trace's rule card): the rule every (b) plate cites. */
+const safetyRule = (d) => { const s = d.trace("t2").rule; return `<p class="ca-rule">${U.icon("lock", 14)}<b>${esc(s.title)}</b> · ${esc(s.source)}</p>`; };
 function statHTML(d, p) {
   if (p.k == "h") return chip(d, p.state);
   if (p.k == "a") return `<span class="ca-st ca-st--m">${esc(p.stat)}</span>`;
@@ -122,7 +124,7 @@ function moreHTML(d, M, p, S) {
     case "a": return `<div class="ca-bub"><span class="ca-av">${esc(t.member[0])}</span><div><p${dirOf(t)}>${esc(t.trigger.text)}</p><small>${esc(t.member)} · ${esc(t.channel.replace(/_/g, " "))} · ${esc(t.when)} · sample</small></div></div>`;
     case "b": {
       const s = p.s || {};
-      return `<p class="ca-scan${p.state == "hit" ? " is-hit" : ""}"${dirOf(t)}>${s.highlight ? hl(t.trigger.text, s.highlight) : `<span class="ca-sweep">${esc(t.trigger.text)}</span>`}</p><p class="ca-res">${p.state == "hit" ? `<b class="ca-stopw">STOP · No AI called</b> ` : ""}${esc(p.say)}</p>`;
+      return `<p class="ca-scan${p.state == "hit" ? " is-hit" : ""}"${dirOf(t)}>${s.highlight ? hl(t.trigger.text, s.highlight) : `<span class="ca-sweep">${esc(t.trigger.text)}</span>`}</p><p class="ca-res">${p.state == "hit" ? `<b class="ca-stopw">STOP · No AI called</b> ` : ""}${esc(p.say)}</p>${safetyRule(d)}`;
     }
     case "e": return p.s && p.s.detail ? `<ul class="ca-rows">${p.s.detail.map((x, n) => `<li style="--n:${n}">${TICK}${esc(x.replace(/ ✓$/, ""))}</li>`).join("")}</ul><p class="ca-rule">${U.icon("quote", 14)}Your rule: <b>${esc(t.rule ? t.rule.title : "")}</b></p>` : `<p>${esc(p.say)}</p>`;
     case "f": return p.out ? `<p class="ca-why"><span class="ca-k">${p.basis ? esc(d.labels.basis[p.basis]) : "Reason"}</span><span class="ca-rs" data-full="${esc(p.out)}">${esc(p.out)}</span></p>` : `<p class="ca-why">${esc(p.say)}</p>`;
