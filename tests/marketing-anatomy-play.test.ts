@@ -320,6 +320,19 @@ const visible = (html: string) =>
 /** Every moment's lane under the sample trainer's settings (t3 is off without its flag). */
 const LANES = { t1: "sent", t2: "paused", t4: "member", t5: "sent", t6: "waits", t7: "learn", t8: "waits", t9: "waits", t10: "sent", t11: "paused", t12: "paused" } as const;
 
+test("the shared stage sheet: a step not reached dims its frame and glyphs, never its text; pressed and checked survive forced colours", () => {
+  const stage = cssRules(src("apps/web/app/brain-stage.css"));
+  const rule = (sel: string, media = "") => stage.find((r) => r.selectors.includes(sel) && (media ? r.context.includes(media) : !r.context.length));
+  const value = (r: { declarations: Array<{ property: string; value: string }> } | undefined, p: string) => r?.declarations.find((x) => x.property == p)?.value;
+  for (const sel of ['[data-showcase] .sc-node[data-state="skip"]', '[data-showcase] .sc-step[data-result="skipped"]']) {
+    assert.equal(value(rule(sel), "color"), "var(--sc-muted)", sel);
+    assert.equal(value(rule(sel), "opacity"), undefined, `${sel}: text keeps its contrast`);
+  }
+  assert.equal(value(rule('[data-showcase] .sc-node[data-state="skip"]'), "border-style"), "dashed");
+  const fc = stage.find((r) => r.context.includes("@media (forced-colors: active)") && /\.bp-chip/.test(r.selector) && /\.ca-wb/.test(r.selector) && /aria-pressed="true"/.test(r.selector) && /aria-checked="true"/.test(r.selector));
+  assert.ok(fc, "chips, segments and What-ifs");
+  assert.deepEqual(["forced-color-adjust", "background", "color"].map((p) => value(fc, p)), ["none", "Highlight", "HighlightText"]);
+});
 test("the playground renders the root's inner HTML: every inner id carries the host id, every reference resolves, no live region of its own", () => {
   for (const patch of [{}, { heading: false, labelledBy: "demo-h" }, { attract: true }]) {
     const { html } = playRender(patch, "sc-x");
