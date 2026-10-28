@@ -133,7 +133,12 @@
     - 85 + 69 targeted tests pass; typecheck passes.
   - **CI on `a9b9f4d`:** the `/demo` overflow and largest-paint failures are fixed. Only "4. closed 320 ltr/rtl /: horizontal overflow of 2px" remains.
     - It does not reproduce locally, with the CI font set, the headless shell, mobile emulation, blocked web fonts or the consent bar.
-    - `123a761` makes the check name the elements that stick out on failure. CI's next homepage-call run will say which element it is.
+    - `123a761` makes the check name the elements that stick out on failure.
+    - **CI named the cause:** `span.mk-hm-l1`, the first line of the home H1, at [16, 321.8] in CI. Locally it ends at about 287; in CI the H1 is drawn in the fallback font, about 13% wider. The consent bar (fixed, `inset-inline: 0`) only stretched with the widened layout viewport.
+    - **Fix (`8e3dd8a`):** on phones the H1 is `min(calc((100vw - 20px) / 10), 40px)`, which leaves at least 4 px inside the screen even in the fallback font. Visual change: 30 vs 30.7 px at 320, 37 vs 37.4 px at 390.
+      - Measured overflow: 0 at 320, 360, 375, 390, 430 and 760 px, left to right and right to left.
+      - Screenshots checked at 390 and 320.
+      - Tests: 52/52.
   - **CI on `5cd8e2d`, every other job green:** application (`npm run check`, the browser checks and more), postgres-and-container, subscriber-ui, ux-spacing, daily-workflows, compose-topology and wildcard-edge.
 
 **Done today:**
