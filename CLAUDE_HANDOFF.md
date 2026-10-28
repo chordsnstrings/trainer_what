@@ -139,6 +139,7 @@
       - Measured overflow: 0 at 320, 360, 375, 390, 430 and 760 px, left to right and right to left.
       - Screenshots checked at 390 and 320.
       - Tests: 52/52.
+  - **CI on `123a761`, application job:** `tests/trainer-preview.test.ts` died with a Node 24.19 V8 fatal error ("Check failed: jit_page_->allocations_.erase(addr) == 1" in `UnregisterWasmAllocation`, during PGlite's WebAssembly) after 5 passing tests. It is a runtime crash, not this PR's code: the file passes 6/6 locally and passed on `5cd8e2d`. The run on `e2a8cef` re-runs it.
   - **CI on `5cd8e2d`, every other job green:** application (`npm run check`, the browser checks and more), postgres-and-container, subscriber-ui, ux-spacing, daily-workflows, compose-topology and wildcard-edge.
 
 **Done today:**
