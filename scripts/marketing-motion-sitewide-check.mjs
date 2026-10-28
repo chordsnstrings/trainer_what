@@ -1,8 +1,12 @@
 // Sitewide marketing motion check (local Chromium only; never a cloud
 // browser). It measures the marketing pages that carry the most motion, at
 // 390x844 (a phone: touch, device pixel ratio 3) and 1366x900, with the CPU
-// throttled 4x, and compares them with a base build (the release before the
-// motion pass, c856d9d):
+// throttled 4x. The four pages phase 1 redesigned (/, /trainer-brain, /demo
+// and /pricing, docs/marketing-revamp-2026-10-26/phase1/PLAN.md) are held to
+// absolute budgets (BUDGETS: LCP, its element the H1 or the lede, CLS, long
+// tasks while scrolling and blocking time on load, medians of MOTION_RUNS);
+// a base build would only compare different pages. Every other page is
+// compared with a base build (the release before the motion pass, c856d9d):
 // - LCP (median of MOTION_RUNS cold loads, the same element) and CLS, on
 //   load and while scrolling through every reveal, are not worse than base;
 // - no long task (> 50 ms) comes from motion: the reveal script's own work
@@ -19,8 +23,8 @@
 //   the marketing motion switch the build carries (data-mk-motion on the
 //   marketing root, components/marketing/motion-mode.ts):
 //   - "always": the same as without it: .mk-motion, the reveals, the
-//     settle, a FAQ unfolding, the phone menu, the relay (at rest by 5 s)
-//     and the journey's auto-play. Timed cold loads under each source
+//     settle, a FAQ unfolding, the phone menu and the journey's auto-play
+//     (on /how-it-works). Timed cold loads under each source
 //     (MOTION_REDUCED_RUNS per page and width, default 3) must keep the
 //     motion pass's own rules and CLS 0 (0.001 allowance) while scrolling;
 //     their LCP, blocking time and scroll long tasks are compared with the
@@ -33,6 +37,8 @@
 //   (automated browsers only get scenes with it) has <html class="scenes-on">
 //   before the first paint without reduced motion, and none under either
 //   source, where the journey auto-plays ("always") or waits ("device");
+//   once / mounts no scene (phase 1 parks the engine, docs/features/
+//   scroll-scenes.md), only the class and CLS are checked there;
 // - the scenes' frame loop is event-driven (scroll-scenes.ts): with scenes on,
 //   every animation-frame callback on the page is counted; frames run while
 //   the page scrolls through the journey's pin, none at all in the second
@@ -45,9 +51,9 @@
 //   390: the commission pills wait for their own trigger and load from the
 //   inline start 80ms apart on the enter curve, the home FAQ rows cascade
 //   40ms apart (at most 240ms), the closing button's arrow nudges once
-//   280ms after the button itself comes into view, the hero's arrow takes
-//   over after the relay (from 2.53 s) and is at rest by 5 s on its own
-//   timeline, both arrows nudge toward the reading direction, the /features
+//   280ms after the button itself comes into view, the hero's arrow nudges
+//   once and is still by 3 s, and at rest by 5 s on its own timeline, both
+//   arrows nudge toward the reading direction, the /features
 //   set ticks wait for the set table's own trigger at every width and pop
 //   80ms apart from 520ms, and nothing overflows sideways.
 //
@@ -85,7 +91,16 @@ const RUNS = Number(env.MOTION_RUNS ?? 5);
 const REDUCED_RUNS = Number(env.MOTION_REDUCED_RUNS ?? 3);
 /** The reduced-motion sources: the device setting, and the member's own choice. */
 const SOURCES = ["reduce", "cookie"];
-const PAGES = (env.MOTION_PAGES ?? "/,/how-it-works,/pricing,/features,/earnings-calculator").split(",");
+const PAGES = (env.MOTION_PAGES ?? "/,/how-it-works,/trainer-brain,/demo,/pricing,/features,/earnings-calculator").split(",");
+/**
+ * Absolute budgets for the pages phase 1 redesigned (medians at 4x CPU, both
+ * widths, the static frames automated browsers get): LCP within 2.5 s on its
+ * H1 or lede, no layout shift (0.001 allowance) on load or while scrolling,
+ * no long task while scrolling through the reveals, and blocking time on
+ * load within TBT. Set from the build's own measurements with headroom.
+ */
+const REDESIGNED = ["/", "/trainer-brain", "/demo", "/pricing"];
+const BUDGETS = { lcp: 2500, cls: 0.001, longTasksScroll: 0, tbtLoad: 700 };
 const VIEWPORTS = [
   { name: "390x844", viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true },
   { name: "1366x900", viewport: { width: 1366, height: 900 }, deviceScaleFactor: 1, isMobile: false, hasTouch: false },
@@ -383,7 +398,16 @@ async function coldLoad(browser, device, base, path, reducedMotion = "no-prefere
   // LCP is read before the scroll-through: a visitor's own scroll ends LCP
   // reporting, but a scripted one does not, and sections revealed while
   // scrolling would count as late paints.
-  const paint = await page.evaluate(() => ({ lcp: window.__mk.lcp, lcpElement: window.__mk.lcpElement }));
+  const paint = await page.evaluate(() => {
+    const n = window.__mk.lcpNode;
+    const h1 = document.querySelector("main h1");
+    // The lede: the first paragraph of 8 words or more after the H1, outside a showcase.
+    const lede = [...document.querySelectorAll("main p")].find(
+      (p) => h1 && h1.compareDocumentPosition(p) & Node.DOCUMENT_POSITION_FOLLOWING && !p.closest("[data-showcase], .sr-only, .eyebrow") && p.textContent.trim().split(/\s+/).length >= 8,
+    );
+    const role = !n ? null : n.closest?.("h1") ? "h1" : lede && (n === lede || lede.contains(n)) ? "lede" : null;
+    return { lcp: window.__mk.lcp, lcpElement: window.__mk.lcpElement, lcpRole: role };
+  });
   const atLoad = await page.evaluate(revealState);
   const loadHidden = await page.evaluate(hiddenText);
   await page.evaluate(() => (window.__mk.phase = "scroll"));
@@ -401,6 +425,7 @@ async function coldLoad(browser, device, base, path, reducedMotion = "no-prefere
   return {
     lcp: paint.lcp,
     lcpElement: paint.lcpElement,
+    lcpRole: paint.lcpRole,
     clsLoad: cls(mk.shifts.filter((s) => s.phase === "load")),
     clsScroll: cls(mk.shifts.filter((s) => s.phase === "scroll")),
     longTasksLoad: phase("load").length,
@@ -512,16 +537,11 @@ async function switchOf(browser, base) {
   return mode;
 }
 
-/** Running animations inside the hero relay (pseudo-elements included). */
-const relayRunning = () =>
-  document.querySelector(".mk-relay")?.getAnimations({ subtree: true }).filter((a) => a.playState === "running").length ?? null;
-
 /**
  * Reduced motion, from one source ("reduce": the device setting; "cookie":
  * the member's own choice): whether the setting took, what runs at load,
- * the relay on / (running at 1 s, at rest by 5.5 s), the reveal, what is
- * hidden after a scroll-through, and the journey's auto-play once its stage
- * is in view (/ and /how-it-works).
+ * the reveal, what is hidden after a scroll-through, and the journey's
+ * auto-play once its stage is in view (/how-it-works).
  */
 async function reducedState(browser, device, base, source = "reduce") {
   const out = {};
@@ -531,12 +551,9 @@ async function reducedState(browser, device, base, source = "reduce") {
       os: matchMedia("(prefers-reduced-motion: reduce)").matches,
       member: document.documentElement.dataset.reduceMotion === "on",
     }));
-    await page.waitForTimeout(1000);
-    const relayAt1s = await page.evaluate(relayRunning);
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(1500);
     const running = await page.evaluate(() => document.getAnimations().filter((a) => a.playState === "running").length);
     await page.waitForTimeout(4000);
-    const relayAt5s = await page.evaluate(relayRunning);
     let journey = null;
     if (await page.locator(".mk-walk-stage").count()) {
       await page.evaluate(() => document.querySelector(".mk-walk-stage").scrollIntoView({ block: "center", behavior: "instant" }));
@@ -556,8 +573,6 @@ async function reducedState(browser, device, base, source = "reduce") {
       setting,
       running,
       runningAfter,
-      relayAt1s,
-      relayAt5s,
       journey,
       marked: state.marked,
       motionClass: state.motionClass,
@@ -591,7 +606,8 @@ async function scenes(browser, device, base) {
     }));
     // The frame loop (scroll-scenes.ts): frames while scrolling, none once
     // idle, and woken without a scroll by the attributes it watches.
-    const engine = !r.after
+    r.mounted = await page.evaluate(() => !!document.querySelector("[data-scene]"));
+    const engine = !r.after || !r.mounted
       ? null
       : await page.evaluate(async () => {
           const pause = (ms) => new Promise((done) => setTimeout(done, ms));
@@ -647,8 +663,8 @@ async function scenes(browser, device, base) {
  * own trigger and load from the inline start 80ms apart on the enter
  * curve, the home FAQ rows cascade 40ms apart (at most 240ms), the closing
  * button's arrow nudges once when the button itself comes into view, the
- * hero's arrow takes over after the relay and is at rest by 5 s (read on
- * its own, untouched timeline before its direction is checked), the
+ * hero's arrow nudges once, over by 3 s and at rest by 5 s (read on its
+ * own, untouched timeline before its direction is checked), the
  * /features set ticks wait for the set table's own trigger and pop 80ms
  * apart from 520ms, and nothing overflows sideways. Untimed: CPU
  * throttling is off.
@@ -849,6 +865,7 @@ function summarise(build, which = "pages") {
     out[key] = {
       lcp: median(runs.map((r) => r.lcp)),
       lcpElement: mode(runs.map((r) => r.lcpElement)),
+      lcpRole: mode(runs.map((r) => r.lcpRole)),
       clsLoad: Math.max(...runs.map((r) => r.clsLoad)),
       clsScroll: Math.max(...runs.map((r) => r.clsScroll)),
       tbtLoad: median(runs.map((r) => r.tbtLoad)),
@@ -941,8 +958,6 @@ try {
           // The same as without the setting.
           if (!r.motionClass) fail(label, "the page root never got .mk-motion");
           if (r.pendingAfterScroll) fail(label, `${r.pendingAfterScroll} unit(s) still waiting after a scroll-through`);
-          if (path === "/" && !(r.relayAt1s > 0)) fail(label, `the relay is not animating at 1 s (${r.relayAt1s})`);
-          if (path === "/" && r.relayAt5s !== 0) fail(label, `the relay is not at rest by 5.5 s (${r.relayAt5s} running)`);
           if (r.journey !== null && r.journey !== "playing") fail(label, `the journey did not auto-play (state ${r.journey})`);
         } else {
           if (r.running || r.runningAfter) fail(label, `${r.running}/${r.runningAfter} running animation(s)`);
@@ -986,8 +1001,8 @@ try {
       if ((source === "reduced" || source === "cookie") && !always) continue;
       const label = `concept motion ${source} ${device}`;
       if (c.errors.length) fail(label, `errors: ${c.errors.slice(0, 2).join("; ")}`);
-      if (!c.hero || c.hero.delay < 2530 || c.hero.delay + c.hero.duration > 4500 || c.hero.iterations !== 1)
-        fail(label, `the hero hand-off: ${JSON.stringify(c.hero)}`);
+      if (!c.hero || c.hero.delay + c.hero.duration > 3000 || c.hero.iterations !== 1)
+        fail(label, `the hero arrow's nudge: ${JSON.stringify(c.hero)}`);
       if (!c.heroAt5s || c.heroAt5s.translate !== "none" || c.heroAt5s.running) fail(label, `the hero arrow is not at rest by 5 s: ${JSON.stringify(c.heroAt5s)}`);
       const sign = source === "rtl" ? -1 : 1;
       if (c.heroPeak !== `${3 * sign}px` || c.closingPeak !== `${3 * sign}px`)
@@ -1016,9 +1031,10 @@ try {
       if (r.clsLoad > 0.001) fail(label, `CLS on load ${r.clsLoad.toFixed(4)}`);
       if (pref === "no-preference") {
         if (!r.atParse || !r.after) fail(label, `scenes not on before the first paint (${r.atParse}/${r.after})`);
-        // The frame loop is event-driven and stops when idle.
+        // The frame loop is event-driven and stops when idle (while / mounts a scene).
         const e = r.engine;
-        if (!e) fail(label, "the frame loop was not measured");
+        if (!r.mounted) console.log(`${label}: no scene on / (the scroll scenes are parked); the frame loop is not measured`);
+        else if (!e) fail(label, "the frame loop was not measured");
         else {
           if (!(e.scrollFrames > 0)) fail(label, `no animation frame while scrolling through the journey (${e.scrollFrames})`);
           if (e.idleFrames !== 0) fail(label, `${e.idleFrames} animation frame(s) in the second after 500 ms without input`);
@@ -1028,17 +1044,30 @@ try {
         }
       } else {
         if (r.atParse || r.after) fail(label, `scenes on under reduced motion (${r.atParse}/${r.after})`);
-        if (always ? r.journey !== "playing" : r.journey === "playing")
+        // The journey band left / in phase 1 (it stays on /how-it-works).
+        if (r.journey !== null && (always ? r.journey !== "playing" : r.journey === "playing"))
           fail(label, `the journey ${r.journey === "playing" ? "auto-played" : `did not auto-play (state ${r.journey})`}`);
       }
     }
 
-  // Against the base: LCP, CLS and long tasks.
+  // The pages phase 1 redesigned: absolute budgets, with or without a base.
+  const redesigned = (key) => REDESIGNED.includes(key.slice(key.indexOf(" ") + 1));
+  for (const [key, n] of Object.entries(now)) {
+    if (!redesigned(key)) continue;
+    if (n.lcp > BUDGETS.lcp) fail(key, `LCP ${Math.round(n.lcp)} ms (budget ${BUDGETS.lcp} ms)`);
+    if (!n.lcpRole) fail(key, `the LCP element is ${n.lcpElement}, not the H1 or the lede`);
+    if (n.clsLoad > BUDGETS.cls) fail(key, `CLS on load ${n.clsLoad.toFixed(4)} (budget ${BUDGETS.cls})`);
+    if (n.clsScroll > BUDGETS.cls) fail(key, `CLS while scrolling ${n.clsScroll.toFixed(4)} (budget ${BUDGETS.cls})`);
+    if (n.longTasksScroll > BUDGETS.longTasksScroll)
+      fail(key, `${n.longTasksScroll} long task(s) while scrolling through the reveals (budget ${BUDGETS.longTasksScroll})`);
+    if (n.tbtLoad > BUDGETS.tbtLoad) fail(key, `blocking time on load ${Math.round(n.tbtLoad)} ms (budget ${BUDGETS.tbtLoad} ms)`);
+  }
+  // Every other page against the base: LCP, CLS and long tasks.
   if (then) {
     const baseInteractions = baseBuild.interactions;
     for (const [key, n] of Object.entries(now)) {
       const b = then[key];
-      if (!b) continue;
+      if (!b || redesigned(key)) continue;
       const allowance = Math.max(50, b.lcp * 0.05);
       if (n.lcp > b.lcp + allowance)
         fail(key, `LCP ${Math.round(n.lcp)} ms against ${Math.round(b.lcp)} ms (allowance ${Math.round(allowance)} ms)`);
@@ -1067,7 +1096,7 @@ try {
   const rows = Object.entries(now).map(([key, n]) => {
     const b = then?.[key];
     const f = (v, d = 0) => (v === null || v === undefined ? "-" : Number(v).toFixed(d));
-    return `${key.padEnd(24)} LCP ${f(n.lcp).padStart(5)} (base ${f(b?.lcp).padStart(5)})  CLS ${f(n.clsLoad, 4)}/${f(n.clsScroll, 4)} (base ${f(b?.clsLoad, 4)}/${f(b?.clsScroll, 4)})  TBT ${f(n.tbtLoad).padStart(4)} (base ${f(b?.tbtLoad).padStart(4)})  scroll long tasks ${n.longTasksScroll} (base ${b?.longTasksScroll ?? "-"})  motion setup ${f(n.motionSetupMax, 1)} ms, callback ${f(n.motionCallbackMax, 1)} ms`;
+    return `${key.padEnd(24)} LCP ${f(n.lcp).padStart(5)} (${redesigned(key) ? "budget " + BUDGETS.lcp : "base " + f(b?.lcp).padStart(5)})  CLS ${f(n.clsLoad, 4)}/${f(n.clsScroll, 4)} (base ${f(b?.clsLoad, 4)}/${f(b?.clsScroll, 4)})  TBT ${f(n.tbtLoad).padStart(4)} (base ${f(b?.tbtLoad).padStart(4)})  scroll long tasks ${n.longTasksScroll} (base ${b?.longTasksScroll ?? "-"})  motion setup ${f(n.motionSetupMax, 1)} ms, callback ${f(n.motionCallbackMax, 1)} ms`;
   });
   console.log(rows.join("\n"));
 

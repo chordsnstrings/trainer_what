@@ -206,7 +206,6 @@ function SamplePhone({ platform }: { platform: PublicPlatform }) {
           <div className="mk-hm-ph-status">
             <span>18:41</span>
             <i className="mk-hm-ph-island" />
-            <i className="mk-hm-ph-battery" />
           </div>
           <div className="mk-hm-ph-head">
             <span className="mk-hm-ph-av">LS</span>
@@ -230,9 +229,9 @@ function SamplePhone({ platform }: { platform: PublicPlatform }) {
                 <span>Squat</span>
                 <span className="mk-hm-ph-mono">50 → 62.5 kg</span>
               </p>
-              <svg viewBox="0 0 200 48" className="mk-hm-ph-spark">
-                <polyline points="2,44 34,40 66,34 98,30 130,22 162,16 198,6" />
-                <circle cx="198" cy="6" r="3.5" />
+              <svg viewBox="0 0 200 48" className="mk-hm-ph-spark" fill="none" stroke="currentColor" strokeLinejoin="round" strokeLinecap="round">
+                <polyline points="2,44 34,40 66,34 98,30 130,22 162,16 198,6" strokeWidth={2} />
+                <circle cx="198" cy="6" r="3.5" strokeWidth={1.6} style={{ fill: "var(--lime)" }} />
               </svg>
             </div>
             {nutrition && (

@@ -161,7 +161,7 @@ const kb = (bytes) => round(bytes / 1024, 1);
  * was then entirely below the viewport).
  */
 function instrument() {
-  const sc = (window.__sc = { frames: [], shifts: [], long: [], events: [], log: [], lcp: null });
+  const sc = (window.__sc = { frames: [], shifts: [], long: [], events: [], log: [], near: {}, lcp: null });
   try {
     performance.setResourceTimingBufferSize(2000);
   } catch {}
@@ -215,6 +215,16 @@ function instrument() {
       sc.log.push(entry);
     }
   }).observe(document, { subtree: true, attributes: true, attributeFilter: ["data-sc", "data-sc-ready", "data-sc-tier", "data-sc-flat"] });
+  // When each showcase host first comes within the island's 200 px margin.
+  document.addEventListener("DOMContentLoaded", () => {
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) if (e.isIntersecting && !(e.target.id in sc.near)) sc.near[e.target.id] = e.time;
+      },
+      { rootMargin: "200px" },
+    );
+    document.querySelectorAll(".sc-host").forEach((host) => io.observe(host));
+  });
 }
 
 const browser = await chromium.launch({ headless: true, ...(executablePath ? { executablePath } : {}) });
@@ -455,10 +465,20 @@ await step(1, "JavaScript off", async () => {
               return [r.x, r.y, r.width, r.height].map((v) => Math.round(v * 10) / 10).join(",");
             }),
           );
-        const before = await boxes();
+        // The still frame once the web fonts have swapped in and the layout has settled.
+        await page.evaluate(() => document.fonts.ready);
+        let before = await boxes();
+        for (let i = 0; i < 10; i++) {
+          await page.waitForTimeout(250);
+          const again = await boxes();
+          if (again.join("|") === before.join("|")) break;
+          before = again;
+        }
         await page.evaluate((sheets) => {
           for (const css of sheets) document.head.append(Object.assign(document.createElement("style"), { textContent: css }));
         }, sheets);
+        await page.evaluate(() => document.fonts.ready);
+        await page.waitForTimeout(250);
         const after = await boxes();
         const moved = before.filter((b, i) => b !== after[i]).length;
         if (moved || before.length !== after.length) fail(label, `the lazy sheets moved ${moved} of ${before.length} boxes`);
@@ -608,6 +628,7 @@ await step(5, "lifecycle", async () => {
     page.on("load", () => (loaded = true));
     await page.route(/\/_next\/static\/.*\.(js|css)(\?|$)/, (route) => (loaded ? route.abort() : route.continue()));
   };
+  results.fallback = {};
   const offAt = (page, id) => page.evaluate((id) => window.__sc.log.find((e) => e.host === id && e.name === "data-sc" && e.value === "off")?.t ?? null, id);
   if (PAGES.includes("/")) {
     const label = "5. / hero, engine aborted";
@@ -619,7 +640,7 @@ await step(5, "lifecycle", async () => {
     const ready = await page.evaluate(() => window.__sc.log.find((e) => e.name === "data-sc-ready")?.t ?? null);
     const ended = await offAt(page, id);
     const after = ready !== null && ended !== null ? Math.round(ended - ready) : null;
-    results.fallback = { hero: after };
+    results.fallback.hero = after;
     if (!off || after === null || after > 7000) fail(label, `not "off" within 7 s of html[data-sc-ready] (${after} ms)`);
     const hidden = await page.evaluate((id) =>
       [...document.getElementById(id).firstElementChild.querySelectorAll(".sc-res, .mc-stamp, .mc-hl, .mc-lane")]
@@ -651,6 +672,7 @@ await step(5, "lifecycle", async () => {
       const from = near ?? (await now(page));
       const off = await until(page, id, { attr: "data-sc", value: "off" }, 9000);
       const ended = await offAt(page, id);
+      results.fallback[where === "below" ? "anatomy below" : "anatomy in view"] = ended === null ? null : Math.round(ended - from);
       if (!off || ended === null || ended - from > 7000) fail(label, `not "off" within 7 s of coming near (${ended === null ? "never" : Math.round(ended - from) + " ms"})`);
       if (where === "in view") {
         await page.waitForTimeout(1500);
@@ -815,8 +837,12 @@ await step(9, "receipts and overlays", async () => {
     await go(page, "/");
     const id = await hostOf(page, "field");
     await isOn(page, id);
-    await page.waitForTimeout(800);
-    const consent = await page.evaluate(() => [...document.querySelectorAll(".acquisition-consent")].some((e) => e.checkVisibility() && e.getBoundingClientRect().height > 0));
+    // The analytics bar waits for the first scroll on marketing pages, then stays.
+    await scrollTop(page, 120);
+    await page.waitForTimeout(400);
+    await scrollTop(page, 0);
+    await page.waitForTimeout(400);
+    const consent = await page.evaluate(() => [...document.querySelectorAll(".consent-bar")].some((e) => e.checkVisibility() && e.getBoundingClientRect().height > 0));
     if (!consent) fail(label, "the consent bar is not open");
     const topmost = (selector) =>
       page.evaluate((selector) => {
@@ -975,21 +1001,40 @@ await step(11, "/trainer-brain", async () => {
   }
 });
 
+/** Clicks the first link to `to` a visitor can click (shown, not under anything, not in a closed menu). */
+async function clickLinkTo(page, to) {
+  const links = page.locator(`a[href="${to}"]`);
+  for (let i = 0; i < (await links.count()); i++) {
+    const link = links.nth(i);
+    if (!(await link.isVisible())) continue;
+    try {
+      await link.scrollIntoViewIfNeeded({ timeout: 1000 });
+      await link.click({ trial: true, timeout: 1000 });
+    } catch {
+      continue;
+    }
+    await link.click();
+    return true;
+  }
+  return false;
+}
+
 await step(12, "navigation loop", async () => {
   if (!["/", "/pricing", "/trainer-brain", "/demo"].every((p) => PAGES.includes(p))) return;
   const page = await open();
   await go(page, "/");
+  // The analytics bar opens on the first scroll and covers the footer's links: answer it.
+  await scrollTop(page, 120);
+  await page.locator(".consent-bar").getByRole("button", { name: "No thanks", exact: true }).click({ timeout: 5000 }).catch(() => {});
+  await scrollTop(page);
   const perFrame = [];
   for (let round = 1; round <= 3; round++) {
     for (const to of ["/pricing", "/", "/trainer-brain", "/demo", "/"]) {
       const from = new URL(page.url()).pathname;
-      const link = page.locator(`a[href="${to}"]:visible`).first();
-      if (!(await link.count())) {
-        fail(`12. round ${round}`, `no visible link to ${to} on ${from}`);
-        continue;
+      if (!(await clickLinkTo(page, to))) {
+        fail(`12. round ${round}`, `no link to ${to} a visitor can click on ${from}`);
+        break;
       }
-      await link.scrollIntoViewIfNeeded();
-      await link.click();
       await page.waitForFunction((to) => location.pathname === to, to, { timeout: 15_000 });
       const took = await mountAll(page);
       const late = Object.entries(took).filter(([, ms]) => ms === null);
@@ -1028,16 +1073,22 @@ await step(14, "pricing calculators", async () => {
   }
   const tile = page.locator("#example .mk-pr-calc");
   const [price, count] = [tile.locator("input[type=range]").nth(0), tile.locator("input[type=range]").nth(1)];
-  /** As a visitor sets a range: PageUp/PageDown (10% of the range), then the arrows. */
+  /** As a visitor sets a range: PageUp or PageDown while a whole page is left, then the arrows. */
   const setRange = async (input, value) => {
     await input.scrollIntoViewIfNeeded();
     await input.focus();
     const read = () => input.evaluate((e) => Number(e.value));
-    const step = await input.evaluate((e) => Number(e.step) || 1);
+    let jump = await input.evaluate((e) => (Number(e.max) - Number(e.min)) / 10);
     let cur = await read();
+    for (let i = 0; i < 40 && Math.abs(value - cur) >= jump; i++) {
+      await page.keyboard.press(value > cur ? "PageUp" : "PageDown");
+      const next = await read();
+      if (next === cur) break;
+      jump = Math.abs(next - cur);
+      cur = next;
+    }
     for (let i = 0; i < 400 && cur !== value; i++) {
-      const far = Math.abs(value - cur) >= step * 20;
-      await page.keyboard.press(value > cur ? (far ? "PageUp" : "ArrowRight") : far ? "PageDown" : "ArrowLeft");
+      await page.keyboard.press(value > cur ? "ArrowRight" : "ArrowLeft");
       cur = await read();
     }
   };
@@ -1129,13 +1180,18 @@ await step("metrics", "metrics", async () => {
       // Per showcase: long tasks from mounting (from its first chunk, or from
       // coming near, to "on" + 1 s), then frames while it runs.
       for (const { id, kind } of await hosts(page)) {
-        let startAt = await now(page);
-        if ((await scState(page, id))?.sc === "on") startAt = (await lateResources(page))[0]?.at ?? load.load;
-        else await scrollToHost(page, id, kind === "anatomy" ? "start" : "center");
+        if ((await scState(page, id))?.sc !== "on") await scrollToHost(page, id, kind === "anatomy" ? "start" : "center");
         await isOn(page, id);
         await page.waitForTimeout(1000);
-        const onAt = await page.evaluate((id) => window.__sc.log.find((e) => e.host === id && e.name === "data-sc" && e.value === "on")?.t ?? null, id);
-        const tasks = await page.evaluate(([from, to]) => window.__sc.long.filter(([t, d]) => t + d >= from && t <= to).map(([, d]) => Math.round(d)), [startAt, (onAt ?? startAt) + 1000]);
+        // From the root coming near (the island loads nothing before the load event) to "on" + 1 s.
+        const tasks = await page.evaluate(
+          ([id, load]) => {
+            const from = Math.max(window.__sc.near[id] ?? 0, load);
+            const on = window.__sc.log.find((e) => e.host === id && e.name === "data-sc" && e.value === "on")?.t ?? from;
+            return window.__sc.long.filter(([t, d]) => t + d >= from && t <= on + 1000).map(([, d]) => Math.round(d));
+          },
+          [id, load.load],
+        );
         r.mount.push({ kind, tasks });
         if (kind === "board") continue;
         if (kind === "anatomy") await scrollTop(page, await page.evaluate((id) => document.getElementById(id).getBoundingClientRect().top + scrollY + innerHeight * 0.4, id));
