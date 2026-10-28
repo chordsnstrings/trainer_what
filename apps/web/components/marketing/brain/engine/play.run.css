@@ -33,6 +33,18 @@
   color: var(--sc-ai-on);
   font-size: 13px;
 }
+/* A streamed AI step: its final words hold the row, the live copy types over them. */
+[data-showcase="play"] .bp-so {
+  position: relative;
+}
+[data-showcase="play"] .bp-sf {
+  visibility: hidden;
+}
+[data-showcase="play"] .bp-sl {
+  position: absolute;
+  inset-block-start: 8px;
+  inset-inline: 10px;
+}
 [data-showcase="play"] .bp-msg.is-scan .bp-mt::after {
   content: "";
   position: absolute;

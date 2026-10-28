@@ -80,7 +80,7 @@ const route = (a, b) => {
 export async function mount(root, o) {
   const d = prepare(raw, o), S = defaults(d), RM = C.reduced(), L = C.layer(root), k = owned();
   const $ = (s, r = root) => r.querySelector(s), $$ = (s, r = root) => [...r.querySelectorAll(s)];
-  const stage = $(".bp-stage"), dia = $(".bp-diagram"), shell = $(".bp-shell"), kindEl = $(".bp-kind"), logOl = $(".bp-logs ol");
+  const stage = $(".bp-stage"), dia = $(".bp-diagram"), shell = $(".bp-shell"), kindEl = $(".bp-kind"), logs = $(".bp-logs"), logOl = $("ol", logs);
   const res = $(".bp-res"), ctls = $(".bp-ctls"), change = $(".bp-change"), again = $(".bp-again"), out = $(".bp-out"), chips = $(".bp-chips");
   const msgBox = () => $(".bp-msg");
   // What only the engine shows: none of it takes space in the frame.
@@ -131,6 +131,7 @@ export async function mount(root, o) {
   const st = {}; // sp → {s, t0}
   // runTl lives until its AI words finish streaming (after the result shows); playing: until the result shows
   let lines = [], dot = null, trail = [], clock = 0, mode = "one", runTl = null, runEnd = null, playing = false, allTl = null, allEnd = null;
+  let streams = {}; // step index → its streamer, for this run
   // the matrices draw the nodes' states as the frame has them, then as runs set them
   const sync = () => $$(".sc-node", dia).forEach((e) => (st[e.dataset.sp] = { s: e.dataset.state, t0: -1e9 }));
   const setNode = (sp, s) => {
@@ -216,7 +217,20 @@ export async function mount(root, o) {
   /* ---------------- a run */
   // cur: the moment on stage; R: its decision when it last played (null while attract waits to play it).
   let cur = d.trace(FIRST), R = null, before = null, busy = false, attract = false, touched = false, stale = false, deb = 0, pend = null;
-  const logRow = (t, s, i, stream) => logOl.insertAdjacentHTML("beforeend", U.stepRow(d, t, s, { stream }).replace('<li class="sc-step"', `<li class="sc-step" data-i="${i}"`));
+  /* The steps, newest last, scrolled into view (scrolling moves nothing). A
+     streamed row holds its final words (unseen) while the live copy types
+     over them, so no row ever grows. */
+  const logAdd = (html) => (logOl.insertAdjacentHTML("beforeend", html), (logs.scrollTop = logs.scrollHeight));
+  function logRow(t, s, i, stream) {
+    logAdd(U.stepRow(d, t, s, { stream }).replace('<li class="sc-step"', `<li class="sc-step" data-i="${i}"`));
+    const pre = stream && $(`[data-i="${i}"] .sc-out`, logOl);
+    if (!pre) return null;
+    const full = pre.dataset.full, live = h("span.bp-sl");
+    pre.classList.add("bp-so");
+    pre.append(h("span.bp-sf", null, full), live);
+    const f = U.streamer(live, full);
+    return (q) => (q >= 1 ? (pre.textContent = full) : f(q));
+  }
   function chipsBusy(on) {
     busy = on;
     $$(".bp-chip, .bp-all-b, .bp-free button").forEach((b) => b.setAttribute("aria-disabled", String(on)));
@@ -282,6 +296,7 @@ export async function mount(root, o) {
     showResult(resultHTML(d, t, r, before && before != r.lane ? before : null), true);
     if (note) C.say(note);
     const steps = r.steps, base = from ? steps[from].at - 300 : -500, tl = (runTl = C.timeline(sc));
+    streams = {};
     playing = true;
     const floor = t.decide == "floor";
     let prev = (from && anchor(t, steps[from - 1])) || { id: "msg", f: MSG }, keys = [], lastAt = 0;
@@ -297,8 +312,7 @@ export async function mount(root, o) {
       tl.at(T + s.dur, () => endStep(t, s, i, r));
       if (s.out && !RM) { // AI output streams at 40 characters a second; code steps appear whole
         const txt = U.outLines(s).join("\n");
-        let f = null;
-        tl.span(T + 120, (txt.length / 40) * 1000, (q) => { const pre = logOl.querySelector(`[data-i="${i}"] .sc-out`); if (pre) (f = f || U.streamer(pre, pre.dataset.full))(q); });
+        tl.span(T + 120, (txt.length / 40) * 1000, (q) => streams[i] && streams[i](q));
       }
     });
     const last = steps[steps.length - 1], end = last.at + last.dur - base + 120;
@@ -326,9 +340,9 @@ export async function mount(root, o) {
     if (s.sp == "any_ai") { noai.hidden = false; COACH.forEach((c) => setNode(c, "skip")); }
     if (isPick(d, s)) { // code picks: one straight line from the moment's kind to the one specialist
       if (!RM) lines.push({ p: () => [[G.kind.cx, G.kind.b], [G.n[sp].cx, G.n[sp].y]], t0: clock - 1, draw: 240, hold: 500, fade: 600, col: COL.lime, label: COPY.picks });
-      logOl.insertAdjacentHTML("beforeend", picksRow(d, i));
+      logAdd(picksRow(d, i));
     }
-    logRow(t, s, i, kind == "ai" && !RM);
+    streams[i] = logRow(t, s, i, kind == "ai" && !RM);
     // rule lines from the rulebook to the node that cites a rule
     const cites = (sp == "rule_finder" && s.result == "found") || (sp == "checker" && /cites your rule/i.test(s.say)) || (sp == "lane_gate" && /level|bar/i.test(s.say)) || sp == "set_logger" || (sp == "topics" && s.result == "hit");
     if (cites && G.n[sp] && !RM) lines.push({ p: () => { const n = G.n[sp], y = n.y - 6, x = G.rtl ? G.book.r : G.book.x; return [[x, y], [n.cx, y], [n.cx, n.y]]; }, t0: clock + 60, draw: 240, hold: 400, fade: 600, col: COL.lime });
@@ -444,7 +458,7 @@ export async function mount(root, o) {
   /* ---------------- attract: the frame shows the first moment; with the option, it plays it once */
   function settle() { // the visitor came first: the first moment's frame, as the server drew it
     if (!pend) return;
-    pend.forEach(([e, a, v]) => (v == null ? e.removeAttribute(a) : e.setAttribute(a, v)));
+    pend.forEach(([e, a, v]) => (a == "rows" ? (e.innerHTML = v) : v == null ? e.removeAttribute(a) : e.setAttribute(a, v)));
     pend = null;
     sync();
     R = decide(cur, S, d);
@@ -479,6 +493,10 @@ export async function mount(root, o) {
         e.removeAttribute("data-hot");
       });
       [kindEl, logOl, res, change].forEach((e) => e.classList.add("is-due"));
+      // the steps go now, unseen, so the run's first row moves nothing
+      const rows = logOl.innerHTML;
+      logOl.textContent = "";
+      pend.push([logOl, "rows", rows]);
       // "well in view": 45% of the stage, or half the viewport when the stage is taller than that (phones)
       const io = new IntersectionObserver((es) => {
         if (!es.some((e) => e.isIntersecting && e.intersectionRect.height >= Math.min(e.boundingClientRect.height * 0.45, innerHeight * 0.5))) return;

@@ -381,10 +381,9 @@
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
-/* The steps keep one height while a run writes them (newest at the bottom). */
+/* The steps keep one height while a run writes them (the engine keeps the
+   newest in view). */
 [data-showcase="play"] .bp-logs {
-  display: flex;
-  flex-direction: column-reverse;
   block-size: 240px;
   overflow: auto;
   contain: strict;
