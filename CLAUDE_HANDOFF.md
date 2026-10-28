@@ -131,6 +131,9 @@
     - transient overflow at 320 px: 0 px in 8 sampled runs, at 1× and 4× CPU;
     - `npm run test:marketing-showcase`: passed, full run 7 min 7 s;
     - 85 + 69 targeted tests pass; typecheck passes.
+  - **CI on `a9b9f4d`:** the `/demo` overflow and largest-paint failures are fixed. Only "4. closed 320 ltr/rtl /: horizontal overflow of 2px" remains.
+    - It does not reproduce locally, with the CI font set, the headless shell, mobile emulation, blocked web fonts or the consent bar.
+    - `123a761` makes the check name the elements that stick out on failure. CI's next homepage-call run will say which element it is.
   - **CI on `5cd8e2d`, every other job green:** application (`npm run check`, the browser checks and more), postgres-and-container, subscriber-ui, ux-spacing, daily-workflows, compose-topology and wildcard-edge.
 
 **Done today:**
