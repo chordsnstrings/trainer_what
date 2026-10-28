@@ -60,6 +60,11 @@
   - `compose.yaml` now passes `MARKETING_SHOWCASE` to `web`, so the off switch works in production through `runtime.env` plus a re-apply. WP8 found it was unwired.
   - The compose render test pins it; the deployment suite passes 160 tests, 3 skipped.
   - The comment and the docs say "re-apply", not "restart".
+- **Fix round 1 is done** (`wf_b98be2ed-50e`).
+  - F2: the anatomy mount's worst long task went from 291 ms to 68 ms or less at 4× CPU.
+  - F2: still-frame showcase controls keep their own look; `brain-stage.css` gained reset rules.
+  - F2 blamed the member-shell rule `details:has(…)::details-content` for whole-page restyles. Lead check (`scratchpad/hasexp/real.cjs`), on the real built CSS with the /trainer-brain snapshot: one insertion costs about 5 ms at 4× CPU with the rule, without it, or rewritten. Not reproduced on a still page, so it must be measured on the running page before any member-app CSS changes.
+- **Review workflow running:** `wf_aa89a290-849`, five dimensions, each with an adversarial verifier.
 - **Left for the review and fix stage:**
   - the field's plan slider snaps back if another control is touched within its 120 ms debounce;
   - `/` total blocking time measured 444 ms on a loaded machine, against a 326 ms baseline plus a 100 ms allowance; measure again at the milestone;
