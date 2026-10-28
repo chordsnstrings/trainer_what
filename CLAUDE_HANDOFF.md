@@ -117,10 +117,26 @@
   - **Tests:** 238/238 across 23 unit files, plus 82/82.
   - **Left for A2, in the notes:** the consent bar's first appearance restyles the whole document once, and the watchdog never steps back up.
   - **Docs to update:** `brand.md:362` and `dark-mode.md:108` still name the old selectors. The "paint" explanation for the playground and `/demo` slowness was wrong (it was `:has()`); correct it in `brain-showcase.md` and `COMPLETION_STAGES.md:34`.
-- **Status at 12:15 UTC, as told to the owner:** fix round 2 is still running.
-  - A1 (field, board, receipts) has committed fixes for all 21 of its items and is finishing browser verification.
-  - B (anatomy, playground, data) is in progress, with WIP commits up to `0640f36`.
-  - Then A2 (core loop, watchdog, head script, check).
+- **Fix round 2, A1 (field, board, receipts), is done** (report: `scratchpad/fix2-A1.json`). 20 of 21 items are fixed.
+  - **Fixed:**
+    - the receipt focus trap, inert page and Esc;
+    - the phone sheet is now a dialog;
+    - double-activation, the auto-demo yielding to the visitor, and the plans slider snap-back;
+    - right to left: the drawn layer and the arrow keys;
+    - nothing replays under reduced motion;
+    - forced colours;
+    - reflow at 320 px, including narrow-desktop clipping between 1181 and 1312 px;
+    - text spacing, with lanes rolling overflow into "+N";
+    - the readouts are no longer live regions;
+    - "How we count" is now a `details` element;
+    - board cards stay disabled in the still frame.
+  - **Partly fixed:** A11Y-7. The field's phone level radios stay 28 px wide, because there is no room in Kamran's gutter at 360 px.
+  - **Checks:** unit tests 78/78; typecheck passes. The showcase check passes, with CLS 0.00039 and field mount long tasks of 60 and 64 ms. Board CLS stays at 0.
+  - **Open:**
+    - at 1181–1312 px the hero media column is narrower than the field needs (about 700 px): no clipping, but the labels are ellipsized;
+    - in `?lang=ar`, the English sample strings' punctuation shows at the wrong end; suggested fix `unicode-bidi: plaintext`.
+  - **Owner FYI:** when Your Today and Paused are full they now show fewer tiles plus "+N". A11Y-7 suggests amending the plan to "44 px tall on phones".
+- **B (anatomy, playground, data) is still running,** with WIP commits up to `0c5c3ff`. A2 comes next.
 - **Lead follow-ups done:** `registrationOpen` is passed to `llmsFullTxt` and `marketingAssistantFacts`; the traces' Examiner line now reads "Sending on its own needs a pass".
 - **Docs to update at records time:**
   - PLAN §1.5's publish row and PLAN line 610;
