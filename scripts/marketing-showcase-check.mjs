@@ -1314,8 +1314,11 @@ await step(16, "keyboard and board", async () => {
         (p) => p.click(`#${id} .mc-lv [data-level="1"]`),
         (p) => p.click(`#${id} .mc-sw`),
         (p) => p.click(`#${id} .mc-lv [data-level="3"]`),
-        (p) => p.locator(`#${id} .mc-bar input`).fill("90"),
-        (p) => p.locator(`#${id} .mc-bar input`).fill("70"),
+        ...["90", "70"].map((v) => (p) => p.evaluate(([id, v]) => {
+          const r = document.querySelector(`#${id} .mc-bar input`);
+          r.value = v;
+          r.dispatchEvent(new Event("input", { bubbles: true }));
+        }, [id, v])),
       ]) {
         await act(page);
         await page.waitForTimeout(700);

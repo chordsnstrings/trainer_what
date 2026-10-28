@@ -291,6 +291,7 @@ test("controls stay usable: contrast themes, phone hit areas, 320px, tips, the s
   // field's Pause lies over the message below it (A11Y-7, A11Y-10).
   assert.equal(value(stage, '[data-showcase="board"] .mb-ctrl', "row-gap", PHONE), "16px");
   assert.equal(value(stage, '[data-showcase="field"] .mc-pause', "z-index"), "1");
+  assert.equal(value(stage, '[data-showcase="field"] .mc-pause::after', "inset", PHONE), "-8px -4px -10px", "within the root's 8px top padding");
   assert.equal(value(stage, '[data-showcase="board"] .mc-bar input[type="range"]', "height", PHONE), "44px");
   assert.equal(value(run, '[data-showcase="layer"] .mc-sheet .mc-bar input[type="range"]', "height"), "44px");
   assert.equal(value(run, '[data-showcase="layer"] .mc-x', "min-block-size"), "44px");

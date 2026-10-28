@@ -458,11 +458,12 @@ test("the first frame is the first moment played: its nodes, code picks then eac
     const t = d.trace(id), r = decide(t, S, d);
     assert.equal(r.lane, lane, id);
     const html = play.resultHTML(d, t, r);
-    if (r.off) assert.match(html, /^<div class="bp-offcard"><b>[^<]+<\/b><span class="sc-lane is-dashed" data-lane="\w+">.*<p>Built and tested\. Not on yet\.<\/p><p class="bp-note">Not on yet: [^<]+\.<\/p><\/div>$/, id);
+    if (r.off) assert.match(html, /^<div class="bp-offcard"><b>[^<]+<\/b><p>Built and tested\. Not on yet\.<\/p><p class="bp-note">Specialists? not on yet: [^<]+\.<\/p><\/div>$/, id);
     else assert.ok(html.includes(`<span class="sc-lane " data-lane="${lane}">${esc((d.labels.lanes as Record<string, string>)[lane])}</span>`), id);
   }
   assert.deepEqual(Object.keys(LANES).filter((id) => decide(d.trace(id), S, d).off), ["t4", "t5"]);
-  assert.match(play.resultHTML(d, d.trace("t5"), decide(d.trace("t5"), S, d)), /Not on yet: Voice lines, Set logger\./);
+  assert.match(play.resultHTML(d, d.trace("t5"), decide(d.trace("t5"), S, d)), /Specialists not on yet: Voice lines, Set logger\./);
+  assert.doesNotMatch(play.resultHTML(d, d.trace("t5"), decide(d.trace("t5"), S, d)), /sc-lane/, "no lane for a moment that does not run");
   const t3 = d.trace("t3"), r3 = decide(t3, S, d);
   assert.ok(r3.off);
   assert.match(play.resultHTML(d, t3, r3), /^<div class="bp-offcard"><b>Low recovery<\/b><span class="sc-lane is-dashed" data-lane="sent">.*<p>Built and tested\. Not on yet\.<\/p><ul>/);
@@ -484,7 +485,7 @@ test("the AI model off: every moment one of its specialists plays is the dashed 
   assert.doesNotMatch(html, /data-lane="sent" data-hot|<span class="bp-kind">Chat · a rule fits/);
   const off = Object.keys(LANES).filter((id) => decide(d.trace(id), S, d).off);
   assert.deepEqual(off, ["t1", "t4", "t5", "t6", "t7", "t8", "t10"]);
-  assert.match(play.resultHTML(d, d.trace("t1"), decide(d.trace("t1"), S, d)), /<p class="bp-note">Not on yet: Reply picker\.<\/p>/);
+  assert.match(play.resultHTML(d, d.trace("t1"), decide(d.trace("t1"), S, d)), /<p class="bp-note">Specialist not on yet: Reply picker\.<\/p>/);
   assert.equal(totals(d, S, true), "In this sample: 0 within your rules · 0 member checks · 1 waited · 3 paused · 0 new rules · 8 not on yet");
   // Under the settings, too: supplements drafted for you need the Draft writer, which waits for the model.
   assert.ok(!decide(d.trace("t9"), S, d).off && decide(d.trace("t9"), { ...S, supplementsTopic: false }, d).off);

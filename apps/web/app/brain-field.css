@@ -486,11 +486,8 @@
   padding: 0 5px;
   font-size: 9px;
 }
-[data-showcase="field"] .mc-n .sc-offchip {
-  font-size: 9.5px;
-}
 /* "Not on yet" on a specialist's lower edge: its name keeps the node's width (L3). */
-[data-showcase="field"] .mc-n:not(.mc-tiny) .sc-offchip {
+[data-showcase="field"] .mc-n .sc-offchip {
   position: absolute;
   inset-block-end: -6px;
   inset-inline-end: 10px;
@@ -500,7 +497,8 @@
   font-size: 9px;
   line-height: 11px;
 }
-[data-showcase="field"] .mc-tiny[data-off] .sc-badge {
+/* the learn row's room: the Examiner's "uses your AI" stays in its title (it ran 39px past the row at 1440) */
+[data-showcase="field"] .mc-tiny .sc-badge {
   display: none;
 }
 /* A lit specialist: Pace on an overlay, so lighting up fades in opacity only. */
@@ -1250,6 +1248,10 @@ html.sc-motion:not(.sc-late) [data-showcase][data-sc="pre"] .mc-stamp {
   [data-showcase="field"] .mc-pause {
     margin-inline-start: auto;
   }
+  /* 44px of hit area inside the root's 8px top padding (it clips) */
+  [data-showcase="field"] .mc-pause::after {
+    inset: -8px -4px -10px;
+  }
   [data-showcase="field"] .mc-body {
     display: block;
     height: auto;
@@ -1301,7 +1303,7 @@ html.sc-motion:not(.sc-late) [data-showcase][data-sc="pre"] .mc-stamp {
     gap: 6px;
   }
   [data-showcase="field"] .mc-r3b {
-    height: 24px;
+    height: 28px; /* the Set logger's name and its result line */
   }
   [data-showcase="field"] .mc-n {
     gap: 1px 4px;

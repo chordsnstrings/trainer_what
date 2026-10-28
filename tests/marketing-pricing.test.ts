@@ -484,5 +484,5 @@ test("what a trainer pays: a domain is the only optional purchase in every answe
   assert.match(terms, /Ending a trainer workspace must address existing clients/);
   const data = faq("Who owns my subscribers’ data, and what if I leave?");
   assert.match(data, /^You keep your rights in what you provide, and subscribers keep theirs: we never own your method or sell client information\./);
-  assert.match(data, /If you leave, you can download your data and close your workspace once your existing subscribers are looked after\.$/);
+  assert.match(data, /If you leave, you can download your data and ask to close your workspace once your existing subscribers are looked after\.$/);
 });

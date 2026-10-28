@@ -95,12 +95,15 @@ export function controlsHTML(d, t, S, u) {
 /** The specialists a moment's steps run that the page's flags leave not on yet. */
 export const waiting = (d, r) => [...new Set(r.steps.filter((s) => s.result != "skipped" && d.sp[s.sp] && d.sp[s.sp].status == "not_on_yet").map((s) => s.sp))];
 /** The result column: the lane, what the member sees, what you see, your rule. A moment that does not run
-    here (decide()'s off: Low recovery while its flag is off, or one whose specialist is not on yet) is the
-    dashed card: built and tested, not on yet. */
+    here (decide()'s off) is the dashed card, built and tested: Low recovery while its flag is off, with the
+    lane its tests give; a moment whose specialist is not on yet names it, and no lane. */
 export function resultHTML(d, t, r, prev) {
-  if (r.off) return `<div class="bp-offcard"><b>${esc(t.chip)}</b>${U.lane(d, t.lane, "is-dashed")}<p>${esc(COPY.off)}</p>` +
-    (t.defaultOff ? `<ul>${t.steps[1].detail.map((x) => `<li>${esc(x)}</li>`).join("")}</ul><p class="bp-note">${esc(d.labels.basis.tests)} · ${esc(d.labels.recoveryCaption)}</p>`
-      : `<p class="bp-note">${esc(d.labels.status.not_on_yet)}: ${esc(waiting(d, r).map((sp) => d.sp[sp].name).join(", "))}.</p>`) + `</div>`;
+  if (r.off) {
+    const names = waiting(d, r).map((sp) => d.sp[sp].name);
+    return `<div class="bp-offcard"><b>${esc(t.chip)}</b>` + (t.defaultOff
+      ? `${U.lane(d, t.lane, "is-dashed")}<p>${esc(COPY.off)}</p><ul>${t.steps[1].detail.map((x) => `<li>${esc(x)}</li>`).join("")}</ul><p class="bp-note">${esc(d.labels.basis.tests)} · ${esc(d.labels.recoveryCaption)}</p>`
+      : `<p>${esc(COPY.off)}</p><p class="bp-note">${names.length > 1 ? "Specialists" : "Specialist"} not on yet: ${esc(names.join(", "))}.</p>`) + `</div>`;
+  }
   const changed = prev && prev != r.lane;
   return `<div class="bp-res-h">${esc(COPY.result)} · ${esc(t.member)}</div><div class="bp-lanewrap">${U.lane(d, r.lane)}${changed ? U.lane(d, prev, "is-ghost") : ""}</div>` +
     (r.why || changed ? `<p class="bp-why">${changed ? `Before: ${esc(d.labels.lanes[prev])}. Now: ${esc(d.labels.lanes[r.lane])}. ` : ""}${r.why ? "Why: " + esc(r.why) : ""}</p>` : "") +

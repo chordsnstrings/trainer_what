@@ -716,8 +716,9 @@ const INSTAGRAM_FAQ: MarketingFaq = {
   a: "Share your coaching link in your bio and Stories. Once your page is live, followers open it, choose your offer and pay in AED. The follower calculator headlines a strong case: a best case, not typical. Cautious and typical results show too.",
 };
 /**
- * Lines shown only while an availability flag is on (marketingPageFor): the
- * frontier wording, and answers that change once subscriber payments are on.
+ * Lines shown only while their gates are on (marketingPageFor): the
+ * frontier wording, and answers that change as the platform's money,
+ * publishing (PUBLISH_GATES) and a subscriber's options come on.
  * The "frontier" flag is on only while the active model profile is frontier
  * tier and its latest switch check succeeded (docs/features/model-profiles.md). Public
  * text says "frontier model", never the model or its vendor, and "keeps
@@ -2126,7 +2127,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         // of a trainer's methods and no right to sell client information;
         // closing a workspace must look after existing clients.
         q: "Who owns my subscribers’ data, and what if I leave?",
-        a: "You keep your rights in what you provide, and subscribers keep theirs: we never own your method or sell client information. If you leave, you can download your data and close your workspace once your existing subscribers are looked after.",
+        a: "You keep your rights in what you provide, and subscribers keep theirs: we never own your method or sell client information. If you leave, you can download your data and ask to close your workspace once your existing subscribers are looked after.",
       },
       PAY_TODAY_FAQ,
     ],
