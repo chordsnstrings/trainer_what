@@ -81,7 +81,37 @@
     - the prepaid-packs wording (computed, not yet approved);
     - the data answer from the terms (legal or the owner should confirm);
     - the "AI Coach Service Fee" is still unmentioned, under the no-AI-costs rule.
-- **E (engines) is still running.** Then the docs and the milestone verification. The milestone agent gets P's notes for E, such as the duplicate `.bp-diagram` scroll margin.
+- **Fix pass, E (engines), is done** (report `scratchpad/final-E.json`, up to `41e3a4c`): 33 of 38 items fixed, 3 partly fixed (L15, A11Y-10, L16 shared), 2 not reproduced (L6, L14).
+  - Pause has no `aria-pressed` anywhere.
+  - Shelf and statuses:
+    - the field shelf follows the flags;
+    - off-chips fit;
+    - receipts show the prepared status;
+    - a new `mealPhotos` availability flag drives the meal-photo specialist and moment.
+  - Not-on-yet moments in the playground show "Built and tested. Not on yet.", and the totals count them. With the model off, the anatomy shows "Not on yet" instead of sending.
+  - Statuses follow publishing (sign-ups, payments and the model), with a new strip line: "Subscribers can't join yet: publishing is not on yet."
+  - Accessibility and layout:
+    - lanes are no longer landmarks;
+    - bins are named;
+    - focus holds while the field animates;
+    - the sheet handles Esc and fits at 400% zoom;
+    - a turned phone handles an open receipt;
+    - Tab reaches the board and the playground.
+  - Engine behaviour:
+    - the watchdog judges per tier, so a 30 fps cap is not read as slowness;
+    - the Arabic sample text keeps its punctuation in place;
+    - the scroll scenes use the new crawler pattern;
+    - the check's steps were fixed.
+  - **Checks:**
+    - full `npm test` 2,093/2,094 with 1 skipped and 0 failing; typecheck passes;
+    - the showcase check passes on build 5;
+    - metrics: field mount long tasks `[51,60]`, anatomy `[50]`, frames p95 16.7–16.8 ms, engine chunks within budget.
+  - **Left:**
+    - the anatomy mount is over 80 ms in 2 of 7 loads at 4× CPU, which is GPU-less here; to measure on real hardware;
+    - phone hit areas: the field's level radios are 28 px wide and the anatomy notes 22 px tall. Both pass WCAG 2.5.8; PLAN §4.4 is to be amended;
+    - while open, the consent bar covers the anatomy's Pause;
+    - one intermittent 8 px overflow at 320 px comes from the header's `nav.mk-mobile-nav`.
+- **Now running:** the docs refresh and the milestone verification, started about 18:05.
 
 **Done today:**
 - **Part 2:** WP4 home, WP5 brain pages, WP7a clean-up, WP7b checks and the CI step, WP8 docs.
