@@ -92,6 +92,32 @@
   - Then, in parallel: A1 (field, board, receipts) and B (anatomy, playground, data, render).
   - Last: A2 (core, head, island, the showcase check, tests).
   - Assignments are in `scratchpad/fix2-args.json`.
+- **Fix round 2, C (pages, copy, honesty), is done** (`6b50ea6`, `e1aa4bc`): all 13 of its findings confirmed; 11 fixed, 4 of them partly.
+  - **PG-1 blocker fixed:** the never-list lines are whole sentences that start with "Never".
+  - **Status gates follow the product's go-live checks:**
+    - publishing needs sign-ups, payments and the model, not payouts;
+    - teaching needs the model;
+    - the voice add-on needs voice and payments.
+  - **"Checked against your test cases" claims corrected:** the first "Waits for me" release goes live without a check.
+  - **/pricing:**
+    - states the price minimums from `MEMBERSHIP_MINIMUMS`;
+    - "How you earn" carries "Not on yet" chips;
+    - `llms-full.txt` and the facts carry the status and offer lines.
+  - **Checks:**
+    - a flag-matrix render scan: 337 renders, 0 problems;
+    - targeted tests 237/237; typecheck passes;
+    - the showcase check passes, with CLS 0.00039.
+  - The FYI copy list is in `scratchpad/fix2-C.json`.
+- **Lead follow-ups done:** `registrationOpen` is passed to `llmsFullTxt` and `marketingAssistantFacts`; the traces' Examiner line now reads "Sending on its own needs a pass".
+- **Docs to update at records time:**
+  - PLAN §1.5's publish row and PLAN line 610;
+  - `marketing-site.md:1535` (walkthrough flags);
+  - `PROJECT_MEMORY.md:54` (publishing is blocked by the payments, model and legal checks, not payouts).
+- **Owner FYI, a decision:** "Teach your AI — free" still shows while the model is off, because PLAN ties it to sign-ups only.
+- **Phase 2 notes, pre-existing `/faq` copy:**
+  - "How does money reach me?" is in the present tense with no flag;
+  - "What does a subscriber get" mentions nutrition and voice with no flag;
+  - `PRICE_FAQ` omits the minimums.
 - **Next:**
   - an adversarial review of the fix diff;
   - the milestone verification on a quiet machine;
