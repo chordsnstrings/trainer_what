@@ -1313,9 +1313,10 @@ function mountField(root, o, p) {
   /** The start sweep's delay for a node: down and along its row, from its frame's (or the shell's) corner. */
   const sweep = (sp) => { const n = G.n[sp], o2 = row(sp) >= 0 || sp == "set_logger" ? G.shell : G.fr; return n ? (n.x - o2.x + n.y - o2.y) * 0.9 : 0; };
   try {
-    // Reads first: every rect, the direction and the tiles' heights in one layout. The writes follow.
-    measure();
+    // Reads first (the scene reads a token, then every rect, the direction and the tiles' heights:
+    // one style and one layout); the writes follow.
     sc = C.scene(root, { onState: (run, why) => { $(".mc-reading").hidden = !why.includes("read"); } });
+    measure();
     root.classList.add("sc-cv");
     ctl = wireControls($(".mc-ctrl"), p, k, root, say);
     pb.disabled = false;

@@ -296,4 +296,9 @@
   [data-showcase="play"] .bp-stamp {
     font-size: 13px;
   }
+  /* A chip focused from the keyboard scrolls fully into view, its ring
+     inside the gutter: snapping would pull it back to the nearest start. */
+  [data-showcase="play"][data-sc="on"] .bp-chips:has(:focus-visible) {
+    scroll-snap-type: none;
+  }
 }
