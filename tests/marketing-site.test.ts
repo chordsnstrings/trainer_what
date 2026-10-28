@@ -491,7 +491,7 @@ test("the product at full size: a complete capability matrix, screens and counts
 // PLAN.md): each joins with its new registry entry. They also follow the C0
 // vocabulary (PLAYBOOK.md C0): plain words instead of the replaced terms,
 // "your AI" in headings and questions, and no prototype placeholder.
-const C0_PAGES: string[] = ["/pricing", "/"];
+const C0_PAGES: string[] = ["/pricing", "/", "/trainer-brain", "/demo"];
 
 // Copy limits for the home page, the pages in the header navigation and the
 // redesigned pages (docs/features/marketing-site.md "Copy limits"). The
@@ -545,8 +545,12 @@ test("copy limits: short headings, ledes, cards, bullets and answers on the head
   assert.match(decode(render(pricing)), /AED 70–350.*AED 400–2,000/);
   assert.doesNotMatch(decode(render(pricing)), /AED 200–700\+/);
   const brain = marketingPage("/trainer-brain")!;
-  assert.deepEqual(brain.sections.find((s) => s.id === "decides")!.cards!.map((c) => c.title), ["Confident", "Not sure", "Safety"]);
-  assert.ok(brain.sections.some((s) => s.id === "control"));
+  // Phase 1: "decides" is the anatomy's key, one bullet per lane; the
+  // control section left with it.
+  const decides = brain.sections.find((s) => s.id === "decides")!;
+  assert.equal(decides.cards, undefined);
+  assert.deepEqual(decides.bullets!.map((b) => b.split(":")[0]), ["Sent on its own", "Waits for you", "Training paused"]);
+  assert.ok(!brain.sections.some((s) => s.id === "control"));
   assert.equal(marketingPage("/features")!.sections.find((s) => s.id === "subscribers")!.cards!.length, 8);
   assert.ok(marketingPage("/faq")!.faqs.some((f) => f.q === "Do I need technical skills?"));
   const full = llmsFullTxt(ctx);
@@ -566,7 +570,7 @@ test("copy limits: short headings, ledes, cards, bullets and answers on the head
 // to an "In short" section before the FAQs instead of repeating the lede.
 test("header pages: the lede once above the fold, the introduction lower as In short", () => {
   const full = llmsFullTxt(ctx);
-  for (const path of ["/how-it-works", "/trainer-brain", "/features", "/pricing", "/about", "/get-started"]) {
+  for (const path of ["/how-it-works", "/trainer-brain", "/features", "/pricing", "/about", "/get-started", "/demo"]) {
     const page = marketingPage(path)!;
     const html = render(page);
     const head = html.match(/<header class="mk-page-head">[\s\S]*?<\/header>/)![0];
@@ -585,12 +589,13 @@ test("header pages: the lede once above the fold, the introduction lower as In s
     if (page.faqs.length) assert.ok(inShort < afterHead.indexOf('id="faq"'), path);
     assert.ok(full.includes(brandText(page.intro, APP)), `${path}: llms-full.txt keeps the introduction`);
   }
-  // A page without a lede keeps its introduction under the H1.
-  const demo = marketingPage("/demo")!;
-  assert.equal(demo.lede, undefined);
-  const demoHead = render(demo).match(/<header class="mk-page-head">[\s\S]*?<\/header>/)![0];
-  assert.ok(decode(demoHead).includes(brandText(demo.intro, APP)));
-  assert.doesNotMatch(render(demo), /id="in-short"/);
+  // A page without a lede keeps its introduction under the H1 (/demo has
+  // a lede since phase 1).
+  const plain = marketingPage("/security-and-privacy")!;
+  assert.equal(plain.lede, undefined);
+  const plainHead = render(plain).match(/<header class="mk-page-head">[\s\S]*?<\/header>/)![0];
+  assert.ok(decode(plainHead).includes(brandText(plain.intro, APP)));
+  assert.doesNotMatch(render(plain), /id="in-short"/);
   // The HowTo description is the introduction, still shown on the page.
   const how = marketingPage("/how-it-works")!;
   const howTo = (marketingJsonLd(how, ctx)["@graph"] as any[]).find((n) => n["@type"] === "HowTo");
@@ -600,12 +605,15 @@ test("header pages: the lede once above the fold, the introduction lower as In s
 // The shortened Trainer Brain and how-it-works copy keeps its meaning.
 test("shortened copy keeps the privacy, review and safety promises", () => {
   const brain = marketingPage("/trainer-brain")!;
-  const teach = brain.sections.find((s) => s.id === "teach")!.bullets!;
-  assert.ok(teach.includes("Your own documents; you review the extracted text before use."));
+  // Phase 1: the teach cards, the shared Never list and the lane key carry
+  // the same promises.
+  const teach = brain.sections.find((s) => s.id === "teach")!.cards!;
+  assert.match(teach.find((c) => c.title === "Your documents")!.body, /you review the extracted text/);
   const never = brain.sections.find((s) => s.id === "never")!.bullets!;
-  assert.ok(never.includes("Keep pain, medical issues or red flags from you."));
-  assert.ok(never.includes("Use your teaching elsewhere: your Brain stays private to your workspace."));
-  assert.ok(brain.sections.find((s) => s.id === "control")!.bullets!.some((b) => /enforced in code/.test(b)));
+  assert.ok(never.includes("Hide pain or red flags from you."));
+  assert.ok(never.includes("Use your teaching for anyone else: it stays private to your workspace."));
+  assert.match(brain.sections.find((s) => s.id === "never")!.note!, /Enforced in code, outside the AI/);
+  assert.ok(brain.sections.find((s) => s.id === "decides")!.bullets!.some((b) => /safety rules in code/.test(b)));
   const steps = marketingPage("/how-it-works")!.sections.find((s) => s.id === "steps")!.steps!;
   assert.match(steps.find((s) => s.title === "Teach your Brain")!.body, /private redaction review/);
   assert.match(llmsFullTxt(ctx), /redaction/);

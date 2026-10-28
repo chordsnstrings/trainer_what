@@ -89,6 +89,8 @@ const SPRING_ALLOWED = [
   '.mk-sets[data-mk-cue="in"] svg',
   ".mk-screen-note svg",
   ".mk-queue-item.done .badge svg",
+  // The Trainer Brain rule card's stamp when a rule is confirmed (phase 1).
+  ".mk-tb-stamp",
 ];
 /** The load-in entrances that may use the enter easing (the concept's plate curve). */
 const ENTER_ALLOWED = ['.mk-band-pills > [data-mk-item="in"]', ".mk .mk-hero .mk-mark::before"];

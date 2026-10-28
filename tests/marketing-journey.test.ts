@@ -250,10 +250,13 @@ test("the walkthrough shows whatever the platform flags say", () => {
 // "passed" (the Scenario lab badge) left the site's own wording when the AI
 // usage lines were removed (owner, 30 September 2026). The demo coach's
 // initials and address ("ls", "layla-strength") are the home's sample app's
-// too since phase 1 (pages/home.tsx).
-const NEW_WORDS = new Set(["evaluate", "passed"]);
-// Controls' accessible names that are not elsewhere either.
-const NEW_NAMES = new Set(["replay"]);
+// too since phase 1 (pages/home.tsx). "I’m" and "rescheduled" are the
+// mock's own lines ("I’m travelling …", "Rescheduled automatically"): only
+// the old /demo scenarios had them, and the playground replaced those.
+const NEW_WORDS = new Set(["evaluate", "passed", "i’m", "rescheduled"]);
+// Controls' accessible names that are not elsewhere either ("Replay" is in
+// the /trainer-brain and /demo copy since phase 1: "AI steps replay …").
+const NEW_NAMES = new Set<string>();
 test("the mocks: no AI costs, fees, model names or amounts; only the listed new words", async () => {
   const html = render("/how-it-works", with_({ nutrition: true, voice: true }));
   const stage = decode(element(html, /<div class="mk-walk-stage"/));
