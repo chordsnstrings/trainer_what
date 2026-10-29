@@ -2,27 +2,21 @@
 
 ## Work in progress
 
-### Status at 23:53 UTC on 28 October 2026 (Claude): marketing revamp phase 1, final commit before merge
+### Status at 00:02 UTC on 29 October 2026 (Claude): marketing revamp phase 1, final commit pushed, CI running
 
 **What it is:** phase 1 of the marketing revamp (`/`, `/trainer-brain`, `/demo`, `/pricing`), as the owner chose on 27 Oct ("Go with your recommendation"; each phase is its own PR, "checked and deployed"). It is in PR #105 from `claude/repository-overview-osejlw`. The checks and how it was built are in the 28 October entry of `docs/COMPLETION_STAGES.md`.
 
 **Finished:**
 - the build, both fix rounds, the final review and fix passes, the docs, and the milestone verification;
-- CI on `e2a8cef` (run 40781841666): all 8 jobs green, including the showcase step.
-- The final adversarial check (`wf_256d4cc2-b79`, 2 agents) is done.
-  - **Browser:** the What-if change held in right to left, dark, forced colours, reduced motion, desktop and landscape, and the accessible names are right. It found three older CSS defects, now fixed:
-    - from 341 to 358 px the What-if row covered the caption;
-    - in forced colours a pressed What-if had a 1.1:1 fill;
-    - at 320–362 px the sample pill ran under Pause.
-  - **Audit:** 25 record corrections, all applied.
+- CI on `e2a8cef` (run 40781841666): all 8 jobs green.
+- The final adversarial check (`wf_256d4cc2-b79`): the What-if change held. Its three older CSS defects are fixed (the 341–358 px What-if row, forced colours, the sample pill), and its 25 record corrections are applied.
+- **The final tree is verified locally** (build `mvsrrl9d`):
+  - unit tests 76/76;
+  - the phone probe at 12 sizes in both states is clear;
+  - forced colours and contrast checked;
+  - the full showcase check passed in 446 s.
 
-**Now:**
-- **The final commit** (one normal push, not `[skip ci]`): it carries the What-if fix, the colour, the three CSS fixes, the word budget 629, the docs and these records.
-- **Its checks so far:**
-  - unit tests 76/76 before the three CSS fixes;
-  - the full showcase check passed in 440 s on the build before the colour rule and those fixes;
-  - the contrast probe after the colour rule: 7.82:1 on the stage, 16:1 pressed.
-- **Running** (`scratchpad/mv/final-chain7.sh`): unit tests, a rebuild, probes across 320–414 px (the 341–358 band included), forced colours and the colour, then the full showcase check.
+**Now:** the final normal commit is pushed, and CI on it is running.
 
 **Next:**
 1. Record the results, push, then get CI green on the final head.

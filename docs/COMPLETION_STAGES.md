@@ -60,13 +60,26 @@ Owner, 27 October 2026: "Go with your recommendation". That means A "Live Brain"
   - **What it changes:**
     - with the model off, a pinned What-if's "Not on yet" takes a second line on phones;
     - that label uses the stage's muted colour. The page's `small` grey measured 3.0:1 on the stage;
+    - three older CSS defects found by the final adversarial check:
+      - row 4 is 204 px below 359 px, not 341 px; from 341 to 358 px the What-ifs covered the caption by 28 px in both states;
+      - in forced colours a pressed What-if takes the system highlight (it kept a 1.1:1 fill);
+      - the sample pill wraps instead of running under Pause at 320–362 px;
     - the word budget is 629;
-    - the docs and these records.
+    - the docs and these records, with the audit's 25 corrections.
   - **Checks so far:**
     - unit tests: 59/59 after the layout fix (`marketing-anatomy-play`, `marketing-showcase`, `marketing-brain-pages`), and 76/76 after the colour rule (adding `root-marks`, `motion-css` and `logical-css`);
     - build, then a probe at 320, 340, 360, 375, 390 and 414 in both states: the closed layout now matches the open one (3 lines at 360 px and wider, 4 at 340 and 320, as with the model on). Nothing reaches the caption: with the model off, the last button ends 4–24 px above it;
     - the full showcase check on that build: passed in 440 s. Its performance figures are reported, not judged (only `SHOWCASE_JUDGE_METRICS=1`, meant for GPU hardware, judges them). This run was slower than runs 1–10 (load average 1.17 at its end, against 0.52–0.95 after runs 8–10), with 6 figures over budget against 0–1 before: `/demo`'s playground p95 33.3 ms (16.7–16.8 ms before) with 5.8 ms of engine work per frame (budget 4); the home field 33.3 ms at tier `lite`; the anatomy scroll 50 ms at tier `lite` with 4.4 ms of work; the anatomy mount [77, 88];
     - after the colour rule (a rebuild): the suffix measures 7.82:1 on the stage and 16:1 on a pressed button, at 390 and 1440.
+    - **The final adversarial check** (`wf_256d4cc2-b79`, 2 agents):
+      - a browser agent tried right to left, dark, forced colours, reduced motion, desktop, tablet and landscape, and the accessible names ("What if it’s a plan change? Not on yet", no dot in the accessibility tree). The change held, and the agent found the three older defects above;
+      - an auditor checked these records and the PR text against the evidence: 25 corrections, all applied.
+    - **On the final tree** (build `mvsrrl9d`):
+      - unit tests 76/76;
+      - a probe at 320, 340, 341, 344, 350, 358 (800 and 700 tall), 359, 362, 375, 390 and 414 in both states: each last button ends 3–24 px above the caption, the pill ends at least 16 px before Pause, and the foot ends 10 px inside the frame;
+      - forced colours: a pressed What-if is Highlight with HighlightText in the light and dark contrast themes;
+      - the contrast probe: unchanged;
+      - the full showcase check passed in 446 s. Its reported-only metrics were again slower than the morning's runs (load average 1.30 at the end), on `/demo` too, where the final diff applies no rule: the field 33.3 ms, the anatomy scroll 50 ms with 5 ms of work, its mount [78, 91], the playground 33.3 ms on `/trainer-brain` and 49.9 ms with 7 ms of work on `/demo`, the `/demo` mount [108, 68].
   - CI on this commit is recorded in `CLAUDE_HANDOFF.md` and, after the merge, here.
 
 **Owner FYIs** (also in the PR body draft, `scratchpad/pr105-body.md`, posted to PR #105 before the merge):

@@ -1817,7 +1817,7 @@ The plan's §2 table lists every row.
     - `/coaches` noindex.
   - **Phase 3:** Arabic strings, measurement events and the A/B route split.
   - **Open checks:**
-    - CI on the final head. (The milestone verification ran on 28 October, `docs/COMPLETION_STAGES.md`; the full showcase check passed on `218ea40` and, before the final commit's colour rule and last layout fixes, in 440 s.)
+    - CI on the final head. (The milestone verification ran on 28 October, `docs/COMPLETION_STAGES.md`; the full showcase check passed on `218ea40` and on the final tree, in 446 s.)
     - judging CLS in CI after three PR runs in a row;
     - judging the frame budgets on real hardware, and the anatomy's mount, which went over budget in 2 of 7 loads at 4× CPU here ([brain-showcase.md](brain-showcase.md), "Open").
     - Done since: the brand check and the showcase check after fix round 1 (WP7b's second round).
