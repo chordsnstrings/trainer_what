@@ -114,6 +114,28 @@ test("the public platform endpoint gives the brand, availability and assumptions
   assert.doesNotMatch(JSON.stringify(platform), /fixture-secret|fixture-app/);
 });
 
+test("meal photos are public only with nutrition and their own two switches on (meal-capture.ts photosEnabled)", async () => {
+  const keys = ["MODEL_API_KEY", "MODEL_BASE_URL", "MODEL_NAME", "NUTRITION_ENABLED", "MEAL_PHOTOS_ENABLED", "MODEL_VISION_ENABLED"];
+  const before = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+  const availability = async () => (await ok(h, "/public/platform")).availability;
+  try {
+    Object.assign(process.env, { MODEL_API_KEY: "fixture-key", MODEL_BASE_URL: "https://model.example.invalid/v1", MODEL_NAME: "fixture-model", NUTRITION_ENABLED: "true" });
+    delete process.env.MEAL_PHOTOS_ENABLED;
+    delete process.env.MODEL_VISION_ENABLED;
+    assert.deepEqual([(await availability()).nutrition, (await availability()).mealPhotos], [true, false]);
+    process.env.MEAL_PHOTOS_ENABLED = "true";
+    assert.equal((await availability()).mealPhotos, false, "a model that reads images is needed too");
+    process.env.MODEL_VISION_ENABLED = "true";
+    assert.equal((await availability()).mealPhotos, true);
+    process.env.NUTRITION_ENABLED = "false";
+    assert.equal((await availability()).mealPhotos, false, "never without nutrition");
+  } finally {
+    for (const [k, v] of Object.entries(before))
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+  }
+});
+
 test("public address examples follow the configured subdomain root", async () => {
   const before = process.env.PLATFORM_ROOT_DOMAIN;
   try {

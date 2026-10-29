@@ -8,17 +8,23 @@
 // always light (28 September 2026): white canvas, the ink lockup, one white
 // theme-color and no dark surface in either device scheme; the workspace
 // keeps the white lockup in dark mode. Marketing pages start at the header
-// logo's edge (one shared container). The home page also gets a first
-// screen pass as a new visitor sees it (the analytics notice in its default
-// state must cover neither the primary action nor the relay; all three relay
-// steps on the first screen at 390x844 and 1440x900; after a scroll the
+// logo's edge (one shared container); a Brain showcase's ink stage is the
+// one dark surface allowed ([data-showcase]). The home page also gets a
+// first screen pass as a new visitor sees it (the analytics notice in its
+// default state; an automated browser, so the hero field is its still
+// frame): at 1440x900 the H1, the primary action and the field's lanes on
+// the first screen; at 390x844 the H1, and Noura's words, the STOP stamp and
+// the Paused lane above y 770 (docs/marketing-revamp-2026-10-26/phase1/
+// PLAN.md §4.3); the notice covers none of them; after a scroll the
 // analytics bar is slim with 48 px controls and covers nothing at the end of
 // the page; after an answer, No thanks or Close, no analytics control floats,
-// after a reload too), and a reduced-motion,
-// animation, right-to-left and word-count pass (the reduced-motion pass
-// follows the marketing motion switch, data-mk-motion on the marketing root,
-// components/marketing/motion-mode.ts: with "always" the relay plays under
-// reduced motion exactly as without it; with "device" nothing animates). It
+// after a reload too), and a reduced-motion, animation, right-to-left and
+// word-count pass (the word budget and H2 cap of §4.3; the field still, the
+// primary action's arrow nudging once; the reduced-motion pass follows the
+// marketing motion switch, data-mk-motion on the marketing root,
+// components/marketing/motion-mode.ts: with "always" the arrow nudges under
+// reduced motion exactly as without it; with "device" nothing animates; the
+// field mirrors right to left). It
 // also checks that a subscriber's member app and a coach website show their
 // trainer's branding, never the platform's, follow the device into dark mode
 // with every text at AA, and set the trainer's browser colour for each
@@ -147,6 +153,12 @@ async function signIn(page, email) {
 function measure(page) {
   return page.evaluate(() => {
     const parse = (c) => {
+      // color-mix() and relative colours compute to color(srgb r g b / a), 0–1.
+      const srgb = c.match(/color\(srgb ([^)]+)\)/);
+      if (srgb) {
+        const [r, g, b, a = 1] = srgb[1].split(/[ /]+/).filter(Boolean).map(Number);
+        return { r: r * 255, g: g * 255, b: b * 255, a };
+      }
       const m = c.match(/rgba?\(([^)]+)\)/);
       if (!m) return null;
       const [r, g, b, a = 1] = m[1].split(/[ ,/]+/).filter(Boolean).map(Number);
@@ -218,7 +230,9 @@ function measure(page) {
     }
     // Focus rings (3px outline in --focus, drawn outside the element) need
     // 3:1 against the surface they sit on: the parent's backdrop. Trainer
-    // themes draw their own white-and-black double ring.
+    // themes draw their own white-and-black double ring; a Brain showcase
+    // draws its own ring (--sc-ai-on on the ink stage, app/brain-stage.css),
+    // whose contrast tests/marketing-showcase.test.ts holds at 3:1.
     const hex = (v) => {
       const m = v.trim().match(/^#([0-9a-f]{6})$/i);
       if (!m) return parse(v.trim());
@@ -229,7 +243,7 @@ function measure(page) {
     for (const el of document.body.querySelectorAll(
       "a[href], button, input:not([type='hidden']), select, textarea, summary, [tabindex]:not([tabindex='-1'])",
     )) {
-      if (el.closest(".trainer-theme, [aria-hidden='true'], [hidden], :disabled")) continue;
+      if (el.closest(".trainer-theme, [data-showcase], [aria-hidden='true'], [hidden], :disabled")) continue;
       if (!el.checkVisibility?.({ opacityProperty: true, visibilityProperty: true }))
         continue;
       const r = el.getBoundingClientRect();
@@ -249,9 +263,11 @@ function measure(page) {
     const root = document.documentElement;
     const icon = document.querySelector("link[rel~='icon']");
     // Always-light public pages: the document, the body and the page root
-    // show white, and no visible surface except a button is dark (relative
-    // luminance below 0.2). Thin rules and meters under 12px are not
-    // surfaces.
+    // show white, and no visible surface except a button or a Brain
+    // showcase's ink stage ([data-showcase], the accepted exception of
+    // docs/marketing-revamp-2026-10-26/showcase/SHOWCASE_DESIGN.md) is dark
+    // (relative luminance below 0.2). Thin rules and meters under 12px are
+    // not surfaces.
     const rgb = (c) => (c ? `rgb(${Math.round(c.r)}, ${Math.round(c.g)}, ${Math.round(c.b)})` : null);
     const pageRoot = document.querySelector(".mk, .public");
     const surfaces = {
@@ -261,7 +277,7 @@ function measure(page) {
     };
     const dark = [];
     for (const el of document.body.querySelectorAll("*")) {
-      if (el.closest(".button, .mk-fake-button")) continue;
+      if (el.closest(".button, .mk-fake-button, [data-showcase]")) continue;
       const c = parse(getComputedStyle(el).backgroundColor);
       if (!c || c.a < 0.5 || lum(c) >= 0.2) continue;
       if (!el.checkVisibility?.({ opacityProperty: true, visibilityProperty: true })) continue;
@@ -359,39 +375,39 @@ async function shot(page, label) {
 
 /**
  * The first screen of the home page as a new visitor sees it (the optional
- * analytics notice in its default state): where the hero, the primary
- * action and the three relay titles end, whether the three steps share one
- * row, whether any visible notice covers them, and the left edge of every
- * region (one shared container).
+ * analytics notice in its default state; the hero field's still frame, as
+ * every automated browser gets it): where the H1, the primary action and the
+ * field's parts end (Noura's words, the STOP stamp, the Paused lane and all
+ * the lanes), whether any visible notice covers them, and the left edge of
+ * every region (one shared container).
  */
 function firstScreen(page) {
   return page.evaluate(() => {
     const box = (el) => (el ? el.getBoundingClientRect() : null);
-    const nodes = [...document.querySelectorAll(".mk-relay-steps > li")].map(box);
-    const titles = [...document.querySelectorAll(".mk-relay-title")].map(box);
+    const field = document.querySelector('.mk-hero [data-showcase="field"]');
+    const parts = field
+      ? {
+          words: box(field.querySelector(".mc-hl")?.closest(".mc-msg")),
+          stamp: box(field.querySelector(".mc-stamp")),
+          paused: box(field.querySelector('.mc-lane[data-lane="paused"]')),
+          lanes: box(field.querySelector(".mc-lanes")),
+        }
+      : null;
     const cta = box(document.querySelector(".mk-hero .mk-cta"));
     const notices = [...document.querySelectorAll(".acquisition-consent")]
       .map(box)
       .filter((r) => r && r.width > 0 && r.height > 0);
     const covers = (r) =>
-      notices.some((n) => n.left < r.right && n.right > r.left && n.top < r.bottom && n.bottom > r.top);
+      !!r && notices.some((n) => n.left < r.right && n.right > r.left && n.top < r.bottom && n.bottom > r.top);
     const left = (selector) => {
       const r = box(document.querySelector(selector));
       return r ? Math.round(r.left) : null;
     };
     return {
-      heroBottom: box(document.querySelector(".mk-hero")).bottom,
       h1: box(document.querySelector("h1")).bottom,
-      cta: cta.bottom,
-      titlesBottom: Math.max(...titles.map((r) => r.bottom)),
-      titleTops: titles.map((r) => Math.round(r.top)),
-      oneRow:
-        nodes.length === 3 &&
-        nodes.every((r) => Math.abs(r.top - nodes[0].top) < 2) &&
-        (document.dir === "rtl"
-          ? nodes[0].left > nodes[1].left && nodes[1].left > nodes[2].left
-          : nodes[0].left < nodes[1].left && nodes[1].left < nodes[2].left),
-      covered: covers(cta) || titles.some(covers),
+      cta: cta ? cta.bottom : null,
+      field: parts && Object.fromEntries(Object.entries(parts).map(([k, r]) => [k, r ? Math.round(r.bottom) : null])),
+      covered: { cta: covers(cta), field: !!parts && Object.values(parts).some(covers) },
       notices: notices.length,
       edges: {
         logo: left(".mk-header .brand-logo"),
@@ -470,9 +486,26 @@ async function consentAnswerChecks(page, label, answer) {
 }
 
 /**
- * The home page: the first screen at 1440x900 and 390x844, the word count,
- * the relay's motion with and without reduced motion, and the relay in
- * right to left.
+ * The home page's word budget and H2 cap (docs/marketing-revamp-2026-10-26/
+ * phase1/PLAN.md §4.3): visible words in `main`, as C1 counts them (the
+ * showcases, the sample screens, the follower calculator, screen-reader text
+ * and closed or hidden content left out). C1's target is 400; the approved
+ * copy measures more, so the measured figure is the budget (the plan's rule;
+ * it is recorded in docs/features/marketing-site.md, and copy is never cut
+ * without the owner): 629 on 28 October 2026 with sign-ups open, as this
+ * check's seeded platform has them. It was 624 (610 with sign-ups closed)
+ * until the Never list gained "Never hide pain or red flags from you." and
+ * other small edits (+5); the closed figure was not measured again. The H2s are the
+ * registry's sections (resort, how, subscribers, control, economics,
+ * followers, proof), the FAQ band and the closing panel.
+ */
+const HOME_WORDS = 629;
+const HOME_H2 = 9;
+
+/**
+ * The home page: the first screen at 1440x900 and 390x844 with the hero
+ * field, the word count and headings, the hero's motion with and without
+ * reduced motion, and the field in right to left.
  */
 async function homeChecks(scheme) {
   const seconds = (v) =>
@@ -480,31 +513,30 @@ async function homeChecks(scheme) {
   /** The marketing motion switch the page was built with ("device" when absent). */
   const motionSwitch = (page) =>
     page.evaluate(() => document.querySelector(".mk")?.getAttribute("data-mk-motion") ?? "device");
+  /** The field's parts that must show in its still frame: Noura's words, the STOP stamp, the Paused lane. */
+  const stillParts = (page) =>
+    page.evaluate(() => {
+      const field = document.querySelector('.mk-hero [data-showcase="field"]');
+      if (!field) return null;
+      return [field.querySelector(".mc-hl")?.closest(".mc-msg"), field.querySelector(".mc-stamp"), field.querySelector('.mc-lane[data-lane="paused"]')]
+        .filter((el) => !el || !el.checkVisibility({ opacityProperty: true, visibilityProperty: true }))
+        .map((el) => (el ? el.getAttribute("class") : "missing"));
+    });
   /**
-   * The relay plays once: every card and its words show from the first
-   * paint, the relay animates, nothing loops, the last animation ends
-   * within 4.5 s and after 5 s it rests on the final picture (the
-   * decorative dot rests hidden). Call it right after the relay appears.
+   * The hero plays once: the field shows its final frame from the first
+   * paint and stays still (automated browsers never run the engine), the
+   * primary action's arrow nudges once and is back in place by 3.5 s,
+   * nothing loops and every animation ends within 4.5 s. Call it right
+   * after the hero appears.
    */
-  const relayPlaysOnce = async (page, label) => {
-    // Every card and its words show from the first paint; only the wires,
-    // the dot, the core tile's pulse and the row ticks move.
-    const hiddenAtStart = await page.evaluate(() =>
-      [...document.querySelectorAll(".mk-relay-node, .mk-relay-title, .mk-relay-detail, .mk-relay-loop")]
-        .filter((el) => Number(getComputedStyle(el).opacity) !== 1)
-        .map((el) => el.getAttribute("class")),
-    );
-    if (hiddenAtStart.length) fail(label, `hidden at first paint: ${hiddenAtStart.slice(0, 4).join("; ")}`);
+  const heroPlaysOnce = async (page, label) => {
+    const hidden = await stillParts(page);
+    if (hidden === null) fail(label, "no field in the hero");
+    else if (hidden.length) fail(label, `hidden in the field's still frame: ${hidden.join("; ")}`);
     const timing = await page.evaluate(() =>
       [...document.querySelectorAll(".mk *")].map((el) => {
         const s = getComputedStyle(el);
-        return {
-          name: s.animationName,
-          delay: s.animationDelay,
-          duration: s.animationDuration,
-          count: s.animationIterationCount,
-          relay: !!el.closest(".mk-relay"),
-        };
+        return { name: s.animationName, delay: s.animationDelay, duration: s.animationDuration, count: s.animationIterationCount };
       }),
     );
     const animated = timing.filter((t) => t.name !== "none");
@@ -517,31 +549,28 @@ async function homeChecks(scheme) {
         return Math.max(...l.map((x, i) => x + (d[i] ?? d[0])));
       }),
     );
-    await page.waitForTimeout(5000);
-    const resting = await page.evaluate(() =>
-      [...document.querySelectorAll(".mk-relay *")]
-        .map((el) => [el, Number(getComputedStyle(el).opacity)])
-        .filter(([el, o]) => (el.classList.contains("mk-relay-dot") ? o !== 0 : o !== 1))
-        .map(([el, o]) => `${el.getAttribute("class")} ${o}`),
-    );
-    // The hand-off (22 October 2026): after the relay the hero's primary
-    // action's arrow nudges once (counted in the 4.5 s above) and is back
-    // in place by 5 s.
+    await page.waitForTimeout(3500);
     const arrow = await page.evaluate(() => {
       const a = document.querySelector(".mk-hero .mk-cta > .lucide-arrow-right");
       return a ? { translate: getComputedStyle(a).translate, running: a.getAnimations().filter((x) => x.playState === "running").length } : null;
     });
-    if (!animated.some((t) => t.name === "mk-nudge")) fail(label, "the hero arrow has no hand-off");
-    if (!arrow || arrow.translate !== "none" || arrow.running) fail(label, `the hero arrow is not at rest after 5 s: ${JSON.stringify(arrow)}`);
-    if (!animated.some((t) => t.relay)) fail(label, "the relay has no animation");
+    const field = await page.evaluate(
+      () =>
+        document
+          .querySelector('.mk-hero [data-showcase="field"]')
+          ?.getAnimations({ subtree: true })
+          .filter((a) => a.playState === "running").length ?? 0,
+    );
+    if (!animated.some((t) => t.name === "mk-nudge")) fail(label, "the hero arrow has no nudge");
+    if (!arrow || arrow.translate !== "none" || arrow.running) fail(label, `the hero arrow is not at rest after 3.5 s: ${JSON.stringify(arrow)}`);
+    if (field) fail(label, `${field} animation(s) running in the field's still frame`);
     if (infinite.length) fail(label, `${infinite.length} infinite animation(s)`);
     if (end > 4.5) fail(label, `animation ends at ${end}s`);
-    if (resting.length) fail(label, `not at rest after 5 s: ${resting.slice(0, 4).join("; ")}`);
     return { animated: animated.length, end };
   };
-  // 1440x900: the whole hero, header included, fits the first screen; the
-  // three relay titles line up; every region starts at the same edge; the
-  // notice covers nothing and, after a scroll, is a slim bar.
+  // 1440x900: the H1, the primary action and the field's lanes on the first
+  // screen; every region starts at the same edge; the notice covers none of
+  // them and, after a scroll, is a slim bar.
   await screen(`${scheme} 1440x900 / first screen`, async () => {
     const ctx = await context({ width: 1440, height: 900 }, scheme);
     const page = await ctx.newPage();
@@ -549,31 +578,31 @@ async function homeChecks(scheme) {
     const f = await firstScreen(page);
     const m = await page.evaluate(() => {
       const main = document.querySelector("main");
-      const calc = document.querySelector(".mk-home-calc");
       const count = (t) => (t ?? "").split(/\s+/).filter(Boolean).length;
-      // The 400-word budget covers `main` outside the follower calculator
-      // (`.mk-home-calc`), which belongs to the calculator package; its
-      // visible words are reported separately so the total is never hidden.
+      // innerText already leaves out closed and hidden content.
+      const skipped = [...main.querySelectorAll("[data-showcase], [data-sample-ui], .mk-home-calc, .sr-only")].filter(
+        (el, _, all) => !all.some((other) => other !== el && other.contains(el)),
+      );
       return {
-        words: count(main.innerText) - count(calc?.innerText),
-        calcWords: count(calc?.innerText),
-        h2: [...main.querySelectorAll("h2")].length,
+        words: count(main.innerText) - skipped.reduce((n, el) => n + count(el.innerText), 0),
+        skippedWords: skipped.reduce((n, el) => n + count(el.innerText), 0),
+        h2: main.querySelectorAll("h2").length,
         h1: document.querySelectorAll("h1").length,
-        relayH: document.querySelectorAll(".mk-relay h1, .mk-relay h2, .mk-relay h3, .mk-home-calc h1").length,
+        nested: main.querySelectorAll(":is([data-showcase], .mk-home-calc) :is(h1, h2)").length,
       };
     });
     const label = `${scheme} 1440x900 /`;
     checked.push({ label, scanned: 0, low: 0, logo: "-" });
-    if (f.heroBottom > 900) fail(label, `hero ends at ${Math.round(f.heroBottom)}px`);
-    if (!f.oneRow) fail(label, "the relay steps are not one row of three");
-    if (Math.max(...f.titleTops) - Math.min(...f.titleTops) > 1)
-      fail(label, `relay titles at ${f.titleTops.join("/")}px, not aligned`);
-    if (f.covered) fail(label, "the analytics notice covers the primary action or a relay step");
+    if (f.h1 > 900 || f.cta === null || f.cta > 900)
+      fail(label, `H1 ends at ${Math.round(f.h1)}px, primary action at ${f.cta === null ? "-" : Math.round(f.cta) + "px"}`);
+    if (!f.field) fail(label, "no field in the hero");
+    else if (f.field.lanes === null || f.field.lanes > 900) fail(label, `the field's lanes end at ${f.field.lanes}px`);
+    if (f.covered.cta || f.covered.field) fail(label, "the analytics notice covers the primary action or the field");
     if (new Set(Object.values(f.edges)).size !== 1)
       fail(label, `regions start at different edges: ${JSON.stringify(f.edges)}`);
-    if (m.words > 400) fail(label, `${m.words} visible words in main outside the calculator (limit 400)`);
-    if (m.h2 > 6) fail(label, `${m.h2} H2 headings`);
-    if (m.h1 !== 1 || m.relayH) fail(label, `${m.h1} H1, ${m.relayH} headings in the relay or calculator`);
+    if (m.words > HOME_WORDS) fail(label, `${m.words} visible words in main (limit ${HOME_WORDS}; showcases, sample screens and the calculator not counted)`);
+    if (m.h2 > HOME_H2) fail(label, `${m.h2} H2 headings (limit ${HOME_H2})`);
+    if (m.h1 !== 1 || m.nested) fail(label, `${m.h1} H1, ${m.nested} heading(s) in a showcase or the calculator`);
     await page.mouse.wheel(0, 600);
     const bar = await page
       .locator(".consent-bar")
@@ -583,12 +612,14 @@ async function homeChecks(scheme) {
     if (!bar || bar.height > 72) fail(label, `the analytics bar after a scroll is ${bar?.height}px tall (limit 72)`);
     await consentAnswerChecks(page, label, "No thanks");
     console.log(
-      `home 1440x900 ${scheme}: hero bottom ${Math.round(f.heroBottom)}px, titles at ${f.titleTops.join("/")}px, edges ${JSON.stringify(f.edges)}, ${f.notices} notice(s) before scrolling, bar ${Math.round(bar?.height ?? 0)}px after, ${m.words} words in main outside the calculator (limit 400), ${m.calcWords} in the calculator, ${m.words + m.calcWords} in total, ${m.h2} H2`,
+      `home 1440x900 ${scheme}: H1 bottom ${Math.round(f.h1)}px, CTA bottom ${Math.round(f.cta ?? 0)}px, field ${JSON.stringify(f.field)}, edges ${JSON.stringify(f.edges)}, ${f.notices} notice(s) before scrolling, bar ${Math.round(bar?.height ?? 0)}px after, ${m.words} words in main (limit ${HOME_WORDS}), ${m.skippedWords} in showcases, sample screens and the calculator, ${m.h2} H2 (limit ${HOME_H2})`,
     );
     await ctx.close();
   });
-  // 390x844: the H1, the primary action and all three relay steps (a
-  // compact row) on the first screen, uncovered by the analytics notice.
+  // 390x844: the H1 and the field's key parts (Noura's words, the STOP stamp,
+  // the Paused lane) above y 770, uncovered by the analytics notice; the
+  // primary action follows the lede below the field (PLAN.md §4.4: H1 →
+  // field → lede → CTA).
   await screen(`${scheme} 390x844 / first screen`, async () => {
     const ctx = await context({ width: 390, height: 844 }, scheme);
     const page = await ctx.newPage();
@@ -596,11 +627,12 @@ async function homeChecks(scheme) {
     const f = await firstScreen(page);
     const label = `${scheme} 390x844 /`;
     checked.push({ label, scanned: 0, low: 0, logo: "-" });
-    if (f.h1 > 844 || f.cta > 844)
-      fail(label, `H1 ends at ${Math.round(f.h1)}px, primary action at ${Math.round(f.cta)}px`);
-    if (f.titlesBottom > 844) fail(label, `the relay titles end at ${Math.round(f.titlesBottom)}px`);
-    if (!f.oneRow) fail(label, "the relay steps are not one compact row");
-    if (f.covered) fail(label, "the analytics notice covers the primary action or a relay step");
+    if (f.h1 > 844) fail(label, `H1 ends at ${Math.round(f.h1)}px`);
+    if (!f.field) fail(label, "no field in the hero");
+    else
+      for (const [what, bottom] of [["Noura's words", f.field.words], ["the STOP stamp", f.field.stamp], ["the Paused lane", f.field.paused]])
+        if (bottom === null || bottom > 770) fail(label, `${what} ${bottom === null ? "missing" : `end at ${bottom}px`} (above 770 expected)`);
+    if (f.covered.field) fail(label, "the analytics notice covers the field");
     if (new Set(Object.values(f.edges)).size !== 1)
       fail(label, `regions start at different edges: ${JSON.stringify(f.edges)}`);
     // After a scroll: the slim bar, 48 px controls, the end of the page
@@ -615,85 +647,93 @@ async function homeChecks(scheme) {
       fail(label, `the analytics bar covers the end of the page by ${phoneBar.endCovered}px`);
     await consentAnswerChecks(page, label, "Close");
     console.log(
-      `home 390x844 ${scheme}: H1 bottom ${Math.round(f.h1)}px, CTA bottom ${Math.round(f.cta)}px, relay titles end ${Math.round(f.titlesBottom)}px, one row ${f.oneRow}, ${f.notices} notice(s) before scrolling, bar ${phoneBar.height}px after`,
+      `home 390x844 ${scheme}: H1 bottom ${Math.round(f.h1)}px, field ${JSON.stringify(f.field)}, ${f.notices} notice(s) before scrolling, bar ${phoneBar.height}px after`,
     );
     await ctx.close();
   });
   // Reduced motion follows the marketing motion switch (data-mk-motion on
-  // the marketing root): with "always" (the owner, 22 October 2026) the
-  // relay plays exactly as without the setting (the same rules as "motion
-  // /" below); with "device" nothing animates and the final picture shows
-  // at once.
+  // the marketing root): with "always" (the owner, 22 October 2026) the hero
+  // plays exactly as without the setting (the same rules as "motion /"
+  // below); with "device" nothing in the hero animates. The field shows its
+  // final frame either way.
   await screen(`${scheme} reduced motion /`, async () => {
     const label = `${scheme} reduced motion /`;
     const ctx = await context(VIEWPORTS[1], scheme, "reduce");
     const page = await ctx.newPage();
     await page.goto(base + "/", { waitUntil: "domcontentloaded" });
-    await page.locator(".mk-relay").waitFor();
+    await page.locator(".mk-hero").waitFor();
     const switchMode = await motionSwitch(page);
     checked.push({ label, scanned: 0, low: 0, logo: "-" });
     if (switchMode === "always") {
-      const r = await relayPlaysOnce(page, label);
+      const r = await heroPlaysOnce(page, label);
       console.log(`home reduced motion ${scheme} (switch "always"): ${r.animated} animated elements, last ends at ${r.end}s`);
     } else {
+      const hidden = await stillParts(page);
+      if (hidden === null || hidden.length) fail(label, `the field's still frame: ${hidden === null ? "no field" : hidden.join("; ")}`);
       const bad = await page.evaluate(() =>
-        [...document.querySelectorAll(".mk-relay *")]
-          .filter((el) => !el.classList.contains("mk-relay-dot"))
+        [...document.querySelectorAll(".mk-hero *")]
           .map((el) => [el, getComputedStyle(el)])
-          .filter(([, s]) => s.animationName !== "none" || Number(s.opacity) !== 1)
-          .map(([el, s]) => `${el.tagName.toLowerCase()}.${el.getAttribute("class")} ${s.animationName} ${s.opacity}`),
+          .filter(([, s]) => s.animationName !== "none")
+          .map(([el, s]) => `${el.tagName.toLowerCase()}.${el.getAttribute("class")} ${s.animationName}`),
       );
-      if (bad.length) fail(label, `${bad.length} animated or hidden: ${bad.slice(0, 4).join("; ")}`);
+      if (bad.length) fail(label, `${bad.length} animated: ${bad.slice(0, 4).join("; ")}`);
     }
     await ctx.close();
   });
-  // Motion allowed: it plays once, ends within 4.5 s, and rests on the final
-  // picture (the decorative dot rests hidden).
+  // Motion allowed: the arrow nudges once, everything ends within 4.5 s and
+  // the field stays on its final frame.
   await screen(`${scheme} motion /`, async () => {
     const ctx = await context(VIEWPORTS[1], scheme);
     const page = await ctx.newPage();
     await page.goto(base + "/", { waitUntil: "domcontentloaded" });
-    await page.locator(".mk-relay").waitFor();
+    await page.locator(".mk-hero").waitFor();
     checked.push({ label: `${scheme} motion /`, scanned: 0, low: 0, logo: "-" });
-    const r = await relayPlaysOnce(page, `${scheme} motion /`);
+    const r = await heroPlaysOnce(page, `${scheme} motion /`);
     console.log(`home motion ${scheme}: ${r.animated} animated elements, last ends at ${r.end}s`);
     await ctx.close();
   });
-  // Right to left (1440): the steps mirror, the wires point to the next
-  // step, and the lockup and the relay mark keep their orientation.
+  // Right to left (1440): the field mirrors (its blocks swap sides) and the
+  // lockup keeps its orientation.
   await screen(`${scheme} rtl 1440 /`, async () => {
+    const label = `${scheme} rtl 1440 /`;
     const ctx = await context(VIEWPORTS[1], scheme, "reduce");
     const page = await ctx.newPage();
-    await visit(page, "/?lang=ar");
-    // With the switch at "always" the relay plays under reduced motion too:
-    // measure its final picture, after it has come to rest (it ends by 4.5 s).
-    if ((await motionSwitch(page)) === "always") await page.waitForTimeout(5500);
-    const m = await page.evaluate(() => {
-      const center = (r) => r.left + r.width / 2;
-      const nodes = [...document.querySelectorAll(".mk-relay-steps > li")];
-      const boxes = nodes.map((n) => n.getBoundingClientRect());
-      const wires = nodes.slice(0, 2).map((n, i) => {
-        const head = n.querySelector(".mk-relay-head").getBoundingClientRect();
-        const wire = n.querySelector(".mk-relay-wire").getBoundingClientRect();
-        return Math.sign(center(head) - center(wire)) === Math.sign(center(boxes[i + 1]) - center(wire));
+    /** The centres of the field's blocks: the message shell and each lane. */
+    const centres = () =>
+      page.evaluate(() => {
+        const field = document.querySelector('.mk-hero [data-showcase="field"]');
+        if (!field) return null;
+        return [field.querySelector(".mc-shell"), ...field.querySelectorAll(".mc-lane")].map((el) => {
+          const r = el?.getBoundingClientRect();
+          return r && r.width ? r.left + r.width / 2 : null;
+        });
       });
+    await visit(page, "/");
+    const ltr = await centres();
+    await visit(page, "/?lang=ar");
+    const rtl = await centres();
+    const m = await page.evaluate(() => {
       const plain = (el) => {
         const s = getComputedStyle(el);
         return s.transform === "none" && (s.scale === "none" || s.scale === "1");
       };
       return {
         dir: document.documentElement.dir,
-        mirrored: center(boxes[0]) > center(boxes[1]) && center(boxes[1]) > center(boxes[2]),
-        wires,
         lockup: [...document.querySelectorAll(".brand-logo, .brand-logo img")].every(plain),
-        mark: [...document.querySelectorAll(".mk-relay-mark, .mk-relay-mark svg")].every(plain),
       };
     });
-    checked.push({ label: `${scheme} rtl 1440 /`, scanned: 0, low: 0, logo: "-" });
-    if (m.dir !== "rtl") fail(`${scheme} rtl 1440 /`, `document direction ${m.dir}`);
-    if (!m.mirrored) fail(`${scheme} rtl 1440 /`, "the relay steps did not mirror");
-    if (!m.wires.every(Boolean)) fail(`${scheme} rtl 1440 /`, `wires point away: ${m.wires}`);
-    if (!m.lockup || !m.mark) fail(`${scheme} rtl 1440 /`, "the lockup or the relay mark is mirrored");
+    // Every pair of blocks more than 20 px apart in left to right swaps sides.
+    const pairs = [];
+    if (ltr && rtl)
+      for (let i = 0; i < ltr.length; i++)
+        for (let j = i + 1; j < ltr.length; j++)
+          if (ltr[i] !== null && ltr[j] !== null && rtl[i] !== null && rtl[j] !== null && Math.abs(ltr[i] - ltr[j]) > 20)
+            pairs.push(Math.sign(ltr[i] - ltr[j]) === -Math.sign(rtl[i] - rtl[j]));
+    checked.push({ label, scanned: 0, low: 0, logo: "-" });
+    if (m.dir !== "rtl") fail(label, `document direction ${m.dir}`);
+    if (!ltr || !rtl) fail(label, "no field in the hero");
+    else if (!pairs.length || !pairs.every(Boolean)) fail(label, `the field did not mirror: ${JSON.stringify({ ltr, rtl })}`);
+    if (!m.lockup) fail(label, "the lockup is mirrored");
     await ctx.close();
   });
   // Arabic at 390: no public page overflows.

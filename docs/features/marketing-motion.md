@@ -8,16 +8,25 @@ coach-to-subscriber journey player. The history of each part (storyboard
 deviations, earlier measurements, the merge) is in
 [marketing-site.md](marketing-site.md).
 
-The house rules come from the home hero relay
-(`apps/web/components/marketing/hero-flow.tsx`) and hold everywhere:
+The house rules first came from the home hero relay (`hero-flow.tsx`,
+removed with phase 1 of the marketing revamp on 28 October 2026). They hold
+everywhere except inside the Brain showcases (`[data-showcase]`, on `/`,
+`/trainer-brain` and `/demo`), which have their own rules: see "The Brain
+showcases: the motion exception" below and
+[brain-showcase.md](brain-showcase.md).
 
 - Every word is real HTML and visible from the first paint. Motion is
-  decorative, short and plays once; nothing is infinite.
+  decorative, short and plays once; nothing is infinite. The showcases'
+  engine loop is the one exception: it runs only while a showcase is
+  visible and playing, and it always has a Pause.
 - Motion for every visitor (the owner, 22 October 2026; see "Motion for every
   visitor" below): while the switch `MARKETING_MOTION` is `"always"`, every
   short marketing motion plays whatever the device's `prefers-reduced-motion`
-  or the member's own "Reduce motion" choice says. The pinned,
-  scroll-scrubbed scenes on `/` still follow both settings. With the switch at
+  or the member's own "Reduce motion" choice says. Two kinds of motion
+  still follow both settings in either mode: the Brain showcases (the owner's
+  showcase exception, 27 October 2026) and the pinned, scroll-scrubbed
+  scenes, which no page mounts since 28 October 2026
+  ([scroll-scenes.md](scroll-scenes.md)). With the switch at
   `"device"` (the earlier rule), reduced motion removes movement (instant or
   opacity only) and stops auto-play. Either way the auto-playing journey keeps
   its Pause and every hold.
@@ -26,9 +35,12 @@ The house rules come from the home hero relay
   marketing text (`packages/contracts/src/marketing-content.ts`,
   `marketing.ts`) is never reworded or removed by motion work.
 - The site stays always light with lime (Pace) accents; lime sits behind ink,
-  never under muted text.
+  never under muted text. The one dark surface is the Brain showcases' ink
+  stage, inside `[data-showcase]` only.
 - CSS transitions and keyframes, IntersectionObserver and the Web Animations
-  API only: no animation library, no new dependency. Only `transform`
+  API only: no animation library, no new dependency. The Brain showcases add
+  canvases drawn on one `requestAnimationFrame` loop, still with no library.
+  Only `transform`
   (`translate`, `scale`, `rotate`), `opacity`, SVG `stroke-dashoffset` and a
   disclosure's `grid-template-rows` animate; colour changes are instant.
   Nothing changes layout (no layout shift).
@@ -56,18 +68,18 @@ counterparts (`docs/features/motion.md`).
 | `--mk-dur-fast` | 140 ms | small fades, menus opening, the press coming back |
 | `--mk-dur-base` | 200 ms | slides, chevrons, link bars, swaps |
 | `--mk-dur-slow` | 280 ms | rises, reveals, crossfades |
-| `--mk-dur-emphasis` | 420 ms | the relay's wires and dot, the journey's dot and ring |
+| `--mk-dur-emphasis` | 420 ms | the journey's dot and ring, the H1 highlight's sweep, the hero arrow's hand-off (the relay's wires and dot until 28 October 2026) |
 | `--mk-ease-out` | `cubic-bezier(0.2, 0, 0, 1)` | things arriving |
 | `--mk-ease-in` | `cubic-bezier(0.4, 0, 1, 1)` | things leaving, the press |
 | `--mk-ease-in-out` | `cubic-bezier(0.4, 0, 0.2, 1)` | travel (the dot), taps |
-| `--mk-ease-spring` | `cubic-bezier(0.34, 1.4, 0.64, 1)` | success states only (ticks, Reserved, Confirmed, Passed, Live, Applied and Rescheduled automatically, Approved, Paid) |
-| `--mk-ease-enter` | `cubic-bezier(0.2, 0.8, 0.2, 1)` | load-in entrances only (the commission pills; a test holds the list) |
+| `--mk-ease-spring` | `cubic-bezier(0.34, 1.4, 0.64, 1)` | success states only (ticks, Reserved, Confirmed, Passed, Live, Applied and Rescheduled automatically, Approved, Paid; the `/trainer-brain` rule card's stamp since 28 October 2026). The showcases' `--sc-spring` points at it |
+| `--mk-ease-enter` | `cubic-bezier(0.2, 0.8, 0.2, 1)` | load-in entrances only: the H1 highlight's sweep (the commission pills until 28 October 2026; a test holds the list). The showcases' `--sc-enter` points at it |
 | `--mk-dist-nudge` | 3 px | the arrow's hover nudge and the hand-off nudges |
-| `--mk-dist-item` | 8 px | a grid item's rise, the "You stay in charge" lanes |
-| `--mk-dist-rise` | 12 px | a section's rise, the message and AI cards |
-| `--mk-dist-load` | 16 px | a load-in slide from the inline start (the pills) |
+| `--mk-dist-item` | 8 px | a grid item's rise (the old home's "You stay in charge" lanes until 28 October 2026) |
+| `--mk-dist-rise` | 12 px | a section's rise (the old home's message and AI cards until 28 October 2026) |
+| `--mk-dist-load` | 16 px | a load-in slide from the inline start. Its only user, the commission pills, went on 28 October 2026; the token stays because the test pins the token set |
 | `--mk-stagger-step` | 40 ms | the step between grid items (at most six steps, 240 ms) |
-| `--mk-stagger-load` | 80 ms | the step between load-ins: the /features screens and set ticks, the pills (at most three steps) |
+| `--mk-stagger-load` | 80 ms | the step between load-ins: the /features screens and set ticks (the pills until 28 October 2026; at most three steps) |
 
 The distances and staggers arrived with the concept pass (22 October 2026,
 below); there are still no new durations. Each item's `--mk-stagger` is a
@@ -82,18 +94,22 @@ Code: `apps/web/app/marketing.css` (the motion block) and one island,
 | Where | Motion |
 | --- | --- |
 | Buttons (header and page) | Press `scale: .97` (80 ms in, 140 ms out) on every device; a 1 px lift and a 3 px arrow nudge only where the pointer hovers. |
-| Hand-offs (concept pass) | The hero's primary action (keyed on `.mk-cta`, so "Join early access" too): once the relay's last tick has popped, its arrow nudges forward once (from 2.55 s, 420 ms, over by 2.97 s). The closing panel's button: its arrow nudges once, 280 ms after the button itself comes into view (done by about 700 ms). Both mirror in right to left. |
+| Hand-offs (concept pass) | The hero's primary action (keyed on `.mk-cta`, so "Join early access" too): its arrow nudges forward once (from 2.55 s, 420 ms, over by 2.97 s). The 2.55 s delay was set to follow the relay's last tick; it stays now that the relay is gone. The closing panel's button: its arrow nudges once, 280 ms after the button itself comes into view (done by about 700 ms). Both mirror in right to left. |
 | Single-line links (header, breadcrumbs, footer, `.mk-link`) | A 1 px ink bar slides in from the inline start on hover (200 ms), at once on keyboard focus. |
 | Header | Its shadow fades in over the first 48 px of scrolling (scroll-driven, no script). Menus open with opacity and a 4 px rise; the phone menu drops in and its items rise 30 ms apart; "Menu" presses. No browser tap flash on the menu or any disclosure (`summary`). |
-| Home hero relay | Wires draw (420 ms), the dot travels, the ticks pop (spring), one Pace ring behind the mark. Ends at 2.53 s. |
-| Section reveal | Units wholly below the first screen at load rise 12 px and fade in once as they enter (280 ms); grid items follow 40 ms apart (at most 240 ms). The FAQs are a grid too: the heading, then each question in turn. Never the hero, breadcrumbs, page heading, relay, anything on the first screen, or the journey player. |
-| Own triggers (concept pass) | The commission pills, the home FAQs, the closing button and the `/features` "Back squat" set table are observed themselves (`data-mk-cue`), not through their band or section, which on a phone reveals (or, too tall to wait, never waits) while they are still below the fold. |
-| Commission pills (home, "Free to start. Your price.") | Each pill slides 16 px in from the inline start and fades in, 80 ms after the one before, on the enter curve: 25% first, 10% last, the last in place about 520 ms after the pills come into view. |
+| Home hero relay | Removed on 28 October 2026, with the relay. Until then: wires drew (420 ms), the dot travelled, the ticks popped (spring), one Pace ring behind the mark; it ended at 2.53 s. The home hero's field is now a Brain showcase (see below). |
+| Section reveal | Units wholly below the first screen at load rise 12 px and fade in once as they enter (280 ms); grid items follow 40 ms apart (at most 240 ms). The FAQs are a grid too: the heading, then each question in turn. Never the hero, breadcrumbs, page heading, anything on the first screen, the journey player, or a Brain showcase and its band (`[data-showcase]`, `.mk-sc-band`, `.sc-host` in `NEVER`). |
+| Own triggers (concept pass) | The home FAQs, the closing button and the `/features` "Back squat" set table are observed themselves (`data-mk-cue`), not through their band or section, which on a phone reveals (or, too tall to wait, never waits) while they are still below the fold. The commission pills were one too, until 28 October 2026. |
+| Commission pills (home) | Removed on 28 October 2026. The home's share bands are now a plain list in the "Free to start. Your price." band, with no motion of their own. |
 | Link cards and tiles | Lift 2 px with a soft shadow on hover; press `scale: .99`. |
-| "You stay in charge" (home) | Once, when revealed: the message, your AI's card, the confidence meter filling, the lanes, "Applied automatically" (spring), the safety lane. About 1.1 s. |
+| "You stay in charge" (home) | The decision-flow card and its choreography were removed on 28 October 2026. The band's flow window is static. |
+| Home walkthrough (since 28 October 2026) | The rail's ink line slides under the chosen step (`translate`, 200 ms, out curve). The panels share one grid cell and swap with no motion, so nothing below moves. |
+| `/trainer-brain` sample controls (since 28 October 2026) | The rule card's "Confirmed" or "Edited" stamp pops (`mk-pop`, spring, 280 ms). The release timeline's "Live" marker slides one version back and forward (280 ms). |
+| `/pricing` calculators (since 28 October 2026) | The share slider's marker slides (140 ms) and the meters scale (280 ms). There is no count-up. |
 | Disclosures (FAQs, calculator assumptions) | The chevron turns (200 ms); a FAQ answer unfolds through its grid row (280 ms) and fades in. |
 | Calculators | No count-up. 150 ms after the last change the result settles (opacity .55 to 1 and 4 px, 200 ms); changed cells settle too. |
-| /demo, /features, /get-started | The chosen decision rises and its label pops or stamps; the screens reveal 80 ms apart with their ticks; the "Back squat" screen's completed sets pop one after another (520 ms, then 600 ms after the set table itself comes into view, at every width), like reps being logged, no count-up; the checklist staggers. |
+| /features, /get-started | The screens reveal 80 ms apart with their ticks; the "Back squat" screen's completed sets pop one after another (520 ms, then 600 ms after the set table itself comes into view, at every width), like reps being logged, no count-up; the checklist staggers. Until 28 October 2026, /demo's chosen decision also rose and its label popped or stamped. |
+| Brain showcases (`/`, `/trainer-brain`, `/demo`) | Their own engine and rules: see "The Brain showcases: the motion exception" below. |
 
 Reduced motion: with the switch at `"always"` everything in this table plays
 for every visitor. With `"device"`, the reveal script does nothing,
@@ -118,10 +134,13 @@ providers were available). Parts not live yet keep their availability chips:
   JSON-LD stay; the stage and the controls sit above the cards. Each card adds
   a visible "Your subscriber" label (the "Who does what" column header) and the
   step's subscriber line.
-- Home: a band straight after the hero with the same stage without words
-  (every word is a bar), the section heading as a small label, the active
-  step's title, "Your subscriber" and the step's subscriber line, the
-  controls and "See how it works".
+- Home, until 28 October 2026: a band straight after the hero with the same
+  stage without words (every word is a bar), the section heading as a small
+  label, the active step's title, "Your subscriber" and the step's
+  subscriber line, the controls and "See how it works". Phase 1 removed the
+  band (`JourneyBand`). The player's compact variant and the `.mk-walk-band`
+  and `.mk-walk-compact` rules stay for phase 2 to reuse or delete. The home
+  now shows the same eight steps as a stepper (marketing-site.md, "Phase 1").
 
 ### Chapters and their sources
 
@@ -216,6 +235,40 @@ stylesheet: stripping the journey rules from the marketing chunk did not
 change first paint on pages without the player (see marketing-site.md,
 "Second review").
 
+## The Brain showcases: the motion exception (28 October 2026)
+
+The owner's choice of 27 October 2026 ("Go with your recommendation") accepted SHOWCASE_DESIGN.md §8, decisions 1 and 2:
+- the motion exception and the ink stage, limited to `[data-showcase]` sections: continuous motion, canvas, capped sample counts and pinned scenes;
+- showcases follow reduced motion even while the switch is `"always"`.
+
+The showcases are the field and the board on `/`, the decision anatomy on `/trainer-brain`, and the playground on `/trainer-brain` and `/demo`. How they are built and checked is in [brain-showcase.md](brain-showcase.md). The motion rules are:
+
+- **A continuous loop, only while it can be seen.**
+  - One `requestAnimationFrame` loop serves every showcase on the page. The field and the playground draw on canvases.
+  - A showcase draws no frame while any pause reason holds: off screen, a hidden tab, idle (90 s without input, or 60 s on phones), the visitor's Pause, an open receipt, keyboard focus on a moment in the field, a Kamran call (`html[data-mk-call]`), or reduced motion. Idle counts from the later of the last input and the showcase's return to view (another tab and the back/forward cache are not idle time), and input ends it.
+  - Loops slower than about 24 fps (the 12 fps breathing, the reduced-motion field) sleep on a timer between frames instead of waking every frame.
+  - `data-sc-run` is on a showcase root exactly while a frame is scheduled for it, so the browser check can count frames.
+- **Pause.** Every showcase has a Pause control (`[data-sc-pause]`), because its motion runs longer than 5 s (WCAG 2.2.2). Since fix round 2 it carries no `aria-pressed`: its label says what a press does ("Pause", "Play", "Play the field"). The anatomy keeps the visitor's Pause through a turn of the phone or a resize.
+- **Reduced motion, in both switch modes.**
+  - Showcases follow the device's setting and the member's own `data-reduce-motion="on"`.
+  - Their CSS carries no `MOTION_ALWAYS_EXCLUDED`, and neither `brain/head.ts` nor `brain/mount.tsx` reads `MARKETING_MOTION`.
+  - Under either setting, the first frame is final, the anatomy shows flat plates, the field waits paused on its still frame, and the playground resolves each run at once. Script replays (Web Animations, which the CSS switch does not reach) are skipped too.
+- **Nothing infinite in CSS or SVG.**
+  - Inside a showcase only `opacity`, transforms and `stroke-dashoffset` animate, and no animation is `infinite`.
+  - Their easing tokens point at the marketing ones: `--sc-ease`, `--sc-enter` and `--sc-spring` are `--mk-ease-in-out`, `--mk-ease-enter` and `--mk-ease-spring`.
+  - `tests/marketing-showcase.test.ts` holds this.
+- **Robots and automated browsers get the still frame.** They are never sent the engine, unless the URL carries `?sc=on`. A robot is `navigator.webdriver` or a user agent with "bot" as a product token (`/bot[/)-]|bot [0-9]|crawl|spider|slurp|preview|lighthouse/i`), so a phone whose model name contains "bot" still gets the motion. So this page's browser checks (`npm run test:marketing-motion`) see the still frames, and the showcases have their own check (`npm run test:marketing-showcase`).
+- **No reveal on top.** The section reveal leaves a showcase alone: `[data-showcase], .mk-sc-band, .sc-host` are in `NEVER` (`motion.tsx`). The engine measures its own boxes, so a rise on top would move them.
+- **The pin.** The anatomy pins under the header with its own CSS sticky frame, not the scroll-scenes engine. That happens only under `html.sc-pin` (set before the first paint, with the scroll scenes' gating) on screens at least 700 px tall.
+- **The ink stage.** A dark stage (`--sc-stage` `#171917`) inside `[data-showcase]` only. Text is 4.5:1 or more, and controls and lanes are 3:1 or more; the test computes both.
+- **Budgets.** The frame budgets:
+  - p95 frame gap of 20 ms or less, at 4× CPU and `?tier=full`;
+  - p95 engine work of 4 ms or less per frame;
+  - long tasks from mounting: at most 2, each 80 ms or less;
+  - the engine's own blocking time of 100 ms or less, and the page's within the build before phase 1 + 100 ms when that build is measured in the same session.
+
+  `npm run test:marketing-showcase` reports these, and judges them only with `SHOWCASE_JUDGE_METRICS=1` on real hardware. The pinned anatomy's scroll measured a p95 of 33.3–50 ms at 4× throttling in this GPU-less sandbox through fix round 2, and 16.8 ms in the final fix pass's runs (runs vary); it waits for a real-hardware check. The playgrounds' slow frames that WP7b measured (66.7 and 33.3 ms) were a whole-document restyle by root `:has()` rules, not paint; fix round 2 removed those rules. CLS of 0.001 or less is reported in CI until three PR runs in a row pass it. Figures: [brain-showcase.md](brain-showcase.md), "Budgets".
+
 ## Motion for every visitor (22 October 2026)
 
 The owner: "for the current marketing site, switch on motion always", then,
@@ -259,7 +312,11 @@ footer) and `assistant-button.tsx` on Kamran's assistant host
   both settings in either mode (Variant B); a test keeps the two scripts'
   reduced-motion tests equal. A visitor with reduced motion gets the page
   without scenes, where the journey auto-plays and `#control` plays its
-  one-off choreography. The journey is not un-pinned on phones. The headers
+  one-off choreography. The journey is not un-pinned on phones. Since
+  28 October 2026 no page mounts the scenes: phase 1 took the journey band
+  and `#control` off `/` ([scroll-scenes.md](scroll-scenes.md)). The Brain
+  showcases are not switched either: they follow both settings in either
+  mode (see "The Brain showcases: the motion exception" above). The headers
   and footers outside `.mk` (sign-in, sign-up, the coach directory), the
   member app, the trainer workspace, coach websites, onboarding and the site
   builder are unchanged.
@@ -285,7 +342,11 @@ footer) and `assistant-button.tsx` on Kamran's assistant host
   started by scrolling ends within about 1.1 s of its trigger (the longest
   is "You stay in charge"; the concept pass's own effects end by 880 ms,
   the set ticks), the journey holds on request, and colour changes stay
-  instant.
+  instant. Since 28 October 2026 the relay and "You stay in charge"'s
+  choreography are gone, and the hero arrow's hand-off still ends by
+  2.97 s. The Brain showcases are outside this note. They run continuously
+  while visible, so each has a Pause (WCAG 2.2.2), and they follow both
+  reduced-motion settings in either mode.
 - **Switching back.** Set `MARKETING_MOTION` to `"device"` in
   `motion-mode.ts`, then build. No other change is needed; the browser checks
   read the attribute and apply that mode's expectations.
@@ -319,7 +380,8 @@ runs).
   calc(-1 * var(--mk-dist-load) * var(--inline-sign, 1)) 0`. The concept
   loads its plates from the inline end; entering from the inline start is
   deliberate: it reads with the falling rates, and it can never add a
-  horizontal scrollbar in either direction.
+  horizontal scrollbar in either direction. Since 28 October 2026 the pills
+  are gone, and with them their cue and their place in `GRIDS`.
 - **The FAQ rows.** `.mk-faqs` joins `GRIDS` and the stagger lists: the home
   heading and six questions land 40 ms apart, the last at 240 ms.
 - **The arrows.** `@keyframes mk-nudge` (one step of `--mk-dist-nudge`
@@ -353,7 +415,23 @@ with or without reduced motion. The fix is
 hero (React places it in `<head>`): the first paint waits until the relay's
 caption, the first element after the copy, is parsed. Nothing is hidden or
 moved; browsers without `rel=expect` ignore it. The LCP element is
-unchanged (the lede at 390x844, the H1 at 1366x900).
+unchanged (the lede at 390x844, the H1 at 1366x900). Since 28 October 2026
+the home hero is phase 1's, and its one `rel=expect` points at
+`#mk-hero-end`: an empty element that is the hero's last child, so the
+first paint waits for the whole hero, the field's first frame included.
+`tests/marketing-home.test.ts` and `tests/marketing-motion-sitewide.test.ts`
+hold this. The LCP element is the H1 at 390x844 and 1440x900.
+`/trainer-brain` has the same race: its page head is centred beside the
+rule ledger, so a first paint during the ledger's parse moved the head
+down 114 px (CLS 0.048 in about 1 cold load in 9 at 1366x900 with 4x CPU).
+Its hero ends in `#mk-tb-hero-end` with one `rel=expect` to it (28 October
+2026): 0 shifts in 40 loads, median LCP 576 ms at 1366. `/pricing` has the
+same race too: its stairs card is centred beside the page head
+(`.mk-pr-hero-grid`, `align-items: center`), so a first paint during the
+card's parse moved the card up 18–118 px (CLS 0.0027–0.0172 in 1 cold load
+in 20, and 1 in 5, at 1366x900 with 4x CPU; milestone run, 28 October
+2026). Its hero ends in `#mk-pr-hero-end` with one `rel=expect` to it. No
+other marketing page blocks its first paint; the same two tests hold that.
 
 **The Pace sweep behind "trains": built, measured, then shipped on the owner's instruction (23 October 2026).**
 The owner approved the sweep only if LCP was proven unchanged. The plan
@@ -410,10 +488,31 @@ scrolling, no more long tasks while scrolling than base, blocking time on load
 no gross regression (base + max(100 ms, 25%)), and the reveal's own work under
 50 ms.
 
+**Since 28 October 2026 (phase 1 of the marketing revamp).**
+- **Absolute budgets for the four redesigned pages.** In the sitewide check, `/`, `/trainer-brain`, `/demo` and `/pricing` no longer compare with `c856d9d` (`REDESIGNED`, `BUDGETS`). The budgets were set from measurement:
+  - LCP of 2.5 s or less, on the H1 or the lede;
+  - CLS of 0.001 or less;
+  - at most 2 long tasks while scrolling;
+  - blocking time on load of 600 ms or less.
+- **Pages and rules.**
+  - `/trainer-brain` and `/demo` joined the check's default pages.
+  - Showcases are left out of its hidden-text rule.
+  - The relay and commission-pill checks went with that code.
+  - The `/?scenes=on` frame-loop pass reports "no scene on /" and is skipped, because the scenes are parked.
+- **The journey check** runs on `/how-it-works` only.
+- **`tests/marketing-motion-sitewide.test.ts`:**
+  - the motion corpus also reads the four page sheets, and a sheet needs reduced-motion rules only if it declares an animation or a transition;
+  - `NEVER` holds the showcases, and `SPRING_ALLOWED` gains `.mk-tb-stamp`;
+  - the first-paint test reads the hero from `pages/home.tsx`;
+  - the relay, pills and `/demo` entries went with their code.
+- **The showcases' own frame and layout budgets** are in [brain-showcase.md](brain-showcase.md), with their check, `npm run test:marketing-showcase`.
+
 - `tests/marketing-journey.test.ts`: captions are the registry's steps in the
   same list; the HowTo JSON-LD is unchanged; every subscriber line resolves and
   follows its visible label; the launch gate; the home band (no heading, no
-  words in its stage, its subscriber line); no AI cost, fee, model name,
+  words in its stage, its subscriber line; since 28 October 2026, that the
+  journey is absent from `/` and unchanged on `/how-it-works`, and that the
+  home walkthrough's tabs equal the step titles); no AI cost, fee, model name,
   amount or count in the mocks; the new-word list; the address from the
   platform; the tokens; motion hygiene of the stylesheet; the island imports
   only React and no dependency was added.

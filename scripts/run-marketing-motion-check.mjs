@@ -8,10 +8,13 @@
 // off, the journey's launch gate closed) and the check switches it to
 // "ready" (registration open; model, payments and payouts available) through
 // globalThis.__motionPlatform. The web server keeps a successful answer for
-// a minute, so the closed checks run first.
+// a minute, so the closed checks run first. A third mode, "assistant", is
+// "ready" with the home page voice assistant on (assistant: true, so Kamran's
+// button shows on /); only scripts/marketing-showcase-check.mjs uses it.
 //
 // MOTION_WEB_PORT / MOTION_API_PORT choose the ports (defaults 3967/4967);
-// MOTION_CHECK_MODULE runs another module against the same servers.
+// MOTION_CHECK_MODULE runs another module against the same servers
+// (`npm run test:marketing-showcase` runs the Brain showcase check).
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { createWriteStream } from "node:fs";
@@ -63,7 +66,7 @@ globalThis.__motionPlatform = {
 const stub = createServer((req, res) => {
   const path = (req.url ?? "").split("?")[0];
   if (path === "/health") return res.writeHead(200).end("ok");
-  if (path === "/api/v1/public/platform" && state.mode === "ready") {
+  if (path === "/api/v1/public/platform" && state.mode !== "closed") {
     res.writeHead(200, { "content-type": "application/json" });
     return res.end(
       JSON.stringify({
@@ -75,6 +78,7 @@ const stub = createServer((req, res) => {
         coachAddressTemplate: appUrl + "/coach/{slug}",
         availability: availability(true),
         followerModel: DEFAULT_FOLLOWER_MODEL,
+        assistant: state.mode === "assistant",
       }),
     );
   }

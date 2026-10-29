@@ -42,6 +42,7 @@ import {
   useLegalStatus,
 } from "./legal-acceptance";
 import { useSubscriberThemeColor } from "./appearance";
+import { RootMark } from "./root-marks";
 import type { ColorSchemeChoice } from "../color-scheme";
 import { Rich, useErrorText, useT } from "../lib/i18n/react";
 
@@ -178,6 +179,7 @@ export function Public({
       theme={store?.trainer?.theme}
       colorScheme={coach ? colorScheme : undefined}
     >
+      {!coach && <RootMark attribute="data-shell" token="public" />}
       {!fromApp && (
       <PublicHeader
         path={path}

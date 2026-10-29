@@ -81,6 +81,9 @@ services:
       NODE_ENV: production
       PUBLIC_APP_URL: ${PUBLIC_APP_URL:?Set the same public HTTPS URL as the API}
       PLATFORM_ROOT_DOMAIN: ${PLATFORM_ROOT_DOMAIN:-}
+      # "static" shows every marketing Brain showcase as its still frame; empty is live.
+      # Set it in runtime.env and re-apply (docs/features/brain-showcase.md).
+      MARKETING_SHOWCASE: ${MARKETING_SHOWCASE:-}
       INTERNAL_PROXY_SECRET: ${INTERNAL_PROXY_SECRET:?Set the same proxy signing secret as the API}
       API_INTERNAL_URL: http://api:4000
     ports: ["127.0.0.1:3000:3000"]

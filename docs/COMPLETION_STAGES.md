@@ -2,6 +2,111 @@
 
 Application implementation and the job audit are complete for the current phase. [PR #1](https://github.com/chordsnstrings/trainer_what/pull/1) contains the work; [combined verification](VERIFICATION_2026-09-27.md) records the passing final code revision. The owner authorized merge to main. Real services and deployment remain the next phase; screenshots were waived. Historical entries below record the evidence available at each stage and may contain superseded pending-check statements.
 
+## Stage 2026-10-28 — marketing revamp phase 1: Live Brain home, /trainer-brain anatomy, /demo playground and /pricing (PR #105; CI green on `e2a8cef`; final commit, merge and deploy next)
+
+Owner, 27 October 2026: "Go with your recommendation". That means A "Live Brain", plus C's "Anatomy of one decision", Never list and source badges, plus B's pricing page and calculators. The defaults were accepted, and each phase ships as its own PR, "checked and deployed". Spec: `docs/marketing-revamp-2026-10-26/phase1/PLAN.md`. What shipped: `docs/features/marketing-site.md` ("Phase 1") and `docs/features/brain-showcase.md`.
+
+**What changed** (branch `claude/repository-overview-osejlw`):
+- **The four pages:**
+  - `/`: a "sample hour of your Brain" field as the hero, the re-sorting board, the setup-to-payday walkthrough, "You stay in charge" with the Never list, the status panel, the follower calculator, proof and FAQ;
+  - `/trainer-brain`: a rule-ledger hero, the roster ("14 AI specialists and 11 code steps", "How we count"), the pinned anatomy of one decision (pinned on screens 700 px tall or more, phones included; flat plates otherwise), the playground, teach and learn;
+  - `/demo`: "Throw a moment at your Brain", with a silent attract run and the 12 sample moments;
+  - `/pricing`: B's share stairs and slider, a worked example from the real price minimums and prepaid packs, hours anchors with sources, and the status panel.
+- **The showcase engine** (`apps/web/components/marketing/brain/`):
+  - the server renders each still frame, and a client island loads the engine after load, idle time and nearness;
+  - one frame loop, which pauses off screen, in a hidden tab, when idle, on Pause and during a Kamran call;
+  - a watchdog steps quality down and back up;
+  - a lazy overlay layer.
+- **Honesty:** the traces are tested against the real domain functions. Every status follows the platform flags (payments, payouts, publishing = sign-ups + payments + model, model, voice, nutrition, the new `mealPhotos`, frontier, registration). Off features say "Not on yet", and free text never passes as a sample.
+- **Performance:** the `:root:has()` rules in the global CSS restyled the whole document on every DOM insertion. They are replaced by marks on `<html>` (`components/root-marks.tsx`, with a `<noscript>` fallback). The consent bar no longer sets a root custom property on marketing pages.
+- **Off switch:** `MARKETING_SHOWCASE=static`, which `compose.yaml` now passes to `web` (set it in `runtime.env` and re-apply).
+- **CI:** a new `homepage-call` step, "Brain showcases on /, /trainer-brain, /demo and /pricing" (`npm run test:marketing-showcase`, about 6.5 min); the job limit is now 50 minutes.
+- **Removed:** the old home's relay and journey band, the `/demo` tabs and the old `/pricing` parts.
+
+**How it was built:**
+- Part 1 and part 2 workflows: WP0–WP8.
+- Fix round 1, then a 62-finding review, then fix round 2 (C copy, D root marks, A1 field, B anatomy and playground, A2 core and checks).
+- A four-lens final review (36 findings, each reproduced), then the final fix passes E (engines) and P (pages).
+- A docs refresh, then the milestone verification.
+- The agents' reports are in the session scratchpad: `report-wp*.md`, `fix2-*.json` and `final-*.json`.
+
+**Checks actually run:**
+- **Milestone verification (PLAN §4.6), 28 October, on a quiet machine:**
+  - `npm run check` at `41e3a4c`: exit 0 in 1,361 s. That covers tsc; 2,094 tests (2,093 pass, 1 skipped: it needs real PostgreSQL connections); and `next build`.
+  - `brain-traces --check`: current.
+  - Showcase check: passed on `da806d9` twice (421 s and 414 s) and on `218ea40` (402 s).
+  - `test:browser`: passed on a fresh database 3 times (413–414 s). One intermittent failure, in 1 of 4 fresh-database runs: "member app 390x844: the bar must sit on the bottom edge or the member app's bottom bar". That is outside phase 1, and WP5 saw this step fail intermittently before.
+  - Call check: passed (115 s and 114 s).
+  - `test:marketing-motion`:
+    - final runs passed on the four pages (1,138 s, layout shift 0 in every load) and on `/` at `218ea40`;
+    - the journey player was 209/209 in the full run;
+    - the full 7-page sitewide pass was not re-run on the final head.
+  - Deployment unit tests: 160 OK; 3 Caddyfile tests skipped, because Caddy is not installed locally.
+  - Static-mode rehearsal: 16 loads, every showcase its still frame, 0 engine chunks requested. The script still exited 1 on its stricter assertion, 6 times: with `?sc=on` the head script adds `html.sc-motion` and `html.sc-pin` in static mode, which change nothing visible.
+  - `test:brand` (local only, not in CI): 38 failures.
+    - 36 are identical to the pre-phase-1 baseline `4f35e5c`.
+    - 2 are the home word count, 629 against 624. Under PLAN §4.3's rule, the measured count is the budget: `HOME_WORDS` is now 629.
+  - 148 screenshots reviewed on the closed platform. One defect: with the model off, the anatomy's What-if buttons needed a fourth line on phones and "Omar's reply" covered the caption. It is fixed in the final commit.
+- **CI on PR #105:**
+  - **`5cd8e2d`** (run 40768666839): the showcase step failed 4 lines:
+    - `/` overflowed 2 px at 320, left to right and right to left (2 lines);
+    - `/demo` overflowed 8 px at 320 right to left, from the playground canvas's default 300 px width;
+    - in the open pass, `/demo`'s largest paint at 390 was the banner.
+    - Fixes for the `/demo` lines: `386cabd` (canvas and SVG start at `width="0" height="0"`) and `da806d9` (the banner in two blocks). The lead's checks on a worktree build: transient overflow at 320 px 0 px in 8 sampled runs, at 1× and 4× CPU; the full showcase check passed (7 min 7 s); 85 + 69 targeted tests and typecheck passed.
+  - **`a9b9f4d`:** only `/`'s 2 px remained, and it never reproduced locally. `123a761` made step 4 name what sticks out: `span.mk-hm-l1` at [16, 321.8], the H1 in the fallback font. Fix: `8e3dd8a` (pushed for CI with `e2a8cef`, which changes only the handoff): on phones the H1 is `min(calc((100vw - 20px) / 10), 40px)`. The lead's checks: horizontal overflow 0 at 320, 360, 375, 390, 430 and 760 px, left to right and right to left; screenshots at 390 and 320; tests 52/52.
+  - **`123a761`:** the application job died in `tests/trainer-preview.test.ts` with a Node 24.19 V8 fatal error ("Check failed: jit_page_->allocations_.erase(addr) == 1", in PGlite's WebAssembly). It is a runtime crash, not this PR's code: the file passed 6/6 locally and in the runs before and after.
+  - **`e2a8cef`** (run 40781841666): all 8 jobs green. That covers application, postgres-and-container, homepage-call (the showcase step in 6 min 26 s), subscriber-ui, ux-spacing, daily-workflows, compose-topology and wildcard-edge.
+- **The final commit:**
+  - **What it changes:**
+    - with the model off, a pinned What-if's "Not on yet" takes a second line on phones;
+    - that label uses the stage's muted colour. The page's `small` grey measured 3.0:1 on the stage;
+    - three older CSS defects found by the final adversarial check:
+      - row 4 is 204 px below 359 px, not 341 px; from 341 to 358 px the What-ifs covered the caption by 28 px in both states;
+      - in forced colours a pressed What-if takes the system highlight (it kept a 1.1:1 fill);
+      - the sample pill wraps instead of running under Pause at 320–362 px;
+    - the word budget is 629;
+    - the docs and these records, with the audit's 25 corrections.
+  - **Checks so far:**
+    - unit tests: 59/59 after the layout fix (`marketing-anatomy-play`, `marketing-showcase`, `marketing-brain-pages`), and 76/76 after the colour rule (adding `root-marks`, `motion-css` and `logical-css`);
+    - build, then a probe at 320, 340, 360, 375, 390 and 414 in both states: the closed layout now matches the open one (3 lines at 360 px and wider, 4 at 340 and 320, as with the model on). Nothing reaches the caption: with the model off, the last button ends 4–24 px above it;
+    - the full showcase check on that build: passed in 440 s. Its performance figures are reported, not judged (only `SHOWCASE_JUDGE_METRICS=1`, meant for GPU hardware, judges them). This run was slower than runs 1–10 (load average 1.17 at its end, against 0.52–0.95 after runs 8–10), with 6 figures over budget against 0–1 before: `/demo`'s playground p95 33.3 ms (16.7–16.8 ms before) with 5.8 ms of engine work per frame (budget 4); the home field 33.3 ms at tier `lite`; the anatomy scroll 50 ms at tier `lite` with 4.4 ms of work; the anatomy mount [77, 88];
+    - after the colour rule (a rebuild): the suffix measures 7.82:1 on the stage and 16:1 on a pressed button, at 390 and 1440.
+    - **The final adversarial check** (`wf_256d4cc2-b79`, 2 agents):
+      - a browser agent tried right to left, dark, forced colours, reduced motion, desktop, tablet and landscape, and the accessible names ("What if it’s a plan change? Not on yet", no dot in the accessibility tree). The change held, and the agent found the three older defects above;
+      - an auditor checked these records and the PR text against the evidence: 25 corrections, all applied.
+    - **On the final tree** (build `mvsrrl9d`):
+      - unit tests 76/76;
+      - a probe at 320, 340, 341, 344, 350, 358 (800 and 700 tall), 359, 362, 375, 390 and 414 in both states: each last button ends 3–24 px above the caption, the pill ends at least 16 px before Pause, and the foot ends 10 px inside the frame;
+      - forced colours: a pressed What-if is Highlight with HighlightText in the light and dark contrast themes;
+      - the contrast probe: unchanged;
+      - the full showcase check passed in 446 s. Its reported-only metrics were again slower than the morning's runs (load average 1.30 at the end), on `/demo` too, where the final diff applies no rule: the field 33.3 ms, the anatomy scroll 50 ms with 5 ms of work, its mount [78, 91], the playground 33.3 ms on `/trainer-brain` and 49.9 ms with 7 ms of work on `/demo`, the `/demo` mount [108, 68].
+  - CI on this commit is recorded in `CLAUDE_HANDOFF.md` and, after the merge, here.
+
+**Owner FYIs** (also in the PR body draft, `scratchpad/pr105-body.md`, posted to PR #105 before the merge):
+- **Copy changed for accuracy:**
+  - "Can subscribers pay me today?" says Yes only once publishing is possible;
+  - the Never list is whole sentences;
+  - test-case claims: sending on its own needs a passing check of 20+ cases;
+  - statuses follow the go-live checks;
+  - the `/pricing` minimums and prepaid packs;
+  - playground free text: "No sample is close to that…".
+- **Decisions open to the owner:**
+  - "Teach your AI — free" still shows while the model is off;
+  - the prepaid-packs wording;
+  - the data answer, from the 14 October terms;
+  - the AI Coach Service Fee stays unmentioned;
+  - phone targets of 28 px and 22 px, which pass WCAG 2.5.8;
+  - full lanes show "+N";
+  - the board is taller so it never shifts.
+
+**Remaining (known and accepted):**
+- The desktop pinned anatomy scroll and the anatomy mount (over 80 ms in about 2 of 7 loads at 4× CPU here) are to be judged on GPU hardware.
+- CLS is reported, not judged, in CI until three PR runs pass.
+- The catch-all route ships about 835 KB gzipped of JS to marketing pages: a marketing route group, in phase 2 or 3.
+- Phase 2 covers the other pages' copy. Phase 3 covers Arabic, tracking and A/B.
+
+**Next action:** push the final commit, then get CI green on it. Then update the PR body, mark the PR ready and squash-merge. Then watch `main`'s run and the deploy, live-check the four pages, and record the merge SHA and the live check here.
+
 ## Stage 2026-10-27 — marketing concepts round 2: the multi-agent Brain showcase (published; waiting for the owner's choice)
 
 Owner feedback on round 1 (27 Oct 2026): "it doesn't actually show what the app does, usually for AI based websites they show the concept much better, with different aspects. We have got multiple agents sandwiched into a single agent, with multiple decisions that's happening. showcasing that should have an oomf factor, which isn't present either."
@@ -31,7 +136,7 @@ Owner feedback on round 1 (27 Oct 2026): "it doesn't actually show what the app 
 Checks:
 - The H1 is the LCP on every changed page. No console errors and no overflow.
 - Phones and the playground pages: p95 frame 16.7–16.8 ms at 4x CPU throttle.
-- **Desktop home pins: p95 33 ms at 4x throttle, so the 20 ms target is not met.** The cost is paint and commit in this sandbox, which has no GPU; showcase script stays within 4 ms per frame. Desktop smoothness must be checked on real hardware.
+- **Desktop home pins: p95 33 ms at 4x throttle, so the 20 ms target is not met.** The cost is paint and commit in this sandbox, which has no GPU; showcase script stays within 4 ms per frame. Desktop smoothness must be checked on real hardware. (Corrected 28 October 2026: this holds for the prototypes' pinned scenes. In `apps/web`, the slow playground frames measured later (66.7 ms on `/trainer-brain`, 33.3 ms on `/demo`, WP7b) were not paint but a whole-document restyle by `:root:has()` rules in the app's global CSS; fix round 2 removed them and both measured 16.7–16.8 ms. The pinned anatomy's scroll stayed paint-bound at 33.4–50 ms then; see `docs/features/brain-showcase.md`.)
 - Long tasks over 50 ms under 4x throttle remain.
 - WebKit was not available, so it was not tested.
 

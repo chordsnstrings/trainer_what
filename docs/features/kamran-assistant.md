@@ -61,6 +61,11 @@ profile), `packages/contracts/src/marketing.ts` (`marketingAssistantFacts`, `ASS
   `/get-started#early-access` while registration is closed (the same rule as the page's primary
   action).
 - Ten turns per visit; then "That's all the questions I can take this visit."
+- While the call panel is open, `assistant-button.tsx` sets `html[data-mk-call]`, and every Brain
+  showcase on the page (the field and the board on `/`, and on any page the call navigates to, the
+  playground and the anatomy) stops drawing until it closes; closing the panel removes the attribute
+  and they resume. It is one of the showcases' pause reasons, and the showcase check (step 6) tests
+  it ([brain-showcase.md](brain-showcase.md), "What runs, and when it stops").
 
 ## One turn (`POST /api/v1/public/assistant/turn`)
 
@@ -105,7 +110,12 @@ most 6 earlier turns, held by the page)}`. In order:
   `/trainer-brain`, `/pricing`, `/faq`, `/get-started`, `/about`, `/security-and-privacy`, the
   intros and FAQs of the two calculator pages, and one line per feature page, from the marketing
   registry through `marketingPageFor` (so the "frontier model" lines appear only while that flag is
-  on). Shared FAQs once. About 23,000 characters (about 6,000 tokens).
+  on). Shared FAQs once. About 23,000 characters (about 6,000 tokens). Since 28 October 2026 the
+  facts get the platform's `registrationOpen` too, so answers that wait for publishing (sign-ups,
+  subscriber payments and the AI model) follow the same gates as the pages: "Yes. Subscribers pay
+  you by card in AED." appears only once all three are on. They also carry each section's note, the
+  status lines ("Live today: …", "Not on yet: …") and `/pricing`'s "Not on yet" chips after the
+  blocks they qualify ([marketing-site.md](marketing-site.md), "What is live: gates and flags").
 - **The model never does arithmetic.** For an estimate it fills `calc` and writes placeholders;
   `computeAssistantCalc` runs the site's own calculators (`estimateEarnings`,
   `estimateFollowerConversion` with the Super admin's follower model) and code fills them in:

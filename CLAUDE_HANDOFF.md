@@ -2,29 +2,31 @@
 
 ## Work in progress
 
-### Status on 27 October 2026, evening (Claude)
+### Status at 00:02 UTC on 29 October 2026 (Claude): marketing revamp phase 1, final commit pushed, CI running
 
-**Marketing concepts round 2 is published, answering the owner's "doesn't show what the app does / no oomf" feedback.**
-- **Version 2 of** https://claude.ai/artifact/Lcwi51DwtZdU35hirwprFF. Each concept's home now shows the multi-agent Brain (14 AI specialists and 11 code steps, mapped from code):
-  - **A:** a live "sample hour of your Brain" hero;
-  - **B:** "24 hours of your Brain" under the hero;
-  - **C:** "Anatomy of one decision" under the hero.
-- **All three** have "Throw a moment at your Brain" on /trainer-brain and /demo.
-- **Records:**
-  - `docs/marketing-revamp-2026-10-26/`: `showcase/` (design, agent map), `prototypes/` (updated generators and the shared engine; they rebuild);
-  - a 2026-10-27 stage entry in `docs/COMPLETION_STAGES.md`.
-- **Known gaps:**
-  - desktop home pins reach p95 33 ms at 4x throttle in this GPU-less sandbox; check on real hardware;
-  - long tasks over 50 ms under throttle;
-  - WebKit untested;
-  - four trace wording items are marked "verify" in the design.
-- **Waiting on the owner:** the concept choice, plus decisions in playbook E and showcase design §8:
-  - the motion exception for showcases;
-  - the specialists' public names and whether to publish "14 + 11";
-  - live values of the WHOOP and nutrition flags;
-  - Arabic strings.
-- **Next:** port the chosen concept into `apps/web` on a new PR.
-- Delete the stray `/oq-daily.log` when convenient.
+**What it is:** phase 1 of the marketing revamp (`/`, `/trainer-brain`, `/demo`, `/pricing`), as the owner chose on 27 Oct ("Go with your recommendation"; each phase is its own PR, "checked and deployed"). It is in PR #105 from `claude/repository-overview-osejlw`. The checks and how it was built are in the 28 October entry of `docs/COMPLETION_STAGES.md`.
+
+**Finished:**
+- the build, both fix rounds, the final review and fix passes, the docs, and the milestone verification;
+- CI on `e2a8cef` (run 40781841666): all 8 jobs green.
+- The final adversarial check (`wf_256d4cc2-b79`): the What-if change held. Its three older CSS defects are fixed (the 341–358 px What-if row, forced colours, the sample pill), and its 25 record corrections are applied.
+- **The final tree is verified locally** (build `mvsrrl9d`):
+  - unit tests 76/76;
+  - the phone probe at 12 sizes in both states is clear;
+  - forced colours and contrast checked;
+  - the full showcase check passed in 446 s.
+
+**Now:** the final normal commit is pushed, and CI on it is running.
+
+**Next:**
+1. Record the results, push, then get CI green on the final head.
+2. Fill the checks into the PR body (`scratchpad/pr105-body.md`), mark the PR ready, and squash-merge.
+3. Watch `main`'s run and the deploy (`scripts/watch-release.sh`), then live-check the four pages.
+4. Record the merge SHA and the live check in a follow-up docs PR (`COMPLETION_STAGES.md` and this section).
+
+**Deploy reconciliation:** this deploy rests on the owner's explicit 27 Oct instruction for phase 1, "checked and deployed" (`docs/PROJECT_MEMORY.md`). It does not rest on the coding handoff. The normal gates apply: green CI on the final head and on `main`'s run.
+
+**Waiting on the owner:** nothing. The FYI decisions are in the stage entry and in the PR body draft (`scratchpad/pr105-body.md`), which goes into PR #105 at step 2. Delete the stray `/oq-daily.log` when convenient.
 
 ### Home page as the owner's HTML design: live since 22:47 UTC on 25 October 2026 (Claude, checked 04:10 UTC on 26 Oct)
 

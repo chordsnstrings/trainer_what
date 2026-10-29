@@ -4,7 +4,7 @@
 // ("Marketing estimates"). Sources live in packages/contracts
 // marketing-content.ts (MARKETING_SOURCES) and on the /methodology page.
 import { z } from "zod";
-import { BANDS, commission } from "./index.ts";
+import { BANDS, commission } from "./commission-bands.ts";
 
 // ---------------------------------------------------------------------------
 // Follower calculator (assumptions version 2026-09-28.4)
@@ -175,25 +175,6 @@ export const DEFAULT_FOLLOWER_MODEL: FollowerModelAssumptions = {
   engagementFactorMax: 2,
 };
 
-const pct = z.number().finite().min(0).max(100);
-const perScenario = z
-  .object({ cautious: pct, typical: pct, strong: pct })
-  .strict()
-  .refine((v) => v.cautious <= v.typical && v.typical <= v.strong, {
-    message: "Cautious must not exceed typical, nor typical strong",
-  });
-const rates = z
-  .object({
-    linkClickPct: pct,
-    dmOpenPct: pct,
-    broadcastClickPct: pct,
-    bioClickPct: pct,
-    paidPct: pct,
-    audienceRenewalPct: z.number().finite().min(0).max(50),
-    reelsReachNewPeople: z.boolean(),
-    engagedStoryShare: z.boolean(),
-  })
-  .strict();
 const RATE_KEYS = [
   "linkClickPct",
   "dmOpenPct",
@@ -204,49 +185,77 @@ const RATE_KEYS = [
 ] as const;
 export type FollowerRateKey = (typeof RATE_KEYS)[number];
 export const FOLLOWER_RATE_KEYS: readonly FollowerRateKey[] = RATE_KEYS;
-export const followerModelSchema = z
-  .object({
-    version: z.string().trim().min(1).max(40),
-    tiers: z
-      .array(
-        z
-          .object({
-            upTo: z.number().int().positive().nullable(),
-            storyPct: perScenario,
-            reelPct: perScenario,
-            commentsPerViewPct: pct,
-          })
-          .strict(),
-      )
-      .min(1)
-      .max(8)
-      .refine(
-        (tiers) =>
-          tiers.every(
-            (t, i) =>
-              (i === tiers.length - 1) === (t.upTo === null) &&
-              (i === 0 || (t.upTo ?? Infinity) > (tiers[i - 1].upTo ?? 0)),
-          ),
-        { message: "Tiers ascend and only the last one is open-ended" },
-      ),
-    scenarios: z
-      .object({ cautious: rates, typical: rates, strong: rates })
-      .strict()
-      .refine(
-        (s) =>
-          RATE_KEYS.every(
-            (key) =>
-              s.cautious[key] <= s.typical[key] &&
-              s.typical[key] <= s.strong[key],
-          ),
-        { message: "Cautious must not exceed typical, nor typical strong" },
-      ),
-    keywordCommentFactor: z.number().finite().min(0).max(10),
-    engagementBenchmarkPct: z.number().finite().positive().max(100),
-    engagementFactorMax: z.number().finite().min(1).max(10),
-    changeNote: z.string().trim().max(500).optional(),
-  })
-  .strict();
+/**
+ * The settings' schema, made on first use: only the server checks settings
+ * (followerSettingsProblem, followerModelFromSettings), so the calculators
+ * that run in the browser never make it, and need not load zod at all.
+ */
+let followerSchema: ReturnType<typeof makeFollowerModelSchema> | undefined;
+const followerModelSchema = () => (followerSchema ??= makeFollowerModelSchema());
+function makeFollowerModelSchema() {
+  const pct = z.number().finite().min(0).max(100);
+  const perScenario = z
+    .object({ cautious: pct, typical: pct, strong: pct })
+    .strict()
+    .refine((v) => v.cautious <= v.typical && v.typical <= v.strong, {
+      message: "Cautious must not exceed typical, nor typical strong",
+    });
+  const rates = z
+    .object({
+      linkClickPct: pct,
+      dmOpenPct: pct,
+      broadcastClickPct: pct,
+      bioClickPct: pct,
+      paidPct: pct,
+      audienceRenewalPct: z.number().finite().min(0).max(50),
+      reelsReachNewPeople: z.boolean(),
+      engagedStoryShare: z.boolean(),
+    })
+    .strict();
+  return z
+    .object({
+      version: z.string().trim().min(1).max(40),
+      tiers: z
+        .array(
+          z
+            .object({
+              upTo: z.number().int().positive().nullable(),
+              storyPct: perScenario,
+              reelPct: perScenario,
+              commentsPerViewPct: pct,
+            })
+            .strict(),
+        )
+        .min(1)
+        .max(8)
+        .refine(
+          (tiers) =>
+            tiers.every(
+              (t, i) =>
+                (i === tiers.length - 1) === (t.upTo === null) &&
+                (i === 0 || (t.upTo ?? Infinity) > (tiers[i - 1].upTo ?? 0)),
+            ),
+          { message: "Tiers ascend and only the last one is open-ended" },
+        ),
+      scenarios: z
+        .object({ cautious: rates, typical: rates, strong: rates })
+        .strict()
+        .refine(
+          (s) =>
+            RATE_KEYS.every(
+              (key) =>
+                s.cautious[key] <= s.typical[key] &&
+                s.typical[key] <= s.strong[key],
+            ),
+          { message: "Cautious must not exceed typical, nor typical strong" },
+        ),
+      keywordCommentFactor: z.number().finite().min(0).max(10),
+      engagementBenchmarkPct: z.number().finite().positive().max(100),
+      engagementFactorMax: z.number().finite().min(1).max(10),
+      changeNote: z.string().trim().max(500).optional(),
+    })
+    .strict();
+}
 
 /** Earlier default versions; settings still holding one get the current model. */
 export const SUPERSEDED_FOLLOWER_VERSIONS: readonly string[] = [
@@ -351,7 +360,7 @@ export function followerSettingsNeedNote(
 export function followerSettingsProblem(
   values: Record<string, string | undefined>,
 ): string | null {
-  const parsed = followerModelSchema.safeParse(followerModelCandidate(values));
+  const parsed = followerModelSchema().safeParse(followerModelCandidate(values));
   return parsed.success
     ? null
     : [...new Set(parsed.error.issues.map((issue) => issue.message))].join("; ");
@@ -418,7 +427,7 @@ function followerModelCandidate(values: Record<string, string | undefined>) {
 export function followerModelFromSettings(
   values: Record<string, string | undefined>,
 ): FollowerModelAssumptions {
-  const parsed = followerModelSchema.safeParse(followerModelCandidate(values));
+  const parsed = followerModelSchema().safeParse(followerModelCandidate(values));
   return parsed.success
     ? (parsed.data as FollowerModelAssumptions)
     : DEFAULT_FOLLOWER_MODEL;
@@ -1055,11 +1064,13 @@ export const DEFAULT_EARNINGS_INPUTS: EarningsInputs = {
   yourSessionRateAed: 250,
 };
 
+/** One formatter for every amount: making one is far slower than using it. */
+const AED_WHOLE = new Intl.NumberFormat("en-AE", {
+  style: "currency",
+  currency: "AED",
+  maximumFractionDigits: 0,
+});
 /** Whole dirhams for estimates ("AED 22,885"); amounts are in fils. */
 export function aedWhole(minor: number): string {
-  return new Intl.NumberFormat("en-AE", {
-    style: "currency",
-    currency: "AED",
-    maximumFractionDigits: 0,
-  }).format(Math.round(minor / 100));
+  return AED_WHOLE.format(Math.round(minor / 100));
 }

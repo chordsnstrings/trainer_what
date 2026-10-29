@@ -27,16 +27,36 @@ The downloadable `trainsyou-ux-ui-audit-2026-10-19.html` was refreshed and saved
 - Keep credentials, private account records and recovery archives out of Git, prompts and logs. Use existing authenticated APIs and host access. Do not use a cloud browser for this repository work.
 - Marketing motion is always on (owner, 22 October 2026, PR #89: "accept the speed cost for now. we can always switch it back to motion matching the device").
   - To switch back, set `MARKETING_MOTION` in `apps/web/components/marketing/motion-mode.ts` to `"device"`; it is one constant.
-  - Short marketing motion plays even for visitors with reduce motion. The pinned scroll scenes and every member, trainer and coach-site surface still follow reduce motion.
+  - Short marketing motion plays even for visitors with reduce motion. The Brain showcases, the parked scroll scenes and every member, trainer and coach-site surface still follow reduce motion.
   - Keep the marketing widgets and the trainer sign-up path as they are. New motion must be short, play once, and run off its own visibility trigger.
-- Marketing revamp, 26 October 2026: three concepts for every page, published at https://claude.ai/artifact/Lcwi51DwtZdU35hirwprFF. The research, playbook and prototype sources are in `docs/marketing-revamp-2026-10-26/`.
-  - Waiting for the owner's choice. The recommendation is A, "Live Brain", with B's pricing and calculators and C's Never list, source badges and founder letter.
-  - Product fact the copy must respect: trainers can sign up, but publishing is blocked by the `payments` launch gate (`apps/api/src/onboarding.ts`), so subscriber payments and payouts are not live.
-- The marketing site is the multipage design (home, how-it-works, pricing, features, earnings calculator) with its motion work and the hero "trains" sweep. On 26 October 2026 the owner said: "the HTML design should be taken off. our previous marketing design is multipage one. let's get that back". The 25 October HTML home (#96) was reverted; its record stays in `docs/HOME_DESIGN_2026-10-25.md`.
-  - It lives in `components/marketing/home-design.tsx`, `home-design-runtime.tsx` and `app/home-design.css` (generated from the file: `tyh-` prefix, scoped under `.tyh`).
-  - Its GSAP scroll-scrubbed 3D and magnetic buttons override the "short, play once" rule above, for the home page only. Its motion follows the device's reduced-motion setting, as the design does.
-  - The owner chose no additions: no social proof, no card-fee line, links that open new tabs as in the file. Change its look only from a new owner design.
-  - The previous home's components (hero relay, journey compact band, scroll scenes) are dormant. Remove them in a separate cleanup once the owner approves the page.
+  - **The one exception: the Brain showcases** (`[data-showcase]` on `/`, `/trainer-brain` and `/demo`). The owner accepted it on 27 October 2026 with the revamp's defaults (SHOWCASE_DESIGN.md §8, decisions 1 and 2).
+    - They run a continuous engine loop, with a canvas, only while visible and playing, and always with a Pause.
+    - They follow both reduced-motion settings, whatever `MARKETING_MOTION` says.
+    - Their ink stage is the only dark surface on the always-light public pages.
+    - Rules, budgets and checks: `docs/features/brain-showcase.md`.
+- Marketing revamp, 26–28 October 2026: three concepts for every page, published at https://claude.ai/artifact/Lcwi51DwtZdU35hirwprFF. The research, playbook, prototypes and the phase 1 plan are in `docs/marketing-revamp-2026-10-26/`.
+  - **The decision.** On 27 October 2026 the owner chose the recommendation: "Go with your recommendation". That is A, "Live Brain", plus C's decision anatomy, Never list and source badges, plus B's pricing page and calculators.
+    - The defaults were accepted with it: "14 AI specialists and 11 code steps" with "How we count", names as designed, the Recovery rule and Meal planner shown as "Not on yet" (since 28 October the Meal planner follows the nutrition flag like every other specialist; the Recovery rule stays off in phase 1), no founder note (the Never list ships unsigned) and no card-processing rate.
+  - **The phases.**
+    - Phase 1: `/`, `/trainer-brain`, `/demo` and `/pricing`, as their own PR, "checked and deployed" (PR #105, from `claude/repository-overview-osejlw`).
+    - Phase 2: every other page, the sitewide "Teach your AI — free", and the fate of the parked scroll-scenes engine.
+    - Phase 3: Arabic, tracking and A/B tests.
+  - **Phase 1 specifics.**
+    - Spec: `docs/marketing-revamp-2026-10-26/phase1/PLAN.md`.
+    - What shipped: `docs/features/marketing-site.md` ("Phase 1") and `docs/features/brain-showcase.md`.
+    - The calls to action change on the four pages only. Other pages keep "Start coaching" until phase 2.
+    - The home's word budget is the measured count, because copy is not cut without the owner: 629 since 28 October 2026 (`HOME_WORDS` in `scripts/brand-check.mjs`). Text on the showcases' ink stage takes `--sc-*` colours only; the page's muted grey is 3:1 there (`brain-showcase.md`).
+  - **The off switch.** `MARKETING_SHOWCASE=static` turns every showcase into its still frame without a build. In production: set it in `runtime.env` and re-apply the release; `compose.yaml` passes it to `web` (`brain-showcase.md`).
+  - **Deploy authority for the revamp.**
+    - `CLAUDE.md` says deployment "remains stopped and separately assigned to Claude", and must not be inferred from the coding handoff.
+    - Each revamp phase deploys instead on the owner's explicit instruction of 27 October 2026: each phase is its own PR, "checked and deployed".
+    - That is consistent with the standing "always deploy" (`AGENTS.md`, 6 October 2026).
+    - The normal release gates still apply: green CI on the final head and `main`'s `check.yml` run before the host deploys. Nothing else is deployed on the strength of this instruction.
+  - **Product fact the copy must respect** (corrected 28 October 2026). Publishing a trainer's page waits for the go-live checks in `apps/api/src/onboarding.ts`: approved legal documents (in production `LEGAL_APPROVED`, the same switch that opens sign-ups), card payments configured and approved, and the coaching assistant (the AI model). Payouts are not among them: bank details are asked at the first payout. The marketing copy reads these as `PUBLISH_GATES` (sign-ups, payments, model) in `packages/contracts/src/marketing-proof.ts`. A claim that is true only while publishing is off follows those gates, payouts have their own flag, and teaching and testing follow the model. The Brain showcases read the same gates (`docs/features/marketing-site.md`, "What is live: gates and flags").
+- The marketing site is the multipage design (home, how-it-works, pricing, features, the calculators and the inner pages) with its motion work and the hero "trains" sweep.
+  - **The HTML home is gone.** The owner's HTML home (#96, live on 25 October 2026) was taken off on 26 October: "the HTML design should be taken off. our previous marketing design is multipage one. let's get that back". PR #99 reverted #96 completely, GSAP and the `home-design` files included. Its record stays in `docs/HOME_DESIGN_2026-10-25.md`.
+  - **Phase 1 rebuilds four pages.** Phase 1 of the revamp (PR #105) rebuilds the home, `/trainer-brain`, `/demo` and `/pricing` on the multipage site. It removes the old home's hero relay, decision-flow card, commission pills and journey band, the old `/demo` tabs and the old `/pricing` parts.
+  - **What is parked.** The scroll-scenes engine is parked: no page mounts it, and phase 2 decides whether to delete or reuse it. `/how-it-works` keeps its journey player.
 - The moat is the AI training, not personal one-to-one training. Owner, 26 October 2026: "the next session isn't necessarily our moat. our moat is the AI training, not personal one on one training."
   - Trainer surfaces lead with what the coach's AI is doing and learning: plans and replies it writes, what waits for the coach, what it delivered on its own, and rules it learned from the coach's edits.
   - Bookings and 1:1 sessions stay available but secondary. Never make a session countdown the headline.

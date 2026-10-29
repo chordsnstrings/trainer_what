@@ -21,7 +21,10 @@ green accent"). The marketing site, the coach directory and the platform
 sign-in, sign-up and recovery pages now show the white canvas, paper bands,
 ink text, the ink lockup and Pace accents in every device colour scheme.
 Only the trainer, team and Super admin workspace still follows the device
-into dark mode. Details under "Light public pages" below.
+into dark mode. Details under "Light public pages" below. Since 28 October
+2026 one surface on them is dark by design: the Brain showcases' ink stage,
+inside `[data-showcase]` only (the owner's accepted exception; "The Brain
+showcase exception" below).
 
 ## One rule: the name decides the logo
 
@@ -167,11 +170,17 @@ onto it, so every existing rule follows the brand:
   muted token.
 - Pace is a background accent with ink text (the done step, the exception
   count, the current row, the automatic lane, and on the marketing site the
-  primary action, the H1 highlight, the relay's core tile and dot and the
-  closing panel); it is never text on any surface. A test enforces it (the
-  only allowed exception is the trainer-themed `.coach-monogram`).
+  primary action, the H1 highlight, the relay's core tile and dot until
+  28 October 2026, and the closing panel); it is never text on any light
+  surface. A test enforces it (the only allowed exception is the
+  trainer-themed `.coach-monogram`). Inside the Brain showcases' ink stage,
+  Pace (`--sc-pace`, `--sc-ai-on`, `--sc-learn`) also colours text, lanes
+  and the focus ring, on ink only; `tests/marketing-showcase.test.ts`
+  computes those contrasts.
 - The marketing site uses the white canvas with paper bands and panels. It
-  has no ink bands.
+  has no ink bands. The one dark surface is the Brain showcases' ink stage
+  (`--sc-stage` `#171917`), inside `[data-showcase]` only (see "The Brain
+  showcase exception" below).
 - `.trainer-theme` maps the tokens it did not have before (`--field-border`,
   `--on-green`, `--on-lime`, `--focus`, `--canvas`, `--green-hover`,
   `--client-bubble`) onto its own Design Studio variables and keeps the
@@ -192,7 +201,10 @@ onto it, so every existing rule follows the brand:
   former ink bands (`.mk-closing`, `.mk-band-ink`) and their `--on-band`
   ring are gone; the closing panel is Pace and keeps the ink ring (14:1).
   A test fails for any `--band-ink` background in a platform stylesheet and
-  resolves the closing panel's ring against Pace.
+  resolves the closing panel's ring against Pace. Inside a Brain showcase
+  the ring is 2 px of `--sc-ai-on` (Pace) on the ink stage, held at 3:1 or
+  more by `tests/marketing-showcase.test.ts`; the brand check skips focus
+  rings inside showcases.
 - Logical properties only (`tests/logical-css.test.ts` passes); the lockup
   is Latin artwork and does not mirror in right-to-left layouts.
 
@@ -351,7 +363,10 @@ Changes:
   `color-scheme: light`. The analytics panel follows: light on public
   pages, dark only with the workspace. No class literal in a component
   changed (`workspace platform-ui`, `public platform-ui`,
-  `public mk platform-ui`, `directory-page platform-ui`).
+  `public mk platform-ui`, `directory-page platform-ui`). (Corrected 28
+  October 2026: the document rule is now `:root[data-shell~="public"]`,
+  a mark each public page sets on `<html>`; see "Root marks and the
+  header's scroll padding" below.)
 - `app/[[...path]]/page.tsx` `generateViewport`: on the platform address a
   marketing page, `/coaches` or a public sign-in, sign-up, recovery or
   joining page returns `themeColor: #FFFFFF` and `colorScheme: "light"`
@@ -411,6 +426,47 @@ Checks actually run for this change: `docs/COMPLETION_STAGES.md` stage
 Open owner decisions: (1) the new home H1 versus the fallback above;
 (2) sign-in pages and `/coaches` are always light too (the default here);
 (3) the workspace keeps device dark mode.
+
+### The Brain showcase exception (28 October 2026)
+
+**The decision.** The owner chose the recommendation on 27 October 2026 ("Go with your recommendation"). That accepted SHOWCASE_DESIGN.md §8, decision 1: the motion exception and the ink stage, limited to `[data-showcase]` sections.
+
+**What it covers.** The Brain showcases on `/`, `/trainer-brain` and `/demo` ([brain-showcase.md](brain-showcase.md)) sit on a dark stage in every colour scheme, on pages that otherwise stay light.
+- **Tokens.** They are defined once, in `app/brain-stage.css`:
+  - stage `#171917`, nodes `#202320`, tint `#272b27`;
+  - text `#f3f4f0`, muted `#a9aea6`, controls `#8a8f87`;
+  - Pace `#d5f24a`.
+- **Product surfaces stay light.** The sample phone and the Today card inside a stage use the product's light tokens.
+- **No new fonts.** Inter, plus the system monospace stack for code-like labels (`--sc-mono`).
+
+**Checks.**
+- `tests/marketing-showcase.test.ts` computes the stage's contrast: text 4.5:1 or more on the stage, the nodes and the tint; controls and lanes 3:1 or more; ink text on every lane colour 4.5:1 or more.
+- The same test fails on any dark background outside `[data-showcase]`.
+- `scripts/brand-check.mjs` exempts `[data-showcase]` from its "no visible surface darker than luminance 0.2" rule and from its focus-ring rule.
+
+**Everything else in phase 1 stays light.** The new page parts avoid dark fills:
+- the home's "Start workout" card is Pace;
+- the phone and window frames are 2 px ink lines;
+- the member's message bubble is paper;
+- the chosen walkthrough tab on phones is a 2 px ink outline;
+- `/trainer-brain`'s "Code picks the specialist" line is plain mono text;
+- the `/pricing` stairs and meters use light ink tints.
+
+### Root marks and the header's scroll padding (28 October 2026)
+
+**Why.** `:root:has(...)` rules read the page from the document, so Chromium restyled the whole document whenever an element was added or removed anywhere. The Brain showcases add several a frame, and at 4× CPU that restyle, not paint, was what slowed the playground (WP7b's 66.7 ms frames) and the field after a scroll. Fix round 2 replaced every such rule.
+
+**What replaced them.** Each surface marks `<html>` itself (`components/root-marks.tsx`), and the CSS reads the mark:
+- `data-shell~="public"`: the platform's public pages (the marketing root in `marketing/site.tsx`, `public-pages.tsx` when it is not a coach page, and the directory). `globals.css` gives `:root[data-shell~="public"]` the white background and `color-scheme: light` that `:root:has(.public.platform-ui)` used to;
+- `data-shell~="workspace"` and `~="member"`: the workspace and the member shell;
+- `data-scheme`: a subscriber surface's appearance ([dark-mode.md](dark-mode.md));
+- `data-open~="sheet"` and `~="kitchen"`: an open bottom sheet, and the nutrition kitchen sheet for print.
+
+**How a mark is held.** `RootMark` renders an inline script during the server render, first inside the surface, so the mark is set before anything below it paints. A layout effect then holds it as a counted token and releases it on unmount, so client-side navigation is right, and the script element goes after hydration. Since the final fix pass, `RootMark` also renders the mark's rules in a `<noscript><style>` (`ROOT_MARK_WITHOUT_SCRIPT`), so a page read without JavaScript still gets its white, light document (the dark coach pages a dark one). A test parses every `app/*.css` rule for each mark and requires the `<noscript>` copy to equal it.
+
+**The header's scroll padding** (final fix pass, the final review's A11Y-1). `:root[data-shell~="public"]` also sets `scroll-padding-block-start`: 82 px, 77 px at 1150 px wide or less, and 73 px at 760 px or less. That is the sticky header's 74, 69 and 65 px (the showcases' `--sc-top` steps) plus 8, so in-page links and the browser's own scrolling to a focused control land below the header. (Focus that a script moves with `preventScroll`, as the playground does, is not covered: [brain-showcase.md](brain-showcase.md), "Open".) Measured: 0 controls hidden in 8 keyboard walks over `/`, `/trainer-brain`, `/demo` and `/pricing` at phone and desktop widths, where 1 to 5 were hidden before. The bands' own `scroll-margin` went, since it would add to the padding.
+
+**Checks.** `tests/root-marks.test.ts`: the token counting, the server script, no `:has()` on `:root`, `html` or `body` in any stylesheet, every surface holding its mark, the padding against `--sc-top` and the `<noscript>` rules; it also runs a React DOM test in local Chromium. `tests/brand.test.ts` pins `:root[data-shell~="public"]`. Fix round 2 compared 130 screens before and after: 126 identical, and 4 differ only in relative times.
 
 ## Deployment notes (deployment is separately assigned)
 

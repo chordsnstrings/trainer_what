@@ -25,6 +25,7 @@ import {
 } from "@trainer/contracts";
 import { MarketingSite } from "../../components/marketing/site";
 import { publicPlatform } from "../../components/marketing/platform";
+import { showcaseMode } from "../../components/marketing/brain/options";
 import {
   CoachDirectory,
   CoachDirectoryClosed,
@@ -310,6 +311,10 @@ export default async function Page({
             page={marketing}
             platform={await publicPlatform()}
             origin={origin}
+            // MARKETING_SHOWCASE=static: every Brain showcase as its still
+            // frame, no engine (read per request; on the host, set it in
+            // runtime.env and re-apply: docs/features/brain-showcase.md).
+            showcase={showcaseMode(process.env.MARKETING_SHOWCASE)}
           />
         );
     }

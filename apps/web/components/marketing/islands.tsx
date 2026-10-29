@@ -43,10 +43,11 @@ export function withEarlyAccessContext(
 }
 
 const aed = aedWhole;
-const whole = (n: number) =>
-  new Intl.NumberFormat("en-AE", { maximumFractionDigits: 0 }).format(n);
-const pct = (n: number) =>
-  new Intl.NumberFormat("en-AE", { maximumFractionDigits: 2 }).format(n) + "%";
+// One formatter each, made once: making one costs far more than a format.
+const WHOLE = new Intl.NumberFormat("en-AE", { maximumFractionDigits: 0 });
+const PCT = new Intl.NumberFormat("en-AE", { maximumFractionDigits: 2 });
+const whole = (n: number) => WHOLE.format(n);
+const pct = (n: number) => PCT.format(n) + "%";
 
 function NumberField({
   label,
@@ -683,7 +684,7 @@ export function AddressPreview({
 }
 
 /** Monthly earnings estimate with commission by band. */
-export function EarningsCalculator({ compact = false }: { compact?: boolean }) {
+export function EarningsCalculator() {
   const [v, setV] = useState<Record<keyof EarningsInputs, number | "" | string>>(
     { ...DEFAULT_EARNINGS_INPUTS },
   );
@@ -697,11 +698,11 @@ export function EarningsCalculator({ compact = false }: { compact?: boolean }) {
     billing: upfront ? "upfront" : "monthly",
     workoutPriceAed: n("workoutPriceAed"),
     programmeMonths: n("programmeMonths"),
-    nutritionSharePct: compact ? 0 : n("nutritionSharePct"),
+    nutritionSharePct: n("nutritionSharePct"),
     nutritionPriceAed: n("nutritionPriceAed"),
-    voiceSharePct: compact ? 0 : n("voiceSharePct"),
+    voiceSharePct: n("voiceSharePct"),
     voicePriceAed: n("voicePriceAed"),
-    sessionsPerMonth: compact ? 0 : n("sessionsPerMonth"),
+    sessionsPerMonth: n("sessionsPerMonth"),
     sessionPriceAed: n("sessionPriceAed"),
     yourSessionRateAed: n("yourSessionRateAed"),
   };
@@ -722,19 +723,17 @@ export function EarningsCalculator({ compact = false }: { compact?: boolean }) {
             min={EARNINGS_LIMITS.subscribers[0]}
             max={EARNINGS_LIMITS.subscribers[1]}
           />
-          {!compact && (
-            <div className="field mk-field">
-              <label htmlFor={billingId}>Billing</label>
-              <select
-                id={billingId}
-                value={upfront ? "upfront" : "monthly"}
-                onChange={(e) => set("billing")(e.target.value)}
-              >
-                <option value="monthly">Monthly</option>
-                <option value="upfront">Upfront for the whole programme</option>
-              </select>
-            </div>
-          )}
+          <div className="field mk-field">
+            <label htmlFor={billingId}>Billing</label>
+            <select
+              id={billingId}
+              value={upfront ? "upfront" : "monthly"}
+              onChange={(e) => set("billing")(e.target.value)}
+            >
+              <option value="monthly">Monthly</option>
+              <option value="upfront">Upfront for the whole programme</option>
+            </select>
+          </div>
           <NumberField
             label={upfront ? "Workout programme price" : "Workout price per month"}
             suffix="AED"
@@ -753,61 +752,57 @@ export function EarningsCalculator({ compact = false }: { compact?: boolean }) {
               max={EARNINGS_LIMITS.programmeMonths[1]}
             />
           )}
-          {!compact && (
-            <>
-              <NumberField
-                label="Subscribers on workout + nutrition"
-                suffix="%"
-                value={v.nutritionSharePct as number | ""}
-                onChange={set("nutritionSharePct")}
-                min={0}
-                max={100}
-              />
-              <NumberField
-                label={
-                  upfront
-                    ? "Workout + nutrition programme price"
-                    : "Workout + nutrition price per month"
-                }
-                suffix="AED"
-                value={v.nutritionPriceAed as number | ""}
-                onChange={set("nutritionPriceAed")}
-                min={0}
-                max={EARNINGS_LIMITS.priceAed[1]}
-              />
-              <NumberField
-                label="Subscribers adding your voice coach"
-                suffix="%"
-                value={v.voiceSharePct as number | ""}
-                onChange={set("voiceSharePct")}
-                min={0}
-                max={100}
-              />
-              <NumberField
-                label="Voice add-on per month"
-                suffix="AED"
-                value={v.voicePriceAed as number | ""}
-                onChange={set("voicePriceAed")}
-                min={0}
-                max={EARNINGS_LIMITS.priceAed[1]}
-              />
-              <NumberField
-                label="Paid one-to-one sessions each month"
-                value={v.sessionsPerMonth as number | ""}
-                onChange={set("sessionsPerMonth")}
-                min={0}
-                max={EARNINGS_LIMITS.sessionsPerMonth[1]}
-              />
-              <NumberField
-                label="Price per session"
-                suffix="AED"
-                value={v.sessionPriceAed as number | ""}
-                onChange={set("sessionPriceAed")}
-                min={0}
-                max={EARNINGS_LIMITS.priceAed[1]}
-              />
-            </>
-          )}
+          <NumberField
+            label="Subscribers on workout + nutrition"
+            suffix="%"
+            value={v.nutritionSharePct as number | ""}
+            onChange={set("nutritionSharePct")}
+            min={0}
+            max={100}
+          />
+          <NumberField
+            label={
+              upfront
+                ? "Workout + nutrition programme price"
+                : "Workout + nutrition price per month"
+            }
+            suffix="AED"
+            value={v.nutritionPriceAed as number | ""}
+            onChange={set("nutritionPriceAed")}
+            min={0}
+            max={EARNINGS_LIMITS.priceAed[1]}
+          />
+          <NumberField
+            label="Subscribers adding your voice coach"
+            suffix="%"
+            value={v.voiceSharePct as number | ""}
+            onChange={set("voiceSharePct")}
+            min={0}
+            max={100}
+          />
+          <NumberField
+            label="Voice add-on per month"
+            suffix="AED"
+            value={v.voicePriceAed as number | ""}
+            onChange={set("voicePriceAed")}
+            min={0}
+            max={EARNINGS_LIMITS.priceAed[1]}
+          />
+          <NumberField
+            label="Paid one-to-one sessions each month"
+            value={v.sessionsPerMonth as number | ""}
+            onChange={set("sessionsPerMonth")}
+            min={0}
+            max={EARNINGS_LIMITS.sessionsPerMonth[1]}
+          />
+          <NumberField
+            label="Price per session"
+            suffix="AED"
+            value={v.sessionPriceAed as number | ""}
+            onChange={set("sessionPriceAed")}
+            min={0}
+            max={EARNINGS_LIMITS.priceAed[1]}
+          />
           <NumberField
             label="Your usual in-person rate per session"
             suffix="AED"
@@ -838,12 +833,10 @@ export function EarningsCalculator({ compact = false }: { compact?: boolean }) {
               <dt>Commission ({pct(e.effectiveCommissionPct)} overall)</dt>
               <dd>−{aed(e.commissionMinor)}</dd>
             </div>
-            {!compact && (
-              <div>
-                <dt>One-to-one sessions</dt>
-                <dd>{aed(e.sessionsMonthlyMinor)}</dd>
-              </div>
-            )}
+            <div>
+              <dt>One-to-one sessions</dt>
+              <dd>{aed(e.sessionsMonthlyMinor)}</dd>
+            </div>
           </dl>
           <table className="mk-table mk-bands">
             <caption>Commission by band</caption>
@@ -877,62 +870,6 @@ export function EarningsCalculator({ compact = false }: { compact?: boolean }) {
         <Link href="/methodology">Assumptions</Link>
       </p>
     </section>
-  );
-}
-
-/** Four scripted decisions, one shown at a time. */
-export function DemoScenarios({
-  scenarios,
-}: {
-  scenarios: Array<{ title: string; label: string; body: string }>;
-}) {
-  const [selected, setSelected] = useState(0);
-  // The chosen decision rises into place only after a visitor picks one
-  // (app/marketing.css); the first shows at once.
-  const [picked, setPicked] = useState(false);
-  const base = useId();
-  return (
-    <div className="mk-demo" data-mk-played={picked ? "" : undefined}>
-      <div className="mk-demo-tabs" role="tablist" aria-label="Sample decisions">
-        {scenarios.map((s, i) => (
-          <button
-            key={s.title}
-            type="button"
-            role="tab"
-            id={`${base}-tab-${i}`}
-            aria-controls={`${base}-panel-${i}`}
-            aria-selected={i === selected}
-            className={"button " + (i === selected ? "" : "secondary")}
-            onClick={() => {
-              if (i !== selected) setPicked(true);
-              setSelected(i);
-            }}
-          >
-            {s.title}
-          </button>
-        ))}
-      </div>
-      {scenarios.map((s, i) => (
-        <section
-          key={s.title}
-          role="tabpanel"
-          id={`${base}-panel-${i}`}
-          aria-labelledby={`${base}-tab-${i}`}
-          hidden={i !== selected}
-          className="card mk-demo-panel"
-        >
-          {/* The automatic outcomes pop as a success; hand-offs stamp. */}
-          <span
-            className="badge green"
-            data-mk-success={/automatically/i.test(s.label) ? "" : undefined}
-          >
-            {s.label}
-          </span>
-          <h3>{s.title}</h3>
-          <p>{s.body}</p>
-        </section>
-      ))}
-    </div>
   );
 }
 

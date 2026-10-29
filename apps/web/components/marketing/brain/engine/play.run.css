@@ -1,0 +1,288 @@
+/* The playground's runtime styles (play.js imports this sheet): only what the
+   engine adds or sets once it plays. The first frame is app/brain-play.css.
+   Every rule sits under [data-showcase="play"]; only opacity and transforms
+   move (tests/marketing-showcase.test.ts). */
+[data-showcase="play"] .bp-cv {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  contain: paint;
+}
+/* Written now, shown when the run ends: it keeps its space meanwhile. */
+[data-showcase="play"] .is-due {
+  visibility: hidden;
+}
+[data-showcase="play"] .bp-res.is-in {
+  animation: sc-in 240ms var(--sc-enter) 1;
+}
+[data-showcase="play"] .bp-chip[aria-disabled="true"],
+[data-showcase="play"] .bp-btn[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: progress;
+}
+/* Hangs under the top bar, over the empty corner of the message card. */
+[data-showcase="play"] .bp-skip {
+  position: absolute;
+  inset-block-start: calc(100% + 2px);
+  inset-inline-end: 0;
+  z-index: 5;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--sc-stage);
+  color: var(--sc-ai-on);
+  font-size: 13px;
+}
+/* A streamed AI step: its final words hold the row, the live copy types over them. */
+[data-showcase="play"] .bp-so {
+  position: relative;
+}
+[data-showcase="play"] .bp-sf {
+  visibility: hidden;
+}
+[data-showcase="play"] .bp-sl {
+  position: absolute;
+  inset-block-start: 8px;
+  inset-inline: 10px;
+}
+[data-showcase="play"] .bp-msg.is-scan .bp-mt::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--sc-pace) 22%, transparent);
+  transform-origin: 0 50%;
+  animation: bp-scan 450ms var(--sc-ease) 1 both;
+}
+[data-showcase="play"] .bp-msg.is-scan .bp-mt[dir="rtl"]::after {
+  transform-origin: 100% 50%;
+}
+@keyframes bp-scan {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+    opacity: 0.6;
+  }
+}
+[data-showcase="play"] .bp-msg[data-tag]::after {
+  content: attr(data-tag);
+  position: absolute;
+  inset-block-start: -10px;
+  inset-inline-end: 10px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--sc-member);
+  color: var(--sc-on-ai);
+  font: 600 11px/1.5 var(--sc-font);
+}
+[data-showcase="play"] .bp-noai {
+  position: absolute;
+  inset-block-start: 10px;
+  inset-inline-end: 12px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--sc-tint);
+  color: var(--sc-text);
+  font: 600 11px/1.5 var(--sc-font);
+}
+[data-showcase="play"] .bp-shell:has(.bp-noai:not([hidden])) .bp-kind {
+  visibility: hidden;
+}
+[data-showcase="play"] .bp-stamp {
+  position: absolute;
+  inset-block-start: 56%;
+  inset-inline-start: 50%;
+  z-index: 4;
+  padding: 8px 14px;
+  border: 2px solid var(--sc-paused);
+  border-radius: 6px;
+  background: rgb(23 25 23 / 92%);
+  color: var(--sc-paused);
+  font: 800 15px/1 var(--sc-font);
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  transform: translate(calc(-50% * var(--inline-sign, 1)), -50%) rotate(-4deg);
+  animation: sc-stamp 180ms var(--sc-ease) 1 both;
+}
+[data-showcase="play"] .is-dim,
+[data-showcase="play"] .bp-shell.is-dim > :not(.bp-stamp) {
+  opacity: 0.35;
+}
+[data-showcase="play"] .bp-shell.is-dim {
+  opacity: 1;
+}
+
+/* ---------- settings only some moments read ---------- */
+/* .bp-lock and .bp-locktip are in app/brain-play.css: the still frame carries them (the knee, with the AI
+   model off). */
+[data-showcase="play"] .bp-lock.is-shake {
+  animation: sc-shake 240ms var(--sc-ease) 1;
+}
+[data-showcase="play"] .bp-offcard {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px dashed var(--sc-pmuted);
+  border-radius: 10px;
+  font-size: 13px;
+}
+[data-showcase="play"] .bp-offcard ul {
+  margin: 0;
+  padding-inline-start: 18px;
+  color: var(--sc-pmuted);
+}
+
+/* ---------- throw them all: twelve mini stacks ---------- */
+[data-showcase="play"] .bp-all {
+  scroll-margin-block-start: calc(var(--sc-top) + 8px);
+}
+[data-showcase="play"] .bp-all-h {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-block-end: 10px;
+}
+[data-showcase="play"] .bp-all-h .bp-btn {
+  min-block-size: 44px;
+  border-color: var(--sc-control);
+  background: transparent;
+  color: var(--sc-text);
+}
+[data-showcase="play"] .bp-minis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+[data-showcase="play"] .bp-mini {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-block-size: 132px;
+  padding: 10px;
+  border: 1px solid var(--sc-line);
+  border-radius: 10px;
+  background: var(--sc-node);
+  color: var(--sc-text);
+  font: 400 12px/1.3 var(--sc-font);
+  text-align: start;
+  cursor: pointer;
+}
+[data-showcase="play"] .bp-mini[data-off] {
+  border-style: dashed;
+  border-color: var(--sc-control);
+  background: transparent;
+  color: var(--sc-muted);
+}
+[data-showcase="play"] .bp-mini-h b {
+  display: block;
+  font-size: 12.5px;
+}
+[data-showcase="play"] .bp-mini-s {
+  display: grid;
+  gap: 3px;
+}
+[data-showcase="play"] .bp-ms {
+  display: block;
+  block-size: 7px;
+  border-radius: 2px;
+  background: var(--sc-line);
+}
+[data-showcase="play"] .bp-ms[data-kind="ai"] {
+  inline-size: 70%;
+  border-radius: 99px;
+}
+[data-showcase="play"] .bp-ms[data-state="work"] {
+  background: var(--sc-text);
+}
+[data-showcase="play"] .bp-ms[data-kind="ai"][data-state="work"],
+[data-showcase="play"] .bp-ms[data-state="lit"] {
+  background: var(--sc-ai-on);
+}
+[data-showcase="play"] .bp-ms[data-state="pass"] {
+  background: color-mix(in srgb, var(--sc-text) 55%, transparent);
+}
+[data-showcase="play"] .bp-ms[data-state="hit"],
+[data-showcase="play"] .bp-ms[data-state="paused"] {
+  background: var(--sc-paused);
+}
+[data-showcase="play"] .bp-ms[data-state="warn"],
+[data-showcase="play"] .bp-ms[data-state="waits"] {
+  background: var(--sc-waits);
+}
+[data-showcase="play"] .bp-ms[data-state="sent"] {
+  background: var(--sc-sent);
+}
+[data-showcase="play"] .bp-ms[data-state="skip"] {
+  opacity: 0.3;
+}
+[data-showcase="play"] .bp-mini-ai {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-inline-size: 0;
+  color: var(--sc-muted);
+  font: 600 11px/1.2 var(--sc-mono);
+  transition: opacity 200ms var(--sc-ease);
+}
+[data-showcase="play"] .bp-mini-ai[data-kind="ai"] {
+  color: var(--sc-ai-on);
+}
+[data-showcase="play"] .bp-mini-ai i {
+  flex: none;
+  inline-size: 13px;
+  block-size: 8px;
+  border: 1.5px solid currentColor;
+  border-radius: 999px;
+}
+[data-showcase="play"] .bp-mini-ai[data-kind="check"] i {
+  inline-size: 8px;
+  border-radius: 2px;
+}
+[data-showcase="play"] .bp-mini .sc-lane {
+  justify-self: start;
+  min-block-size: 20px;
+  padding: 1px 8px;
+  font-size: 11px;
+  white-space: normal;
+  transition: opacity 280ms var(--sc-ease);
+}
+[data-showcase="play"] .bp-mini .is-wait {
+  opacity: 0;
+}
+/* Two lines held from the start: the totals show when the last stack lands. */
+[data-showcase="play"] .bp-totals {
+  min-block-size: 2.8em;
+  margin: 12px 0 0;
+  color: var(--sc-pace);
+  font: 600 13px/1.4 var(--sc-mono);
+}
+
+/* ---------- phone toggles and more chips ---------- */
+[data-showcase="play"] .bp-tg[aria-expanded="true"]::after {
+  content: "−";
+}
+@media (max-width: 760px) {
+  [data-showcase="play"] .bp-chips[data-all] .bp-chip:nth-child(n + 7) {
+    display: inline-flex;
+  }
+  [data-showcase="play"] [data-open] > .bp-log,
+  [data-showcase="play"] [data-open] > .bp-set {
+    display: block;
+  }
+  [data-showcase="play"] .bp-minis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  [data-showcase="play"] .bp-mini {
+    min-block-size: 112px;
+  }
+  [data-showcase="play"] .bp-stamp {
+    font-size: 13px;
+  }
+  /* A chip focused from the keyboard scrolls fully into view, its ring
+     inside the gutter: snapping would pull it back to the nearest start. */
+  [data-showcase="play"][data-sc="on"] .bp-chips:has(:focus-visible) {
+    scroll-snap-type: none;
+  }
+}

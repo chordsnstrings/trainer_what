@@ -10,11 +10,12 @@ const SHOWS = "(max-width: 1150px)";
  * The phone menu (docs/features/marketing-site.md, "Header"). A native
  * <details>, so it opens and closes without JavaScript. With it: closing
  * plays the panel's exit first (the details stays open until it ends), the
- * page behind dims from the header down and stops scrolling, and Escape, a
- * tap outside the panel or a link inside it close the menu. With reduced
- * motion (outside the marketing motion switch's "always") it closes at once.
- * A window or tablet that widens past the menu's breakpoint closes it, so
- * the page cannot stay locked behind a hidden menu.
+ * page behind dims from the header down and stops scrolling and Kamran's
+ * button hides (html.mk-menu-open), and Escape, a tap outside the panel or
+ * a link inside it close the menu. With reduced motion (outside the
+ * marketing motion switch's "always") it closes at once. A window or tablet
+ * that widens past the menu's breakpoint closes it, so the page cannot stay
+ * locked behind a hidden menu.
  */
 export function MobileMenu({ children }: { children: ReactNode }) {
   const ref = useRef<HTMLDetailsElement>(null);
@@ -73,6 +74,8 @@ export function MobileMenu({ children }: { children: ReactNode }) {
     document.addEventListener("click", onClick, true);
     document.addEventListener("keydown", onKey);
     shows.addEventListener("change", onWidth);
+    // Opened before the page's code ran (a native <details>): mark it now.
+    if (menu.open) toggled();
     return () => {
       window.clearTimeout(timer);
       menu.removeEventListener("toggle", toggled);

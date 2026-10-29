@@ -1,0 +1,1562 @@
+/* The first frame of the decision anatomy (components/marketing/brain/
+   engine/anatomy.render.js), /trainer-brain's "How it decides". Every rule
+   sits under [data-showcase], and the showcase contract applies
+   (tests/marketing-showcase.test.ts): only opacity and transforms move.
+   - The flat plates are the default: what visitors read without
+     JavaScript, under reduced motion, on viewports under 700 px tall, and
+     once the figure is flattened (static mode, a failed engine).
+   - The pinned 3D figure applies only under the pin gate: html.sc-pin, not
+     flattened, a viewport 700 px tall or more. There app/brain-stage.css
+     sets the section's height before the first paint, and the frame sticks
+     under the site header (--sc-top).
+   - Before the engine plays, visitors who get the motion see the reply
+     card; everyone else, and anyone after html.sc-late, the finished
+     figure.
+   States the engine adds are styled by engine/anatomy.run.css, which loads
+   with it. Ported from the approved prototype's c-anatomy.css (docs/
+   marketing-revamp-2026-10-26/prototypes/concept-c/src/showcase/),
+   re-skinned to the site's tokens, with logical properties throughout. The
+   3D scene is a left-to-right island (dir="ltr"): the engine draws it in
+   physical coordinates. */
+
+/* ---------- the flat plates (the default) ---------- */
+[data-showcase="anatomy"] button {
+  font-family: inherit;
+}
+[data-showcase="anatomy"] .ca-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 320px);
+  align-items: start;
+  gap: 20px 40px;
+  padding: 32px;
+}
+[data-showcase="anatomy"] .ca-scene {
+  grid-row: 1;
+  grid-column: 1;
+  display: grid;
+  gap: 10px;
+  min-inline-size: 0;
+}
+[data-showcase="anatomy"] .ca-cam,
+[data-showcase="anatomy"] .ca-stack {
+  display: grid;
+  gap: 10px;
+}
+[data-showcase="anatomy"] .ca-ghosts,
+[data-showcase="anatomy"] .ca-card,
+[data-showcase="anatomy"] .ca-brk,
+[data-showcase="anatomy"] .ca-cite,
+[data-showcase="anatomy"] .ca-mean,
+[data-showcase="anatomy"] .ca-stop,
+[data-showcase="anatomy"] .ca-svg,
+[data-showcase="anatomy"] .ca-hint,
+[data-showcase="anatomy"] .ca-dots,
+[data-showcase="anatomy"] .ca-pause,
+[data-showcase="anatomy"] .ca-p > .ca-s {
+  display: none;
+}
+[data-showcase="anatomy"] .ca-side {
+  grid-row: 1 / span 2;
+  grid-column: 2;
+  display: grid;
+  gap: 20px;
+  align-content: start;
+  min-inline-size: 0;
+}
+[data-showcase="anatomy"] .ca-foot {
+  grid-row: 2;
+  grid-column: 1;
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+}
+[data-showcase="anatomy"] .ca-cap {
+  margin: 0;
+  font: 400 12px/1.45 var(--sc-mono);
+  color: var(--sc-muted);
+}
+
+/* ---------- the head, when the figure carries its own H2 ---------- */
+[data-showcase="anatomy"] .ca-head {
+  display: grid;
+  gap: 10px;
+}
+[data-showcase="anatomy"] .ca-eb {
+  margin: 0;
+  font: 600 11px/1 var(--sc-mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--sc-muted);
+}
+[data-showcase="anatomy"] .ca-h2 {
+  margin: 0;
+  font: 600 clamp(26px, 2.4vw, 34px)/1.1 var(--ty-font-display);
+  letter-spacing: -0.01em;
+  color: var(--sc-text);
+}
+[data-showcase="anatomy"] .ca-lede {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--sc-muted);
+}
+
+/* ---------- plates: code checks are squares, the Brain is Pace-tinted ---------- */
+[data-showcase="anatomy"] .ca-p {
+  position: relative;
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  padding: 12px 16px;
+  border: 1px solid var(--sc-line);
+  border-radius: 8px;
+  background: linear-gradient(180deg, var(--sc-tint), var(--sc-node));
+  color: var(--sc-text);
+  font-size: 13px;
+  line-height: 1.35;
+}
+[data-showcase="anatomy"] .ca-f {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+  min-inline-size: 0;
+  white-space: nowrap;
+}
+[data-showcase="anatomy"] .ca-l {
+  font: 500 11.5px/1 var(--sc-mono);
+  color: var(--sc-muted);
+}
+[data-showcase="anatomy"] .ca-n {
+  font-size: 14px;
+  font-weight: 600;
+}
+[data-showcase="anatomy"] .ca-kt {
+  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font: 500 10px/1.2 var(--sc-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--sc-muted);
+}
+[data-showcase="anatomy"] .ca-st {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-inline-start: auto;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--sc-muted);
+}
+[data-showcase="anatomy"] .ca-st .sc-ic {
+  opacity: 0;
+  transform: scale(0.6);
+  transition:
+    opacity var(--mk-dur-fast) var(--sc-ease),
+    transform var(--mk-dur-base) var(--sc-spring);
+}
+[data-showcase="anatomy"] .ca-p[data-lit] .ca-st {
+  color: var(--sc-text);
+}
+[data-showcase="anatomy"] .ca-p[data-lit] .ca-st .sc-ic {
+  opacity: 1;
+  transform: none;
+}
+[data-showcase="anatomy"] .ca-st--m {
+  font-size: 12px;
+  font-weight: 500;
+}
+[data-showcase="anatomy"] .ca-s {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  color: var(--sc-muted);
+}
+[data-showcase="anatomy"] .ca-p[data-lit] .ca-s {
+  color: var(--sc-member);
+}
+[data-showcase="anatomy"] .ca-p[data-k="a"] .ca-s {
+  font: 400 13px/1.35 var(--sc-mono);
+  color: var(--sc-text);
+}
+/* Lit states (SHOWCASE_DESIGN.md §1.3): a check's ring, the AI's lime, a
+   hit in red, a skipped step dashed. */
+[data-showcase="anatomy"] .ca-p[data-lit][data-state="pass"] {
+  border-color: var(--sc-control);
+}
+[data-showcase="anatomy"] .ca-p[data-lit]:is([data-state="warn"], [data-state="waits"]) {
+  box-shadow: inset 0 0 0 1.5px var(--sc-waits);
+}
+[data-showcase="anatomy"] .ca-p[data-lit]:is([data-state="hit"], [data-state="paused"]) {
+  background: color-mix(in srgb, var(--sc-paused) 16%, var(--sc-node));
+  box-shadow: inset 0 0 0 1.5px var(--sc-paused);
+}
+[data-showcase="anatomy"] .ca-p[data-lit][data-state="sent"] {
+  box-shadow: inset 0 2px 0 var(--sc-sent);
+}
+[data-showcase="anatomy"] .ca-p[data-lit][data-state="member"] {
+  box-shadow: inset 0 2px 0 var(--sc-member);
+}
+[data-showcase="anatomy"] .ca-p:is([data-state="skip"], [data-state="na"]) {
+  border-style: dashed;
+  border-color: var(--sc-control);
+  background: color-mix(in srgb, var(--sc-node) 70%, transparent);
+}
+[data-showcase="anatomy"] .ca-p:is([data-state="skip"], [data-state="na"]) .ca-n {
+  color: var(--sc-muted);
+}
+[data-showcase="anatomy"] .ca-p[data-state="hit"] .ca-st {
+  color: var(--sc-paused);
+}
+[data-showcase="anatomy"] .ca-p[data-state="warn"] .ca-st {
+  color: var(--sc-waits);
+}
+[data-showcase="anatomy"] .ca-brain {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sc-pace) 9%, var(--sc-tint)),
+    color-mix(in srgb, var(--sc-pace) 7%, var(--sc-node))
+  );
+}
+[data-showcase="anatomy"] .ca-brain[data-lit][data-state="lit"] {
+  border-color: var(--sc-ai-on);
+  box-shadow: 0 0 0 1px var(--sc-ai-on);
+}
+[data-showcase="anatomy"] .ca-brain .ca-n {
+  font-size: 15px;
+}
+[data-showcase="anatomy"] .ca-mono {
+  display: grid;
+  flex: none;
+  place-items: center;
+  inline-size: 22px;
+  block-size: 22px;
+  border-radius: 50%;
+  background: var(--sc-ai-on);
+  color: var(--sc-on-ai);
+  font: 700 9.5px/1 var(--sc-font);
+}
+/* The lane chip (engine/ui.js lane(), smaller), faint until its plate lights. */
+[data-showcase="anatomy"] .ca-lane {
+  min-block-size: 22px;
+  margin-inline-start: auto;
+  padding: 2px 9px;
+  font-size: 12px;
+  opacity: 0.35;
+  transform: scale(0.92);
+  transition:
+    opacity var(--mk-dur-base) var(--sc-ease),
+    transform var(--mk-dur-slow) var(--sc-spring);
+}
+[data-showcase="anatomy"] .ca-p[data-lit] .ca-lane,
+[data-showcase="anatomy"] .ca-card .ca-lane {
+  opacity: 1;
+  transform: none;
+}
+
+/* ---------- activity matrix: 3 px dots on a 5 px pitch (round: AI, square: code) ---------- */
+[data-showcase="anatomy"] .ca-mx {
+  display: grid;
+  flex: none;
+  grid-template-columns: repeat(3, 3px);
+  gap: 2px;
+  inline-size: 13px;
+  block-size: 13px;
+}
+[data-showcase="anatomy"] .ca-mx i {
+  inline-size: 3px;
+  block-size: 3px;
+  background: currentColor;
+  opacity: 0.25;
+  transition: opacity var(--mk-dur-press) linear;
+}
+[data-showcase="anatomy"] .ca-mx:is([data-kind="ai"], [data-kind="msg"]) i {
+  border-radius: 50%;
+}
+[data-showcase="anatomy"] .ca-mx i.on {
+  opacity: 1;
+}
+[data-showcase="anatomy"] .ca-p[data-state="hit"] .ca-mx i.on {
+  color: var(--sc-paused);
+}
+
+/* ---------- (f) one bounded shell: the seven coaching specialists code picks from ---------- */
+[data-showcase="anatomy"] .ca-shell {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--sc-control);
+  border-radius: 14px;
+}
+[data-showcase="anatomy"] .ca-sp {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-inline-size: 0;
+  padding: 5px 10px;
+  border: 1px solid var(--sc-line);
+  border-radius: 999px;
+  background: var(--sc-node);
+  color: var(--sc-member);
+  font-size: 11.5px;
+  line-height: 1.15;
+}
+[data-showcase="anatomy"] .ca-sp[data-kind="check"] {
+  border-radius: 4px;
+}
+[data-showcase="anatomy"] .ca-sp[data-off] {
+  border-style: dashed;
+  color: var(--sc-muted);
+}
+[data-showcase="anatomy"] .ca-sp > .sc-ic,
+[data-showcase="anatomy"] .ca-sp small,
+[data-showcase="anatomy"] .ca-sp .ca-mx {
+  display: none;
+}
+[data-showcase="anatomy"] .ca-sp .sc-ic {
+  opacity: 0.7;
+}
+[data-showcase="anatomy"] .ca-sp b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+[data-showcase="anatomy"] .ca-brain[data-lit] .ca-sp[data-pick] {
+  border-color: var(--sc-ai-on);
+  background: var(--sc-ai-on);
+  color: var(--sc-on-ai);
+}
+[data-showcase="anatomy"] .ca-brain[data-lit] .ca-sp[data-pick] .sc-ic {
+  opacity: 1;
+}
+[data-showcase="anatomy"] .ca-brain[data-lit] .ca-sp[data-pick] .ca-mx {
+  display: grid;
+  color: var(--sc-on-ai);
+}
+[data-showcase="anatomy"] .ca-tag {
+  position: absolute;
+  inset-inline-start: 50%;
+  inset-block-end: calc(100% + 10px);
+  padding: 2px 9px;
+  border: 1px solid var(--sc-ai-on);
+  border-radius: 999px;
+  background: var(--sc-stage);
+  color: var(--sc-ai-on);
+  font: 600 11px/1.4 var(--sc-font);
+  white-space: nowrap;
+  translate: calc(-50% * var(--inline-sign, 1)) 0;
+  opacity: var(--fq, 1);
+}
+[data-showcase="anatomy"] .ca-tag::after {
+  content: "";
+  position: absolute;
+  inset-inline-start: 50%;
+  inset-block-start: 100%;
+  inline-size: 1.5px;
+  block-size: 10px;
+  background: var(--sc-ai-on);
+  transform-origin: top;
+  transform: scaleY(var(--fq, 1));
+}
+/* The labelled grid (.ca-x): in the flat figure it is the plate; pinned,
+   it is the inspected card's overlay. */
+[data-showcase="anatomy"] .ca-brain > .ca-shell {
+  display: none;
+}
+[data-showcase="anatomy"] .ca-x {
+  display: grid;
+  gap: 6px;
+}
+[data-showcase="anatomy"] .ca-x .ca-shell {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+}
+[data-showcase="anatomy"] .ca-x .ca-xpick + .ca-shell {
+  margin-block-start: 30px;
+}
+[data-showcase="anatomy"] .ca-x .ca-sp {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 6px;
+  border-radius: 12px;
+}
+[data-showcase="anatomy"] .ca-x .ca-sp .sc-ic {
+  display: block;
+  grid-row: span 2;
+}
+[data-showcase="anatomy"] .ca-x .ca-sp small {
+  display: block;
+  font-size: 10.5px;
+  color: inherit;
+  opacity: 0.75;
+}
+[data-showcase="anatomy"] .ca-x .ca-sp b {
+  overflow: visible;
+  white-space: normal;
+}
+[data-showcase="anatomy"] .ca-xpick {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+/* ---------- what each plate holds (its drawer when pinned) ---------- */
+[data-showcase="anatomy"] .ca-more {
+  font-size: 13.5px;
+  line-height: 1.5;
+  white-space: normal;
+}
+[data-showcase="anatomy"] .ca-more p {
+  margin: 0 0 6px;
+}
+[data-showcase="anatomy"] .ca-more p:last-child {
+  margin-block-end: 0;
+}
+[data-showcase="anatomy"] .ca-bub {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+[data-showcase="anatomy"] .ca-bub p {
+  margin: 0 0 4px;
+  font: 400 14px/1.45 var(--sc-mono);
+}
+[data-showcase="anatomy"] .ca-bub small,
+[data-showcase="anatomy"] .ca-res,
+[data-showcase="anatomy"] .ca-lv,
+[data-showcase="anatomy"] .ca-nos {
+  font-size: 12.5px;
+  color: var(--sc-muted);
+}
+[data-showcase="anatomy"] .ca-av {
+  display: grid;
+  flex: none;
+  place-items: center;
+  inline-size: 28px;
+  block-size: 28px;
+  border-radius: 50%;
+  background: var(--sc-tint);
+  font-size: 12px;
+  font-weight: 600;
+}
+[data-showcase="anatomy"] .ca-scan {
+  font: 400 13.5px/1.5 var(--sc-mono);
+}
+[data-showcase="anatomy"] .ca-sweep {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--sc-pace) 32%, transparent) calc(var(--q, 1) * 150%),
+    transparent 0
+  );
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+[data-showcase="anatomy"] .ca-hit {
+  background: none;
+  color: var(--sc-paused);
+  text-decoration: underline 1.5px;
+  text-underline-offset: 3px;
+}
+[data-showcase="anatomy"] .ca-stopw {
+  display: inline-block;
+  padding: 1px 7px;
+  border: 1.5px solid var(--sc-paused);
+  border-radius: 4px;
+  color: var(--sc-paused);
+  font: 600 11px/1.5 var(--sc-mono);
+  letter-spacing: 0.05em;
+}
+[data-showcase="anatomy"] .ca-rows {
+  display: grid;
+  gap: 3px;
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+[data-showcase="anatomy"] .ca-rows li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  opacity: clamp(0.25, calc(var(--q, 1) * 7 - var(--n) - 0.6), 1);
+}
+[data-showcase="anatomy"] .ca-rows .sc-ic {
+  color: var(--sc-ai-on);
+}
+[data-showcase="anatomy"] .ca-picks {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--sc-ai-on);
+}
+[data-showcase="anatomy"] .ca-rule {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--sc-muted);
+}
+[data-showcase="anatomy"] .ca-rule b {
+  font-weight: 600;
+  color: var(--sc-text);
+}
+[data-showcase="anatomy"] .ca-why {
+  display: grid;
+  gap: 2px;
+}
+[data-showcase="anatomy"] .ca-k {
+  font: 500 10px/1.4 var(--sc-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--sc-muted);
+}
+[data-showcase="anatomy"] .ca-rs {
+  min-block-size: 2.9em;
+  font: 400 13px/1.45 var(--sc-mono);
+}
+[data-showcase="anatomy"] .ca-more .sc-sure {
+  max-inline-size: 320px;
+  color: var(--sc-text);
+}
+[data-showcase="anatomy"] .ca-lv {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+/* (i) and the card are product surfaces: the product's light tokens. */
+[data-showcase="anatomy"] .ca-ph {
+  max-inline-size: 100%;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border-end-start-radius: 4px;
+  background: var(--sc-white);
+  color: var(--sc-ink);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+[data-showcase="anatomy"] .ca-phm {
+  margin: 0;
+}
+[data-showcase="anatomy"] .ca-ph .ph-noai {
+  margin-block-start: 4px;
+  font-size: 11px;
+}
+[data-showcase="anatomy"] .ca-ph--td {
+  border-radius: 8px;
+}
+[data-showcase="anatomy"] .ca-tdh {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--sc-pmuted);
+}
+[data-showcase="anatomy"] .ca-tdt {
+  margin: 2px 0 0;
+  font-weight: 600;
+}
+[data-showcase="anatomy"] .ca-tdr {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--sc-pmuted);
+}
+[data-showcase="anatomy"] .ca-more .ph-key {
+  color: var(--sc-text);
+}
+[data-showcase="anatomy"] .ca-tdh .ph-av,
+[data-showcase="anatomy"] .ca-card .ph-av {
+  inline-size: 26px;
+  block-size: 26px;
+}
+/* The margin note on its plate (flat). */
+[data-showcase="anatomy"] .ca-pn {
+  margin: 4px 0 0;
+  padding-inline-start: 10px;
+  border-inline-start: 2px solid var(--sc-pace);
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--sc-member);
+}
+
+/* ---------- the rulebook: "Your method · 24 rules (sample)" (a product surface) ---------- */
+[data-showcase="anatomy"] .ca-book {
+  order: -1;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--sc-paper);
+  color: var(--sc-ink);
+}
+[data-showcase="anatomy"] .ca-bk {
+  margin: 0;
+  font: 600 15px/1.2 var(--sc-font);
+}
+[data-showcase="anatomy"] .ca-bn {
+  margin: 2px 0 8px;
+  font-size: 11.5px;
+  color: var(--sc-pmuted);
+}
+[data-showcase="anatomy"] .ca-bc {
+  display: inline-grid;
+  block-size: 1.2em;
+  overflow: clip;
+  vertical-align: bottom;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--sc-ink);
+}
+[data-showcase="anatomy"] .ca-bc span {
+  grid-area: 1 / 1;
+  transition: transform var(--mk-dur-slow) var(--sc-ease);
+}
+/* The finished figure counts the confirmed rule; pinned, it counts it at (j). */
+[data-showcase="anatomy"] .ca-bc span:first-child {
+  transform: translateY(-110%);
+}
+[data-showcase="anatomy"] .ca-bcite {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.35;
+}
+[data-showcase="anatomy"] .ca-bcite mark {
+  padding: 0 2px;
+  background: var(--sc-pace);
+  color: var(--sc-ink);
+}
+[data-showcase="anatomy"] .ca-blv {
+  margin: 6px 0 0;
+  padding-block-start: 6px;
+  border-block-start: 1px solid var(--sc-pline);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+[data-showcase="anatomy"] .ca-bj {
+  display: grid;
+  gap: 5px;
+  font-size: 11.5px;
+  line-height: 1.35;
+}
+[data-showcase="anatomy"] .ca-bj > p {
+  margin: 0;
+}
+[data-showcase="anatomy"] .ca-bj small {
+  display: block;
+  font-size: 10.5px;
+  color: var(--sc-pmuted);
+}
+[data-showcase="anatomy"] .ca-bj1 {
+  margin-block-start: 8px;
+  padding-block-start: 8px;
+  border-block-start: 1px solid var(--sc-pline);
+}
+[data-showcase="anatomy"] .ca-bj1 s {
+  color: var(--ty-error);
+}
+[data-showcase="anatomy"] .ca-bj1 ins {
+  padding: 0 2px;
+  background: var(--sc-pace);
+  text-decoration: none;
+}
+[data-showcase="anatomy"] .ca-bj2 {
+  position: relative;
+  display: grid;
+}
+[data-showcase="anatomy"] .ca-bj2 b {
+  font: 600 13px/1.2 var(--sc-font);
+}
+[data-showcase="anatomy"] .ca-stamp {
+  position: relative;
+  display: inline-block;
+  justify-self: start;
+  inline-size: max-content;
+  margin-block: 5px 2px;
+  margin-inline-start: 2px;
+  padding: 1px 6px;
+  border: 1.5px solid var(--ty-success);
+  border-radius: 4px;
+  color: var(--ty-success);
+  font: 700 9.5px/1.4 var(--sc-font);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  rotate: -6deg;
+}
+[data-showcase="anatomy"] .ca-bj3 {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  color: var(--ty-success);
+  font-weight: 600;
+}
+
+/* ---------- the notes (a)–(j), all open, and the What-if row ---------- */
+[data-showcase="anatomy"] .ca-notes {
+  min-inline-size: 0;
+}
+[data-showcase="anatomy"] .ca-nl {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+[data-showcase="anatomy"] .ca-nl li {
+  padding-inline-start: 10px;
+  border-inline-start: 2px solid transparent;
+}
+[data-showcase="anatomy"] .ca-nb {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  inline-size: 100%;
+  min-block-size: 26px;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--sc-text);
+  font-size: 14px;
+  text-align: start;
+  cursor: pointer;
+}
+[data-showcase="anatomy"] .ca-nb[disabled] {
+  cursor: default;
+}
+[data-showcase="anatomy"] .ca-nb b {
+  font-weight: 600;
+}
+[data-showcase="anatomy"] .ca-nt > p {
+  margin: 0;
+  padding: 2px 0 10px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--sc-member);
+}
+[data-showcase="anatomy"] .ca-nt em,
+[data-showcase="anatomy"] .ca-nt small {
+  display: block;
+  margin-block-start: 6px;
+  font-size: 13px;
+  font-style: normal;
+}
+[data-showcase="anatomy"] .ca-nt em {
+  font-weight: 600;
+  color: var(--sc-pace);
+}
+[data-showcase="anatomy"] .ca-nt small {
+  color: var(--sc-muted);
+}
+[data-showcase="anatomy"] .ca-wi {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+[data-showcase="anatomy"] .ca-wb,
+[data-showcase="anatomy"] .ca-pause {
+  min-block-size: 44px;
+  padding: 6px 12px;
+  border: 1px solid var(--sc-control);
+  border-radius: var(--sc-radius-ctl);
+  background: transparent;
+  color: var(--sc-text);
+  font-size: 13.5px;
+  line-height: 1.25;
+  text-align: start;
+  cursor: pointer;
+}
+[data-showcase="anatomy"] .ca-wb[aria-pressed="true"] {
+  border-color: var(--sc-text);
+  background: var(--sc-text);
+  color: var(--sc-on-ai);
+}
+/* "Not on yet": the stage's muted ink, not the page's (3:1 on the stage). */
+[data-showcase="anatomy"] .ca-wb small {
+  color: var(--sc-muted);
+}
+[data-showcase="anatomy"] .ca-wb[aria-pressed="true"] small {
+  color: inherit;
+}
+/* brain-stage.css gives a pressed What-if the system highlight in forced
+   colours; the rule above has the same weight and loads later. */
+@media (forced-colors: active) {
+  [data-showcase="anatomy"] .ca-wb[aria-pressed="true"] {
+    border-color: Highlight;
+    background: Highlight;
+    color: HighlightText;
+  }
+}
+[data-showcase="anatomy"] .ca-wb[disabled],
+[data-showcase="anatomy"] .ca-pause[disabled] {
+  opacity: 0.55;
+  cursor: default;
+}
+@media (hover: hover) {
+  [data-showcase="anatomy"] .ca-wb:not([disabled]):hover {
+    border-color: var(--sc-text);
+  }
+  [data-showcase="anatomy"] .ca-nb:not([disabled]):hover b {
+    color: var(--sc-text);
+  }
+}
+
+/* The engine stopped (data-sc="off"): a still figure asks for no scroll and
+   offers no Pause (hidden in place, so nothing moves). */
+[data-showcase="anatomy"][data-sc="off"] .ca-hint,
+[data-showcase="anatomy"][data-sc="off"] .ca-dots,
+[data-showcase="anatomy"][data-sc="off"] .ca-pause {
+  visibility: hidden;
+}
+
+/* ---------- phones (flat): one column; the notes ride on their plates ---------- */
+@media (max-width: 760px) {
+  [data-showcase="anatomy"] .ca-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+    padding: 20px 16px;
+  }
+  [data-showcase="anatomy"] .ca-side {
+    display: contents;
+  }
+  [data-showcase="anatomy"] .ca-head {
+    order: -1;
+  }
+  [data-showcase="anatomy"] .ca-scene,
+  [data-showcase="anatomy"] .ca-foot {
+    grid-row: auto;
+    grid-column: 1;
+  }
+  /* The notes stay the figure's text for screen readers. */
+  [data-showcase="anatomy"] .ca-notes {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  [data-showcase="anatomy"] .ca-x .ca-shell {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  [data-showcase="anatomy"] .ca-x .ca-sp {
+    padding: 4px 8px;
+  }
+}
+
+/* ---------- pinned: the 3D figure under the site header ---------- */
+@media (min-height: 700px) {
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) {
+    --pw: 460px;
+    --ph: 80px;
+    --phb: 146px;
+    --gap: 46px;
+    --ox: 55;
+    --oy: 47;
+    --tx: -20px;
+    --txf: -130px;
+    --ty: -170px;
+    --tz: 220px;
+    --lift: 240;
+    --e: 1;
+    --pl: 1;
+    --card: 0;
+    --gh: 0.72;
+  }
+  /* Before the engine plays: the reply card, which the burst opens. */
+  html.sc-motion:not(.sc-late) [data-showcase="anatomy"][data-sc="pre"] {
+    --e: 0;
+    --pl: 0;
+    --card: 1;
+    --gh: 0;
+  }
+  /* Only the stack, the plates, the card, the rulebook and the stacks read
+     those four: the parts beside and below them drop them, so the engine's
+     turning on restyles a few nodes, not all of the figure's (35–60 ms at 4x
+     CPU; custom properties inherit). */
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) :is(.ca-svg, .ca-side, .ca-foot),
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) :is(.ca-ghosts, .ca-p, .ca-card, .ca-book) > * {
+    --e: initial;
+    --pl: initial;
+    --card: initial;
+    --gh: initial;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-frame {
+    position: sticky;
+    inset-block-start: var(--sc-top);
+    block-size: calc(100svh - var(--sc-top));
+    overflow: clip;
+    border-radius: inherit;
+    background:
+      radial-gradient(60% 55% at 34% 46%, color-mix(in srgb, var(--sc-tint) 75%, var(--sc-stage)) 0%, transparent 70%),
+      radial-gradient(var(--sc-grid) 1px, transparent 1.4px) 0 0 / 24px 24px,
+      var(--sc-stage);
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-grid {
+    position: relative;
+    block-size: 100%;
+    grid-template-columns: minmax(0, 1fr) 320px;
+    grid-template-rows: minmax(0, 1fr) auto;
+    align-items: stretch;
+    gap: 0 48px;
+    padding: 20px 32px 16px;
+  }
+  /* The scene: a perspective box; every ancestor of the 3D stack clips, never hides. */
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-scene {
+    position: relative;
+    display: block;
+    min-block-size: 0;
+    overflow: clip;
+    perspective: 1600px;
+    perspective-origin: calc(var(--ox) * 1%) calc(var(--oy) * 1%);
+    pointer-events: none;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-cam {
+    position: absolute;
+    inset: 0;
+    display: block;
+    transform-style: preserve-3d;
+    transform-origin: calc(var(--ox) * 1%) calc(var(--oy) * 1%);
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-stack {
+    position: absolute;
+    inset-inline-start: calc(var(--ox) * 1%);
+    inset-block-start: calc(var(--oy) * 1%);
+    display: block;
+    inline-size: 0;
+    block-size: 0;
+    transform-style: preserve-3d;
+    transform: rotateX(calc(56deg * var(--e))) rotateZ(calc(-32deg * var(--e)));
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-p {
+    position: absolute;
+    inset-inline-start: calc(var(--pw) / -2);
+    inset-block-start: calc(var(--ph) / -2);
+    inline-size: var(--pw);
+    block-size: var(--ph);
+    border-radius: 4px;
+    transform: translateZ(calc((4 - var(--i)) * var(--gap) * var(--e)));
+    opacity: var(--pl);
+    transition: opacity var(--mk-dur-slow) var(--sc-ease);
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-brain {
+    inset-block-start: calc(var(--phb) / -2);
+    block-size: var(--phb);
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-p[data-k="i"] {
+    block-size: auto;
+    min-block-size: var(--ph);
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-p > .ca-s {
+    display: block;
+  }
+  /* A plate keeps its height: its header never wraps, the kind tag gives way. */
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-f {
+    flex-wrap: nowrap;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-kt {
+    flex-shrink: 1;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-pn {
+    display: none;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-brain > .ca-shell {
+    display: flex;
+    transition: opacity var(--mk-dur-fast) var(--sc-ease);
+  }
+  /* (f) inspected: the labelled grid is an overlay that crossfades over the
+     compact row and hangs below the plate's box; it draws the plate's sides
+     and foot so the plate reads as one taller card. */
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-x {
+    --xw: 1px;
+    --xb: var(--sc-text);
+    position: absolute;
+    inset-inline: calc(-1 * var(--xw));
+    inset-block-start: var(--xt, 40px);
+    padding: 0 calc(16px + var(--xw) - 1px) 14px;
+    border: var(--xw) solid var(--xb);
+    border-block-start: 0;
+    border-radius: 0 0 4px 4px;
+    background: var(--sc-tint);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--mk-dur-base) var(--sc-ease);
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-brain[data-lit][data-state="lit"] .ca-x {
+    --xw: 2px;
+    --xb: var(--sc-ai-on);
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-x .ca-shell {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin-block-start: 18px;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-xpick {
+    margin-block-start: 12px;
+  }
+  /* The inspected plate's drawer: out of flow, below it, until the plate opens. */
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-more {
+    position: absolute;
+    inset-inline: -1px;
+    inset-block-start: calc(100% + 8px);
+    padding: 12px 16px 14px;
+    border: 1px solid var(--sc-control);
+    border-radius: 4px;
+    background: var(--sc-node);
+    color: var(--sc-text);
+    opacity: 0;
+    transform: translateY(-8px);
+    pointer-events: none;
+    transition:
+      opacity var(--mk-dur-base) var(--sc-ease),
+      transform var(--mk-dur-slow) var(--sc-enter);
+  }
+
+  /* The reply card (before the burst; after the recompress). */
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-card {
+    position: absolute;
+    inset-inline-start: calc(var(--ox) * 1%);
+    inset-block-start: calc(var(--oy) * 1%);
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    gap: 6px 10px;
+    inline-size: 320px;
+    padding: 14px 16px;
+    border-radius: 10px;
+    background: var(--sc-white);
+    color: var(--sc-ink);
+    translate: calc(-50% * var(--inline-sign, 1)) -50%;
+    opacity: var(--card);
+    transform: scale(calc(0.94 + var(--card) * 0.06));
+    pointer-events: none;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-card b {
+    display: block;
+    font: 600 17px/1.2 var(--sc-font);
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-card small {
+    font-size: 12px;
+    color: var(--sc-pmuted);
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-card .ca-lane {
+    grid-column: 1 / -1;
+    justify-self: start;
+    margin: 0;
+  }
+  /* The rulebook, top left; at (j) it comes forward with the correction. */
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-book {
+    position: absolute;
+    inset-inline-start: 0;
+    inset-block-start: 4%;
+    z-index: 3;
+    inline-size: 176px;
+    opacity: var(--pl);
+    /* how far (j) has brought it forward, 0–1 */
+    --jt: min(1, var(--jq, 0) * 3);
+    transform-origin: 0 0;
+    transform: translate(calc(var(--jt) * 70px * var(--inline-sign, 1)), calc(var(--jt) * 40px)) scale(calc(1 + var(--jt) * 0.4));
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-bc span:first-child {
+    transform: none;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-bc span + span {
+    transform: translateY(110%);
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-bj {
+    max-block-size: calc(min(1, var(--jq, 0) * 20) * 260px);
+    overflow: clip;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-bj1 {
+    opacity: clamp(0, calc((var(--jq, 0) - 0.04) * 10), 1);
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-bj2 {
+    opacity: clamp(0, calc((var(--jq, 0) - 0.25) * 10), 1);
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-stamp {
+    opacity: clamp(0, calc((var(--jq, 0) - 0.45) * 12), 1);
+    transform: scale(calc(1.25 - clamp(0, calc((var(--jq, 0) - 0.45) * 6), 1) * 0.25));
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-bj3 {
+    opacity: clamp(0, calc((var(--jq, 0) - 0.7) * 10), 1);
+  }
+
+  /* Other members' moments: drawn in 2D (the orthographic matrix of
+     rotateX(56) rotateZ(-32)), outside the 3D camera, so they cost one flat
+     layer instead of twenty 3D planes. The first frame shows them lit. */
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-ghosts {
+    position: absolute;
+    inset: 0;
+    display: block;
+    opacity: var(--gh);
+    transform-origin: calc(var(--ox) * 1%) calc(var(--oy) * 1%);
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-g {
+    --gz: 1;
+    position: absolute;
+    transform: translate(calc(-50% * var(--inline-sign, 1)), -50%);
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-g[data-g="0"] {
+    inset-inline-start: 89%;
+    inset-block-start: 52%;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-g[data-g="1"] {
+    inset-inline-start: 87%;
+    inset-block-start: 24%;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-g[data-g="2"] {
+    inset-inline-start: 86%;
+    inset-block-start: 89%;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-g[data-g="3"] {
+    inset-inline-start: 11%;
+    inset-block-start: 89%;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-g[data-g="4"] {
+    inset-inline-start: 47%;
+    inset-block-start: 106%;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-gl {
+    position: absolute;
+    inset-inline-start: 50%;
+    inset-block-end: calc(100% + 80px);
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--sc-stage) 80%, transparent);
+    color: var(--sc-text);
+    font: 400 12px/1.3 var(--sc-mono);
+    white-space: nowrap;
+    translate: calc(-50% * var(--inline-sign, 1)) 0;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-gs {
+    position: relative;
+    inline-size: 170px;
+    block-size: 34px;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-gs i {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    padding: 0 10px;
+    border: 1px solid var(--sc-line);
+    border-radius: 4px;
+    background: var(--sc-node);
+    font-style: normal;
+    transform: translateY(calc(var(--gy) * var(--gz) * 1px)) matrix(0.848, -0.296, 0.53, 0.474, 0, 0);
+    transition: opacity var(--mk-dur-base) var(--sc-ease);
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-gs i b {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--sc-text);
+    white-space: nowrap;
+    opacity: 0;
+    transition: opacity var(--mk-dur-base) var(--sc-ease);
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-gs [data-k="m"] {
+    --gy: -60;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-gs [data-k="c"] {
+    --gy: -30;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-gs [data-k="s"] {
+    --gy: 0;
+    border-radius: 999px;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-gs [data-k="l"] {
+    --gy: 30;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-gs [data-none] {
+    border-style: dashed;
+    background: transparent;
+  }
+  /* The side column: the notes' titles stay put; the open note's text sits
+     out of flow under its title (engine/anatomy.run.css moves the titles
+     below it with a transform: no layout shift). */
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-side {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    min-block-size: 0;
+    padding-block-start: 8px;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-head + .ca-notes {
+    margin-block-start: 22px;
+    padding-block-start: 14px;
+    border-block-start: 1px solid var(--sc-line);
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-hint {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 0 10px;
+    font: 400 12px/1.3 var(--sc-mono);
+    color: var(--sc-pace);
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-nb {
+    color: var(--sc-muted);
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-nb b {
+    font-weight: 500;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-wi {
+    position: relative;
+    z-index: 1;
+    display: none;
+    margin-block-start: 16px;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-foot {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    justify-items: stretch;
+    gap: 4px 16px;
+    padding-block-start: 10px;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-foot .sc-strip {
+    grid-column: 1;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-pause {
+    position: relative;
+    grid-row: 1 / span 2;
+    grid-column: 2;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+  }
+}
+@media (min-height: 700px) and (max-width: 1150px) {
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-grid {
+    grid-template-columns: minmax(0, 1fr) 280px;
+    column-gap: 32px;
+    padding-inline: 24px;
+  }
+}
+@media (min-height: 700px) and (min-width: 761px) {
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-nl {
+    position: relative;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-nl li {
+    position: relative;
+    transition: transform var(--mk-dur-slow) var(--sc-ease);
+  }
+  /* Closed notes stay in the accessibility tree (opacity, not visibility):
+     the notes are the figure's text. */
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-nt {
+    position: absolute;
+    inset-inline: -2px 0;
+    inset-block-start: 100%;
+    padding-inline-start: 10px;
+    border-inline-start: 2px solid var(--sc-pace);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--mk-dur-fast) var(--sc-ease);
+  }
+}
+
+/* ---------- pinned on phones: the same stack, smaller plates, a note card ---------- */
+@media (min-height: 700px) and (max-width: 760px) {
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) {
+    --pw: 296px;
+    --ph: 54px;
+    --phb: 84px;
+    --gap: 32px;
+    --ox: 52;
+    --oy: 55;
+    --tx: -6px;
+    --txf: -6px;
+    --ty: -132px;
+    /* in front of every tilted plate (the deepest corner of (a) reaches 139 px) */
+    --tz: 150px;
+    --lift: 160;
+    --r4: 156px;
+  }
+  /* Row 4 (the note card, the What-if row) has a fixed height: a taller
+     note must never shrink the scene (that moved the whole stack). */
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr) var(--r4) auto;
+    gap: 0;
+    padding: 12px 0 10px;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-side,
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-head {
+    display: contents;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-eb {
+    grid-row: 1;
+    grid-column: 1;
+    margin-block-end: 6px;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-h2 {
+    grid-row: 2;
+    grid-column: 1;
+    font-size: 24px;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) :is(.ca-eb, .ca-h2, .ca-lede, .ca-notes, .ca-wi, .ca-foot) {
+    padding-inline: 16px;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-scene {
+    grid-row: 3;
+    grid-column: 1;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-lede {
+    grid-row: 4;
+    grid-column: 1;
+    align-self: start;
+    margin-block-start: 12px;
+    font-size: 14px;
+    color: var(--sc-member);
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-notes,
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-head + .ca-notes {
+    position: relative;
+    grid-row: 4;
+    grid-column: 1;
+    inline-size: auto;
+    block-size: auto;
+    min-block-size: 0;
+    margin: 0;
+    padding-block-start: 10px;
+    overflow: clip;
+    clip-path: none;
+    border: 0;
+    white-space: normal;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-wi {
+    grid-row: 4;
+    grid-column: 1;
+    align-self: start;
+    margin-block-start: 8px;
+    background: var(--sc-stage);
+  }
+  /* "Not on yet" takes a second line in its button, so with the model off
+     the What-ifs keep the three lines row 4 holds (they needed four). */
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-wb small {
+    display: block;
+    font-size: 10.5px;
+    line-height: 1.15;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-wb small span {
+    display: none;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-foot {
+    grid-row: 5;
+    grid-column: 1;
+    padding-block-start: 8px;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-cap {
+    grid-column: 1 / -1;
+    font-size: 11.5px;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-foot .sc-strip {
+    font-size: 11px;
+  }
+  /* The sample pill wraps rather than run under Pause (320 to 362 px). */
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-foot .sc-sample {
+    white-space: normal;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-pause {
+    grid-row: 2;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-hint {
+    position: absolute;
+    inset-inline-start: 16px;
+    inset-block-end: 4px;
+    margin: 0;
+  }
+  /* Only the current step's notes show (engine/anatomy.run.css). */
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-nl li {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    border: 0;
+  }
+  /* (f): it shows on the plate's drawer just above; kept for screen readers. */
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-nt em {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-dots {
+    position: absolute;
+    inset-inline-end: 16px;
+    inset-block-start: 14px;
+    display: flex;
+    gap: 5px;
+    margin: 0;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-dots i {
+    inline-size: 6px;
+    block-size: 6px;
+    border-radius: 50%;
+    background: var(--sc-line);
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-p {
+    gap: 4px;
+    padding: 8px 11px;
+    font-size: 12px;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-n {
+    font-size: 13px;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-l {
+    font-size: 11px;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-kt,
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-g[data-desk] {
+    display: none;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-st {
+    font-size: 11px;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-s {
+    font-size: 11.5px;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-p[data-k="a"] .ca-s {
+    font-size: 12px;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-shell {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 4px;
+    padding: 5px;
+    border-radius: 10px;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-sp {
+    justify-content: center;
+    padding: 4px 0;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-sp b {
+    display: none;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-x {
+    --xt: 34px;
+    padding: 0 calc(11px + var(--xw) - 1px) 10px;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-x .ca-shell {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-block-start: 14px;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-xpick {
+    margin-block-start: 9px;
+    font-size: 12.5px;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-x .ca-xpick + .ca-shell {
+    margin-block-start: 28px;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-x .ca-sp {
+    justify-content: start;
+    padding: 4px 8px;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-x .ca-sp b {
+    display: block;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-lane {
+    min-block-size: 20px;
+    padding: 1px 7px;
+    font-size: 11px;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-p[data-k="h"] .ca-lane {
+    position: absolute;
+    inset-inline-start: 11px;
+    inset-block-start: 29px;
+    margin: 0;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-p[data-k="h"] > .ca-s {
+    visibility: hidden;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-more {
+    padding: 9px 11px;
+    font-size: 12.5px;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-bub p,
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-scan {
+    font-size: 13px;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-rs {
+    font-size: 12.5px;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-card {
+    inline-size: 260px;
+    padding: 12px 14px;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-card b {
+    font-size: 15px;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-book {
+    inset-block-start: 1%;
+    inline-size: 118px;
+    padding: 7px 9px;
+    transform: translate(calc(var(--jt) * 12px * var(--inline-sign, 1)), calc(var(--jt) * 14px)) scale(calc(1 + var(--jt) * 0.25));
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-bk {
+    font-size: 13px;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-bn {
+    margin-block-end: 4px;
+    font-size: 10.5px;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-bcite,
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-blv {
+    font-size: 10.5px;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-blv {
+    margin-block-start: 4px;
+    padding-block-start: 4px;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-g {
+    --gz: 0.7;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-g[data-g="0"] {
+    inset-inline-start: 92%;
+    inset-block-start: 50%;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-g[data-g="1"] {
+    inset-inline-start: 88%;
+    inset-block-start: 7%;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-g[data-g="2"] {
+    inset-inline-start: 12%;
+    inset-block-start: 96%;
+  }
+  /* Ghost labels show only while (f) is inspected; the first stays inside the stage. */
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-gl {
+    inset-block-end: calc(100% + 56px);
+    font-size: 11px;
+    opacity: 0;
+    transition: opacity var(--mk-dur-base) var(--sc-ease);
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-g[data-g="0"] .ca-gl {
+    inset-inline: auto 34px;
+    translate: 0 0;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-g[data-g="2"] .ca-gl {
+    display: none;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-gs {
+    inline-size: 118px;
+    block-size: 26px;
+  }
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) .ca-gs i b {
+    font-size: 10px;
+  }
+}
+@media (min-height: 700px) and (max-width: 374px) {
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) {
+    --r4: 172px;
+  }
+}
+/* Below 359 px "Omar's reply" no longer fits beside level 1: four lines of What-ifs. */
+@media (min-height: 700px) and (max-width: 358px) {
+  html.sc-pin [data-showcase="anatomy"]:not([data-sc-flat]) {
+    --r4: 204px;
+  }
+}

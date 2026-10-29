@@ -83,13 +83,29 @@
   font-size: 14px;
 }
 /* The backend uses its explicit light palette in workspace-system.css. */
-/* Public platform pages never follow the device into dark mode. */
+/* Public platform pages never follow the device into dark mode. The
+   document behind them too: each marks <html> with data-shell="public"
+   (components/root-marks.tsx, which repeats these rules for a page read
+   without JavaScript). Their sticky header (.mk-header: 74px, 69px from
+   1150px down, 65px from 760px down) stays over the page, so a focused
+   control or an in-page link stops 8px below it, never under it. */
 .public.platform-ui {
   color-scheme: light;
 }
-:root:has(.public.platform-ui) {
+:root[data-shell~="public"] {
   background: var(--ty-white);
   color-scheme: light;
+  scroll-padding-block-start: 82px;
+}
+@media (max-width: 1150px) {
+  :root[data-shell~="public"] {
+    scroll-padding-block-start: 77px;
+  }
+}
+@media (max-width: 760px) {
+  :root[data-shell~="public"] {
+    scroll-padding-block-start: 73px;
+  }
 }
 /* The logo follows the surface: ink on light, white on the dark workspace. */
 .brand-logo {

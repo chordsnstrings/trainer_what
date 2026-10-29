@@ -1,0 +1,735 @@
+/* The playground's first frame ("Throw a moment at your Brain", /trainer-brain
+   and /demo; components/marketing/brain/engine/play.render.js): the picker
+   and the result on paper, the stage in ink. Every rule sits under
+   [data-showcase="play"] (or the head script's classes before it), and the
+   showcase contract applies (tests/marketing-showcase.test.ts). Ported from
+   the approved prototype's brain-play.css in concept A's skin, with logical
+   properties; nothing animates here. Sizes hold what the engine writes (the
+   log, the Pause label, the rulebook count), and the phone-only toggles
+   cover regions the desktop always shows, so the engine moves nothing when
+   it takes over (engine/play.run.css styles only what it adds). */
+[data-showcase="play"] {
+  color: var(--sc-ink);
+  font-family: var(--sc-font);
+}
+[data-showcase="play"] [hidden] {
+  display: none !important;
+}
+[data-showcase="play"] :focus-visible {
+  outline-color: var(--sc-ink);
+}
+[data-showcase="play"] .sc-stage :focus-visible {
+  outline-color: var(--sc-ai-on);
+}
+[data-showcase="play"] .bp-head h2 {
+  margin: 0;
+  font: 500 clamp(30px, 3.4vw, 44px) / 1.08 var(--sc-font);
+  letter-spacing: -0.035em;
+}
+[data-showcase="play"] .bp-head p {
+  max-inline-size: 60ch;
+  margin: 10px 0 0;
+  color: var(--sc-pmuted);
+  font-size: 17px;
+  line-height: 1.5;
+}
+[data-showcase="play"] .bp-banner {
+  max-inline-size: 80ch;
+  margin: 16px 0 20px;
+  color: var(--sc-pmuted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+[data-showcase="play"] .bp-banner > span {
+  display: block;
+}
+[data-showcase="play"] .bp-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 6fr) minmax(0, 3fr);
+  align-items: start;
+  gap: 24px;
+}
+
+/* ---------- the picker ---------- */
+[data-showcase="play"] .bp-pick,
+[data-showcase="play"] .bp-lab,
+[data-showcase="play"] .bp-free {
+  display: grid;
+  gap: 14px;
+}
+[data-showcase="play"] .bp-lab {
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+[data-showcase="play"] .bp-lab select,
+[data-showcase="play"] .bp-free textarea {
+  inline-size: 100%;
+  min-block-size: 44px;
+  padding: 8px 10px;
+  border: 1px solid var(--sc-pline);
+  border-radius: var(--sc-radius-ctl);
+  background: var(--sc-white);
+  color: var(--sc-ink);
+  font: 400 15px/1.35 var(--sc-font);
+}
+[data-showcase="play"] .bp-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+[data-showcase="play"] .bp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-block-size: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--sc-pline);
+  border-radius: 999px;
+  background: var(--sc-white);
+  color: var(--sc-ink);
+  font: 500 13.5px/1.1 var(--sc-font);
+  cursor: pointer;
+}
+[data-showcase="play"] .bp-chip[aria-pressed="true"] {
+  border-color: var(--sc-ink);
+  background: var(--sc-ink);
+  color: var(--sc-paper);
+}
+[data-showcase="play"] .bp-chip[data-off] {
+  border-style: dashed;
+  background: transparent;
+  color: var(--sc-pmuted);
+}
+[data-showcase="play"] .bp-chip small {
+  font-size: 11px;
+}
+@media (hover: hover) {
+  [data-showcase="play"] .bp-chip:hover:not([aria-pressed="true"]),
+  [data-showcase="play"] .bp-btn:hover:not(.bp-btn-p) {
+    border-color: var(--sc-ink);
+  }
+}
+[data-showcase="play"] .bp-more,
+[data-showcase="play"] .bp-tg {
+  display: none;
+}
+[data-showcase="play"] .bp-free {
+  gap: 8px;
+}
+[data-showcase="play"] .bp-free textarea {
+  min-block-size: 64px;
+  resize: vertical;
+}
+[data-showcase="play"] .bp-closest {
+  margin: -4px 0 0;
+  color: var(--sc-pmuted);
+  font-size: 12.5px;
+}
+[data-showcase="play"] .bp-closest:empty {
+  display: none;
+}
+
+/* ---------- the stage (ink) ---------- */
+/* Rows pack at the top: a stage still arriving (the HTML can paint before
+   the diagram has all parsed) never stretches its rows to the minimum
+   height, so nothing moves up when the rest lands. */
+[data-showcase="play"] .bp-stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: 12px;
+  min-block-size: 560px;
+  padding: 16px;
+}
+[data-showcase="play"] .bp-top {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+/* Pause and Play share one width: the label sits over a hidden "Pause". */
+[data-showcase="play"] .bp-pause {
+  position: relative;
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  min-block-size: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--sc-control);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--sc-text);
+  font: 600 12px/1 var(--sc-font);
+  cursor: pointer;
+}
+[data-showcase="play"] .bp-pause > span {
+  grid-area: 1 / 1;
+}
+[data-showcase="play"] .bp-psz {
+  visibility: hidden;
+}
+[data-showcase="play"] .bp-pause::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+}
+[data-showcase="play"] .bp-diagram {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px;
+  gap: 14px 10px;
+  scroll-margin-block-start: calc(var(--sc-top) + 8px);
+}
+[data-showcase="play"] .bp-diagram > :not(.bp-book):not(.bp-cv) {
+  grid-column: 1;
+}
+[data-showcase="play"] .bp-av {
+  display: grid;
+  flex: none;
+  place-items: center;
+  inline-size: 28px;
+  block-size: 28px;
+  border-radius: 50%;
+  background: var(--sc-tint);
+  color: var(--sc-text);
+  font: 600 11px/1 var(--sc-font);
+}
+[data-showcase="play"] .bp-mb {
+  min-inline-size: 0;
+}
+[data-showcase="play"] .bp-mh {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  font-size: 13px;
+}
+[data-showcase="play"] .bp-mh span,
+[data-showcase="play"] .bp-cap,
+[data-showcase="play"] .bp-cl {
+  color: var(--sc-muted);
+  font-size: 11.5px;
+}
+[data-showcase="play"] .bp-bl,
+[data-showcase="play"] .bp-log :is(h2, h3) {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 6px;
+  color: var(--sc-muted);
+  font: 600 10.5px/1 var(--sc-font);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+[data-showcase="play"] .bp-rules {
+  position: relative;
+  flex: 1;
+  padding-inline-start: 8px;
+  color: var(--sc-pace);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+[data-showcase="play"] .bp-rules::before {
+  content: "";
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline: 72px 0;
+  block-size: 6px;
+  border: 1px solid color-mix(in srgb, var(--sc-pace) 55%, transparent);
+  border-block-end: 0;
+  border-radius: 3px 3px 0 0;
+}
+[data-showcase="play"] .bp-row,
+[data-showcase="play"] .bp-lanes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+[data-showcase="play"] .bp-r4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+/* Node names never break inside a word ("Week reviewer" on a tablet); a long value wraps to its own line. */
+[data-showcase="play"] .bp-row .sc-node {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+[data-showcase="play"] .sc-node .sc-nm {
+  overflow-wrap: normal;
+}
+[data-showcase="play"] .bp-r4 .sc-node {
+  gap: 5px;
+  padding-inline: 8px;
+  font-size: 12px;
+}
+[data-showcase="play"] .bp-shell {
+  position: relative;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--sc-control);
+  border-radius: 16px;
+}
+[data-showcase="play"] .bp-sh-h {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin-block-end: 10px;
+  font-size: 13px;
+}
+[data-showcase="play"] .bp-mono {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  inline-size: 22px;
+  block-size: 22px;
+  border-radius: 50%;
+  background: var(--sc-pace);
+  color: var(--sc-on-ai);
+  font: 700 9.5px/1 var(--sc-font);
+}
+[data-showcase="play"] .bp-kind {
+  margin-inline-start: auto;
+  padding: 1px 8px;
+  border: 1px solid var(--sc-control);
+  border-radius: 999px;
+  color: var(--sc-text);
+  font: 500 11px/1.5 var(--sc-mono);
+}
+[data-showcase="play"] .bp-pills {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+[data-showcase="play"] .bp-row2,
+[data-showcase="play"] .bp-lrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-block-start: 8px;
+}
+[data-showcase="play"] .bp-lrow {
+  gap: 6px;
+  margin: 0;
+}
+/* Concept A's skin: idle nodes recede; a specialist at work glows. */
+[data-showcase="play"] .sc-node[data-state="idle"]:not([data-off]) {
+  color: var(--sc-muted);
+}
+[data-showcase="play"] .sc-node[data-state="work"][data-kind="ai"],
+[data-showcase="play"] .sc-node[data-state="lit"] {
+  box-shadow: 0 0 0 3px rgb(213 242 74 / 18%), 0 0 30px 4px rgb(213 242 74 / 34%);
+}
+[data-showcase="play"] .bp-bin {
+  --lc: var(--sc-sent);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-block-size: 40px;
+  padding: 6px 10px;
+  border-block-start: 2px solid var(--lc);
+  border-radius: 6px;
+  background: var(--sc-tint);
+  color: var(--sc-muted);
+  font-size: 12px;
+}
+[data-showcase="play"] .bp-bin[data-lane="waits"] {
+  --lc: var(--sc-waits);
+}
+[data-showcase="play"] .bp-bin[data-lane="paused"] {
+  --lc: var(--sc-paused);
+}
+[data-showcase="play"] .bp-bin[data-hot] {
+  box-shadow: inset 0 0 0 1.5px var(--lc);
+  color: var(--sc-text);
+}
+[data-showcase="play"] .bp-low {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+}
+[data-showcase="play"] .bp-low .bp-bl {
+  margin-block-end: 4px;
+}
+[data-showcase="play"] .bp-low .sc-node {
+  min-block-size: 30px;
+  padding: 2px 8px;
+  font-size: 11.5px;
+}
+[data-showcase="play"] .bp-shelf {
+  padding: 6px 8px 8px;
+  border: 1px dashed var(--sc-control);
+  border-radius: 10px;
+}
+/* The rulebook spine: its count keeps one width when it rises. */
+[data-showcase="play"] .bp-book {
+  display: flex;
+  grid-row: 2 / span 4;
+  grid-column: 2;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--sc-control);
+  border-radius: 6px;
+  background: var(--sc-tint);
+}
+[data-showcase="play"] .bp-book span {
+  color: var(--sc-muted);
+  font: 500 11.5px/1 var(--sc-font);
+  white-space: nowrap;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+}
+[data-showcase="play"] .bp-book b {
+  color: var(--sc-ai-on);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+/* The steps keep one height while a run writes them (the engine keeps the
+   newest in view). */
+[data-showcase="play"] .bp-logs {
+  block-size: 240px;
+  overflow: auto;
+  contain: strict;
+}
+[data-showcase="play"] .bp-log ol {
+  margin: 0;
+  padding: 0;
+}
+[data-showcase="play"] .bp-log .sc-say {
+  font-family: var(--sc-mono);
+  font-size: 12.5px;
+}
+[data-showcase="play"] .bp-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  color: var(--sc-muted);
+  font-size: 11.5px;
+}
+[data-showcase="play"] .bp-how[open] {
+  flex-basis: 100%;
+}
+[data-showcase="play"] .bp-how summary {
+  display: flex;
+  align-items: center;
+  min-block-size: 44px;
+  color: var(--sc-text);
+  text-decoration: underline;
+  cursor: pointer;
+}
+[data-showcase="play"] .bp-hownote {
+  margin: 0;
+  color: var(--sc-text);
+  line-height: 1.45;
+}
+
+/* ---------- the result and its settings (paper) ---------- */
+[data-showcase="play"] .bp-out {
+  display: grid;
+  gap: 14px;
+  outline: none;
+}
+[data-showcase="play"] .bp-res,
+[data-showcase="play"] .bp-yousee {
+  display: grid;
+  gap: 12px;
+}
+[data-showcase="play"] .bp-yousee {
+  gap: 6px;
+}
+[data-showcase="play"] .bp-res-h,
+[data-showcase="play"] .bp-k {
+  color: var(--sc-pmuted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+[data-showcase="play"] .bp-lanewrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+[data-showcase="play"] .bp-why,
+[data-showcase="play"] .bp-note {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+[data-showcase="play"] .bp-tag {
+  display: inline-block;
+  padding: 0 8px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+[data-showcase="play"] .bp-change {
+  padding-block-start: 10px;
+  border-block-start: 1px solid var(--sc-pline);
+}
+[data-showcase="play"] .bp-chg-h {
+  display: flex;
+  align-items: center;
+  min-block-size: 36px;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+[data-showcase="play"] .bp-ctls {
+  display: grid;
+  gap: 14px;
+  margin: 8px 0 12px;
+}
+[data-showcase="play"] .bp-ctl {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+}
+[data-showcase="play"] .bp-ctl small {
+  display: block;
+  color: var(--sc-pmuted);
+  font-size: 11.5px;
+}
+[data-showcase="play"] .bp-rng {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+[data-showcase="play"] .bp-rng input {
+  flex: 1;
+  min-inline-size: 0;
+  block-size: 44px;
+  accent-color: var(--sc-ink);
+}
+[data-showcase="play"] .bp-rng span {
+  min-inline-size: 40px;
+  font: 600 13px/1 var(--sc-mono);
+  text-align: end;
+}
+[data-showcase="play"] .bp-sw {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  min-block-size: 44px;
+}
+[data-showcase="play"] .bp-sw input {
+  inline-size: 20px;
+  block-size: 20px;
+  margin: 1px 0 0;
+  accent-color: var(--sc-ink);
+}
+[data-showcase="play"] .bp-seg {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+[data-showcase="play"] .bp-seg button {
+  min-block-size: 44px;
+  padding: 4px 10px;
+  border: 1px solid var(--sc-pline);
+  border-radius: var(--sc-radius-ctl);
+  background: var(--sc-white);
+  color: var(--sc-ink);
+  font: 500 12.5px/1.2 var(--sc-font);
+  text-align: start;
+  cursor: pointer;
+}
+[data-showcase="play"] .bp-seg button[aria-checked="true"] {
+  border-color: var(--sc-ink);
+  background: var(--sc-ink);
+  color: var(--sc-paper);
+}
+/* After the rule above (same specificity): forced colours mark the choice (brain-stage.css). */
+@media (forced-colors: active) {
+  [data-showcase="play"] .bp-seg button[aria-checked="true"] {
+    forced-color-adjust: none;
+    border-color: Highlight;
+    background: Highlight;
+    color: HighlightText;
+  }
+}
+[data-showcase="play"] .bp-sum {
+  margin: 0;
+  color: var(--sc-pmuted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+/* The safety lock: the still frame shows it when the AI model is off (the knee). */
+[data-showcase="play"] .bp-lock {
+  display: inline-flex;
+  justify-self: start;
+  align-items: center;
+  gap: 8px;
+  min-block-size: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--sc-pline);
+  border-radius: 999px;
+  background: var(--sc-paper);
+  color: var(--sc-ink);
+  font: 600 13px/1 var(--sc-font);
+  cursor: not-allowed;
+}
+[data-showcase="play"] .bp-locktip {
+  margin: 0;
+  font-size: 12.5px;
+}
+[data-showcase="play"] .bp-again,
+[data-showcase="play"] .bp-cta {
+  inline-size: 100%;
+}
+
+/* ---------- before the engine plays (attract only) ----------
+   The page plays the first moment once on its own: until then its nodes
+   look idle (its steps, result and settings wait as .sc-res). */
+html.sc-motion:not(.sc-late) [data-showcase="play"][data-sc="pre"] [data-attract] .sc-node:not([data-off]) {
+  border-color: var(--sc-line);
+  background: var(--sc-node);
+  box-shadow: none;
+  color: var(--sc-muted);
+}
+html.sc-motion:not(.sc-late) [data-showcase="play"][data-sc="pre"] [data-attract] .bp-bin {
+  box-shadow: none;
+  color: var(--sc-muted);
+}
+
+/* ---------- tablet: picker on top, stage and result side by side ---------- */
+@media (max-width: 1100px) {
+  [data-showcase="play"] .bp-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  [data-showcase="play"] .bp-pick {
+    grid-column: 1 / -1;
+  }
+}
+/* ---------- phone: a chip row, a compact stage, the result, two toggles ---------- */
+@media (max-width: 760px) {
+  [data-showcase="play"] .bp-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+  /* The chip row scrolls edge to edge, across the page's gutter. */
+  [data-showcase="play"] .bp-chips {
+    flex-wrap: nowrap;
+    margin-block-start: -2px;
+    margin-inline: calc(-1 * var(--mk-gutter, 16px));
+    padding: 4px var(--mk-gutter, 16px) 6px;
+    overflow-x: auto;
+    scroll-padding-inline: var(--mk-gutter, 16px);
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+  }
+  [data-showcase="play"] .bp-chip {
+    flex: none;
+    scroll-snap-align: start;
+  }
+  [data-showcase="play"] .bp-chip:nth-child(n + 7),
+  [data-showcase="play"] .bp-chg-h,
+  [data-showcase="play"] .bp-log,
+  [data-showcase="play"] .bp-set,
+  [data-showcase="play"] .bp-cap {
+    display: none;
+  }
+  [data-showcase="play"] .bp-more,
+  [data-showcase="play"] .bp-tg {
+    display: flex;
+    justify-self: start;
+    align-items: center;
+    gap: 8px;
+    min-block-size: 44px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: 600 13px/1 var(--sc-font);
+    cursor: pointer;
+  }
+  [data-showcase="play"] .bp-more {
+    text-decoration: underline;
+  }
+  [data-showcase="play"] .bp-tg {
+    inline-size: 100%;
+    font-size: 14px;
+  }
+  [data-showcase="play"] .bp-tg::after {
+    content: "+";
+    margin-inline-start: auto;
+    font-size: 18px;
+    font-weight: 500;
+  }
+  [data-showcase="play"] .bp-free {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+  }
+  [data-showcase="play"] .bp-free textarea,
+  [data-showcase="play"] .bp-pause {
+    min-block-size: 44px;
+  }
+  [data-showcase="play"] .bp-stage {
+    gap: 10px;
+    min-block-size: 0;
+    padding: 12px;
+  }
+  [data-showcase="play"] .bp-diagram {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 10px;
+  }
+  [data-showcase="play"] .bp-msg {
+    order: -2;
+  }
+  [data-showcase="play"] .bp-book {
+    grid-row: auto;
+    grid-column: 1;
+    order: -1;
+    min-block-size: 24px;
+  }
+  [data-showcase="play"] .bp-book span {
+    writing-mode: horizontal-tb;
+    transform: none;
+  }
+  [data-showcase="play"] .sc-node {
+    gap: 4px;
+    min-block-size: 36px;
+    padding: 3px 7px;
+    font-size: 11px;
+  }
+  [data-showcase="play"] .sc-node[data-kind="ai"] {
+    padding-inline: 9px;
+  }
+  [data-showcase="play"] .bp-row .sc-node {
+    flex-direction: column;
+    justify-content: center;
+    gap: 3px;
+    min-block-size: 54px;
+    padding: 5px 4px;
+    text-align: center;
+  }
+  [data-showcase="play"] .bp-row .sc-ic {
+    display: none;
+  }
+  [data-showcase="play"] .bp-row .sc-val {
+    margin: 0;
+    font-size: 9.5px;
+  }
+  [data-showcase="play"] .bp-pills {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+  [data-showcase="play"] .bp-sh-h {
+    margin-block-end: 8px;
+  }
+  [data-showcase="play"] .bp-bin {
+    min-block-size: 36px;
+    padding: 4px 6px;
+    font-size: 11px;
+  }
+  [data-showcase="play"] .bp-low {
+    align-items: flex-start;
+  }
+}

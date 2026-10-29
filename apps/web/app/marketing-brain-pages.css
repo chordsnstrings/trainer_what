@@ -1,0 +1,209 @@
+/* The Trainer Brain and demo pages (components/marketing/pages/
+   trainer-brain.tsx, demo.tsx). Every rule sits under the .mk-tb- or
+   .mk-dm- prefix, and the marketing motion contract applies
+   (tests/marketing-motion-sitewide.test.ts). The bands, cards, lists,
+   steps, buttons and button rows are the house's (marketing.css,
+   globals.css), the chips and labels the proof atoms'
+   (marketing-proof.css), and the showcases style themselves
+   (app/brain-*.css). This sheet adds concept A's sample controls, the
+   roster and the trace from five small atoms: a box, a stack, a row, a mono
+   label and a ruled list. Light throughout (the brand check: no ink
+   surface). The four page sheets share 8 KB gzipped
+   (tests/marketing-showcase.test.ts), so it stays small. */
+
+/* ---------- the atoms ---------- */
+.mk-tb-box {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--white);
+}
+.mk-tb-box :is(p, h3) {
+  margin: 0;
+}
+.mk-tb-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+.mk-tb-mono {
+  margin: 0;
+  color: var(--muted);
+  font:
+    12px/1.4 ui-monospace,
+    monospace;
+}
+.mk-tb-list,
+.mk-tb-trace,
+.mk-tb-crew ul,
+.mk-tb-track ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mk-tb-list > * {
+  padding-block: 8px;
+  border-block-start: 1px solid var(--line);
+}
+/* The lanes on the proof chips: sent green, waits amber, paused red. */
+.mk-tb-paused {
+  background: var(--error-bg);
+  color: var(--error);
+}
+.mk-tb-stack,
+.mk-tb-stack > * {
+  margin: 0;
+}
+.mk-tb-stack {
+  display: grid;
+  gap: 16px;
+}
+.mk-tb-box .button {
+  min-block-size: 44px;
+  font-size: 14px;
+}
+.mk-tb-box .mk-pf-chip {
+  gap: 4px;
+}
+/* A split whose columns start together (the release and comparison column is tall). */
+.mk-tb-top {
+  align-items: start;
+}
+
+/* ---------- the hero: the page head beside the rule ledger ---------- */
+.mk-tb-hero .mk-page-head {
+  margin: 0;
+  border: 0;
+}
+.mk-tb-stage {
+  padding: 20px;
+  border-radius: var(--radius);
+  background: var(--paper);
+}
+.mk-tb-rc {
+  position: relative;
+  max-inline-size: 460px;
+  box-shadow: var(--mk-shadow);
+}
+.mk-tb-rc[data-ok] {
+  background: var(--success-bg);
+}
+.mk-tb-rc[data-rc="rejected"] .mk-tb-rc-text {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+.mk-tb-rc-text,
+.mk-tb-rc textarea {
+  font-size: 21px;
+  font-weight: 500;
+}
+.mk-tb-rc .mk-tb-no {
+  color: var(--error);
+}
+/* The stamp: the page's one spring (the success state). */
+.mk-tb-stamp {
+  position: absolute;
+  inset-inline-end: 16px;
+  inset-block-end: 16px;
+  display: flex;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 2px solid;
+  border-radius: 6px;
+  color: var(--success);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  rotate: -6deg;
+  animation: mk-pop var(--mk-dur-slow) var(--mk-ease-spring) both;
+}
+
+/* ---------- what it is: one decision traced to its source ---------- */
+.mk-tb-trace li {
+  justify-content: start;
+}
+.mk-tb-trace .mk-tb-mono {
+  flex: 0 0 76px;
+  text-transform: uppercase;
+}
+
+/* ---------- inside: the roster, by crew ---------- */
+.mk-tb-crew li {
+  align-content: start;
+  justify-items: start;
+  gap: 4px;
+  font-size: 14px;
+}
+.mk-tb-crew li[data-kind="ai"] {
+  border-radius: 22px;
+}
+.mk-tb-crew li[data-off] {
+  border-style: dashed;
+  background: none;
+}
+.mk-tb-crew small,
+.mk-tb-crew > p {
+  color: var(--muted);
+}
+
+/* ---------- learns: the release timeline and the blind comparison ---------- */
+.mk-tb-track {
+  position: relative;
+  padding-block-start: 32px;
+}
+/* The Live marker, one version wide, slides back one version and forward again. */
+.mk-tb-live {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 75%;
+  inline-size: 25%;
+  transition: translate var(--mk-dur-slow) var(--mk-ease-out);
+}
+.mk-tb-rel[data-back] .mk-tb-live {
+  translate: calc(-100% * var(--inline-sign, 1)) 0;
+}
+.mk-tb-live b {
+  padding: 2px 10px;
+  border-radius: 99px;
+  background: var(--lime);
+  font-size: 12px;
+}
+.mk-tb-track ol {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-block-start: 2px solid var(--ink);
+}
+.mk-tb-track li {
+  display: grid;
+  padding-block-start: 12px;
+  font-size: 13px;
+}
+.mk-tb-cmp small {
+  display: block;
+  color: var(--muted);
+}
+.mk-tb-replies {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  font-size: 13.5px;
+}
+.mk-tb-cmp :is(dl, dd) {
+  margin: 0;
+  font-size: 13px;
+}
+
+/* Reduced motion stops the stamp and the marker only in the motion
+   switch's "device" mode (components/marketing/motion-mode.ts); globals.css
+   stops them too. */
+@media (prefers-reduced-motion: reduce) {
+  .mk-tb-stamp:not(:where([data-mk-motion="always"], [data-mk-motion="always"] *)),
+  .mk-tb-live:not(:where([data-mk-motion="always"], [data-mk-motion="always"] *)) {
+    animation: none !important;
+    transition: none !important;
+  }
+}

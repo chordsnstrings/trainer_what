@@ -39,6 +39,7 @@ function fallback(): PublicPlatform {
     availability: {
       model: false,
       nutrition: false,
+      mealPhotos: false,
       voice: false,
       customDomains: false,
       payments: false,

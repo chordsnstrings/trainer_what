@@ -6,6 +6,7 @@ import {
   appInitials,
 } from "@trainer/contracts";
 import { MarketingHeader } from "./marketing/frame";
+import { RootMark } from "./root-marks";
 import { SubscriberFooter } from "./subscriber-footer";
 import { translator, type Locale, type Translator } from "../lib/i18n/core";
 import publicMessages, { DIRECTORY_LABELS_AR } from "../lib/i18n/messages/public";
@@ -293,6 +294,7 @@ function DirectoryFrame({
 }) {
   return (
     <div className="public directory-page platform-ui">
+      <RootMark attribute="data-shell" token="public" />
       <MarketingHeader
         appName={platformName}
         initials={appInitials(platformName)}

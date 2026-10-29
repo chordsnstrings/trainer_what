@@ -10,7 +10,7 @@
 //    (scripts/marketing-motion-sitewide-check.mjs, `npm run
 //    test:marketing-motion-sitewide`): the same platform stub with the
 //    launch gate open (MOTION_PLATFORM=closed for the fallback platform),
-//    so / and /how-it-works carry the player; with MOTION_BASE_DIR (a built
+//    so /how-it-works carries the player; with MOTION_BASE_DIR (a built
 //    checkout of the release before the motion work) or MOTION_BASELINE it
 //    also compares LCP, CLS and long tasks with that base; with
 //    MOTION_MAIN_DIR (a built checkout of main before the marketing motion

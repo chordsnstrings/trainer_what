@@ -60,6 +60,7 @@ import { OperatorRecovery } from "./operator-recovery";
 import { GalleryStudio, WebsiteStudio, WebsiteInquiries, CoachWebsite } from "./coach-site";
 import { MemberAppManifest } from "./member-app-install";
 import { MemberShell, MoreScreen } from "./member-shell";
+import { RootMark } from "./root-marks";
 import { Toast } from "./phone-ui";
 import { MemberLanguage } from "./document-direction";
 import { useErrorText, useLocale, useT } from "../lib/i18n/react";
@@ -341,6 +342,7 @@ export default function Workspace({
   const memberScreen = (screen: ReactNode) =>
     path === "/app" || path.startsWith("/app/") ? (
       <div className="member-neutral" data-color-scheme={scheme}>
+        <RootMark attribute="data-scheme" token={scheme} />
         {screen}
       </div>
     ) : (
@@ -1213,6 +1215,7 @@ export default function Workspace({
         colorScheme={scheme}
         memberApp
       >
+        <RootMark attribute="data-shell" token="member" />
         <AppUpdateToast
           path={path}
           waiting={serviceWorker.waiting}
@@ -1268,6 +1271,7 @@ export default function Workspace({
   return (
     <WorkspaceScope.Provider key={`${state.user.tenantId}:${state.user.userId}:${state.user.role}:${state.user.platformRole}`} value={`${state.user.tenantId}:${state.user.userId}:${state.user.role}:${state.user.platformRole}`}>
     <PlainShell className={`workspace platform-ui${isSetupPath(path) ? " is-setup" : ""}${path.startsWith("/admin") || state.platformWorkspace ? " is-admin" : ""}${rail ? " is-rail" : ""}${rail && railPrefs.pinned ? " is-pinned" : ""}${railPrefs.paused ? " motion-paused" : ""}`}>
+      <RootMark attribute="data-shell" token="workspace" />
       <WorkspaceContinuity scope={`${state.user.tenantId}:${state.user.userId}`} />
       <WorkspaceFeedback />
       <RouteBar />

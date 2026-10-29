@@ -16,6 +16,7 @@ export async function GET() {
       supportEmail: platform.supportEmail,
       followerModel: platform.followerModel,
       availability: platform.availability,
+      registrationOpen: platform.registrationOpen,
     }),
     {
       headers: {

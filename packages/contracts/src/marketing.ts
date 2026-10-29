@@ -16,6 +16,7 @@ import {
   BRAND_SHARE_IMAGE_ALT,
   usesBrandIdentity,
 } from "./brand.ts";
+import { HOME_OFFER, PRICING_CHIPS, STATUS_ITEMS, gatesState, type StatusGate } from "./marketing-proof.ts";
 export { AVAILABILITY_LINES, MARKETING_SOURCES, SETUP_CHECKLIST };
 
 /**
@@ -72,6 +73,8 @@ export type JsonLdKind =
 export type AvailabilityKey =
   | "model"
   | "nutrition"
+  /** Meal photo estimates: nutrition, their own switches and a model that reads images. */
+  | "mealPhotos"
   | "voice"
   | "customDomains"
   | "payments"
@@ -88,7 +91,11 @@ export type AvailabilityKey =
  * their FAQ structured data and llms-full.txt all use.
  */
 export type AvailabilityLine = {
-  when: AvailabilityKey;
+  /**
+   * The flag it waits for, or a list of gates that must all be on
+   * ("registration": new sign-ups open, as the status panel reads it).
+   */
+  when: AvailabilityKey | readonly StatusGate[];
   /** The page it applies to; an FAQ answer without a path applies wherever the question appears. */
   path?: string;
   /** Appends a bullet to this section. */
@@ -134,6 +141,11 @@ export type MarketingPage = {
   faqs: MarketingFaq[];
   /** Primary call to action; defaults to claiming a coaching address. */
   cta?: { label: string; href: string };
+  /**
+   * The link beside the primary call to action, in the page head and the
+   * closing panel; without it the renderer chooses one by path.
+   */
+  secondaryCta?: { label: string; href: string };
   related: string[];
   /** ISO date of the last content review. */
   lastUpdated: string;
@@ -439,20 +451,26 @@ export type MarketingContext = {
   followerModel?: AssumptionFigures;
   /** Provider availability; lines gated on a flag show only while it is on. */
   availability?: Partial<Record<AvailabilityKey, boolean>>;
+  /** Whether new sign-ups are open; a status that waits for them is left out while this is unknown. */
+  registrationOpen?: boolean;
 };
 
 /**
  * The page as shown for this availability: each AVAILABILITY_LINES entry whose
- * flag is on is applied; with every flag off (or none given) the page is the
- * registry text unchanged. Applying it twice changes nothing.
+ * gates are all on is applied, in order (a later answer replaces an earlier
+ * one); with every flag off (or none given) the page is the registry text
+ * unchanged. A line that waits for sign-ups stays out while it is unknown
+ * whether they are open. Applying it twice with the same flags changes
+ * nothing.
  */
 export function marketingPageFor(
   page: MarketingPage,
   availability: Partial<Record<AvailabilityKey, boolean>> | undefined,
+  registrationOpen?: boolean,
 ): MarketingPage {
   const lines = AVAILABILITY_LINES.filter(
     (line) =>
-      availability?.[line.when] === true &&
+      gatesState({ availability, registrationOpen }, typeof line.when === "string" ? [line.when] : line.when) === true &&
       (line.path === undefined || line.path === page.path),
   );
   if (!lines.length) return page;
@@ -560,7 +578,7 @@ export function marketingMetadata(page: MarketingPage, ctx: MarketingContext) {
 
 /** Schema.org JSON-LD for a page, built only from text the page shows. */
 export function marketingJsonLd(shown: MarketingPage, ctx: MarketingContext) {
-  const page = marketingPageFor(shown, ctx.availability);
+  const page = marketingPageFor(shown, ctx.availability, ctx.registrationOpen);
   const t = (text: string) => brandText(text, ctx.appName, ctx.followerModel);
   const base = new URL(ctx.origin).origin;
   const url = marketingCanonical(ctx.origin, page.path);
@@ -773,6 +791,59 @@ function sectionMarkdown(section: MarketingSection, t: (s: string) => string) {
   if (section.sources?.length) out.push("");
   return out;
 }
+/**
+ * "Live today / Not on yet" as the status panel shows it (proof.tsx
+ * StatusPanel), each line with its state. A line that waits for sign-ups
+ * is left out while the caller does not say whether they are open.
+ */
+function statusLines(ctx: MarketingContext): string[] {
+  const state = STATUS_ITEMS.map((item) => ({ item, on: gatesState(ctx, item.gates) }));
+  return [
+    ...state.filter((s) => s.on === true).map((s) => `Live today: ${s.item.text}`),
+    ...state.filter((s) => s.on === false).map((s) => `Not on yet: ${s.item.offText ?? s.item.text}`),
+  ];
+}
+/**
+ * A section as its page shows it, where the page prints lines from the
+ * platform's flags instead of the registry text: the home offer with how
+ * each item is offered and whether it is on yet (pages/home.tsx), the
+ * status panel, which follows the home economics band (under its own title)
+ * and fills the /pricing status band, and the "Not on yet" chips on
+ * /pricing's blocks (PRICING_CHIPS). Each line carries its own state, so
+ * it stays true when read alone. llms-full.txt and the assistant facts
+ * print sections through it.
+ */
+function shownSections(path: string, section: MarketingSection, ctx: MarketingContext): MarketingSection[] {
+  if (path === "/" && section.id === "subscribers")
+    return [
+      {
+        ...section,
+        bullets: HOME_OFFER.map((item) => {
+          const on = (item.availability ?? []).every((key) => ctx.availability?.[key] === true);
+          return `${item.text} (${item.offering.toLowerCase()}${on ? "" : ", not on yet"})`;
+        }),
+      },
+    ];
+  if (path === "/" && section.id === "economics")
+    return [section, { id: "status", heading: "What works today", bullets: statusLines(ctx) }];
+  if (path === "/pricing" && section.id === "status") return [{ ...section, bullets: statusLines(ctx) }];
+  if (path === "/pricing" && section.id in PRICING_CHIPS) {
+    const off = PRICING_CHIPS[section.id as keyof typeof PRICING_CHIPS]
+      .filter((chip) => gatesState(ctx, chip.gates) === false)
+      .map((chip) => `Not on yet: ${chip.what}`);
+    if (!off.length) return [section];
+    // The Optional card carries its own chip; a block ends with its chips.
+    if (section.id === "glance")
+      return [
+        {
+          ...section,
+          cards: section.cards?.map((c) => (c.title === "Optional" ? { ...c, body: `${c.body} ${off.join(". ")}.` } : c)),
+        },
+      ];
+    return [{ ...section, bullets: [...(section.bullets ?? []), ...off] }];
+  }
+  return [section];
+}
 /** Every indexable marketing page as Markdown, for language models. */
 export function llmsFullTxt(ctx: MarketingContext): string {
   const t = (text: string) => brandText(text, ctx.appName, ctx.followerModel);
@@ -785,7 +856,7 @@ export function llmsFullTxt(ctx: MarketingContext): string {
   ];
   for (const registered of INDEXABLE_MARKETING_PAGES) {
     if (registered.renderer === "workspace") continue;
-    const page = marketingPageFor(registered, ctx.availability);
+    const page = marketingPageFor(registered, ctx.availability, ctx.registrationOpen);
     out.push(
       `## ${t(page.h1)}`,
       "",
@@ -796,7 +867,7 @@ export function llmsFullTxt(ctx: MarketingContext): string {
       "",
     );
     for (const section of page.sections) {
-      out.push(...sectionMarkdown(section, t));
+      for (const shown of shownSections(page.path, section, ctx)) out.push(...sectionMarkdown(shown, t));
       if (page.path === "/get-started" && section.id === "checklist")
         out.push(...SETUP_CHECKLIST.map((step, i) => `${i + 1}. ${step.label} (about ${step.minutes} min): ${step.summary}`));
     }
@@ -841,12 +912,14 @@ export function marketingAssistantFacts(ctx: MarketingContext): string {
   for (const path of ASSISTANT_FACT_PAGES) {
     const registered = marketingPage(path);
     if (!registered) continue;
-    const page = marketingPageFor(registered, ctx.availability);
+    const page = marketingPageFor(registered, ctx.availability, ctx.registrationOpen);
     out.push(`## ${t(page.navLabel)} (${page.path})`, t(page.intro));
     // The calculator pages' own blocks are the calculators: the assistant asks
     // the code for numbers instead of reading the worked examples.
     if (!path.endsWith("-calculator"))
-      for (const s of page.sections) {
+      for (const s of page.sections.flatMap((section) => shownSections(path, section, ctx))) {
+        // The note is the block's fine print ("Once your page is live."),
+        // kept so a line is never read without its qualifier.
         const lines = [
           ...(s.body ?? []),
           ...(s.bullets ?? []).map((b) => `- ${b}`),
@@ -855,6 +928,7 @@ export function marketingAssistantFacts(ctx: MarketingContext): string {
           ...(s.table
             ? [s.table.caption + ":", ...s.table.rows.map((r) => r.join(" | "))]
             : []),
+          ...(s.note ? [s.note] : []),
         ];
         if (lines.length) out.push(`### ${t(s.heading)}`, ...lines.map(t));
       }

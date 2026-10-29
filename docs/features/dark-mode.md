@@ -26,7 +26,7 @@ the device). Branch `ui/dark` (from `ui/shell`) adds it.
 | A coach's sign-in, recovery and joining pages (`.trainer-theme.public`) | The same |
 | Member app first load, "temporarily unavailable" and suspended screens (`.member-neutral`, `/app` paths only) | The same, with the neutral dark palette (the coach's brand is not known yet) |
 | The optional analytics panel while one of the above is dark | Neutral dark |
-| Marketing site, directory, the platform's own sign-in and joining pages (`.public.platform-ui`) | Always light (docs/features/brand.md, unchanged) |
+| Marketing site, directory, the platform's own sign-in and joining pages (`.public.platform-ui`) | Always light (docs/features/brand.md, unchanged). The one exception, since 28 October 2026: the Brain showcases' ink stage on `/`, `/trainer-brain` and `/demo` is dark in every colour scheme, inside `[data-showcase]` only (brand.md, "The Brain showcase exception"; brain-showcase.md). It does not follow the device's or the member's appearance |
 | Trainer, team and Super admin workspace (`.workspace.platform-ui`) | Follows the device, as before (unchanged) |
 | Design Studio preview inside the trainer workspace | Always light (unchanged) |
 
@@ -105,8 +105,18 @@ scrollbars follow). The block exists twice with identical declarations: for
 `data-color-scheme="dark"`, and inside `@media (prefers-color-scheme: dark)`
 for `"system"` (the test keeps them identical). `!important` is needed only
 to outrank the inline light values. The document behind a dark surface is
-dark too (`:root:has(...)`), so overscroll and short pages never show
-white. An explicit Light choice sets `color-scheme: light`.
+dark too, so overscroll and short pages never show white. An explicit
+Light choice sets `color-scheme: light`. (Corrected 28 October 2026: the
+document rules no longer use `:root:has(...)`, which made Chromium
+restyle the whole document whenever an element came or went. Each
+subscriber surface marks `<html>` with `data-scheme` while it shows
+(`TrainerTheme`, the `.member-neutral` screens, the offline screen;
+`components/root-marks.tsx`), and `app/appearance.css` reads
+`:root[data-scheme~="dark"]`, or `~="system"` inside the dark media
+query; the consent bar's dark rules follow the same marks. Without
+JavaScript, the server's `<noscript>` copy of those rules keeps the
+document dark. [brand.md](brand.md), "Root marks and the header's scroll
+padding".)
 
 Everything else already used tokens, so the shell and the shared controls
 follow without their own dark rules: the bottom tab bar and its badge, the

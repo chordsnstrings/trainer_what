@@ -167,3 +167,41 @@ test(
     }
   },
 );
+
+const BAR_ENTRY = `
+import { createRoot } from "react-dom/client";
+import { ConsentBar } from "../apps/web/components/acquisition";
+const root = createRoot(document.getElementById("root")!);
+(window as any).show = (audience: "trainers" | "people" | null) =>
+  root.render(audience ? <ConsentBar key={audience} audience={audience} onChoose={() => {}} /> : null);
+(window as any).show("trainers");
+`;
+
+test(
+  "the analytics bar hands its height to the member app's toasts only: on the marketing site <html> never changes (a property every element inherits restyles the whole page)",
+  { skip: noBrowser },
+  async () => {
+    const harness = await openHarness(BAR_ENTRY, { path: "/" });
+    const { page } = harness;
+    try {
+      const size = () =>
+        page.evaluate(() => document.documentElement.style.getPropertyValue("--consent-bar-block-size"));
+      await page.locator(".consent-bar").waitFor();
+      await page.waitForTimeout(100);
+      assert.equal(await size(), "", "set for the marketing site");
+      assert.ok(
+        (await page.locator(".consent-bar-space").evaluate((e) => e.getBoundingClientRect().height)) > 0,
+        "the spacer still reserves the bar's height",
+      );
+      await page.evaluate(() => (window as any).show("people"));
+      await page.waitForFunction(() => document.documentElement.style.getPropertyValue("--consent-bar-block-size") !== "");
+      assert.match(await size(), /^\d+px$/);
+      await page.evaluate(() => (window as any).show(null));
+      await page.waitForTimeout(50);
+      assert.equal(await size(), "", "left behind once the bar goes");
+      assert.deepEqual(harness.errors, []);
+    } finally {
+      await harness.close();
+    }
+  },
+);

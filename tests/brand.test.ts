@@ -37,6 +37,7 @@ import {
 } from "../apps/web/components/marketing/frame.tsx";
 import { MarketingSite } from "../apps/web/components/marketing/site.tsx";
 import { DEFAULT_FOLLOWER_MODEL } from "../packages/domain/src/marketing-calculators.ts";
+import { contrast, declarations, resolver } from "./marketing-helpers.ts";
 
 const web = (path: string) => new URL("../apps/web/" + path, import.meta.url);
 const pub = (asset: string) => web("public" + asset);
@@ -196,7 +197,9 @@ test("the approved lines lead the home page, its description and llms.txt", () =
   const home = marketingPage("/")!;
   // The home H1 says what happens; the brand line closes every page instead.
   assert.equal(home.h1, BRAND_COPY.homeHeadline);
-  assert.equal(home.eyebrow, BRAND_COPY.audience.toUpperCase());
+  // The phase 1 home names the UAE in its eyebrow; BRAND_COPY.audience
+  // still leads llms.txt (below).
+  assert.equal(home.eyebrow, "FOR UAE PERSONAL TRAINERS");
   assert.ok(home.intro.startsWith("Teach your own AI how you coach"));
   assert.ok(home.intro.includes("Build a paid coaching offering around your methods, your identity and your standards"));
   assert.ok(home.description.startsWith(BRAND_COPY.line));
@@ -219,6 +222,7 @@ test("the brand line is the closing heading on every marketing page; a renamed p
     availability: {
       model: true,
       nutrition: false,
+      mealPhotos: false,
       voice: false,
       customDomains: false,
       payments: true,
@@ -248,8 +252,9 @@ test("the brand line is the closing heading on every marketing page; a renamed p
     assert.match(panel, /Guided setup\. Nothing goes live until you publish\./);
     assert.doesNotMatch(panel, /class="eyebrow"/, "the closing panel has no eyebrow");
   }
-  assert.match(closing("/"), /href="\/how-it-works"/);
-  assert.match(closing("/pricing"), /href="\/follower-calculator"/);
+  // The phase 1 home's second link is the demo (its secondaryCta).
+  assert.match(closing("/"), /href="\/demo"/);
+  assert.match(closing("/pricing"), /href="\/earnings-calculator"/);
   const acme = closing("/", "Acme Coaching");
   assert.match(acme, /<h2[^>]*>Ready to teach your AI\?<\/h2>/);
   assert.doesNotMatch(acme, /Beyond your hours/);
@@ -337,46 +342,6 @@ test("platform surfaces carry .platform-ui; trainer-branded ones never show the 
   for (const token of ["--field-border", "--on-green", "--on-lime", "--focus", "--canvas"])
     assert.match(design, new RegExp(`\\.trainer-theme \\{[^}]*${token}:`), token);
 });
-
-// Minimal colour maths for the token checks (WCAG 2.x relative luminance).
-type Rgb = [number, number, number];
-const hex = (h: string): Rgb => {
-  const s = h.replace("#", "");
-  return [0, 2, 4].map((i) => parseInt(s.slice(i, i + 2), 16)) as Rgb;
-};
-const luminance = ([r, g, b]: Rgb) => {
-  const f = (v: number) => {
-    const c = v / 255;
-    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-  };
-  return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
-};
-const contrast = (a: Rgb, b: Rgb) => {
-  const [x, y] = [luminance(a), luminance(b)].sort((m, n) => n - m);
-  return (x + 0.05) / (y + 0.05);
-};
-function declarations(block: string) {
-  const out: Record<string, string> = {};
-  for (const m of block.matchAll(/(--[\w-]+):\s*([^;]+);/g)) out[m[1]] = m[2].trim();
-  return out;
-}
-function resolver(...layers: Record<string, string>[]) {
-  const merged = Object.assign({}, ...layers);
-  const resolve = (value: string, depth = 0): Rgb => {
-    assert.ok(depth < 10, "token cycle: " + value);
-    const v = value.trim();
-    if (/^#[0-9a-f]{6}$/i.test(v)) return hex(v);
-    const ref = v.match(/^var\((--[\w-]+)\)$/);
-    if (ref) return resolve(merged[ref[1]], depth + 1);
-    const mix = v.match(/^color-mix\(in srgb, (var\(--[\w-]+\)) (\d+)%, (var\(--[\w-]+\))\)$/);
-    if (mix) {
-      const [a, share, b] = [resolve(mix[1], depth + 1), Number(mix[2]) / 100, resolve(mix[3], depth + 1)];
-      return a.map((c, i) => Math.round(c * share + b[i] * (1 - share))) as Rgb;
-    }
-    throw new Error("unresolvable token value " + v);
-  };
-  return (name: string) => resolve(`var(${name})`);
-}
 
 const platformCssFiles = ["globals.css", "marketing.css", "analytics-consent.css", "platform-settings.css", "governance.css", "host-operations.css"];
 
@@ -504,11 +469,12 @@ test("the backend and public platform stay light; member appearance is independe
   assert.match(backend, /color-scheme: light;/);
   assert.match(backend, /\.brand-logo-light \{ display: block;/);
   assert.match(backend, /\.brand-logo-dark \{ display: none;/);
-  // The public root and the document behind it stay light in any scheme.
+  // The public root and the document behind it stay light in any scheme
+  // (each public page marks <html>: components/root-marks.tsx).
   assert.match(css, /\n\.public\.platform-ui \{\s*color-scheme: light;\s*\}/);
   assert.match(
     css,
-    /\n:root:has\(\.public\.platform-ui\) \{\s*background: var\(--ty-white\);\s*color-scheme: light;\s*\}/,
+    /\n:root\[data-shell~="public"\] \{\s*background: var\(--ty-white\);\s*color-scheme: light;\s*(scroll-padding-block-start: \d+px;\s*)?\}/,
   );
   // The browser colour of public platform pages is white in every scheme;
   // the workspace keeps the root layout's paper and ink pair.

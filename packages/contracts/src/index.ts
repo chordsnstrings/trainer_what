@@ -140,6 +140,7 @@ export const productSchema = z
   });
 export * from "./membership-pricing.ts";
 export * from "./marketing-features.ts";
+export * from "./marketing-proof.ts";
 export * from "./coach-setup.ts";
 export * from "./site-builder.ts";
 export * from "./site-builder-layouts.ts";

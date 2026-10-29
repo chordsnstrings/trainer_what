@@ -1,15 +1,36 @@
-# Scroll scenes (home page)
+# Scroll scenes (parked since 28 October 2026)
 
-On the home page (`/`), scrolling plays some sections. Each frame depends only on the scroll position, so a scene plays the same forwards and backwards. When a scene reaches its end, the section looks exactly as it did before scenes existed. The design (colours, fonts, spacing, copy and layout) is unchanged. Scenes use native scrolling and CSS transforms only; there is no animation library.
+Until 28 October 2026, scrolling the home page (`/`) played some sections. Each frame depends only on the scroll position, so a scene plays the same forwards and backwards. When a scene reaches its end, the section looks exactly as it did before scenes existed. The design (colours, fonts, spacing, copy and layout) is unchanged. Scenes use native scrolling and CSS transforms only; there is no animation library.
 
-## What is on the home page
+## Status: parked
+
+Phase 1 of the marketing revamp (PR #105) rebuilt `/`. The home no longer has the journey band or `#control`, so no page mounts the engine. It is parked, not deleted. Phase 2 decides whether to delete it or reuse it.
+
+**What remains:**
+- The engine and its recipes: `scroll-scenes.ts`, `scenes.ts` and `journey-scene.ts`.
+- `scene-mount.tsx`. Its `ScrollScenes` is no longer rendered anywhere.
+- `app/scroll-scenes.css`, still imported in `app/layout.tsx`, so every route still loads it.
+- The journey player's scrub mode.
+- `tests/scroll-scenes-engine.test.ts`, which still runs in `npm test`.
+- The head script. `SCENES_HEAD_SCRIPT` still adds `scenes-on` to `<html>` on `/` before the first paint. Nothing consumes it now: the rules in `scroll-scenes.css` and `motion.tsx` match only `[data-scene]` and `.mk-walk-band`, and both left `/`. It is harmless, and phase 2 removes it with the engine or uses it again.
+
+**The anatomy's pin is separate.**
+- The anatomy on `/trainer-brain` ([brain-showcase.md](brain-showcase.md)) pins with its own CSS sticky frame, not with this engine.
+- Its head script (`brain/head.ts`) gates the pin the same way `scenes-head.ts` gates scenes. It adds `sc-pin` only without reduced motion (the device's setting or the member's own), for visitors who are not robots, and when IntersectionObserver and sticky positioning exist. The pin also needs a viewport at least 700 px tall, like this engine's short-viewport gate.
+- Its `--sc-top` copies `--scene-top`'s header heights: 74 px, 69 px at 1150 px wide or less, and 65 px at 760 px or less. `tests/marketing-showcase.test.ts` keeps the two equal while `scroll-scenes.css` exists.
+
+**Browser checks.** The sitewide motion check's `/?scenes=on` pass reports "no scene on /" and skips the frame-loop rules. `verify_scenes.py` has nothing to run against.
+
+The rest of this page describes the engine as it ran on the home page until 28 October 2026.
+
+## What was on the home page (until 28 October 2026)
 
 | Section | Scene | What moves |
 |---|---|---|
 | Journey band (`JourneyBand`, `journey.tsx`) | `journey`, pinned (`--len: 480`, `--len-phone: 500`) | Nothing gets new styles. Scroll replaces the player's clock: chapter = floor(q × 8). The first 70% of a chapter's slice plays its beats, and the rest holds the complete picture. |
 | `#control` (`ControlFlow`) | `beats`, in 4 beats | The message, then the AI card, then the meter fill, then the lanes. The `data-from` poses are the old reveal's "before" poses. |
 
-Only these two are wired in `site.tsx` (the journey band and `scene="beats"` on `#control`). The hero, `#subscribers`, `#economics` and the closing panel have no scene: `Closing` is rendered without `scene`, so they keep the section reveal. The `depart`, `assemble`, `rise` and `reveal` recipes are still registered in `scenes.ts` and can be wired again (see "Add a scene to a section"). Nothing else gets a scene: the followers calculator, FAQs, Kamran button, header and footer. No other page has scenes.
+Only these two were wired in `site.tsx` (the journey band and `scene="beats"` on `#control`). The hero, `#subscribers`, `#economics` and the closing panel had no scene: `Closing` was rendered without `scene`, so they kept the section reveal. The `depart`, `assemble`, `rise` and `reveal` recipes are still registered in `scenes.ts` and can be wired again (see "Add a scene to a section"). Nothing else gets a scene: the followers calculator, FAQs, Kamran button, header and footer. No other page has scenes.
 
 ## Files
 
@@ -24,7 +45,7 @@ Only these two are wired in `site.tsx` (the journey band and `scene="beats"` on 
   - there is no autoplay and the clock never advances;
   - Play jumps to the next chapter boundary, and Replay jumps to the scene start;
   - the segments, arrow keys and swipe go to a chapter by scrolling.
-- `apps/web/components/marketing/scene-mount.tsx`: `ScrollScenes`, rendered at the end of `Home` in `site.tsx`. It does three things:
+- `apps/web/components/marketing/scene-mount.tsx`: `ScrollScenes`, rendered at the end of `Home` in `site.tsx` until 28 October 2026 (no page renders it now). It does three things:
   - it mounts the engine;
   - it makes every in-place scene finish: one already on screen at load stays complete, and one near the footer finishes by the end of the page;
   - it turns scenes off if reduced motion is switched on while the page is open (the same test as the head script; a static test keeps the two equal).
@@ -32,12 +53,14 @@ Only these two are wired in `site.tsx` (the journey band and `scene="beats"` on 
 
 ## Who gets today's page
 
+Since 28 October 2026 the head script below still runs on `/`, but no scene is there to switch on (see "Status: parked").
+
 Scenes are on only when the head script adds `scenes-on`. It is not added in these cases:
 
 - the path is not `/`;
 - reduced motion is on (`prefers-reduced-motion` or the member's own `html[data-reduce-motion="on"]`);
 - the visitor has no JavaScript;
-- the visitor is a crawler or an automated browser (`navigator.webdriver`, or a bot user agent);
+- the visitor is a crawler or an automated browser: `navigator.webdriver`, or a user agent that matches `/bot[/)-]|bot [0-9]|crawl|spider|slurp|preview|lighthouse/i`. "bot" counts only as a product token such as "Googlebot/2.1". Until 28 October 2026 any "bot" matched, so in-app browsers on phones whose model name contains it (a CUBOT phone's Instagram or Facebook WebView) lost the scenes; `scenes-head.ts` and `scene-mount.tsx` now share the Brain showcases' pattern ([brain-showcase.md](brain-showcase.md)), and `tests/marketing-showcase.test.ts` pins it in all of them;
 - the browser has no IntersectionObserver or sticky positioning.
 
 Browser checks add `?scenes=on` to switch scenes on despite webdriver. Reduced motion still wins over `?scenes=on`.
@@ -67,7 +90,7 @@ What a frame draws is unchanged. Progress comes from the same rects, read before
 ## Add a scene to a section
 
 1. Pick a scene from the table in the scroll-scenes library: `beats`, `assemble`, `rise`, `flip`, `reveal`, `depart` or `device`. Use each type at most once per page.
-2. Put `data-scene="<type>"` on the full-width section element. Only `reveal` may go on an inner element. For a `HomeSection`, pass `scene="…"`.
+2. Put `data-scene="<type>"` on the full-width section element. Only `reveal` may go on an inner element. (The old home's `HomeSection` took a `scene` prop; it was deleted on 28 October 2026.)
 3. Mark the parts that move with `data-beat`. Parts with the same number move together.
 4. Never mark inputs, forms, accordions or tabs, and never mark an element whose `transform` or `opacity` React sets.
 5. Copy each "before" pose from the site's CSS into `data-from`. For example, `opacity: 0; translate: 0 12px` becomes `data-from="y:12 o:0"`.

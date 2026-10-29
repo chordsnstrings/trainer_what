@@ -11,6 +11,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { join, relative } from "node:path";
+import { physicalRule } from "./marketing-helpers.ts";
 
 const require = createRequire(import.meta.url);
 // Babel's parser as bundled by the pinned Next.js (no new dependency).
@@ -30,153 +31,12 @@ type Finding = {
 const ALLOWED: Array<{ file: string; declaration: string; reason: string }> =
   [
     {
-      file: "apps/web/app/marketing.css",
-      declaration: "translate: 40px 0",
-      reason:
-        "The home relay's decorative dot travels along its wire inside .mk-relay-wire, an SVG that already mirrors with scale: var(--inline-sign) 1, so the dot's own offset must stay positive in both directions.",
-    },
-    {
       file: "apps/web/app/motion.css",
       declaration: "right: auto",
       reason:
         "React sizes the ::view-transition layer to 0 x 0 while it keeps inset: 0; in a right-to-left page the over-constrained box keeps its right edge, so the layer sits at the right side of the screen and every snapshot (placed physically from its top-left corner) is off screen. The layer must be pinned to the physical left in both directions.",
     },
   ];
-
-const PHYSICAL_PROPERTY =
-  /^(?:(?:margin|padding|scroll-margin|scroll-padding)-(?:left|right)|border-(?:left|right)(?:-(?:width|style|color))?|border-(?:top|bottom)-(?:left|right)-radius|left|right)$/;
-const SIDE_VALUE_PROPERTIES = new Set([
-  "text-align",
-  "text-align-last",
-  "float",
-  "clear",
-  "justify-content",
-  "justify-items",
-  "justify-self",
-  "background-position",
-  "background-position-x",
-  "object-position",
-  "transform-origin",
-  "perspective-origin",
-  "mask-position",
-  "-webkit-mask-position",
-  "caption-side",
-  // Shorthands that carry a position (`background: url(x) right 8px center`).
-  "background",
-  "mask",
-  "-webkit-mask",
-  "border-image",
-]);
-const FOUR_SIDE_SHORTHANDS = new Set([
-  "margin",
-  "padding",
-  "inset",
-  "border-width",
-  "border-style",
-  "border-color",
-  "scroll-margin",
-  "scroll-padding",
-]);
-
-/** Splits a value on top-level whitespace (not inside parentheses). */
-function tokens(value: string) {
-  const out: string[] = [];
-  let depth = 0,
-    current = "";
-  for (const ch of value.trim()) {
-    if (ch === "(") depth++;
-    if (ch === ")") depth--;
-    if (/\s/.test(ch) && depth === 0) {
-      if (current) out.push(current);
-      current = "";
-    } else current += ch;
-  }
-  if (current) out.push(current);
-  return out.filter((t) => t !== "!important");
-}
-/** The argument lists of every call to `name(` in a value. */
-function calls(value: string, name: RegExp) {
-  const out: string[] = [];
-  const re = new RegExp(name.source + "\\(", "g");
-  let match: RegExpExecArray | null;
-  while ((match = re.exec(value))) {
-    let depth = 1,
-      i = match.index + match[0].length;
-    const start = i;
-    for (; i < value.length && depth; i++) {
-      if (value[i] === "(") depth++;
-      if (value[i] === ")") depth--;
-    }
-    out.push(value.slice(start, i - 1));
-  }
-  return out;
-}
-function isZero(v: string) {
-  return /^-?0(?:\.0+)?(?:[a-z%]+)?$/i.test(v.trim());
-}
-function signed(v: string) {
-  return v.includes("--inline-sign");
-}
-/** Why a CSS declaration would not mirror in right to left, or null. */
-export function physicalRule(property: string, value: string): string | null {
-  const prop = property.trim().toLowerCase(),
-    val = value.trim().toLowerCase();
-  if (prop.startsWith("--")) return null;
-  if (PHYSICAL_PROPERTY.test(prop))
-    return "physical property: use the inline-start/end form";
-  // Addresses and quoted strings are not positions (`url(arrow-right.svg)`).
-  const positions = val
-    .replace(/url\([^)]*\)/g, "url()")
-    .replace(/"[^"]*"|'[^']*'/g, '""');
-  if (
-    SIDE_VALUE_PROPERTIES.has(prop) &&
-    /(^|[^a-z0-9-])(left|right)($|[^a-z0-9-])/.test(positions)
-  )
-    return "physical value: use start/end or a logical form";
-  if (/gradient\(\s*to\s+(left|right)\b/.test(val))
-    return "physical gradient direction";
-  if (FOUR_SIDE_SHORTHANDS.has(prop)) {
-    const t = tokens(val);
-    if (t.length === 4 && t[1] !== t[3])
-      return "asymmetric four-value shorthand: use -block and -inline";
-  }
-  if (prop === "border-radius") {
-    for (const part of val.split("/")) {
-      const t = tokens(part);
-      if (
-        (t.length === 2 && t[0] !== t[1]) ||
-        (t.length === 3 && !(t[0] === t[1] && t[1] === t[2])) ||
-        (t.length === 4 && !(t[0] === t[1] && t[2] === t[3]))
-      )
-        return "asymmetric corner radii: use border-start-start-radius etc.";
-    }
-  }
-  if (prop === "transform" || prop === "translate" || prop === "scale") {
-    const args = (re: RegExp) => calls(val, re).map((a) => a.split(","));
-    const xs = [
-      ...calls(val, /translatex/),
-      ...args(/translate(?!x|y|z|3d)/).map((a) => a[0]),
-      ...args(/translate3d/).map((a) => a[0]),
-      // matrix(a, b, c, d, tx, ty) and matrix3d(..., tx at index 12, ...)
-      ...args(/(?<![a-z0-9])matrix(?!3d)/).map((a) => a[4] ?? "0"),
-      ...args(/matrix3d/).map((a) => a[12] ?? "0"),
-      ...(prop === "translate" ? [tokens(val)[0] ?? "0"] : []),
-    ];
-    if (xs.some((x) => !isZero(x) && !signed(x)))
-      return "horizontal translation: multiply by var(--inline-sign)";
-    const flips = [
-      ...calls(val, /scalex/),
-      ...args(/(?<![a-z0-9])scale(?!x|y|z|3d)/).map((a) => a[0]),
-      ...args(/scale3d/).map((a) => a[0]),
-      ...args(/(?<![a-z0-9])matrix(?!3d)/).map((a) => a[0]),
-      ...args(/matrix3d/).map((a) => a[0]),
-      ...(prop === "scale" ? [tokens(val)[0] ?? "1"] : []),
-    ];
-    if (flips.some((x) => x.trim().startsWith("-") && !signed(x)))
-      return "horizontal flip: use var(--inline-sign)";
-  }
-  return null;
-}
 
 /** Declarations of a stylesheet with 1-based line numbers. */
 export function cssDeclarations(source: string) {

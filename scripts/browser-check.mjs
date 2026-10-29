@@ -78,14 +78,24 @@ async function checkMarketingSite({ page, base }) {
     await page.getByRole("navigation", { name: "Main" }).waitFor();
     await page.getByRole("navigation", { name: "Site map" }).waitFor();
     if (route === "/demo") {
-      const panel = main.getByRole("tabpanel");
-      await main.getByRole("tab", { name: "New pain", exact: true }).click();
-      await panel.getByText("Workout paused", { exact: true }).waitFor();
-      await panel.getByText(/the trainer is alerted/).waitFor();
-      await main
-        .getByRole("tab", { name: "Outside what it was taught", exact: true })
-        .click();
-      await panel.getByText("Handed to the trainer", { exact: true }).waitFor();
+      // The playground (components/marketing/brain/): automated browsers get
+      // its engine only with ?sc=on, which stays on for the tab, so the flag
+      // is cleared afterwards and the rest of this check keeps the still
+      // frames. The knee moment pauses training before any AI runs; Low
+      // recovery is built but not switched on, so it shows that, with no run.
+      await page.goto(base + "/demo?sc=on");
+      const play = main.locator('[data-showcase="play"][data-sc="on"]');
+      await play.waitFor({ timeout: 20_000 });
+      await play.locator('.bp-chip[data-t="t2"]').click();
+      const result = play.locator(".bp-res:not(.is-due)");
+      await result.getByText("Training paused", { exact: true }).first().waitFor();
+      // "No AI called" sits on the figure's AI box, outside the result.
+      await play.locator(".bp-noai", { hasText: "No AI called" }).waitFor();
+      const low = play.locator('.bp-chip[data-t="t3"]');
+      if (!(await low.isVisible())) await play.locator(".bp-more").click();
+      await low.click();
+      await play.locator(".bp-offcard").getByText(/Not on yet/).first().waitFor();
+      await page.evaluate(() => sessionStorage.removeItem("sc-on"));
     }
     if (route === "/follower-calculator") {
       const calculator = main.getByRole("region", {

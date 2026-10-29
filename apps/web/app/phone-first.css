@@ -17,14 +17,16 @@
   );
   --member-gutter: 16px;
 }
-:root:has(.member-shell) {
+/* While the member shell shows (data-shell on <html>,
+   components/root-marks.tsx). */
+:root[data-shell~="member"] {
   --member-tabbar-height: calc(64px + env(safe-area-inset-bottom, 0px));
   /* The installed app never rubber-bands the whole page or triggers pull to
      refresh; inner scrollers keep their own momentum. */
   overscroll-behavior-y: contain;
 }
 @media (min-width: 1024px) {
-  :root:has(.member-shell) {
+  :root[data-shell~="member"] {
     --member-tabbar-height: 0px;
   }
 }
@@ -772,7 +774,8 @@
 .bottom-sheet::backdrop {
   background: rgb(0 0 0 / 0.42);
 }
-:root:has(.bottom-sheet[open]) {
+/* The page behind an open sheet stays put (BottomSheet marks <html>). */
+:root[data-open~="sheet"] {
   overflow: hidden;
 }
 /* A grab handle: the sheet reads as a sheet (closing is the close button,

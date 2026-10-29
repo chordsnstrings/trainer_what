@@ -303,8 +303,10 @@ export const CONSENT_BAR_TEXT = {
  * close button and the privacy policy. It sits above the member app's bottom
  * chrome (--member-bottom-inset) and a spacer after the page reserves its
  * height, so the end of every page scrolls clear of it and it never hides a
- * page's own controls. --consent-bar-block-size carries its height to any
- * other fixed element while it shows.
+ * page's own controls. --consent-bar-block-size on <html> carries its height
+ * to the member app's toasts while it shows. The marketing site has no such
+ * element, and a property every element inherits restyles the whole page
+ * when it changes, so the bar sets it only for subscriber pages.
  */
 export function ConsentBar({
   audience,
@@ -334,6 +336,7 @@ export function ConsentBar({
   const privacyHref = usePrivacyHref();
   const bar = useRef<HTMLElement>(null);
   const [size, setSize] = useState(0);
+  const toasts = audience !== "trainers";
   useEffect(() => {
     const element = bar.current;
     if (!element) return;
@@ -341,7 +344,7 @@ export function ConsentBar({
     const update = () => {
       const height = Math.ceil(element.getBoundingClientRect().height);
       setSize(height);
-      root.style.setProperty("--consent-bar-block-size", height + "px");
+      if (toasts) root.style.setProperty("--consent-bar-block-size", height + "px");
     };
     update();
     const observer =
@@ -349,9 +352,9 @@ export function ConsentBar({
     observer?.observe(element);
     return () => {
       observer?.disconnect();
-      root.style.removeProperty("--consent-bar-block-size");
+      if (toasts) root.style.removeProperty("--consent-bar-block-size");
     };
-  }, []);
+  }, [toasts]);
   return (
     <>
       <div

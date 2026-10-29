@@ -1,0 +1,32 @@
+{
+  "about": "The build before phase 1 (PLAN.md §4.3): blocking time from the first paint to 5 s after the load event, the largest paint, and the first HTML's JavaScript and CSS (gzipped bytes). scripts/marketing-showcase-check.mjs compares with it.",
+  "commit": "4f35e5c",
+  "measured": "2026-10-28",
+  "conditions": "390x844 DPR 3 touch, 4x CPU, ?sc=on&tier=full, platform closed, median of 5",
+  "pages": {
+    "/": {
+      "tbt": 326,
+      "lcp": 408,
+      "js": 850499,
+      "css": 88125
+    },
+    "/trainer-brain": {
+      "tbt": 107,
+      "lcp": 660,
+      "js": 850499,
+      "css": 88125
+    },
+    "/demo": {
+      "tbt": 291,
+      "lcp": 728,
+      "js": 850499,
+      "css": 88125
+    },
+    "/pricing": {
+      "tbt": 281,
+      "lcp": 396,
+      "js": 850499,
+      "css": 88125
+    }
+  }
+}

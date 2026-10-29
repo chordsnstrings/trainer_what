@@ -336,6 +336,8 @@ class HostDeployment(unittest.TestCase):
         self.assertEqual(api_env["PAYOUTS_APPROVED"], "false")
         # Owner switch (1 Oct 2026): only the live deployment turns it off.
         self.assertEqual(api_env["AUTHENTICATOR_REQUIRED"], "false")
+        # The showcase off switch reaches the web process, live by default.
+        self.assertEqual(services["web"]["environment"]["MARKETING_SHOWCASE"], "")
 
     def test_readiness_rejects_old_release_and_non_ready_body(self):
         class Response(io.BytesIO):

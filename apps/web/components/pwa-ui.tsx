@@ -57,6 +57,7 @@ import {
 } from "../document-language";
 import { applyDocumentLanguage } from "./document-direction";
 import { useColorScheme } from "./appearance";
+import { RootMark } from "./root-marks";
 
 function read(key: string) {
   try {
@@ -129,6 +130,7 @@ export function OfflinePage() {
   const scheme = useColorScheme();
   return (
     <div className="member-neutral" data-color-scheme={scheme}>
+      <RootMark attribute="data-scheme" token={scheme} />
       <OfflineScreen
         savedAt={savedAt}
         onRetry={() =>

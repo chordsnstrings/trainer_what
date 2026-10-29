@@ -18,8 +18,12 @@
    the ordinary tokens at the --dark-* values; !important is needed only to
    outrank the inline light values. The two blocks are identical
    (tests/appearance.test.ts keeps them so): one for an explicit Dark
-   choice, one for System on a dark device. Mobile first; logical
-   properties only. No motion is added here. */
+   choice, one for System on a dark device. The document itself (behind
+   the surface, and the analytics notice the root layout adds) follows
+   data-scheme on <html>, which each surface sets while it shows
+   (components/root-marks.tsx): a :root:has() rule would make Chromium
+   restyle the whole page whenever an element is added. Mobile first;
+   logical properties only. No motion is added here. */
 
 /* The neutral dark palette (the platform's dark tokens) for member screens
    shown before the coach's brand is known and for the analytics bar.
@@ -43,8 +47,7 @@
 
 /* dark-block:start */
 :is(.trainer-theme, .member-neutral)[data-color-scheme="dark"],
-:root:has(:is(.trainer-theme, .member-neutral)[data-color-scheme="dark"])
-  .acquisition-consent {
+:root[data-scheme~="dark"] .acquisition-consent {
   --paper: var(--dark-paper) !important;
   --canvas: var(--dark-paper) !important;
   --white: var(--dark-white) !important;
@@ -102,8 +105,7 @@
 @media (prefers-color-scheme: dark) {
   /* system-block:start */
   :is(.trainer-theme, .member-neutral)[data-color-scheme="system"],
-  :root:has(:is(.trainer-theme, .member-neutral)[data-color-scheme="system"])
-    .acquisition-consent {
+  :root[data-scheme~="system"] .acquisition-consent {
     --paper: var(--dark-paper) !important;
     --canvas: var(--dark-paper) !important;
     --white: var(--dark-white) !important;
@@ -168,12 +170,12 @@
   /* system-block:end */
   /* The document behind a dark surface (overscroll, below short pages)
      and its scrollbars. */
-  :root:has(:is(.trainer-theme, .member-neutral)[data-color-scheme="system"]) {
+  :root[data-scheme~="system"] {
     background: var(--dark-paper);
     color-scheme: dark;
   }
 }
-:root:has(:is(.trainer-theme, .member-neutral)[data-color-scheme="dark"]) {
+:root[data-scheme~="dark"] {
   background: var(--dark-paper);
   color-scheme: dark;
 }

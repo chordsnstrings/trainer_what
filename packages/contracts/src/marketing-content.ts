@@ -15,6 +15,8 @@
 import { SETUP_STEPS, SETUP_BRAIN_MINIMUM } from "./coach-setup.ts";
 import { SITE_BUILDER_MODULES, SITE_BUILDER_PRESET_COUNT } from "./site-builder.ts";
 import { BRAND_COPY } from "./brand.ts";
+import { HOME_OFFER, NEVER_LIST, NEVER_NOTE, PROOF_LINKS, PUBLISH_GATES } from "./marketing-proof.ts";
+import { MEMBERSHIP_MINIMUMS, prepayQuote } from "./membership-pricing.ts";
 import type {
   AvailabilityLine,
   MarketingCard,
@@ -25,6 +27,13 @@ import type {
 } from "./marketing.ts";
 
 const UPDATED = "2026-09-28";
+/** Whole dirhams from fils, as copy prints a price: 19900 → "199". */
+const dirhams = (fils: number) => String(fils / 100);
+/** The prepaid packs every monthly offer sells at checkout, with their discounts (prepayQuote). */
+const PREPAY = {
+  six: { months: 6, pct: prepayQuote(MEMBERSHIP_MINIMUMS.training, 6).discountBps / 100 },
+  twelve: { months: 12, pct: prepayQuote(MEMBERSHIP_MINIMUMS.training, 12).discountBps / 100 },
+};
 const RETRIEVED = "2026-09-28";
 
 export const MARKETING_SOURCES: MarketingSource[] = [
@@ -668,12 +677,50 @@ const FREE_FAQ: MarketingFaq = {
 };
 const TRAINED_FAQ: MarketingFaq = {
   q: "Is the AI trained on my data?",
-  a: "It is taught with your material: confirmed rules, coaching cases, examples and corrections. Each version is tested on held-out scenarios and can be rolled back. We do not claim to fine-tune a separate model on you, and your teaching stays private to your workspace.",
+  a: "It is taught with your material: confirmed rules, coaching cases, examples and corrections. It sends on its own only once it passes your held-out scenarios. We do not claim to fine-tune a separate model on you, and your teaching stays private to your workspace.",
+};
+// The phase 1 pages (/, /trainer-brain, /demo and /pricing) ask these as
+// "my AI" (the AI always belongs to someone), with the plain words for
+// "held-out scenarios". The originals stay on /how-it-works, /features and
+// /faq until those pages are revised. A version is not always checked
+// before it goes live: the first one, in "Waits for me", goes live on the
+// practice quiz and 3 own cases (apps/api/src/brain-teach.ts), and every
+// reply waits for the trainer. What always holds is that nothing sends on
+// its own without a passing check (20 or more own cases), and that once a
+// Brain is live every edit is re-checked (apps/api/src/brain-check.ts).
+const MY_AI_REPLACE_FAQ: MarketingFaq = {
+  q: "Will my AI replace me?",
+  a: "No. Your AI is built from your rules, cases and corrections and coaches under your name. It hands you anything it is not confident about, and safety issues always come to you. You can take over any subscriber or conversation at any time.",
+};
+const MY_AI_TRAINED_FAQ: MarketingFaq = {
+  q: "Is my AI trained on my data?",
+  a: "It is taught with your material: confirmed rules, coaching cases, examples and corrections. It sends on its own only once it passes your test cases. We do not claim to fine-tune a separate model on you, and your teaching stays private to your workspace.",
 };
 /**
- * Lines shown only while an availability flag is on (marketingPageFor). The
- * "frontier" flag is on only while the active model profile is frontier tier
- * and its latest switch check succeeded (docs/features/model-profiles.md). Public
+ * The answer while subscriber payments and the coaching assistant are off;
+ * AVAILABILITY_LINES carries the answers once they are on: "Yes" only once
+ * a page can be published (PUBLISH_GATES), since subscribers pay a
+ * published page. One answer on every page that asks it (/ and /pricing),
+ * so their FAQ structured data never disagrees.
+ */
+const PAY_TODAY_FAQ: MarketingFaq = {
+  q: "Can subscribers pay me today?",
+  a: "Not yet. Subscriber payments are not on yet, and publishing your page waits for them. With an account you can already set up your page and app.",
+};
+/**
+ * The answer until a page can be published (PUBLISH_GATES);
+ * AVAILABILITY_LINES carries the present-tense answer once it can.
+ */
+const INSTAGRAM_FAQ: MarketingFaq = {
+  q: "How do my Instagram followers become subscribers?",
+  a: "Share your coaching link in your bio and Stories. Once your page is live, followers open it, choose your offer and pay in AED. The follower calculator headlines a strong case: a best case, not typical. Cautious and typical results show too.",
+};
+/**
+ * Lines shown only while their gates are on (marketingPageFor): the
+ * frontier wording, and answers that change as the platform's money,
+ * publishing (PUBLISH_GATES) and a subscriber's options come on.
+ * The "frontier" flag is on only while the active model profile is frontier
+ * tier and its latest switch check succeeded (docs/features/model-profiles.md). Public
  * text says "frontier model", never the model or its vendor, and "keeps
  * getting better", never "only gets better": single answers can regress,
  * which is why releases can be rolled back (plan section 6).
@@ -691,7 +738,15 @@ export const AVAILABILITY_LINES: readonly AvailabilityLine[] = [
     when: "frontier",
     faq: {
       q: TRAINED_FAQ.q,
-      a: "It runs on a frontier model, taught with your confirmed rules, cases, examples and corrections. Each version is tested on held-out scenarios and can be rolled back. We do not fine-tune a model on you; your teaching stays private to your workspace.",
+      a: "It runs on a frontier model, taught with your confirmed rules, cases, examples and corrections. It sends on its own only once it passes your held-out scenarios. We do not fine-tune a model on you; your teaching stays private to your workspace.",
+    },
+  },
+  {
+    // /trainer-brain asks it as "my AI" (MY_AI_TRAINED_FAQ).
+    when: "frontier",
+    faq: {
+      q: MY_AI_TRAINED_FAQ.q,
+      a: "It runs on a frontier model, taught with your confirmed rules, cases, examples and corrections. It sends on its own only once it passes your test cases. We do not fine-tune a model on you; your teaching stays private to your workspace.",
     },
   },
   {
@@ -699,7 +754,7 @@ export const AVAILABILITY_LINES: readonly AvailabilityLine[] = [
     path: "/faq",
     faq: {
       q: "Does it get better over time?",
-      a: "Yes. Your Brain runs on a frontier model, and every correction and approval becomes teaching. Each new version is tested on your held-out scenarios before it reaches subscribers, so it keeps getting better with time.",
+      a: "Yes. Your Brain runs on a frontier model, and every correction and approval becomes teaching. Once you are live, every edit is re-checked on your held-out scenarios, so it keeps getting better with time.",
     },
   },
   {
@@ -711,14 +766,67 @@ export const AVAILABILITY_LINES: readonly AvailabilityLine[] = [
       text: "Approve or correct what comes to you. Each tested release learns from it and keeps getting better.",
     },
   },
+  {
+    // Payments still off, the coaching assistant on: teaching and testing
+    // work today. Listed before the answers below, which replace it.
+    when: "model",
+    faq: {
+      q: PAY_TODAY_FAQ.q,
+      a: "Not yet. Subscriber payments are not on yet, and publishing your page waits for them. With an account you can already set up your page and app, and teach and test your AI.",
+    },
+  },
+  {
+    // Payments on while publishing still waits for another go-live check:
+    // sign-ups (in production the legal check) or the coaching assistant.
+    // A caller that does not say whether sign-ups are open gets this one.
+    when: ["payments"],
+    faq: {
+      q: PAY_TODAY_FAQ.q,
+      a: "Not yet. Subscriber payments are on, but publishing your page is not on yet. With an account you can already set up your page and app.",
+    },
+  },
+  {
+    when: ["payments", "model"],
+    faq: {
+      q: PAY_TODAY_FAQ.q,
+      a: "Not yet. Subscriber payments are on, but publishing your page is not on yet. With an account you can already set up your page and app, and teach and test your AI.",
+    },
+  },
+  {
+    // Once a page can be published, wherever the question appears (/ and
+    // /pricing).
+    when: PUBLISH_GATES,
+    faq: { q: PAY_TODAY_FAQ.q, a: "Yes. Subscribers pay you by card in AED." },
+  },
+  {
+    when: PUBLISH_GATES,
+    faq: { q: INSTAGRAM_FAQ.q, a: "You share your coaching link in your bio and Stories. Followers open your branded page, choose your offer and pay in AED. The follower calculator headlines a strong case: a best case, not typical. Cautious and typical results show too. An estimate, not a promise." },
+  },
+  {
+    // /faq: money reaches the trainer once both are on.
+    when: ["payments", "payouts"],
+    faq: {
+      q: "How does money reach me?",
+      a: "Subscribers pay by card in AED through Stripe. After reconciliation, your earnings are paid monthly to your verified UAE bank account, with a statement from gross to net.",
+    },
+  },
+  {
+    // /faq: every option a subscriber can add is on (the voice add-on and
+    // paid sessions are bought by card).
+    when: ["nutrition", "voice", "payments"],
+    faq: {
+      q: "What does a subscriber get for their money?",
+      a: "A personalised, day-by-day plan in your method, guided workouts that adapt as they train, chat with you and a labelled digital coach, and optionally nutrition, voice and one-to-one sessions.",
+    },
+  },
 ];
 const TECH_FAQ: MarketingFaq = {
   q: "Do I need technical skills?",
   a: "No. Setup is a guided checklist: answer interview questions, confirm rules in plain language, test scenarios and set your offer. Your website and app are set up for you.",
 };
-const INSTAGRAM_FAQ: MarketingFaq = {
-  q: "How do my Instagram followers become subscribers?",
-  a: "You share your coaching link in your bio and Stories. Followers open your branded page, choose your offer and pay in AED. The follower calculator headlines a strong case: a best case, not typical. Cautious and typical results show too. An estimate, not a promise.",
+const FOLLOWERS_FAQ: MarketingFaq = {
+  q: "Will my followers pay?",
+  a: "Some will. Use the follower calculator for a strong case with cautious and typical scenarios from published benchmarks, then test your offer. We never promise a number.",
 };
 /**
  * The home page's answer-first introduction (35-65 words, opening with the
@@ -739,56 +847,83 @@ export const MARKETING_CONTENT: MarketingPage[] = [
     // teaches, the platform trains their subscribers); the brand line leads
     // the description and closes every page. Removed home blocks now live
     // on deeper pages (docs/features/marketing-site.md "Where the home
-    // content went").
+    // content went"). Phase 1 (27 October 2026, docs/marketing-revamp-
+    // 2026-10-26/phase1/PLAN.md): the bands of the redesigned home; the
+    // introduction stays the answer to the first FAQ.
     description:
       "Your coaching. Beyond your hours. Free to join: teach your AI how you coach; it trains your subscribers day by day under your brand, priced in AED.",
     h1: BRAND_COPY.homeHeadline,
     h1Highlight: "trains",
-    eyebrow: "FOR PERSONAL TRAINERS",
-    // One name in the hero ("your AI", as in the H1 and the call to
-    // action); the relay's loop is the only place that says it asks you.
-    lede: "Free to set up, nothing to pay upfront. Share your methods and rules; your AI coaches every subscriber day by day, your way.",
+    eyebrow: "FOR UAE PERSONAL TRAINERS",
+    lede: "Specialists inside your AI handle every message. Code checks every step. You decide what goes out.",
     intro: HOME_INTRO,
     primaryKeyword: "AI personal trainer platform",
     sections: [
       {
+        id: "resort",
+        heading: "Change a setting. Watch it re-sort.",
+        body: [
+          "Your settings apply to every moment at once. Make it stricter and more waits for you. Safety rules never switch off.",
+        ],
+      },
+      {
+        // The /how-it-works steps follow as the home's walkthrough.
+        id: "how",
+        heading: "How it works",
+        steps: [
+          { title: "You teach", body: "Rules, cases and an 8-answer quiz shape your AI (we call it your Trainer Brain)." },
+          { title: "It coaches", body: "A dated plan daily, guided workouts, adjusted as they train." },
+          { title: "You decide", body: "Replies wait for you. Your choice: approved reply fits → sent on its own. Pain → paused." },
+        ],
+      },
+      {
         id: "subscribers",
-        heading: "What your subscribers get",
-        body: ["A plan for every day, built your way, that adapts as they train."],
+        heading: "What subscribers get, under your name",
+        bullets: HOME_OFFER.map((item) => item.text),
+        note: "Once your page is live.",
       },
       {
         id: "control",
         heading: "You stay in charge",
         body: [
-          "You choose what runs on its own. Take over any subscriber, any time.",
+          "“Waits for me” mode: replies wait for you until automatic sending is on. That needs 20 cases and passing checks.",
         ],
+        bullets: NEVER_LIST,
+        note: NEVER_NOTE,
       },
       {
         id: "economics",
         heading: "Free to start. Your price.",
-        body: [
-          "Joining, your coaching site and app, and teaching your AI are free. Nothing to pay upfront; your own domain is optional.",
-          "You set the price in AED. We earn only when subscribers pay: our share starts at 25% and falls as you grow. Card processing is itemised.",
-        ],
+        body: ["We earn only when your subscribers pay."],
+        bullets: ["Free to join", "You set the AED price", "Our share falls as you grow"],
+        note: "Each rate applies to its band only.",
       },
       {
         id: "followers",
         heading: "What are your followers worth?",
-        body: ["The headline is a strong case for an engaged, growing audience, from published benchmarks and our stated assumptions. An estimate, not a promise."],
+        body: ["A best case for an engaged, growing audience, from published benchmarks. An estimate, not a promise."],
+      },
+      {
+        id: "proof",
+        heading: "Proof you can check",
+        body: ["We publish no testimonials, logos, ratings or counts we can’t show. Check these instead:"],
+        bullets: PROOF_LINKS.map((link) => link.label),
       },
     ],
     faqs: [
       { q: "How does {APP_NAME} work?", a: HOME_INTRO },
-      REPLACE_FAQ,
+      MY_AI_REPLACE_FAQ,
       SAFETY_FAQ,
       FREE_FAQ,
+      FOLLOWERS_FAQ,
+      PAY_TODAY_FAQ,
       TECH_FAQ,
-      INSTAGRAM_FAQ,
     ],
     related: ["/how-it-works", "/trainer-brain", "/features", "/pricing", "/follower-calculator"],
-    lastUpdated: "2026-10-03",
+    lastUpdated: "2026-10-27",
     indexable: true,
     jsonLd: ["WebPage", "FAQPage"],
+    secondaryCta: { label: "Try the demo", href: "/demo" },
   },
   {
     path: "/how-it-works",
@@ -864,172 +999,205 @@ export const MARKETING_CONTENT: MarketingPage[] = [
     kind: "page",
     group: "product",
     navLabel: "Trainer Brain",
-    title: "Trainer Brain: an AI built from your judgment",
+    // Phase 1 (27 October 2026, docs/marketing-revamp-2026-10-26/phase1/
+    // PLAN.md): the title keeps "AI trainer" for search; the H1 says "your
+    // AI". The crew, the anatomy and the playground counts come from the
+    // Brain traces (components/marketing/brain/data/traces.json).
+    title: "Trainer Brain: an AI trainer from your judgment",
     description:
-      "Teach an AI your coaching rules, cases and examples. It plans and adapts training for each subscriber, learns from your corrections and asks when unsure.",
-    h1: "An AI trainer built from your judgment",
+      "Teach an AI trainer your rules, cases and examples. It plans and adapts training for each subscriber, learns from your corrections and asks when unsure.",
+    h1: "Your AI, built from your judgment",
     eyebrow: "TRAINER BRAIN",
-    lede: "Your rules, cases and corrections in one private AI. It acts alone only when confident and asks you when it isn’t.",
+    lede: "Built from your rules and corrections. Routine replies use your approved words. Every reply waits for you until you choose otherwise.",
     intro:
-      "The Trainer Brain is a private, versioned set of your coaching rules, cases and examples. It plans and adapts training for each subscriber. It is taught by you, tested on held-out scenarios, and acts alone only when confident. It learns from your corrections.",
+      "The Trainer Brain is a private, versioned set of your coaching rules, cases and examples. It plans and adapts training for each subscriber. It is taught by you. Once it passes your test cases, it can send on its own, only within your rules. It learns from your corrections.",
     primaryKeyword: "AI trained on my coaching method",
     sections: [
       {
         id: "what",
-        heading: "What it is",
+        heading: "Not a generic workout generator",
+        body: ["Every change traces back to something you taught. Every version can be rolled back."],
+      },
+      {
+        id: "inside",
+        heading: "Who’s inside your Brain",
         body: [
-          "A bespoke AI trainer built from your rules, cases and corrections, not a generic workout generator. Every change traces back to something you taught, and every version can be rolled back.",
+          "Specialists inside your AI handle every message. Code checks every step. You decide what goes out.",
+          "14 AI specialists and 11 code steps.",
         ],
+        cards: [
+          {
+            title: "Coach",
+            label: "One per moment",
+            body: "Code picks one of these from the kind of moment. Never two on one message.",
+          },
+          {
+            title: "Teach",
+            label: "Works with you",
+            body: "These help you teach. Nothing they write is used until you confirm it.",
+          },
+          {
+            title: "Guard",
+            label: "Code, no AI",
+            body: "Fixed steps around every moment. They follow your rules and the safety rules.",
+          },
+        ],
+        note: "How we count: 14 AI specialists are the AI jobs, grouped by what they do (the Meal planner groups 4 model tasks). 11 code steps run around them. One of those, the Examiner, has your AI answer your test cases, then code marks them.",
+      },
+      {
+        // The anatomy figure's key: the three lanes a decision ends in.
+        id: "decides",
+        heading: "Anatomy of one decision",
+        body: [
+          "One reply, taken apart. Fixed checks before and after. One AI specialist in the middle. Your rules at every layer.",
+        ],
+        bullets: [
+          "Sent on its own: your approved reply fits and cites your rule.",
+          "Waits for you: nothing fits your rules, or it is your topic.",
+          "Training paused: safety rules in code catch pain and red flags first.",
+        ],
+      },
+      {
+        id: "play",
+        heading: "Throw a moment at your Brain",
+        body: [
+          "Pick something a member might say. Watch each check and specialist work. Then change a setting and run it again.",
+        ],
+        note: "Sample moments. Code steps use the app's own limits on sample data. AI steps replay answers from test runs or the app's tests, or are marked illustrative. No AI model is called on this page.",
       },
       {
         id: "teach",
         heading: "What you teach it",
-        bullets: [
-          "A guided interview: what you recommend, why, and what changes it.",
-          "Plain-language rules you confirm, edit or reject, each with its source.",
-          "Coaching cases and worked examples of real decisions.",
-          "Your own documents; you review the extracted text before use.",
-          "Practice quiz and client cases; 20 cases for automatic sending.",
-        ],
-      },
-      {
-        // The three paths moved here from the home page (28 September 2026).
-        id: "decides",
-        heading: "How it decides",
-        body: [
-          "It combines your published rules with each subscriber’s goals, schedule, equipment and logged training. Then it takes one of three paths.",
-        ],
+        body: ["Five ways in. Every rule keeps its source, so you can always see where a decision came from."],
         cards: [
-          {
-            title: "Confident",
-            body: "The change follows your confirmed rules, so it is applied automatically and logged with its reason.",
-            label: "Applied automatically",
-          },
-          {
-            title: "Not sure",
-            body: "Outside what you taught or below your threshold, a draft comes to you. Your correction becomes teaching.",
-            label: "Handed to you",
-          },
-          {
-            title: "Safety",
-            body: "Pain, medical issues and red flags pause the workout and alert you. Enforced in code, outside the AI.",
-            label: "Always to you",
-          },
+          { title: "A guided interview", body: "What you recommend, why, and what changes it." },
+          { title: "Rules you confirm", body: "Plain language, each with its source: confirm, edit or reject. Flagged rules never go into “Approve all”." },
+          { title: "Cases and examples", body: "Real decisions you made, not just principles." },
+          { title: "Your documents", body: "Used only after you review the extracted text." },
+          { title: "The practice quiz", body: "8 answers and 3 cases to start. 20 cases for automatic sending." },
         ],
       },
       {
+        // The frontier wording adds a fifth bullet here (AVAILABILITY_LINES).
         id: "learns",
-        heading: "How it learns",
+        heading: "How it gets better",
         bullets: [
-          "Your approvals and corrections become new teaching.",
-          "Subscriber outcomes, such as completed sessions and logged loads, inform later plans.",
-          "New teaching is evaluated against your scenarios before release.",
-          "Every release is versioned; you can roll back to an earlier one.",
+          "Your corrections become suggested rules you confirm.",
+          "Once you’re live, every edit is re-checked against your test cases.",
+          "Every release is versioned, so you can roll back.",
+          "Compare my replies: rate its reply blind against yours, on five points.",
         ],
       },
       {
         id: "never",
-        heading: "What it never does",
-        bullets: [
-          "Keep pain, medical issues or red flags from you.",
-          "Pretend to be you: subscribers see a clearly labelled digital coach.",
-          "Give medical or clinical advice.",
-          "Use your teaching elsewhere: your Brain stays private to your workspace.",
-        ],
+        heading: "What your AI will never do",
+        bullets: NEVER_LIST,
+        note: NEVER_NOTE,
       },
       {
-        // Moved from the home page (28 September 2026).
-        id: "control",
-        heading: "You stay in control",
+        // Deletion is a reviewed request, so "request deletion", never
+        // "delete it whenever you like" (marketing-features.ts, "Export and
+        // deletion").
+        id: "yours",
+        heading: "Your method stays yours",
         bullets: [
-          "Your rules are inspectable and every release can be rolled back.",
-          "You choose which routine changes run automatically.",
-          "You can take over any subscriber or conversation at any time.",
-          "Safety routing is enforced in code and cannot be switched off.",
-          "Subscribers always see when guidance comes from the digital coach.",
+          "Private to your workspace",
+          "Isolated at the database layer",
+          "Never used for another trainer",
+          "Download your data and request deletion",
+          "Your voice only with consent you can withdraw",
         ],
       },
     ],
     faqs: [
-      TRAINED_FAQ,
-      REPLACE_FAQ,
+      MY_AI_TRAINED_FAQ,
+      MY_AI_REPLACE_FAQ,
       {
-        q: "Can another trainer see or use my Brain?",
-        a: "No. Your rules, sources, cases and scenarios are private to your workspace, and workspaces are isolated at the database layer.",
+        q: "Can another trainer see or use my AI?",
+        a: "No. Your rules, sources, cases and test cases are private to your workspace, and workspaces are isolated at the database layer.",
       },
       {
-        q: "What if the Brain gets something wrong?",
-        a: "Correct it. The correction is recorded with its reason, becomes teaching, and is checked against your scenarios before the next release. You can also roll back to an earlier release at any time.",
+        q: "What if my AI gets something wrong?",
+        a: "Correct it. The correction is recorded with its reason and becomes a suggested rule you confirm, and your AI is re-checked against your test cases. You can also roll back to an earlier release at any time.",
       },
     ],
     related: ["/demo", "/features/safety", "/features/ai-training-plans", "/guides/writing-coaching-rules"],
-    lastUpdated: "2026-10-03",
+    lastUpdated: "2026-10-27",
     indexable: true,
     jsonLd: ["WebPage", "FAQPage"],
-    cta: { label: "Start teaching your Brain", href: "/signup" },
+    secondaryCta: { label: "Try the demo", href: "/demo" },
   },
   {
     path: "/demo",
     kind: "page",
     group: "product",
     navLabel: "Demo",
+    // Phase 1 (27 October 2026, docs/marketing-revamp-2026-10-26/phase1/
+    // PLAN.md): the playground replaces the four scripted examples. The
+    // moments and their outcomes come from the Brain traces
+    // (components/marketing/brain/data/traces.json) with the sample
+    // settings; "6 minutes" is the setup wizard's Brain step (SETUP_STEPS).
     title: "See an AI coach decide: interactive demo",
     description:
-      "Four scripted examples of a Trainer Brain decision: a confident progression, a missed session, a low-confidence handoff to the trainer and a pain report.",
-    h1: "See your Brain make a coaching decision",
+      "Throw a sample moment at a Trainer Brain. Watch each code check and AI specialist work, then change a setting and run it again. No AI model is called.",
+    h1: "Throw a moment at your Brain",
     eyebrow: "INTERACTIVE DEMO",
+    lede: "Pick something a member might say. Watch each check and specialist work. Then change a setting and run it again.",
     intro:
-      "Choose a subscriber message to see how a Trainer Brain responds. Confident changes follow the trainer’s rules automatically, uncertain ones go to the trainer, and pain always pauses the workout. These examples are fictional and scripted; no AI model is called.",
+      "This demo shows how a Trainer Brain handles sample moments from members. Safety rules in code read each message first; code then picks the specialist, and checks run before anything is sent. Change a setting, such as how sure a plan must be, and run it again. The moments are scripted; no AI model is called.",
     primaryKeyword: "AI coach example",
     sections: [
       {
-        id: "scenarios",
-        heading: "Four decisions",
-        cards: [
+        id: "next",
+        heading: "What happens in your account",
+        body: ["You’ll teach your real rules in setup. Every reply waits for you until you choose otherwise."],
+        steps: [
           {
-            title: "A confident progression",
-            label: "Applied automatically",
-            body: "“Week three done and the squats felt easy.” The trainer’s rule: after two sessions with every set completed and three or more reps in reserve, add 2.5 kg to the main lower-body lift. The Brain moves next Monday’s squat from 60 kg to 62.5 kg and records why.",
+            title: "Setup",
+            body: "Teach your real rules. About 6 minutes for the first ones: 8 quiz answers and 3 cases.",
           },
           {
-            title: "A missed session",
-            label: "Rescheduled automatically",
-            body: "“I missed yesterday. Should I do two sessions today?” The trainer’s rule: never stack two sessions in a day; move the missed one to the next free day and keep a rest day between hard sessions. The session moves to Thursday and Friday becomes a rest day.",
+            title: "Waits for me",
+            body: "Every reply comes to you first. Nothing reaches a subscriber without you, and your edits become teaching.",
           },
           {
-            title: "Outside what it was taught",
-            label: "Handed to the trainer",
-            body: "“I’m travelling for two weeks with only a hotel gym. Can you rebuild my plan?” Nothing the trainer taught covers this equipment, so confidence is below the trainer’s threshold. The Brain drafts an option and hands it to the trainer; the subscriber is told the trainer will confirm.",
-          },
-          {
-            title: "New pain",
-            label: "Workout paused",
-            body: "“My knee hurts when I squat today.” Pain is a safety rule enforced in code, outside the AI. The workout pauses, the trainer is alerted, and normal training stays blocked until the trainer reviews it.",
+            title: "Your choice",
+            body: "Automatic for routine changes you choose, after 20 cases and passing checks. Safety issues always come to you.",
           },
         ],
-        note: "Fictional, scripted examples. They do not assess anyone’s health or prescribe a workout.",
+      },
+      {
+        id: "moments",
+        heading: "The 12 sample moments",
+        // The page lists each moment's outcome instead (pages/demo.tsx),
+        // from the traces and the platform's flags; this text holds for
+        // every flag state, for llms-full.txt.
+        body: [
+          "Each moment ends one of five ways: sent on its own within your rules, waits for you, training paused, the member confirms, or a new rule for you.",
+          "Change a setting and the same moment can end another way. A moment that needs something not on yet says so.",
+        ],
       },
     ],
     faqs: [
       {
-        q: "Can I test my own Brain before launch?",
-        a: "Yes. The scenario lab lets you write held-out situations with the answer you expect, and your Brain is evaluated against them before a version can be published."
+        q: "Can I test my AI before launch?",
+        a: "Yes. The practice quiz shows replies from your rules to approve or change. You also write test cases with the answer you expect and can check your AI against them. Nothing sends on its own until it passes a check of 20 or more cases.",
       },
       {
         q: "Is this a real AI response?",
-        a: "No. These are scripted examples that show the decision flow. A real Trainer Brain uses the trainer’s own confirmed rules and evaluated release.",
+        a: "No. These are sample moments. Code steps use the app’s own limits on sample data. AI steps replay answers from test runs or the app’s tests, or are marked illustrative. No AI model is called.",
       },
       {
-        q: "Who decides the confidence threshold?",
-        a: "You do. You choose which routine changes may run automatically; everything else comes to you.",
+        q: "Who decides how sure it must be?",
+        a: "You do. Plans send on their own only when Confidence meets your bar. Chat replies have no score: they must cite your approved rule, at the Brain level you choose.",
       },
       SAFETY_FAQ,
     ],
     related: ["/trainer-brain", "/features/safety", "/how-it-works"],
-    lastUpdated: UPDATED,
+    lastUpdated: "2026-10-27",
     indexable: true,
     jsonLd: ["WebPage", "FAQPage"],
-    cta: { label: "Build my Brain", href: "/signup" },
+    secondaryCta: { label: "See how it works", href: "/how-it-works" },
   },
   {
     path: "/features",
@@ -1834,14 +2002,20 @@ export const MARKETING_CONTENT: MarketingPage[] = [
     title: "Online coaching platform fees and commission",
     description:
       "Free to join, nothing upfront. You set your price in AED; {APP_NAME} takes a marginal commission of 25%, 20%, 15% and 10% of subscription revenue.",
-    h1: "Your price, our transparent share",
+    // Phase 1 (27 October 2026, docs/marketing-revamp-2026-10-26/phase1/
+    // PLAN.md): the page computes its figures from the ledger's bands; the
+    // card-processing rate is never stated, only itemised.
+    h1: "Free to join. You set the price.",
+    h1Highlight: "price",
     eyebrow: "PRICING",
-    lede: "Free to join, nothing to pay upfront. You set your price in AED; our commission starts at 25% and falls as you grow.",
+    lede: "Nothing to pay upfront. We earn only when your subscribers pay, and our share falls as you grow.",
     intro:
-      "Joining, setup and teaching your AI are free, with nothing to pay upfront. You choose your price in AED, the programme length and monthly or upfront billing. {APP_NAME} takes a commission on subscription revenue in marginal bands of 25%, 20%, 15% and 10%. Payment processing and optional services are itemised on your statement.",
+      "Joining, setup and teaching your AI are free, with nothing to pay upfront. You choose your price in AED, the programme length and monthly or upfront billing. {APP_NAME} takes a commission on subscription revenue, with our share for each group of subscribers at 25%, 20%, 15% and 10%. Payment processing and optional services are itemised on your statement.",
     primaryKeyword: "online coaching platform fees",
     sections: [
       {
+        // The /how-it-works journey reads its first bullet
+        // (components/marketing/journey.tsx).
         id: "how",
         heading: "How you earn",
         bullets: [
@@ -1851,23 +2025,24 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         ],
       },
       {
-        // Moved from the home page (28 September 2026) with its sources; the
-        // page renders the three price anchors after it.
-        id: "hours",
-        heading: "An hour sells only once",
-        body: [
-          "Published Dubai price guides put one-to-one sessions at roughly AED 70-350, with experienced or premium trainers higher. Online coaching guides quote AED 400-2,000 a month.",
-          "A Trainer Brain lets your method coach many people at once, at a monthly price more followers can afford. You keep the sessions only you can serve.",
+        id: "glance",
+        heading: "What’s free, what we take",
+        body: ["We earn only when your subscribers pay."],
+        cards: [
+          { title: "Free", body: "Joining, your site and app, teaching your AI, and a free {APP_NAME} address." },
+          {
+            title: "What we take",
+            body: "Our share per paying subscriber: 25%, 20%, 15% or 10%. Card processing is itemised on your statement.",
+          },
+          { title: "Optional", body: "Your own domain, priced before you buy." },
         ],
-        note: "Price ranges come from published price guides, not official statistics. See Methodology.",
-        sources: ["heytrainer-dubai-2026", "embody-dubai-2025", "369mmafit-online-2026"],
       },
       {
         id: "bands",
-        heading: "Marginal commission bands",
+        heading: "How our share falls",
         table: {
           caption: "Each band applies only to the subscribers inside it",
-          columns: ["Paying subscriber positions", "Rate in that band"],
+          columns: ["Paying subscribers", "Our share in that band"],
           rows: [
             ["1-100", "25%"],
             ["101-300", "20%"],
@@ -1876,6 +2051,30 @@ export const MARKETING_CONTENT: MarketingPage[] = [
           ],
         },
         note: "Reaching a new band lowers the rate for subscribers in that band only; earlier bands keep their rate.",
+      },
+      {
+        // The page computes the example from the ledger (WorkedExample) and
+        // shows it as a statement; the body says the same figures for
+        // llms-full.txt and the assistant (tests/marketing-pricing.test.ts
+        // holds them to estimateEarnings).
+        id: "example",
+        heading: "What you keep, in AED",
+        body: [
+          "150 subscribers at AED 199 a month bring AED 29,850. Our share is 25% of the first 100 and 20% of the next 50: AED 6,965.",
+          "You keep AED 22,885 before card processing and other costs, about 92 sessions at AED 250.",
+        ],
+        note: "An arithmetic example, not a forecast or promise.",
+      },
+      {
+        // Moved from the home page (28 September 2026) with its sources.
+        id: "hours",
+        heading: "An hour sells only once",
+        body: [
+          "Published Dubai price guides put one-to-one sessions at roughly AED 70-350, with experienced or premium trainers higher. Online coaching guides quote AED 400-2,000 a month.",
+          "A Trainer Brain lets your method coach many people at once, at a monthly price more followers can afford. You keep the sessions only you can serve.",
+        ],
+        note: "Price ranges come from published price guides, not official statistics. See Methodology.",
+        sources: ["heytrainer-dubai-2026", "embody-dubai-2025", "369mmafit-online-2026"],
       },
       {
         id: "statement",
@@ -1900,24 +2099,43 @@ export const MARKETING_CONTENT: MarketingPage[] = [
           "Earnings are paid monthly to your verified UAE IBAN after payments are reconciled. Holds, such as the short hold after a bank change, are shown on your statement.",
         ],
       },
+      {
+        // The page renders the "Live today / Not on yet" panel here.
+        id: "status",
+        heading: "Live today, and not on yet",
+      },
     ],
     faqs: [
       FREE_FAQ,
-      PRICE_FAQ,
+      {
+        // The lowest prices are the ones activation enforces (assertOfferPrice);
+        // the prepaid packs and their discounts are checkout's (prepayQuote).
+        q: "Who sets the price?",
+        a: `You do: the price in AED, from ${dirhams(MEMBERSHIP_MINIMUMS.training)} a month (${dirhams(MEMBERSHIP_MINIMUMS.nutrition)} with nutrition or voice included, ${dirhams(MEMBERSHIP_MINIMUMS.complete)} with both), the programme length, monthly or upfront billing, trials and promotions. Monthly offers also let subscribers prepay ${PREPAY.six.months} or ${PREPAY.twelve.months} months at ${PREPAY.six.pct}% or ${PREPAY.twelve.pct}% off.`,
+      },
       {
         q: "What will I pay?",
-        a: "Nothing to join or set up. Once subscribers pay: commission on subscription revenue by band and payment processing. Optional services you choose, such as the voice add-on or your own domain, are extra. Every item appears on your monthly statement.",
+        a: "Nothing to join or set up. Once subscribers pay: commission on subscription revenue by band and payment processing. Your own domain, if you choose one, is extra. Every item appears on your monthly statement.",
       },
       {
-        q: "How is commission counted when I have different prices?",
+        q: "How does commission work with different prices?",
         a: "Each paying subscriber holds a position from their first payment. The band rate for that position applies to that subscriber’s charges.",
       },
+      {
+        // From the terms (docs/legal/uae-2026-10/terms-2026-10-14.en.md):
+        // each party keeps its rights in what it provides, with no ownership
+        // of a trainer's methods and no right to sell client information;
+        // closing a workspace must look after existing clients.
+        q: "Who owns my subscribers’ data, and what if I leave?",
+        a: "You keep your rights in what you provide, and subscribers keep theirs: we never own your method or sell client information. If you leave, you can download your data and ask to close your workspace once your existing subscribers are looked after.",
+      },
+      PAY_TODAY_FAQ,
     ],
     related: ["/earnings-calculator", "/follower-calculator", "/features/payments-and-payouts"],
-    lastUpdated: UPDATED,
+    lastUpdated: "2026-10-27",
     indexable: true,
     jsonLd: ["WebPage", "FAQPage"],
-    cta: { label: "Estimate my earnings", href: "/earnings-calculator" },
+    secondaryCta: { label: "Estimate my earnings", href: "/earnings-calculator" },
   },
   {
     path: "/earnings-calculator",
@@ -2187,18 +2405,15 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         q: "Will it give bad advice under my name?",
         a: "The Brain acts on its own only where your confirmed rules make it confident. Everything else is handed to you, safety issues always come to you, and you can correct or roll back any release.",
       },
-      {
-        q: "Will my followers pay?",
-        a: "Some will. Use the follower calculator for a strong case with cautious and typical scenarios from published benchmarks, then test your offer. We never promise a number.",
-      },
+      FOLLOWERS_FAQ,
       {
         q: "What does a subscriber get for their money?",
-        a: "A personalised, day-by-day plan in your method, guided workouts that adapt as they train, chat with you and a labelled digital coach, and optionally nutrition, voice and one-to-one sessions.",
+        a: "A personalised, day-by-day plan in your method, guided workouts that adapt as they train, chat with you and a labelled digital coach, and optionally nutrition, voice and one-to-one sessions once each is on.",
       },
       PRICE_FAQ,
       {
         q: "How does money reach me?",
-        a: "Subscribers pay by card in AED through Stripe. After reconciliation, your earnings are paid monthly to your verified UAE bank account, with a statement from gross to net.",
+        a: "Once subscriber payments and payouts are on, subscribers pay by card in AED through Stripe, and after reconciliation your earnings are paid monthly to your verified UAE bank account, with a statement from gross to net.",
       },
       {
         q: "Is cancellation the same as a refund?",
@@ -2218,6 +2433,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         q: "Do I need an advertiser permit to promote my own coaching?",
         a: "Reports on the UAE Advertiser Permit say people promoting their own services through personal accounts are exempt. Rules change, so check with the UAE Media Council. This is information, not legal advice.",
       },
+      INSTAGRAM_FAQ,
     ],
     related: ["/how-it-works", "/pricing", "/guides/uae-advertiser-permit"],
     lastUpdated: UPDATED,
@@ -3042,7 +3258,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         heading: "Include commission and costs",
         body: [
           "Commission is a share of subscription revenue in marginal bands: 25% for your first 100 paying subscribers, 20% for the next 200, 15% up to 1,000 and 10% beyond. Each band keeps its own rate, so growing never raises the rate on earlier subscribers.",
-          "Your statement also lists payment processing and any optional services you choose, such as the voice add-on or your own domain. Use the earnings calculator to see what remains before these costs at your price."
+          `Your statement also lists payment processing and your own domain, if you choose one. Monthly offers also let subscribers prepay ${PREPAY.six.months} or ${PREPAY.twelve.months} months at ${PREPAY.six.pct}% or ${PREPAY.twelve.pct}% off. Use the earnings calculator to see what remains before these costs at your price.`
         ]
       },
       {

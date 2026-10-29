@@ -56,7 +56,7 @@ YOU                                Your Today (safety first) → your edit → P
 
 **The headline count.** "14 AI specialists and 11 code steps" appears only with a "How we count" note one tap away (`labels.howWeCount`); otherwise skip the number. The 14 is a curated grouping: the Meal planner groups 4 model tasks.
 
-**"Not on yet" shelf.** Meal planner and Recovery rule sit in a separate dashed shelf outside the live shell, so the live grid looks whole.
+**"Not on yet" shelf.** Meal planner and Recovery rule sit in a separate dashed shelf outside the live shell, so the live grid looks whole. (Corrected 28 Oct: in phase 1 every status follows the platform's flags, so the field's shelf holds only what is not on yet of the two. The Meal planner joins the shell once nutrition is on; the Recovery rule stays off. The anatomy's (f) has no shelf: the Meal planner is one of its seven pills, dashed while off. See `docs/features/brain-showcase.md`, "Moments that are not on yet".)
 
 **Status chips and tooltips:**
 
@@ -206,11 +206,11 @@ settingsDefault: supplementsTopic true (the sample trainer's choice), recovery.o
 
 - **Inside every showcase stage, always visible:**
   - "Sample · scripted · no AI model called";
-  - the status strip: "Subscribers can't join yet: subscriber payments are not on. You can run all of this on yourself today with Try my AI." It sits inside the stage, not below it.
+  - the status strip: "Subscribers can't join yet: subscriber payments are not on. You can run all of this on yourself with Try my AI. (Was "…on yourself today…"; "today" is untrue while sign-ups are closed, changed 28 Oct.)" It sits inside the stage, not below it. (Corrected 28 Oct: it now reads "…You can run most of this on yourself with Try my AI.", because items that need voice, nutrition or meal photos stay off even there. With the AI model off it ends after "…subscriber payments are not on.", and with payments on while publishing is not, it reads "Subscribers can't join yet: publishing is not on yet." It goes once trainers can publish: sign-ups, payments and the model.)
 - **A's eyebrow:** "A SAMPLE HOUR OF YOUR BRAIN". Never "right now", "live" or a real clock.
 - **Mission control and playground footer:** "A mix chosen to show every path. Not real rates."
 - **Counts** always read "in this sample". They are capped and reset each loop (A) or each day (B).
-- **Playground banner:** "Sample moments. Code steps use the app's own limits on sample data. AI steps replay answers from test runs, or are marked illustrative. No AI model is called on this page."
+- **Playground banner:** "Sample moments. Code steps use the app's own limits on sample data. AI steps replay answers from test runs, or are marked illustrative. No AI model is called on this page." (Corrected 28 Oct: "…AI steps replay answers from test runs or the app's tests, or are marked illustrative…", since three steps are tagged "From the app's tests".)
 - **Tag on every AI step:** "From a test run", "From the app's tests" or "Illustrative". Computed code steps show "Worked out by the app's own rules".
 - **Other fixed labels:**
   - "No AI called"
@@ -335,7 +335,7 @@ The container is unchanged: 1280 px, 12 columns, 24 px gap.
        - Confidence holds a 60 px gauge with the bar tick and the label "78% · your bar 80%".
        - On chat moments it shows "—", with the no-score tooltip.
      - y 392–420: the "Learns from you" strip: Privacy (a tiny square) → Learner (a small pill) → Examiner (a small square with its "uses your AI" badge), 28 px high.
-     - y 436–464: the dashed "Not on yet" shelf, outside the shell: Meal planner and Recovery rule.
+     - y 436–464: the dashed "Not on yet" shelf, outside the shell: Meal planner and Recovery rule (corrected 28 Oct: only those not on yet under the page's flags; with nutrition on, the Meal planner sits beside the Set logger in row 3 on desktop).
      - **Rulebook spine** (y 32–380): the vertical card "Your method · 24 rules (sample)". Rule lines run from it to the nodes that cite a rule.
    - **Lanes (169 px):** older tiles collapse into "+n".
      - **Sent on its own** (190 px, 6 tiles). Fatima's tile carries the tag "Spot check".
@@ -637,7 +637,7 @@ Lives on `/trainer-brain` and `/demo`.
 - the status strip along the top inside the stage, then the message bubble (Arabic right-to-left, with its gloss);
 - checks first;
 - the "Your Brain" shell: 6 live AI pills in rows of 3 + 3, plus Set logger;
-- the Not-on-yet shelf: Meal planner and Recovery rule;
+- the Not-on-yet shelf: Meal planner and Recovery rule (corrected 28 Oct: the Meal planner moves into the shell once nutrition is on, leaving the Recovery rule; a moment whose specialist is not on yet shows "Built and tested. Not on yet." and does not play);
 - checks after;
 - the rulebook spine;
 - static edges, with 8 or fewer dash animations at once, drawn in the one loop;
