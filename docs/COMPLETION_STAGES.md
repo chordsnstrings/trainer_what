@@ -2,7 +2,7 @@
 
 Application implementation and the job audit are complete for the current phase. [PR #1](https://github.com/chordsnstrings/trainer_what/pull/1) contains the work; [combined verification](VERIFICATION_2026-09-27.md) records the passing final code revision. The owner authorized merge to main. Real services and deployment remain the next phase; screenshots were waived. Historical entries below record the evidence available at each stage and may contain superseded pending-check statements.
 
-## Stage 2026-10-28 — marketing revamp phase 1: Live Brain home, /trainer-brain anatomy, /demo playground and /pricing (PR #105; CI green on `e2a8cef`; final commit, merge and deploy next)
+## Stage 2026-10-28 — marketing revamp phase 1: Live Brain home, /trainer-brain anatomy, /demo playground and /pricing (PR #105, squash-merged as `2ef5757`; live since 01:32 UTC on 29 October 2026)
 
 Owner, 27 October 2026: "Go with your recommendation". That means A "Live Brain", plus C's "Anatomy of one decision", Never list and source badges, plus B's pricing page and calculators. The defaults were accepted, and each phase ships as its own PR, "checked and deployed". Spec: `docs/marketing-revamp-2026-10-26/phase1/PLAN.md`. What shipped: `docs/features/marketing-site.md` ("Phase 1") and `docs/features/brain-showcase.md`.
 
@@ -80,7 +80,17 @@ Owner, 27 October 2026: "Go with your recommendation". That means A "Live Brain"
       - forced colours: a pressed What-if is Highlight with HighlightText in the light and dark contrast themes;
       - the contrast probe: unchanged;
       - the full showcase check passed in 446 s. Its reported-only metrics were again slower than the morning's runs (load average 1.30 at the end), on `/demo` too, where the final diff applies no rule: the field 33.3 ms, the anatomy scroll 50 ms with 5 ms of work, its mount [78, 91], the playground 33.3 ms on `/trainer-brain` and 49.9 ms with 7 ms of work on `/demo`, the `/demo` mount [108, 68].
-  - CI on this commit is recorded in `CLAUDE_HANDOFF.md` and, after the merge, here.
+  - **CI on the final head `c6a62df`** (run 40791425940): all 8 jobs green, the showcase step in 6 min 27 s.
+- **Merged:** squash-merged as `2ef5757` at 00:45 UTC on 29 October 2026, with the head pinned to `c6a62df`. `main`'s `check.yml` run 40796153241 passed (00:45–01:23 UTC).
+- **Live:** the host deployed `2ef5757`. `/api/v1/ready` reported it from 01:32:49 UTC (`scripts/watch-release.sh`).
+- **Live check** (HTTP only, no browser; `live-check.mjs`, 03:03 UTC): passed, 40 checks and 0 failures.
+  - The four pages serve release `2ef5757`, with the new H1s.
+  - Their showcase roots are live (`data-sc="pre"`, so the off switch is not set) and carry `data-nosnippet`.
+  - The `rel=expect` markers are on `/`, `/trainer-brain` and `/pricing`, and "Today you can join" is gone.
+  - All 26 referenced static assets return 200, and robots read the first frame.
+  - `/how-it-works`, `/features`, `/faq`, `/earnings-calculator`, `/llms-full.txt` (with the Never lines), `/robots.txt`, `/sitemap.xml` and `/api/v1/ready` return 200.
+  - Before the deploy, the same script failed on the old pages: old H1s, no showcase roots, no markers.
+- **Wider live sweep** (`wf_944bc317-2e6`, HTTP only): running.
 
 **Owner FYIs** (also in the PR body draft, `scratchpad/pr105-body.md`, posted to PR #105 before the merge):
 - **Copy changed for accuracy:**
@@ -105,7 +115,7 @@ Owner, 27 October 2026: "Go with your recommendation". That means A "Live Brain"
 - The catch-all route ships about 835 KB gzipped of JS to marketing pages: a marketing route group, in phase 2 or 3.
 - Phase 2 covers the other pages' copy. Phase 3 covers Arabic, tracking and A/B.
 
-**Next action:** push the final commit, then get CI green on it. Then update the PR body, mark the PR ready and squash-merge. Then watch `main`'s run and the deploy, live-check the four pages, and record the merge SHA and the live check here.
+**Next action:** record the wider live sweep here. Phase 1 is then done. Phase 2 (every other page) and phase 3 (Arabic, tracking, A/B) wait for the owner.
 
 ## Stage 2026-10-27 — marketing concepts round 2: the multi-agent Brain showcase (published; waiting for the owner's choice)
 
