@@ -90,7 +90,18 @@ Owner, 27 October 2026: "Go with your recommendation". That means A "Live Brain"
   - All 26 referenced static assets return 200, and robots read the first frame.
   - `/how-it-works`, `/features`, `/faq`, `/earnings-calculator`, `/llms-full.txt` (with the Never lines), `/robots.txt`, `/sitemap.xml` and `/api/v1/ready` return 200.
   - Before the deploy, the same script failed on the old pages: old H1s, no showcase roots, no markers.
-- **Wider live sweep** (`wf_944bc317-2e6`, HTTP only): running.
+- **Wider live sweep** (`wf_944bc317-2e6`, 2 agents, HTTP only, about 400 GETs, 03:06–03:22 UTC): no blocker and no major problem.
+  - **Every sitemap page:** 39 of 39 return 200 on `2ef5757`, plus the four pages in `?lang=ar` (`dir="rtl"`) and 5 sign-in pages. All have their root mark and its `<noscript>` fallback. There are no error markers, every page has one H1, and canonicals match the sitemap.
+  - **Assets:** all 64 static assets return 200 (27 per page, plus lazy chunks and fonts), as do 82 other same-host files. All 176 fragment links resolve.
+  - **The deployed CSS** has no `:root:has(` or `html:has(` left, and has every new mark rule.
+  - **App entry points:** 24 (`/app`, `/trainer`, `/setup`, `/admin`, sign-in, legal, calculators, a coach join page) return 200 with the right marks.
+  - **The off switch is not set.**
+  - **Production flags:** model, nutrition, meal photos, voice, custom domains and WHOOP are on; payments, payouts, Instagram, Zepp and frontier are off. Visitors therefore see "Not on yet" on publishing and payments.
+  - **No coach website is published**, so none could be checked; the coach-mode join page passed.
+  - **Notes, none caused by this release:**
+    - the showcase and marketing CSS (+158 KB source, +21%) now loads on every surface, as planned (the "marketing route group" item below);
+    - production sends no `Strict-Transport-Security` header, though `infra/Caddyfile.example` sets one (older, infra);
+    - `/api/` responses carry `x-middleware-rewrite: http://api:4000/...` from `apps/web/proxy.ts` (older).
 
 **Owner FYIs** (also in the PR body draft, `scratchpad/pr105-body.md`, posted to PR #105 before the merge):
 - **Copy changed for accuracy:**
@@ -115,7 +126,7 @@ Owner, 27 October 2026: "Go with your recommendation". That means A "Live Brain"
 - The catch-all route ships about 835 KB gzipped of JS to marketing pages: a marketing route group, in phase 2 or 3.
 - Phase 2 covers the other pages' copy. Phase 3 covers Arabic, tracking and A/B.
 
-**Next action:** record the wider live sweep here. Phase 1 is then done. Phase 2 (every other page) and phase 3 (Arabic, tracking, A/B) wait for the owner.
+**Next action:** none for phase 1, which is done. Phase 2 (every other page) and phase 3 (Arabic, tracking, A/B) wait for the owner. The two older infra notes above (HSTS, the rewrite header) are for the owner to schedule.
 
 ## Stage 2026-10-27 — marketing concepts round 2: the multi-agent Brain showcase (published; waiting for the owner's choice)
 

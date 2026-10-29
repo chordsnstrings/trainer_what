@@ -2,31 +2,31 @@
 
 ## Work in progress
 
-### Status at 03:04 UTC on 29 October 2026 (Claude): marketing revamp phase 1 live since 01:32 UTC
+### Status at 03:20 UTC on 29 October 2026 (Claude): marketing revamp phase 1 is live and checked; done
 
-**What it is:** phase 1 of the marketing revamp (`/`, `/trainer-brain`, `/demo`, `/pricing`), as the owner chose on 27 Oct ("Go with your recommendation"; each phase is its own PR, "checked and deployed"). The checks and how it was built are in the 28 October entry of `docs/COMPLETION_STAGES.md`.
+**What it is:** phase 1 of the marketing revamp (`/`, `/trainer-brain`, `/demo`, `/pricing`), as the owner chose on 27 Oct ("Go with your recommendation"; each phase is its own PR, "checked and deployed"). The full record is the 28 October entry of `docs/COMPLETION_STAGES.md`.
 
 **Finished:**
-- **PR #105** is squash-merged as `2ef5757` at 00:45 UTC, with the head pinned to `c6a62df`. CI on that head (run 40791425940) was all 8 jobs green.
-- **`main`'s run** 40796153241 passed (00:45–01:23 UTC).
-- **Live since 01:32:49 UTC:** `/api/v1/ready` reports `2ef5757`.
-- **The HTTP-only live check passed** (03:03 UTC, 40 checks, 0 failures; `scratchpad/live/live-check-1.log`):
-  - the four pages: new H1s, live showcase roots, markers, the old copy gone;
-  - all static assets return 200;
-  - robots read the first frame;
-  - the other marketing pages, `llms-full.txt`, the sitemap and readiness return 200.
-- **The owner allowed the force-with-lease push** of this records branch, which was restarted from `main` (29 Oct).
+- **PR #105** is squash-merged as `2ef5757` (00:45 UTC). CI on its head and `main`'s run 40791425940 and 40796153241 both passed.
+- **Live since 01:32:49 UTC.**
+- **The HTTP-only live check of the four pages passed** (40 checks, 0 failures).
+- **The wider live sweep found no blocker or major problem:**
+  - 39 of 39 sitemap pages, `?lang=ar`, and 24 app and sign-in entry points return 200 with their root marks;
+  - all 64 static assets return 200;
+  - the off switch is not set.
+- **The records** went into this branch's PR #106 (the owner allowed the force-with-lease push of the branch restarted from `main`).
 
-**Running:** a wider HTTP-only sweep of the live site (`wf_944bc317-2e6`, 2 agents). It covers every sitemap URL and its assets, the root marks on every surface, the app entry points, coach sites, and the availability flags.
+**Production flags now** (from `/api/v1/public/platform`): model, nutrition, meal photos, voice, custom domains and WHOOP are on; payments, payouts, Instagram, Zepp and frontier are off. Visitors see "Not on yet" on publishing and payments.
 
-**Next:**
-1. Record the sweep here and in the stage entry.
-2. Merge this records branch as its own PR.
-3. Phase 2 (every other page) and phase 3 wait for the owner.
+**For the owner** (none caused by this release):
+- Production sends no `Strict-Transport-Security` header, though `infra/Caddyfile.example` sets one.
+- `/api/` responses expose `x-middleware-rewrite: http://api:4000/...` (from `apps/web/proxy.ts`).
+- The showcase CSS now loads on every surface (+21% of global CSS), as planned. A marketing route group is the phase 2 or 3 fix.
+- The FYI decisions are in PR #105's description and the stage entry.
 
-**Deploy reconciliation:** this deploy rested on the owner's explicit 27 Oct instruction for phase 1, "checked and deployed" (`docs/PROJECT_MEMORY.md`), with green CI on the final head and on `main`'s run.
+**Next:** phase 2 (every other page) and phase 3 (Arabic, tracking, A/B) wait for the owner.
 
-**Waiting on the owner:** nothing. The FYI decisions are in PR #105's description and the stage entry. Delete the stray `/oq-daily.log` when convenient.
+**Waiting on the owner:** nothing for phase 1. Delete the stray `/oq-daily.log` when convenient.
 
 ### Home page as the owner's HTML design: live since 22:47 UTC on 25 October 2026 (Claude, checked 04:10 UTC on 26 Oct)
 
