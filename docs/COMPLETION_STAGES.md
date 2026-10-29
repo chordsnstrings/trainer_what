@@ -2,6 +2,18 @@
 
 Application implementation and the job audit are complete for the current phase. [PR #1](https://github.com/chordsnstrings/trainer_what/pull/1) contains the work; [combined verification](VERIFICATION_2026-09-27.md) records the passing final code revision. The owner authorized merge to main. Real services and deployment remain the next phase; screenshots were waived. Historical entries below record the evidence available at each stage and may contain superseded pending-check statements.
 
+## Stage 2026-10-29 — repository understanding and standing handoff instruction
+
+Owner requested a repository review before further work, then instructed: "Always update the hand-off document."
+
+Reviewed `main` at `56acf157b945483a733b71988a351909a4097206`, tracing the product surfaces, shared Trainer Brain, teaching/review/publication cycle, qualified coaching and plan delivery, subscriber features, commercial rules, provider boundaries, database isolation, background jobs and deployment checks. The product/implementation explanation was delivered to the owner.
+
+Updated the current section of `CLAUDE_HANDOFF.md`, retained its previous release records under a history heading, and recorded the standing instruction in `PROJECT_MEMORY.md`. Only these three documentation files change.
+
+Evidence inspected: [all eight application jobs passed](https://github.com/chordsnstrings/trainer_what/actions/runs/40811688638); [serving verification](https://github.com/chordsnstrings/trainer_what/actions/runs/40815365920) recorded HTTP 200 and the reviewed SHA at 04:10:32 UTC / 08:10:32 Dubai on 29 October. These runs cover the reviewed base. No fresh application tests, live-user journey, provider transaction or deployment are claimed for this review.
+
+Remaining work: no unfinished review task. Next implementation scope awaits the owner's next request; existing marketing phases 2 and 3 keep their previous authority boundary. Continue maintaining the handoff for both implementation and review work.
+
 ## Stage 2026-10-28 — marketing revamp phase 1: Live Brain home, /trainer-brain anatomy, /demo playground and /pricing (PR #105, squash-merged as `2ef5757`; live since 01:32 UTC on 29 October 2026)
 
 Owner, 27 October 2026: "Go with your recommendation". That means A "Live Brain", plus C's "Anatomy of one decision", Never list and source badges, plus B's pricing page and calculators. The defaults were accepted, and each phase ships as its own PR, "checked and deployed". Spec: `docs/marketing-revamp-2026-10-26/phase1/PLAN.md`. What shipped: `docs/features/marketing-site.md` ("Phase 1") and `docs/features/brain-showcase.md`.

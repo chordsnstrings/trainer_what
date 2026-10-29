@@ -2,6 +2,24 @@
 
 ## Work in progress
 
+### 29 October 2026 — repository review complete; standing handoff instruction
+
+**Owner instruction:** "Always update the hand-off document." Keep this Work in progress section current after every completed stage and status update, including read-only repository reviews. Record the reviewed or changed commit, work completed, actual checks, blockers and next action; do not claim unrun checks or a new deployment.
+
+**Completed:** reviewed `main` at `56acf157b945483a733b71988a351909a4097206`: current handoff and owner decisions, trainer/subscriber/admin routing, conversational onboarding, versioned shared Trainer Brain, learning and qualification, plan delivery, nutrition and voice access, WHOOP workout adjustments, membership pricing/upgrades, tenant/database boundaries, background jobs and release workflows. Reported the product and implementation map to the owner. This follow-up changes documentation only.
+
+**Existing evidence checked through GitHub:**
+
+- [Application checks 40811688638](https://github.com/chordsnstrings/trainer_what/actions/runs/40811688638): all eight jobs succeeded for the reviewed commit.
+- [Serving verification 40815365920](https://github.com/chordsnstrings/trainer_what/actions/runs/40815365920), job `123255036482`: HTTP 200 and exact release `56acf157b945483a733b71988a351909a4097206` at 04:10:32 UTC / 08:10:32 Dubai on 29 October.
+- These are existing checks of the reviewed base, not freshly run application tests or proof that this documentation update has deployed.
+
+**Boundaries:** no application code, provider settings or customer records changed; no live-user browser journey or paid-provider call was performed. The feature flags in the previous 03:20 UTC handoff are that record's observation, not independently refreshed here: payments and payouts were off while model, nutrition, meal photos, voice, custom domains and WHOOP were on. Older README/build-status statements must be reconciled with newer source and release evidence.
+
+**Next:** the requested repository understanding is complete. Carry this context into the next owner-requested task and update this handoff as work progresses. Marketing revamp phases 2 and 3 retain the previous owner-decision boundary; this review starts neither phase. No review blocker or owner action is outstanding.
+
+## Previous handoff records
+
 ### Status at 03:20 UTC on 29 October 2026 (Claude): marketing revamp phase 1 is live and checked; done
 
 **What it is:** phase 1 of the marketing revamp (`/`, `/trainer-brain`, `/demo`, `/pricing`), as the owner chose on 27 Oct ("Go with your recommendation"; each phase is its own PR, "checked and deployed"). The full record is the 28 October entry of `docs/COMPLETION_STAGES.md`.

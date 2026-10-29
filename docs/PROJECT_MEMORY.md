@@ -16,6 +16,7 @@ The downloadable `trainsyou-ux-ui-audit-2026-10-19.html` was refreshed and saved
 
 ## Standing owner decisions
 
+- Handoff continuity (owner, 29 October 2026): "Always update the hand-off document." Update `CLAUDE_HANDOFF.md` after every completed stage and status update, including read-only repository reviews; keep the current work, checked commit, actual evidence, blockers and next action accurate. Preserve earlier release records as history.
 - Always deploy completed changes after normal release checks. Keep Claude handoff current. Give short updates and avoid redundant checks.
 - Use a clean, minimal white interface, consistent buttons, spacing and navigation. Smooth trainer onboarding and daily use matter.
 - Trainers teach their own coaching AI. They are not expected to build software. The desktop-only visual website editor assembles varied modules; published multipage sites remain responsive. Include transformation galleries.
