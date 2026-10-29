@@ -90,7 +90,7 @@ Owner, 27 October 2026: "Go with your recommendation". That means A "Live Brain"
   - All 26 referenced static assets return 200, and robots read the first frame.
   - `/how-it-works`, `/features`, `/faq`, `/earnings-calculator`, `/llms-full.txt` (with the Never lines), `/robots.txt`, `/sitemap.xml` and `/api/v1/ready` return 200.
   - Before the deploy, the same script failed on the old pages: old H1s, no showcase roots, no markers.
-- **Wider live sweep** (`wf_944bc317-2e6`, 2 agents, HTTP only, about 400 GETs, 03:06–03:22 UTC): no blocker and no major problem.
+- **Wider live sweep** (`wf_944bc317-2e6`, 2 agents, HTTP only, about 400 GETs, 03:04–03:20 UTC): no blocker and no major problem.
   - **Every sitemap page:** 39 of 39 return 200 on `2ef5757`, plus the four pages in `?lang=ar` (`dir="rtl"`) and 5 sign-in pages. All have their root mark and its `<noscript>` fallback. There are no error markers, every page has one H1, and canonicals match the sitemap.
   - **Assets:** all 64 static assets return 200 (27 per page, plus lazy chunks and fonts), as do 82 other same-host files. All 176 fragment links resolve.
   - **The deployed CSS** has no `:root:has(` or `html:has(` left, and has every new mark rule.
