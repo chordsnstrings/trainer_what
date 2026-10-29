@@ -2,6 +2,24 @@
 
 ## Work in progress
 
+### 29 October 2026 — website-creation audit and plan ready; implementation awaits owner approval
+
+**Owner instructions:** "Always update the hand-off document." The next request is to simplify trainer website creation: onboarding should collect website details, videos and photos and produce a complete editable site with distinctive Three.js and scroll effects. The owner explicitly requested **"Audit, plan, lemme know first before execution."**
+
+**Completed:** source and existing-test audit of `main` at `56acf157b945483a733b71988a351909a4097206`, covering onboarding website facts/actions, photo intake, starter generation, deterministic content population, renderer/scroll behaviour, editing, storage/publication and relevant tests. The [full audit and proposed implementation plan](docs/WEBSITE_CREATION_AUDIT_PLAN_2026-10-29.md) records findings, source links, a proposed trainer journey, architecture, delivery phases and acceptance criteria.
+
+**Key findings:** chat already saves the first private website draft. The model mainly selects catalogue modules; subsequent code overwrites much of its copy, the model receives photo descriptions rather than images, automatic composition excludes video, and generated scroll sections use stacked phone presentation. The inspected website path has no Three.js runtime. Later chat changes do not revise an edited website, and phone quick edit is limited. Existing native offers, permissions, revision checks, publication snapshots and tenant boundaries should be retained.
+
+**Proposal, not approved implementation:** a public website brief and media pipeline; complete-site composition with section-specific content and coordinated visual direction; real Three.js scenes plus designed phone/scroll experiences; preview-led conversational editing with preserved manual choices. Start after approval by establishing three representative complete-site visual benchmarks, then build the generator to that quality.
+
+**Checks and limits:** this is source review, not a fresh rendered visual/performance audit. No application code, tests, dependencies, infrastructure, provider settings or customer data were changed or run for the proposal. Existing successful CI and serving evidence for the reviewed base remain in the previous review record below. Official Three.js and Web Vitals documentation informed proposed rendering/performance targets; no new performance result is claimed.
+
+**Documentation location:** `docs/handoff-review-2026-10-29`, containing this handoff, project memory, completion entries and the plan. Automatic approval review rejected a prior direct `main` ref update because it could trigger deployment and `CLAUDE.md` assigns deployment separately. Use the documentation review branch/PR; do not bypass that rejection. Main was not moved by that attempted update.
+
+**Next:** present the audit and plan, then wait for the owner's approval before implementation. This is a review checkpoint, not authorization to build, migrate websites, merge to main or deploy. Existing marketing revamp phases 2 and 3 retain their separate scope. Continue updating this handoff after each stage and status update.
+
+## Previous handoff records
+
 ### 29 October 2026 — repository review complete; standing handoff instruction
 
 **Owner instruction:** "Always update the hand-off document." Keep this Work in progress section current after every completed stage and status update, including read-only repository reviews. Record the reviewed or changed commit, work completed, actual checks, blockers and next action; do not claim unrun checks or a new deployment.
@@ -18,7 +36,6 @@
 
 **Next:** the requested repository understanding is complete. Carry this context into the next owner-requested task and update this handoff as work progresses. Marketing revamp phases 2 and 3 retain the previous owner-decision boundary; this review starts neither phase. No review blocker or owner action is outstanding.
 
-## Previous handoff records
 
 ### Status at 03:20 UTC on 29 October 2026 (Claude): marketing revamp phase 1 is live and checked; done
 

@@ -16,6 +16,7 @@ The downloadable `trainsyou-ux-ui-audit-2026-10-19.html` was refreshed and saved
 
 ## Standing owner decisions
 
+- Trainer website creation (owner, 29 October 2026): simplify onboarding so the conversation collects website details, photos and videos and produces a complete editable site with distinctive Three.js and scroll effects. The owner requested an audit and plan before execution. The proposal is `docs/WEBSITE_CREATION_AUDIT_PLAN_2026-10-29.md`; implementation, redesign/migration and deployment await approval. Preserve trainsyou CI for the platform while allowing distinct trainer-site identities.
 - Handoff continuity (owner, 29 October 2026): "Always update the hand-off document." Update `CLAUDE_HANDOFF.md` after every completed stage and status update, including read-only repository reviews; keep the current work, checked commit, actual evidence, blockers and next action accurate. Preserve earlier release records as history.
 - Always deploy completed changes after normal release checks. Keep Claude handoff current. Give short updates and avoid redundant checks.
 - Use a clean, minimal white interface, consistent buttons, spacing and navigation. Smooth trainer onboarding and daily use matter.

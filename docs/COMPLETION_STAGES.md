@@ -2,6 +2,18 @@
 
 Application implementation and the job audit are complete for the current phase. [PR #1](https://github.com/chordsnstrings/trainer_what/pull/1) contains the work; [combined verification](VERIFICATION_2026-09-27.md) records the passing final code revision. The owner authorized merge to main. Real services and deployment remain the next phase; screenshots were waived. Historical entries below record the evidence available at each stage and may contain superseded pending-check statements.
 
+## Stage 2026-10-29 — trainer website-creation audit and proposed plan
+
+Owner request: simplify website creation and improve visual quality so onboarding collects website information, photos and videos and leaves an extensive editable site with Three.js and scroll effects. Explicit boundary: "Audit, plan, lemme know first before execution."
+
+Audited the generation/editing path at `56acf157b945483a733b71988a351909a4097206`. The existing flow already creates a private draft; the main limitations are catalogue-only layout planning, deterministic replacement of generated section copy, caption-only photo context, omitted video, stacked phone motion and limited post-generation conversational editing. Existing commercial bindings, permissions, draft versions and publication history remain valuable.
+
+Prepared [the full audit and plan](WEBSITE_CREATION_AUDIT_PLAN_2026-10-29.md), with source evidence, a conversation-to-complete-site journey, public media intake, staged composition, typed Three.js scenes, preview-led editing, migration strategy and measurable acceptance. Updated handoff and project memory.
+
+Validation: inspected relevant source and existing test/browser assertions; checked proposed rendering/performance principles against official Three.js and Web Vitals documentation. No new application tests, browser captures, paid calls, implementation or deployment were performed. The plan explicitly distinguishes proposed targets from measured results. Documentation checks preserve previous records and limit changes to the four documentation files.
+
+Next action: owner reviews the proposal and approves implementation scope. The first proposed implementation phase establishes three representative full-site visual benchmarks. Documentation is on `docs/handoff-review-2026-10-29`; main is unchanged because automatic approval review rejected the earlier direct-main handoff update. No merge/deployment is attempted for this planning request.
+
 ## Stage 2026-10-29 — repository understanding and standing handoff instruction
 
 Owner requested a repository review before further work, then instructed: "Always update the hand-off document."
