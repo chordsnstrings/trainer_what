@@ -14,7 +14,7 @@
 
 **Checks and limits:** this is source review, not a fresh rendered visual/performance audit. No application code, tests, dependencies, infrastructure, provider settings or customer data were changed or run for the proposal. Existing successful CI and serving evidence for the reviewed base remain in the previous review record below. Official Three.js and Web Vitals documentation informed proposed rendering/performance targets; no new performance result is claimed.
 
-**Documentation location:** `docs/handoff-review-2026-10-29`, containing this handoff, project memory, completion entries and the plan. Automatic approval review rejected a prior direct `main` ref update because it could trigger deployment and `CLAUDE.md` assigns deployment separately. Use the documentation review branch/PR; do not bypass that rejection. Main was not moved by that attempted update.
+**Documentation location:** [draft PR #107](https://github.com/chordsnstrings/trainer_what/pull/107), branch `docs/handoff-review-2026-10-29`, containing this handoff, project memory, completion entries and the plan. Automatic approval review rejected a prior direct `main` ref update because it could trigger deployment and `CLAUDE.md` assigns deployment separately. Use the documentation review branch/PR; do not bypass that rejection. Main was not moved by that attempted update.
 
 **Next:** present the audit and plan, then wait for the owner's approval before implementation. This is a review checkpoint, not authorization to build, migrate websites, merge to main or deploy. Existing marketing revamp phases 2 and 3 retain their separate scope. Continue updating this handoff after each stage and status update.
 
