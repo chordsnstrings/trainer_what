@@ -2,7 +2,7 @@
 
 ## Work in progress
 
-### 29 October 2026 — ten trainer-site samples built and checked; publication in progress
+### 29 October 2026 request — ten modular trainer-site samples published for review
 
 **Owner authorization:** “Let's establish the sites. Be thorough. Be distinctive. Be aesthetically pleasing and with scroll animations and 3d. We build modular structures so that seed can pick and choose from the conversation. Show me 10 samples.” The sample-building stage is authorized. The production onboarding generator and existing tenant sites are outside this stage.
 
@@ -14,11 +14,11 @@
 
 **Verification limits:** no cloud browser was used, following the standing repository instruction. DOM/geometry/source checks are not rendered browser acceptance, native-dialog focus checks, GPU/physical-device evidence or field-performance results. No application release, paid Seed call, live account mutation or production provider change was performed.
 
-**Running:** publishing the independent owner-private Sites collection. Site ID `appgprj_6ae39a1e83388191a3da9207c20e8763`; source checkout `/workspace/sites/trainer-design-atlas`. No successful deployment is claimed yet. Exact source SHA, final URL and deployment receipt will follow.
+**Published:** [Trainer Design Atlas](https://trainer-design-atlas.salman-omar-4050.chatgpt.site) — ten complete samples and their review gallery. Native private publication succeeded for source `4aa2b62b19e40b71c9cf25b5b0d313ab0153b6a3`, version `appgprj_6ae39a1e83388191a3da9207c20e8763~appgver_88c74ed3b8f08191a4b004699f39dcba`, deployment `appgdep_6ae3a7ea2b0c81919ea79d35e345dd9f`, at **00:09:35 Dubai on 30 October 2026**. Site ID `appgprj_6ae39a1e83388191a3da9207c20e8763`; source checkout `/workspace/sites/trainer-design-atlas`. Reuse that Site identity/source repository for follow-up work. [Sample guide and all ten links](docs/TRAINER_SITE_SAMPLES_2026-10-29.md); [module catalogue](docs/trainer-site-samples/catalog.json); [verification receipt](docs/trainer-site-samples/verification.json).
 
 **Repository records:** [draft PR #107](https://github.com/chordsnstrings/trainer_what/pull/107), branch `docs/handoff-review-2026-10-29`. The earlier direct-main automatic-review rejection remains respected; main and the trainsyou application deployment are unchanged. The previous [audit](docs/WEBSITE_CREATION_AUDIT_PLAN_2026-10-29.md) remains the production-integration plan.
 
-**Next:** finish the independent sample publication, record source/deployment evidence and present all ten designs. Future production integration must preserve confirmed public facts, rights-approved assets, native product bindings, tenant isolation, revision checks, trainer edits/history and publication gates.
+**Next:** present all ten samples for review. This authorized sample stage is complete. Seed is not yet connected to these recipes in production; choose/adjust visual directions before extending the production generator and editing flow. Future integration must preserve confirmed public facts, rights-approved assets, native product bindings, tenant isolation, revision checks, trainer edits/history and publication gates.
 
 ## Previous handoff records
 

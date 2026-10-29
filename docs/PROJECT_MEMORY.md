@@ -1,5 +1,9 @@
 # Project memory
 
+### Ten trainer-site samples — owner request of 29 October 2026
+
+After the website audit, the owner authorized ten thorough, distinctive samples with scroll animation and 3D, using modular structures Seed can select from the conversation. The [published independent collection](https://trainer-design-atlas.salman-omar-4050.chatgpt.site) now contains ten complete fictional sites, seven module families/55 variants and ten procedural Three.js scenes. [Guide, exact source/deployment evidence and verification limits](TRAINER_SITE_SAMPLES_2026-10-29.md). Publication succeeded at 00:09:35 Dubai on 30 October; source `4aa2b62b19e40b71c9cf25b5b0d313ab0153b6a3`. The sample stage is complete; production Seed integration, tenant-site migration and application deployment were not performed. No cloud browser was used, in accordance with the standing instruction. Keep the current handoff and sample records updated during further design reviews.
+
 ### Subscriber CI and functional polish — implementation and release tracking, 20 October 2026
 
 Owner approved the light subscriber concept: “better. let's get it done.” Base `526c0fbb61832a9b4a3445bb4de8b20cd38aa30f`; branch `work/subscriber-polish-2026-10-20`. The actual app now implements CI White/Ink/Paper/Pace, local Inter Display, measured contrast and restrained motion. WHOOP has dedicated recovery/rules views and separate connection/workout permission. Voice guidance has its own paid add-on journey; eligible monthly memberships have exact-amount upgrade review and payment confirmation. Ordinary workout edits and paused/running rest timers restore safely. Existing prescriptions, offline logs, nutrition, bookings and music remain connected. The latest request supersedes the historical prohibition on package changes. Prepaid terms retain their price/duration and use existing module passes; overlapping purchases and different programme lengths remain guarded.

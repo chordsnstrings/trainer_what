@@ -1,0 +1,366 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Trainer site composition selection",
+  "description": "Proposed contract for composition selection, not the production tenant-site schema. All factual content and commerce bindings require existing production validation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "direction",
+    "modules",
+    "scene"
+  ],
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "direction": {
+      "enum": [
+        "iron",
+        "forma",
+        "pace",
+        "still",
+        "ringcraft",
+        "altitude",
+        "current",
+        "atelier",
+        "reform",
+        "afterhours"
+      ]
+    },
+    "modules": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 12,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "family",
+              "variant",
+              "contentRef"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9-]{1,80}$"
+              },
+              "family": {
+                "const": "hero"
+              },
+              "variant": {
+                "enum": [
+                  "industrial",
+                  "sculpture",
+                  "track",
+                  "serene",
+                  "fight-poster",
+                  "expedition",
+                  "submerged",
+                  "editorial",
+                  "anatomy",
+                  "kinetic"
+                ]
+              },
+              "contentRef": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "locked": {
+                "type": "boolean",
+                "default": false
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "family",
+              "variant",
+              "contentRef"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9-]{1,80}$"
+              },
+              "family": {
+                "const": "statement"
+              },
+              "variant": {
+                "enum": [
+                  "oversized",
+                  "centered",
+                  "ticker",
+                  "breathing-space",
+                  "field-note",
+                  "waterline",
+                  "pull-quote",
+                  "index-card",
+                  "marquee"
+                ]
+              },
+              "contentRef": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "locked": {
+                "type": "boolean",
+                "default": false
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "family",
+              "variant",
+              "contentRef"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9-]{1,80}$"
+              },
+              "family": {
+                "const": "method"
+              },
+              "variant": {
+                "enum": [
+                  "pinned-index",
+                  "editorial",
+                  "training-week",
+                  "ritual",
+                  "rounds",
+                  "topographic",
+                  "lane-lines",
+                  "folio",
+                  "lab-notes",
+                  "set-list"
+                ]
+              },
+              "contentRef": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "locked": {
+                "type": "boolean",
+                "default": false
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "family",
+              "variant",
+              "contentRef"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9-]{1,80}$"
+              },
+              "family": {
+                "const": "offers"
+              },
+              "variant": {
+                "enum": [
+                  "ledger",
+                  "soft-split",
+                  "race-bibs",
+                  "quiet-list",
+                  "tickets",
+                  "itinerary",
+                  "pool-cards",
+                  "two-columns",
+                  "modular",
+                  "club-pass"
+                ]
+              },
+              "contentRef": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "locked": {
+                "type": "boolean",
+                "default": false
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "family",
+              "variant",
+              "contentRef"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9-]{1,80}$"
+              },
+              "family": {
+                "const": "story"
+              },
+              "variant": {
+                "enum": [
+                  "split",
+                  "arched",
+                  "wide-photo",
+                  "overlap",
+                  "travel-journal",
+                  "portrait",
+                  "collage",
+                  "contact-sheet"
+                ]
+              },
+              "contentRef": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "locked": {
+                "type": "boolean",
+                "default": false
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "family",
+              "variant",
+              "contentRef"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9-]{1,80}$"
+              },
+              "family": {
+                "const": "faq"
+              },
+              "variant": {
+                "enum": [
+                  "rows",
+                  "columns"
+                ]
+              },
+              "contentRef": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "locked": {
+                "type": "boolean",
+                "default": false
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "family",
+              "variant",
+              "contentRef"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9-]{1,80}$"
+              },
+              "family": {
+                "const": "contact"
+              },
+              "variant": {
+                "enum": [
+                  "billboard",
+                  "letter",
+                  "finish-line",
+                  "horizon",
+                  "tide",
+                  "encore"
+                ]
+              },
+              "contentRef": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "locked": {
+                "type": "boolean",
+                "default": false
+              }
+            }
+          }
+        ]
+      }
+    },
+    "scene": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "color",
+        "secondaryColor",
+        "intensity",
+        "motion"
+      ],
+      "properties": {
+        "id": {
+          "enum": [
+            "plates",
+            "ribbon",
+            "track",
+            "stones",
+            "ring",
+            "terrain",
+            "water",
+            "balance",
+            "joint",
+            "pulse"
+          ]
+        },
+        "color": {
+          "type": "string",
+          "pattern": "^#[0-9a-fA-F]{6}$"
+        },
+        "secondaryColor": {
+          "type": "string",
+          "pattern": "^#[0-9a-fA-F]{6}$"
+        },
+        "intensity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "motion": {
+          "enum": [
+            "scroll",
+            "still"
+          ]
+        }
+      }
+    }
+  }
+}

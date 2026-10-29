@@ -1,0 +1,670 @@
+{
+  "version": 1,
+  "status": "visual-benchmarks-not-production-integration",
+  "contract": {
+    "selection": "Choose one coherent art direction from public brief, audience, tone and approved media. Select compatible module variants within it; do not randomly combine all ten styles.",
+    "content": "Ground public copy, programme terms and prices in confirmed trainer facts. Demo content is fictional. Never invent credentials, reviews or outcomes.",
+    "media": "Use tenant-owned rights-approved media. Stock photographs in these samples establish composition only. Motion and 3D do not require private coaching data.",
+    "editing": "Keep module IDs stable; content, imagery, tokens, order and permitted scene parameters are separate. Preserve trainer locks and existing revision/history checks during future integration.",
+    "safety": "No model-authored executable JavaScript, HTML, shaders or external URLs. Choose from registered scene and module IDs with validated parameters.",
+    "motion": "Native scrolling; no wheel hijacking. Reduced motion presents static compositions. One WebGL canvas per sample, lazy-loaded and rendered on demand."
+  },
+  "families": [
+    {
+      "id": "hero",
+      "fields": [
+        "eyebrow",
+        "title",
+        "intro",
+        "cta",
+        "image"
+      ],
+      "variants": [
+        "industrial",
+        "sculpture",
+        "track",
+        "serene",
+        "fight-poster",
+        "expedition",
+        "submerged",
+        "editorial",
+        "anatomy",
+        "kinetic"
+      ]
+    },
+    {
+      "id": "statement",
+      "fields": [
+        "statement",
+        "statementCopy"
+      ],
+      "variants": [
+        "oversized",
+        "centered",
+        "ticker",
+        "breathing-space",
+        "field-note",
+        "waterline",
+        "pull-quote",
+        "index-card",
+        "marquee"
+      ]
+    },
+    {
+      "id": "method",
+      "fields": [
+        "methodTitle",
+        "methodIntro",
+        "steps",
+        "scene"
+      ],
+      "variants": [
+        "pinned-index",
+        "editorial",
+        "training-week",
+        "ritual",
+        "rounds",
+        "topographic",
+        "lane-lines",
+        "folio",
+        "lab-notes",
+        "set-list"
+      ]
+    },
+    {
+      "id": "offers",
+      "fields": [
+        "offersTitle",
+        "offers"
+      ],
+      "variants": [
+        "ledger",
+        "soft-split",
+        "race-bibs",
+        "quiet-list",
+        "tickets",
+        "itinerary",
+        "pool-cards",
+        "two-columns",
+        "modular",
+        "club-pass"
+      ]
+    },
+    {
+      "id": "story",
+      "fields": [
+        "storyKicker",
+        "storyTitle",
+        "story",
+        "image2"
+      ],
+      "variants": [
+        "split",
+        "arched",
+        "wide-photo",
+        "overlap",
+        "travel-journal",
+        "portrait",
+        "collage",
+        "contact-sheet"
+      ]
+    },
+    {
+      "id": "faq",
+      "fields": [
+        "faqs"
+      ],
+      "variants": [
+        "rows",
+        "columns"
+      ]
+    },
+    {
+      "id": "contact",
+      "fields": [
+        "closing",
+        "contact"
+      ],
+      "variants": [
+        "billboard",
+        "letter",
+        "finish-line",
+        "horizon",
+        "tide",
+        "encore"
+      ]
+    }
+  ],
+  "sceneParameters": {
+    "color": "hex",
+    "secondaryColor": "hex",
+    "intensity": {
+      "min": 0,
+      "max": 1
+    },
+    "camera": "registered preset",
+    "motion": "scroll or still"
+  },
+  "recipes": [
+    {
+      "id": "iron",
+      "name": "IRON / FORM",
+      "discipline": "Strength",
+      "mood": "Raw · Industrial · Precise",
+      "publicBrief": "A strength coach for people who want to get seriously strong. Direct language, a no-frills training space, chalk, steel and a clear programme. Confident rather than intimidating.",
+      "tokens": {
+        "background": "#171816",
+        "foreground": "#f1f0e8",
+        "accent": "#ff6038",
+        "displayFont": "Anton"
+      },
+      "scene": "plates",
+      "modules": [
+        {
+          "id": "iron-hero-1",
+          "family": "hero",
+          "variant": "industrial"
+        },
+        {
+          "id": "iron-statement-2",
+          "family": "statement",
+          "variant": "oversized"
+        },
+        {
+          "id": "iron-method-3",
+          "family": "method",
+          "variant": "pinned-index"
+        },
+        {
+          "id": "iron-offers-4",
+          "family": "offers",
+          "variant": "ledger"
+        },
+        {
+          "id": "iron-story-5",
+          "family": "story",
+          "variant": "split"
+        },
+        {
+          "id": "iron-faq-6",
+          "family": "faq",
+          "variant": "rows"
+        },
+        {
+          "id": "iron-contact-7",
+          "family": "contact",
+          "variant": "billboard"
+        }
+      ],
+      "motion": "Oversized type reveals, a scroll-exploded stack of weight plates and a pinned method index."
+    },
+    {
+      "id": "forma",
+      "name": "forma",
+      "discipline": "Pilates",
+      "mood": "Sculptural · Soft · Intentional",
+      "publicBrief": "A contemporary Pilates teacher with a quiet, design-conscious studio. People want to move well and feel more connected, without intense fitness language. Cream, olive, natural light and gentle sculptural movement.",
+      "tokens": {
+        "background": "#f4f1e9",
+        "foreground": "#323a2d",
+        "accent": "#717c59",
+        "displayFont": "Cormorant Garamond"
+      },
+      "scene": "ribbon",
+      "modules": [
+        {
+          "id": "forma-hero-1",
+          "family": "hero",
+          "variant": "sculpture"
+        },
+        {
+          "id": "forma-statement-2",
+          "family": "statement",
+          "variant": "centered"
+        },
+        {
+          "id": "forma-method-3",
+          "family": "method",
+          "variant": "editorial"
+        },
+        {
+          "id": "forma-story-4",
+          "family": "story",
+          "variant": "arched"
+        },
+        {
+          "id": "forma-offers-5",
+          "family": "offers",
+          "variant": "soft-split"
+        },
+        {
+          "id": "forma-faq-6",
+          "family": "faq",
+          "variant": "columns"
+        },
+        {
+          "id": "forma-contact-7",
+          "family": "contact",
+          "variant": "letter"
+        }
+      ],
+      "motion": "A folding 3D ribbon, arched image reveals and slow, staggered editorial transitions."
+    },
+    {
+      "id": "pace",
+      "name": "PACE DEPT.",
+      "discipline": "Running",
+      "mood": "Electric · Technical · Optimistic",
+      "publicBrief": "An independent running coach for first races and personal goals. Modern sport design, legible training data, neon yellow, big typography and the feeling of forward movement.",
+      "tokens": {
+        "background": "#e6ff53",
+        "foreground": "#18201b",
+        "accent": "#1b3124",
+        "displayFont": "Space Grotesk"
+      },
+      "scene": "track",
+      "modules": [
+        {
+          "id": "pace-hero-1",
+          "family": "hero",
+          "variant": "track"
+        },
+        {
+          "id": "pace-statement-2",
+          "family": "statement",
+          "variant": "ticker"
+        },
+        {
+          "id": "pace-method-3",
+          "family": "method",
+          "variant": "training-week"
+        },
+        {
+          "id": "pace-offers-4",
+          "family": "offers",
+          "variant": "race-bibs"
+        },
+        {
+          "id": "pace-story-5",
+          "family": "story",
+          "variant": "wide-photo"
+        },
+        {
+          "id": "pace-faq-6",
+          "family": "faq",
+          "variant": "rows"
+        },
+        {
+          "id": "pace-contact-7",
+          "family": "contact",
+          "variant": "finish-line"
+        }
+      ],
+      "motion": "A 3D running track that turns with the scroll, a staged training week and oversized pace typography."
+    },
+    {
+      "id": "still",
+      "name": "still / studio",
+      "discipline": "Yoga",
+      "mood": "Earthy · Spacious · Grounded",
+      "publicBrief": "A yoga and breath teacher offering a slower alternative to performance culture. An earthy, calm and tactile identity with space to breathe, subtle movement and no wellness promises.",
+      "tokens": {
+        "background": "#e7e2d4",
+        "foreground": "#374b3f",
+        "accent": "#9d5139",
+        "displayFont": "Cormorant Garamond"
+      },
+      "scene": "stones",
+      "modules": [
+        {
+          "id": "still-hero-1",
+          "family": "hero",
+          "variant": "serene"
+        },
+        {
+          "id": "still-statement-2",
+          "family": "statement",
+          "variant": "breathing-space"
+        },
+        {
+          "id": "still-method-3",
+          "family": "method",
+          "variant": "ritual"
+        },
+        {
+          "id": "still-story-4",
+          "family": "story",
+          "variant": "overlap"
+        },
+        {
+          "id": "still-offers-5",
+          "family": "offers",
+          "variant": "quiet-list"
+        },
+        {
+          "id": "still-faq-6",
+          "family": "faq",
+          "variant": "columns"
+        },
+        {
+          "id": "still-contact-7",
+          "family": "contact",
+          "variant": "letter"
+        }
+      ],
+      "motion": "Scroll-balanced 3D stones, gentle image parallax and a spacious three-part ritual."
+    },
+    {
+      "id": "ringcraft",
+      "name": "RINGCRAFT",
+      "discipline": "Boxing",
+      "mood": "Bold · Graphic · Focused",
+      "publicBrief": "A boxing coach who teaches the craft, not just a workout. Bold red, documentary photography, fight-poster typography and structured rounds. Beginners should feel invited, never hazed.",
+      "tokens": {
+        "background": "#efefe7",
+        "foreground": "#191917",
+        "accent": "#dc302b",
+        "displayFont": "Anton"
+      },
+      "scene": "ring",
+      "modules": [
+        {
+          "id": "ringcraft-hero-1",
+          "family": "hero",
+          "variant": "fight-poster"
+        },
+        {
+          "id": "ringcraft-statement-2",
+          "family": "statement",
+          "variant": "oversized"
+        },
+        {
+          "id": "ringcraft-method-3",
+          "family": "method",
+          "variant": "rounds"
+        },
+        {
+          "id": "ringcraft-story-4",
+          "family": "story",
+          "variant": "split"
+        },
+        {
+          "id": "ringcraft-offers-5",
+          "family": "offers",
+          "variant": "tickets"
+        },
+        {
+          "id": "ringcraft-faq-6",
+          "family": "faq",
+          "variant": "rows"
+        },
+        {
+          "id": "ringcraft-contact-7",
+          "family": "contact",
+          "variant": "billboard"
+        }
+      ],
+      "motion": "A dimensional boxing ring, poster-like type wipes and round-by-round scroll reveals."
+    },
+    {
+      "id": "altitude",
+      "name": "ALTITUDE",
+      "discipline": "Outdoor",
+      "mood": "Expansive · Rugged · Editorial",
+      "publicBrief": "An outdoor strength and hiking coach for people training for real adventures. A field-journal approach, wide mountain imagery, forest green and topographic graphics. Training connects to an actual destination.",
+      "tokens": {
+        "background": "#f2efe5",
+        "foreground": "#263f32",
+        "accent": "#d37b37",
+        "displayFont": "DM Sans"
+      },
+      "scene": "terrain",
+      "modules": [
+        {
+          "id": "altitude-hero-1",
+          "family": "hero",
+          "variant": "expedition"
+        },
+        {
+          "id": "altitude-statement-2",
+          "family": "statement",
+          "variant": "field-note"
+        },
+        {
+          "id": "altitude-method-3",
+          "family": "method",
+          "variant": "topographic"
+        },
+        {
+          "id": "altitude-story-4",
+          "family": "story",
+          "variant": "travel-journal"
+        },
+        {
+          "id": "altitude-offers-5",
+          "family": "offers",
+          "variant": "itinerary"
+        },
+        {
+          "id": "altitude-faq-6",
+          "family": "faq",
+          "variant": "columns"
+        },
+        {
+          "id": "altitude-contact-7",
+          "family": "contact",
+          "variant": "horizon"
+        }
+      ],
+      "motion": "A scroll-rotated 3D landscape, contour-line accents and an unfolding expedition journal."
+    },
+    {
+      "id": "current",
+      "name": "current",
+      "discipline": "Swimming",
+      "mood": "Fluid · Immersive · Clear",
+      "publicBrief": "A swimming coach with a fluid and contemporary identity. Pool-blue colour, clean editorial type, water as the organising idea and practical technical coaching. Suitable for adult swimmers, not elite-only.",
+      "tokens": {
+        "background": "#e6f3f3",
+        "foreground": "#103a5c",
+        "accent": "#165bdf",
+        "displayFont": "DM Sans"
+      },
+      "scene": "water",
+      "modules": [
+        {
+          "id": "current-hero-1",
+          "family": "hero",
+          "variant": "submerged"
+        },
+        {
+          "id": "current-statement-2",
+          "family": "statement",
+          "variant": "waterline"
+        },
+        {
+          "id": "current-method-3",
+          "family": "method",
+          "variant": "lane-lines"
+        },
+        {
+          "id": "current-story-4",
+          "family": "story",
+          "variant": "wide-photo"
+        },
+        {
+          "id": "current-offers-5",
+          "family": "offers",
+          "variant": "pool-cards"
+        },
+        {
+          "id": "current-faq-6",
+          "family": "faq",
+          "variant": "rows"
+        },
+        {
+          "id": "current-contact-7",
+          "family": "contact",
+          "variant": "tide"
+        }
+      ],
+      "motion": "A dimensional water surface that changes with scroll, lane-line transitions and fluid image reveals."
+    },
+    {
+      "id": "atelier",
+      "name": "ATELIER / HUMAN",
+      "discipline": "Private coaching",
+      "mood": "Refined · Personal · Architectural",
+      "publicBrief": "A private coach for busy people who value quiet confidence and personal attention. An elegant editorial feel with espresso, warm ivory, fine rules and considered metal sculpture. No luxury clichés or inflated results.",
+      "tokens": {
+        "background": "#f3eee5",
+        "foreground": "#352a24",
+        "accent": "#9d6b43",
+        "displayFont": "Bodoni Moda"
+      },
+      "scene": "balance",
+      "modules": [
+        {
+          "id": "atelier-hero-1",
+          "family": "hero",
+          "variant": "editorial"
+        },
+        {
+          "id": "atelier-statement-2",
+          "family": "statement",
+          "variant": "pull-quote"
+        },
+        {
+          "id": "atelier-story-3",
+          "family": "story",
+          "variant": "portrait"
+        },
+        {
+          "id": "atelier-method-4",
+          "family": "method",
+          "variant": "folio"
+        },
+        {
+          "id": "atelier-offers-5",
+          "family": "offers",
+          "variant": "two-columns"
+        },
+        {
+          "id": "atelier-faq-6",
+          "family": "faq",
+          "variant": "columns"
+        },
+        {
+          "id": "atelier-contact-7",
+          "family": "contact",
+          "variant": "letter"
+        }
+      ],
+      "motion": "A balanced brass sculpture, restrained depth shifts and editorial chapter transitions."
+    },
+    {
+      "id": "reform",
+      "name": "RE:FORM",
+      "discipline": "Mobility",
+      "mood": "Playful · Systematic · Human",
+      "publicBrief": "A movement coach who makes mobility practical and approachable. Clear diagrams, lilac and acid yellow, modular editorial layouts and accessible explanations. No medical claims or clinical-looking promises.",
+      "tokens": {
+        "background": "#eeebf4",
+        "foreground": "#343040",
+        "accent": "#c9f15b",
+        "displayFont": "Space Grotesk"
+      },
+      "scene": "joint",
+      "modules": [
+        {
+          "id": "reform-hero-1",
+          "family": "hero",
+          "variant": "anatomy"
+        },
+        {
+          "id": "reform-statement-2",
+          "family": "statement",
+          "variant": "index-card"
+        },
+        {
+          "id": "reform-method-3",
+          "family": "method",
+          "variant": "lab-notes"
+        },
+        {
+          "id": "reform-offers-4",
+          "family": "offers",
+          "variant": "modular"
+        },
+        {
+          "id": "reform-story-5",
+          "family": "story",
+          "variant": "collage"
+        },
+        {
+          "id": "reform-faq-6",
+          "family": "faq",
+          "variant": "rows"
+        },
+        {
+          "id": "reform-contact-7",
+          "family": "contact",
+          "variant": "billboard"
+        }
+      ],
+      "motion": "An abstract articulated 3D joint, expandable movement notes and playful offset compositions."
+    },
+    {
+      "id": "afterhours",
+      "name": "AFTERHOURS",
+      "discipline": "Dance fitness",
+      "mood": "Expressive · Rhythmic · Uninhibited",
+      "publicBrief": "A dance fitness coach for adults who want joyful, expressive movement. Music-culture energy, coral and violet, strong photo crops and rhythmic typography. Welcoming without turning the site into a nightclub interface.",
+      "tokens": {
+        "background": "#19151e",
+        "foreground": "#f8ede2",
+        "accent": "#fb765f",
+        "displayFont": "Anton"
+      },
+      "scene": "pulse",
+      "modules": [
+        {
+          "id": "afterhours-hero-1",
+          "family": "hero",
+          "variant": "kinetic"
+        },
+        {
+          "id": "afterhours-statement-2",
+          "family": "statement",
+          "variant": "marquee"
+        },
+        {
+          "id": "afterhours-method-3",
+          "family": "method",
+          "variant": "set-list"
+        },
+        {
+          "id": "afterhours-story-4",
+          "family": "story",
+          "variant": "contact-sheet"
+        },
+        {
+          "id": "afterhours-offers-5",
+          "family": "offers",
+          "variant": "club-pass"
+        },
+        {
+          "id": "afterhours-faq-6",
+          "family": "faq",
+          "variant": "rows"
+        },
+        {
+          "id": "afterhours-contact-7",
+          "family": "contact",
+          "variant": "encore"
+        }
+      ],
+      "motion": "A dimensional rhythm sculpture, a scroll-driven type marquee and staggered photo contact sheets."
+    }
+  ]
+}
