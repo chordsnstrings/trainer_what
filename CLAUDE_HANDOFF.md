@@ -2,31 +2,31 @@
 
 ## Work in progress
 
-### Status at 00:02 UTC on 29 October 2026 (Claude): marketing revamp phase 1, final commit pushed, CI running
+### Status at 03:20 UTC on 29 October 2026 (Claude): marketing revamp phase 1 is live and checked; done
 
-**What it is:** phase 1 of the marketing revamp (`/`, `/trainer-brain`, `/demo`, `/pricing`), as the owner chose on 27 Oct ("Go with your recommendation"; each phase is its own PR, "checked and deployed"). It is in PR #105 from `claude/repository-overview-osejlw`. The checks and how it was built are in the 28 October entry of `docs/COMPLETION_STAGES.md`.
+**What it is:** phase 1 of the marketing revamp (`/`, `/trainer-brain`, `/demo`, `/pricing`), as the owner chose on 27 Oct ("Go with your recommendation"; each phase is its own PR, "checked and deployed"). The full record is the 28 October entry of `docs/COMPLETION_STAGES.md`.
 
 **Finished:**
-- the build, both fix rounds, the final review and fix passes, the docs, and the milestone verification;
-- CI on `e2a8cef` (run 40781841666): all 8 jobs green.
-- The final adversarial check (`wf_256d4cc2-b79`): the What-if change held. Its three older CSS defects are fixed (the 341–358 px What-if row, forced colours, the sample pill), and its 25 record corrections are applied.
-- **The final tree is verified locally** (build `mvsrrl9d`):
-  - unit tests 76/76;
-  - the phone probe at 12 sizes in both states is clear;
-  - forced colours and contrast checked;
-  - the full showcase check passed in 446 s.
+- **PR #105** is squash-merged as `2ef5757` (00:45 UTC). CI on its head and `main`'s run 40791425940 and 40796153241 both passed.
+- **Live since 01:32:49 UTC.**
+- **The HTTP-only live check of the four pages passed** (40 checks, 0 failures).
+- **The wider live sweep found no blocker or major problem:**
+  - 39 of 39 sitemap pages, `?lang=ar`, and 24 app and sign-in entry points return 200 with their root marks;
+  - all 64 static assets return 200;
+  - the off switch is not set.
+- **The records** went into this branch's PR #106 (the owner allowed the force-with-lease push of the branch restarted from `main`).
 
-**Now:** the final normal commit is pushed, and CI on it is running.
+**Production flags now** (from `/api/v1/public/platform`): model, nutrition, meal photos, voice, custom domains and WHOOP are on; payments, payouts, Instagram, Zepp and frontier are off. Visitors see "Not on yet" on publishing and payments.
 
-**Next:**
-1. Record the results, push, then get CI green on the final head.
-2. Fill the checks into the PR body (`scratchpad/pr105-body.md`), mark the PR ready, and squash-merge.
-3. Watch `main`'s run and the deploy (`scripts/watch-release.sh`), then live-check the four pages.
-4. Record the merge SHA and the live check in a follow-up docs PR (`COMPLETION_STAGES.md` and this section).
+**For the owner** (none caused by this release):
+- Production sends no `Strict-Transport-Security` header, though `infra/Caddyfile.example` sets one.
+- `/api/` responses expose `x-middleware-rewrite: http://api:4000/...` (from `apps/web/proxy.ts`).
+- The showcase CSS now loads on every surface (+21% of global CSS), as planned. A marketing route group is the phase 2 or 3 fix.
+- The FYI decisions are in PR #105's description and the stage entry.
 
-**Deploy reconciliation:** this deploy rests on the owner's explicit 27 Oct instruction for phase 1, "checked and deployed" (`docs/PROJECT_MEMORY.md`). It does not rest on the coding handoff. The normal gates apply: green CI on the final head and on `main`'s run.
+**Next:** phase 2 (every other page) and phase 3 (Arabic, tracking, A/B) wait for the owner.
 
-**Waiting on the owner:** nothing. The FYI decisions are in the stage entry and in the PR body draft (`scratchpad/pr105-body.md`), which goes into PR #105 at step 2. Delete the stray `/oq-daily.log` when convenient.
+**Waiting on the owner:** nothing for phase 1. Delete the stray `/oq-daily.log` when convenient.
 
 ### Home page as the owner's HTML design: live since 22:47 UTC on 25 October 2026 (Claude, checked 04:10 UTC on 26 Oct)
 
