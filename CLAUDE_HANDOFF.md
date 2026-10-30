@@ -2,21 +2,17 @@
 
 ## Work in progress
 
-### 30 October 2026 — three distinct motion studies published for review
+### 30 October 2026 — expanding the approved direction into complete sample websites
 
-**Authorization and direction:** owner “let's do it” approved the researched proposal for three working studies before rebuilding the ten-site collection. Extremely smooth, coordinated animation takes priority; 3D is optional. The previous ten samples remain rejected. This stage builds the coach documentary, client case journal and interactive training week in the independent Atlas Site; production trainsyou integration remains later work.
+**Owner feedback and authorization:** the three motion studies are “going towards the right direction”; add signup, pricing and more versions. This approves further independent sample work, not production integration.
 
-**Published:** Trainer Studies — Volume 02, version 2, owner-private publication succeeded on 30 October 2026. The checked source was pushed and packaged as the same exact state. Use the private preview shared in the conversation and retain its existing Site/source identity. Private links, source revisions, publication identifiers and local checkout paths are omitted from this public record.
+**Running:** expand to six complete review sites. Retain the three existing motion narratives; add a goal-led starting-point site, an inside-a-session site and a movement-club site. Each needs pricing, included features, plan selection, a complete signup demonstration, returning-member access, FAQs and a visible next action.
 
-**What to review:** Mara Vale (private preview shared separately) moves one gym film from a full-frame introduction into a coach profile; Common Ground (private preview shared separately) carries a persistent image through three editorial chapters; Dayform (private preview shared separately) unfolds seven cards into a week with working day selection and busy-week adjustment. These are separate page structures. New routes use native scrolling and GSAP/ScrollTrigger, with local media, pause/reduced-motion alternatives and distinct phone compositions. Fictional brands, illustrative footage, the fictional journal and demonstration week are identified. The old collection is explicitly archived at /archive/ (private preview shared separately).
+**Commercial basis:** reading the repository's versioned membership pricing and joining contracts. Use transparent sample prices and show exact billing terms; preview signup must not create accounts, charge money or imply a purchase succeeded. Keep personal form data transient. Native scroll and coordinated motion remain the priority.
 
-**Actual checks:** 226 generated-source/data/asset assertions; 184 DOM-state assertions; 231 actual GSAP timeline/easing assertions against plain-property targets; CSS parsing (556 selectors / 1,557 declarations), ten representative solid-colour contrast pairs (minimum 4.77:1), 40 font-advance estimates, JavaScript syntax and eight archive check groups. Source video/poster frames and the native Sites-generated gallery preview image were inspected. Publication/source provenance is confirmed by native Sites tools. [Guide](docs/TRAINER_MOTION_STUDIES_2026-10-30.md) and [receipt](docs/trainer-motion-studies/verification.json) distinguish these checks from browser acceptance.
+**Checks and boundary:** previous version is published; new work is not yet checked or published. Browser/device frame pacing remains unverified and the standing no-cloud-browser rule applies. Record meaningful interaction/price/state checks and source provenance before publication. Keep private Site links and identifiers out of this public handoff.
 
-**Verification boundary:** no live interactive browser was used. No connected local Browser tool was exposed; the standing no-cloud-browser instruction still applies. The single native gallery preview image does not verify the three pages' sticky geometry, playback, phone rendering, native-dialog focus or device frame pacing. Smoothness is not measured or accepted. Do not report 60 fps, passed field-performance targets or owner visual acceptance.
-
-**Reusable work:** [chapter/transition contracts](docs/trainer-motion-studies/contracts.json) describe assets, entry/readable/exit states, phone alternatives and reduced motion. This is a prototype format for review, not production Seed selection or trainer-editor integration. Before production selection, review GSAP licensing for the intended builder architecture, retain truthful/media-rights constraints, and preserve existing permissions, products, revisions and publication history.
-
-**Next:** review the three actual studies on desktop and phone, including slow/fast/reverse scroll and stopping mid-transition; record browser/device evidence and owner design feedback. Refine the accepted motion language before expanding to the final ten. Production integration is later work. Maintain this handoff, project memory and completion stages. Documentation stays on `docs/handoff-review-2026-10-29`, [draft PR #107](https://github.com/chordsnstrings/trainer_what/pull/107); no main merge or trainsyou deployment.
+**Next:** implement three distinct structures and the shared joining contract, verify the changed flows, publish the existing owner-private review Site and update completion records. Documentation stays on the existing review branch/draft PR; no trainsyou deployment.
 
 ## Previous handoff records
 

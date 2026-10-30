@@ -1,5 +1,9 @@
 # Project memory
 
+### Six complete sample websites — authorized, in progress, 30 October 2026
+
+The owner accepts the direction of the three motion studies and asks for pricing, signup and more versions. Expand to six distinct sample sites, adding goal-led discovery, a session walkthrough and a movement-club schedule. All six receive a complete pricing-to-signup demonstration, returning-member preview and practical plan information. Use the repository's commercial policy; preserve clear demo boundaries and transient form data. Production integration remains later work. Browser/device checks are still unverified; keep the handoff current and private Site metadata outside the public repository.
+
 ### Three motion studies published for review — 30 October 2026
 
 Owner: “let's do it”, approving the researched coach documentary, client case journal and training-week proposal. Trainer Studies — Volume 02 (private preview shared separately) is published in the existing independent owner-private Atlas Site (`[private Site identifier omitted]`), version 2. [Guide and review instructions](TRAINER_MOTION_STUDIES_2026-10-30.md).
