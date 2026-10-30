@@ -6,7 +6,9 @@
 
 **Owner feedback and authorization:** the three motion studies are “going towards the right direction”; add signup, pricing and more versions. This approves further independent sample work, not production integration.
 
-**Running:** expand to six complete review sites. Retain the three existing motion narratives; add a goal-led starting-point site, an inside-a-session site and a movement-club site. Each needs pricing, included features, plan selection, a complete signup demonstration, returning-member access, FAQs and a visible next action.
+**In source:** six distinct page templates and the shared commercial flow are authored: three existing narratives plus goal-led Starting Line, FORM / SESSION and Sunday Club. Memberships use the versioned AED 199/299/399 minimums, exact prepaid amounts, features/exclusions, FAQs, a three-step signup demonstration and returning-member preview. No account/payment is created. These changes have not yet been built or checked.
+
+**Running:** complete the new responsive compositions and motion/interaction behavior, then verify pricing propagation, validation/back/reset states, keyboard access and reduced motion before publication.
 
 **Commercial basis:** reading the repository's versioned membership pricing and joining contracts. Use transparent sample prices and show exact billing terms; preview signup must not create accounts, charge money or imply a purchase succeeded. Keep personal form data transient. Native scroll and coordinated motion remain the priority.
 
