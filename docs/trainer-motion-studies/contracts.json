@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "status": "working studies for review; browser/device performance unmeasured",
   "runtime": {
     "scroll": "native",
@@ -21,6 +21,7 @@
         "film-introduction",
         "coach-method",
         "practice-notes",
+        "membership",
         "conversation"
       ],
       "motion": "One continuous film frame moves from an expansive introduction into an intimate editorial composition.",
@@ -39,6 +40,7 @@
         "journal-cover",
         "three-chapter-story",
         "coaching-principles",
+        "membership",
         "next-page"
       ],
       "motion": "One image carries through three chapters as the story, chapter number and progress rail move together.",
@@ -58,14 +60,132 @@
         "calendar-unfold",
         "day-explorer",
         "week-adjustment",
+        "membership",
         "start-week"
       ],
       "motion": "A stack of seven days unfolds into a week. Day selections and a busy-week switch change the actual demonstration plan.",
       "entry": "week-stack",
       "exit": "start-week"
+    },
+    {
+      "id": "starting",
+      "number": "04",
+      "name": "Starting Line",
+      "title": "Find your starting point",
+      "mood": "Optimistic. Personal. Clear.",
+      "description": "Choose what matters to you. Discover a coaching route that fits.",
+      "image": "reform",
+      "sequence": [
+        "choose-your-start",
+        "follow-your-route",
+        "first-steps",
+        "membership",
+        "begin"
+      ],
+      "motion": "Your chosen starting point carries into a changing editorial spread and a relevant membership. A route line connects the choice to the next step.",
+      "entry": "choose-your-start",
+      "exit": "begin"
+    },
+    {
+      "id": "session",
+      "number": "05",
+      "name": "FORM / SESSION",
+      "title": "Inside a session",
+      "mood": "Precise. Immersive. Deliberate.",
+      "description": "Step inside the method. Explore how a coaching session comes together.",
+      "image": "coach",
+      "sequence": [
+        "session-opening",
+        "session-score",
+        "coaching-notes",
+        "membership",
+        "join-session"
+      ],
+      "motion": "A session film opens into a wide coaching canvas. The active phase, cue, count and progress move together while the film remains continuous.",
+      "entry": "session-opening",
+      "exit": "join-session"
+    },
+    {
+      "id": "club",
+      "number": "06",
+      "name": "Sunday Club",
+      "title": "Find your people",
+      "mood": "Social. Open-air. Easy-going.",
+      "description": "A shared rhythm, a place in the week, and coaching to make it your own.",
+      "image": "pace",
+      "sequence": [
+        "club-mosaic",
+        "weekend-invitation",
+        "club-schedule",
+        "member-experience",
+        "membership",
+        "join-club"
+      ],
+      "motion": "A loose photo mosaic resolves into one shared Saturday scene, then releases into a filterable weekly programme.",
+      "entry": "club-mosaic",
+      "exit": "join-club"
     }
   ],
   "contracts": {
+    "goal-led-route": {
+      "assets": [
+        "threePreferenceRecords",
+        "matchedPhotos"
+      ],
+      "state": [
+        "selectedPreference",
+        "suggestedPlan"
+      ],
+      "entry": "three public preferences",
+      "readable": "selected preference, matching explanation and steps",
+      "exit": "matching membership highlighted; all plans available",
+      "mobile": "stacked choices and editorial spread",
+      "reduced": "immediate changes; all content visible"
+    },
+    "session-score": {
+      "assets": [
+        "film",
+        "matchedPoster",
+        "threePhaseRecords"
+      ],
+      "entry": "opening phase and continuous film",
+      "readable": "one phase with a cue and explanation",
+      "exit": "reflection and membership",
+      "mobile": "film above three sequential chapters",
+      "reduced": "all chapters in normal flow"
+    },
+    "club-mosaic": {
+      "assets": [
+        "threePhotos",
+        "scheduleRecords"
+      ],
+      "entry": "three community photographs",
+      "readable": "one scene and the example invitation",
+      "exit": "filterable schedule",
+      "mobile": "compact photo pair and normal-flow invitation",
+      "reduced": "static mosaic and complete invitation"
+    },
+    "membership-join": {
+      "state": [
+        "planId",
+        "billingTerm",
+        "step",
+        "transientName",
+        "transientEmail",
+        "goal",
+        "experience",
+        "previewAcknowledgement"
+      ],
+      "assets": [
+        "versionedOfferRecords"
+      ],
+      "entry": "complete feature and price comparison",
+      "readable": "exact total, equivalent, inclusions and limitations",
+      "exit": "honest signup preview receipt",
+      "mobile": "stacked offers and scrollable modal",
+      "reduced": "all interactions retained",
+      "boundary": "no account, payment, real booking or personal-data persistence"
+    },
     "film-introduction": {
       "assets": [
         "film",

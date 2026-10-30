@@ -1,8 +1,14 @@
 # Project memory
 
-### Six complete sample websites — authorized, in progress, 30 October 2026
+### Six complete website directions — published, 30 October 2026
 
-The owner accepts the direction of the three motion studies and asks for pricing, signup and more versions. Expand to six distinct sample sites, adding goal-led discovery, a session walkthrough and a movement-club schedule. All six receive a complete pricing-to-signup demonstration, returning-member preview and practical plan information. Use the repository's commercial policy; preserve clear demo boundaries and transient form data. Production integration remains later work. Browser/device checks are still unverified; keep the handoff current and private Site metadata outside the public repository.
+The owner said the first three studies were moving in the right direction and requested signup, pricing and additional versions. The independent owner-private review Site now contains six complete fictional websites, version 3, with native publication and matching pushed-source provenance confirmed. Private links and release identifiers remain outside this public repository.
+
+New structures: Starting Line (preference → explanation → fitting membership), FORM / SESSION (continuous film with session phases/cues), Sunday Club (mosaic → invitation → filterable schedule). Mara Vale, Common Ground and Dayform retain their narratives. All six have pricing/inclusions, monthly or prepaid choices, signup review/confirmation, returning-member previews, FAQs and privacy details. [Current guide](TRAINER_SITE_COMMERCE_EXPANSION_2026-10-30.md).
+
+Illustrative online offers follow the versioned AED 199/299/399 minimums; six months upfront saves 10%, twelve saves 30%. Full upfront amounts and monthly equivalents are explicit. Live sessions/events are separate. No account, charge, booking, production consent or personal-data persistence is created; closing/reloading clears entered details, and native dialog-form behavior prevents a network fallback.
+
+Passed 398 source/data checks, 953 commerce state assertions (all 54 combinations), 184 retained interaction assertions, 327 GSAP calculations, CSS/sampled contrast, 75 phone type estimates and eight archive groups. Three long headline lines were corrected. No live browser/device performance claim: no local Browser tool was exposed, and no cloud browser was used. Review the actual six-site journey before expanding toward ten or integrating the production generator/editor. Original prototypes remain rejected. Keep documentation on the existing draft review branch/PR and update the handoff at each stage.
 
 ### Three motion studies published for review — 30 October 2026
 

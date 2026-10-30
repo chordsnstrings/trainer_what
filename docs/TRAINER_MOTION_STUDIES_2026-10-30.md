@@ -1,5 +1,7 @@
 # Trainer motion studies — 30 October 2026
 
+**30 October expansion:** the owner accepted this direction and requested pricing, signup and additional versions. The collection now has six complete sample websites; see [the current expansion guide](TRAINER_SITE_COMMERCE_EXPANSION_2026-10-30.md). This document preserves the first three-study release record.
+
 Three working studies implement the owner's approved research direction. They are the first review gate before rebuilding the requested collection of ten. Smooth coordinated motion is the priority; 3D is optional.
 
 Open Trainer Studies — Volume 02 (private preview shared separately)

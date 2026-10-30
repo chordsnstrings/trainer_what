@@ -1,5 +1,17 @@
 # Completion stages — 26–27 September 2026
 
+## Stage 2026-10-30 — six complete trainer websites with pricing and joining previews
+
+**Owner direction:** the three motion studies are moving in the right direction; add pricing, signup and more versions.
+
+**Delivered and published:** three additions (Starting Line, FORM / SESSION, Sunday Club), plus complete commercial journeys on Mara Vale, Common Ground and Dayform. Six distinct narrative structures and six pricing compositions share versioned offer calculations. Native owner-private publication of version 3 succeeded; exact source push/package/save provenance is confirmed. Private release identifiers remain in the Site history and conversation. [Guide](TRAINER_SITE_COMMERCE_EXPANSION_2026-10-30.md).
+
+**Behavior:** AED 199/299/399 sample online memberships; monthly, six-month and twelve-month billing; explicit full upfront totals and monthly equivalents; feature/exclusion lists; plan/term continuity through three signup steps; edit/back, validation, truthful preview receipt, clear/reset; member access preview, FAQs and privacy details. Goal selection updates the relevant membership; session chapters navigate; club filters/details work. No real account, payment, booking or personal-data storage. Native dialog-form method prevents a network fallback.
+
+**Checks:** 398 source/data/local-reference assertions; 953 commerce DOM-state assertions across 54 site/plan/term combinations; 184 original interaction assertions; 327 actual GSAP calculations; 1,134 CSS selectors / 3,078 declarations parsed; 25 sampled solid contrast pairs at least 4.77:1; 75 phone headline-width estimates after correcting three lines; JS syntax and eight archive check groups. Reused photographs were inspected. [Receipt](trainer-motion-studies/verification.json).
+
+**Limits and next:** no live browser/device, native-focus, GPU or measured smoothness acceptance. No local Browser tool was exposed; no cloud browser used. Owner reviews the six actual designs and signup journeys; refine before extending toward ten. Production Seed, editor, signup/payment integration and tenant migration remain later work. Handoff, memory, guide and contracts updated on the existing draft documentation PR; no main merge or trainsyou release.
+
 ## Stage 2026-10-30 — three motion studies built and published
 
 **Authorization:** owner “let's do it” approved the researched first three working studies before expanding the final collection to ten. Smooth coordinated animation and distinct page narratives govern the work; previous samples remain rejected.
