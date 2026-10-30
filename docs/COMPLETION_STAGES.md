@@ -1,6 +1,20 @@
 # Completion stages — 26–27 September 2026
 
+## Stage 2026-10-30 — trainer-site research and motion direction after sample rejection
+
+**Owner correction:** all ten samples were rejected as the same template expanded across themes; extremely smooth animation with impact takes priority over 3D.
+
+**Completed:** [referenced research and proposed direction](TRAINER_WEBSITE_MOTION_RESEARCH_2026-10-30.md), covering six trainer/coaching sites, two creator case studies and Phive/Büro. Compared content, audiences, proof, media and conversion structures; inspected chronological frames from four published Phive UI recordings and four studio presentation clips; audited the rejected Atlas's repeated section/entrance patterns. Defined ten narrative proposals, three initial motion studies, chapter/transition contracts for Seed, asset fallbacks and proposed playback/performance acceptance.
+
+**Actual verification:** public page/source research and recorded-frame inspection. The Malta Personal Trainer live URL returned HTTP 503. No live interactive browser, phone trace, measured website frame rate, new samples, application tests or production changes were performed. Published recording cadence is not live performance. No cloud browser used.
+
+**Records:** current handoff and project memory updated; sample guide and original audit annotated with superseding priority; prototype catalogue README records rejection. Prior publication/technical receipts remain historical evidence only. Documentation is on the existing review branch and draft PR #107; no main merge or deployment.
+
+**Next:** owner reviews the researched motion direction before rebuilding. Proposed first studies are coach documentary, client case journal and training week; the requested final collection size remains ten. Production integration is later work.
+
 ## Ten modular trainer-site samples — 29 October 2026 request; published 30 October Dubai
+
+**Design status superseded on 30 October:** all ten samples were rejected by the owner. The following publication/check record is historical and does not establish visual acceptance.
 
 **Owner authorization:** “Let's establish the sites. Be thorough. Be distinctive. Be aesthetically pleasing and with scroll animations and 3d. We build modular structures so that seed can pick and choose from the conversation. Show me 10 samples.”
 

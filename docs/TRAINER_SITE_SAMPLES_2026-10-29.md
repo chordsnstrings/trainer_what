@@ -1,8 +1,10 @@
 # Ten trainer-site samples — 29 October 2026 request
 
+> **Rejected by the owner on 30 October 2026.** All ten samples repeat too much of the same template and do not establish the required smooth animation. This is an archived prototype/publication record, not an approved design system. Do not integrate its catalogue into production. See [the replacement research and motion direction](TRAINER_WEBSITE_MOTION_RESEARCH_2026-10-30.md).
+
 **Published collection:** [Trainer Design Atlas](https://trainer-design-atlas.salman-omar-4050.chatgpt.site). The publication succeeded at 00:09:35 Dubai time on 30 October 2026. It is an independent owner-private sample Site; trainsyou production and existing trainer websites were not changed.
 
-The owner asked for ten thorough, distinctive, aesthetically pleasing samples with scroll animation and 3D, built from modular structures that Seed can choose from the onboarding conversation. This stage establishes those visual and structural benchmarks. It does not connect the production generator to them.
+The owner asked for ten thorough, distinctive, aesthetically pleasing samples with scroll animation and 3D, built from modular structures that Seed can choose from the onboarding conversation. These were candidate visual and structural benchmarks; the owner rejected them. They are not connected to the production generator.
 
 ## The ten complete samples
 
@@ -65,6 +67,8 @@ The [verification receipt](trainer-site-samples/verification.json) records:
 
 The source includes `samples.mjs`, reusable module assembly, the ten procedural constructors, the runtime, all responsive CSS, fallback art, local assets/licenses, the contract and verification receipts. The publication archive was built from the exact pushed source state.
 
-## Next decision
+## Superseding next decision
 
-Review the ten samples and choose which visual directions to develop further or adjust. Production integration should then follow the [website audit plan](WEBSITE_CREATION_AUDIT_PLAN_2026-10-29.md): confirmed public briefs, actual media understanding, purposeful whole-site composition and preview-led editing. Retain native offers, consent/rights, tenant isolation, stable intent/cost controls, revision history, manual locks and existing publication gates. No production migration, merge or deployment is authorized by this sample publication.
+The owner rejected all ten samples. [Research completed on 30 October](TRAINER_WEBSITE_MOTION_RESEARCH_2026-10-30.md) now defines the proposed next step: three working motion studies with different narratives before expanding to ten complete sites. Smooth coordinated animation takes priority over 3D. The existing collection and catalogue remain historical prototypes.
+
+Production integration remains later work under the [website audit](WEBSITE_CREATION_AUDIT_PLAN_2026-10-29.md), preserving confirmed facts, approved media, native offers, tenant isolation, revisions, trainer locks and publication gates. No production migration, main merge or deployment is authorized by this research.

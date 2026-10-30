@@ -1,5 +1,7 @@
 # Trainer website creation — audit and proposed plan
 
+> **Priority update — 30 October 2026:** the owner rejected all ten subsequent sample sites and clarified that extremely smooth animation, not 3D, is the key. The [trainer-site research and motion direction](TRAINER_WEBSITE_MOTION_RESEARCH_2026-10-30.md) supersedes this plan's assumption that 3D is central and specifies distinct narrative studies before rebuilding. The source audit and production-integrity boundaries below remain applicable; implementation remains a later review decision.
+
 Date: 29 October 2026 (Dubai). Reviewed source: `56acf157b945483a733b71988a351909a4097206`.
 Status: **proposal for owner review; implementation has not started**.
 

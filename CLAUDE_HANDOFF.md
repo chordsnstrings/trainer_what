@@ -2,21 +2,27 @@
 
 ## Work in progress
 
-### 30 October 2026 — all ten samples rejected; research and motion direction reset
+### 30 October 2026 — trainer-site research complete; smooth motion takes priority
 
 **Owner feedback:** “None of them. You need to research personal trainer websites and check how you can add animations to improve upon that. Here you simply took an idea and expanded the same template to everyone. Smooth animation is the key not 3d. Extremely smooth animation that has the oomph factor.”
 
-**Correction:** the ten published samples are rejected prototypes, not approved visual benchmarks. Their repeated seven-section architecture and decorative scene swaps did not establish the required distinction or smoothness. Do not integrate their 55-variant catalogue into production on the strength of the previous stage.
+**Current design status:** all ten Atlas samples are rejected prototypes, not approved benchmarks. Repeated section architecture, common fade/translate entrances and decorative object swaps did not establish the required distinction or smoothness. Do not integrate the 55-variant prototype catalogue as an approved production design system. Smooth coordinated motion is the priority; 3D is optional.
 
-**Running:** research actual personal-trainer/coaching sites for positioning, content, proof, media and conversion journeys; research relevant fitness/motion references for page choreography; specify where animation improves the trainer story and how to validate the result. Smooth, coordinated motion is now the priority; 3D is optional and must support the content.
+**Completed:** [trainer website research and motion direction](docs/TRAINER_WEBSITE_MOTION_RESEARCH_2026-10-30.md). Reviewed six trainer/coaching sites (The Body Coach, Magnus Method, Kira Stokes, Ultimate Performance, Luke Worthington and Matt Roberts), creator case studies for Malta Personal Trainer and PTD Fitness, and Phive/Büro's content and published motion recordings. Inspected chronological frames from four Phive UI recordings; distinguished four studio presentation clips from actual UI demonstrations. Reviewed the rejected Atlas motion source at published commit `4aa2b62b19e40b71c9cf25b5b0d313ab0153b6a3`.
 
-**Evidence boundary:** web/source research is underway. No new live browser playback, mobile frame-time measurement or revised sample is claimed. The standing no-cloud-browser instruction remains respected; no local Browser tool was exposed on discovery. No production app, generator, provider or tenant site changes.
+**Findings and proposal:** design from the trainer's audience, offer, personality, evidence and media. Reuse narrative chapters with entry/readable/exit states and compatible transitions, rather than a fixed seven-section page with changed styling. The research maps ten different page journeys and proposes three working studies first: coach documentary, client case journal and training week. It includes concrete sequences, media prerequisites/fallbacks, Seed composition implications, suggested timing and a browser/device acceptance gate.
 
-**Next:** complete a concrete referenced comparison, separate observed source facts from proposed motion treatments, and establish genuinely different page narratives and a motion acceptance gate before another sample batch. Update this handoff and project memory with the findings and owner priority.
+**Actual checks and limits:** public page/source inspection and sequential recording-frame inspection, not live interactive playback or performance measurement. Malta Personal Trainer's live site returned HTTP 503, so its findings use the creator's case study. Recording frame rates do not prove live-site frame pacing. No local Browser tool was available; the standing no-cloud-browser instruction was respected. No revised samples, production app/generator changes, paid Seed calls, tenant migrations or deployments.
+
+**Records:** this handoff, project memory, completion stage, previous sample guide/audit status and catalogue README reflect the rejection and new priority. Documentation remains on `docs/handoff-review-2026-10-29`, [draft PR #107](https://github.com/chordsnstrings/trainer_what/pull/107); the earlier direct-main review rejection is respected.
+
+**Next:** present the referenced findings and proposed motion direction for owner review before rebuilding. Three study designs and ten narrative directions are proposals, not approved or implemented work. Next sample work should reuse the existing independent Atlas Site identity. Production integration remains a later stage under the audit's editing, revision, tenancy and publication boundaries.
 
 ## Previous handoff records
 
 ### 29 October 2026 request — ten modular trainer-site samples published for review
+
+**Superseded design status, 30 October:** the owner rejected all ten samples. Publication and technical-check receipts below remain historical facts, not visual acceptance. The current research record governs next work.
 
 **Owner authorization:** “Let's establish the sites. Be thorough. Be distinctive. Be aesthetically pleasing and with scroll animations and 3d. We build modular structures so that seed can pick and choose from the conversation. Show me 10 samples.” The sample-building stage is authorized. The production onboarding generator and existing tenant sites are outside this stage.
 

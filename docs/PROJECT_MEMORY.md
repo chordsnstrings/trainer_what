@@ -1,8 +1,16 @@
 # Project memory
 
+### Trainer-site design reset — 30 October 2026
+
+The owner rejected every Atlas sample: repeated templates and decorative 3D did not meet the brief. **Extremely smooth, expressive animation is the priority; 3D is optional.** Do not treat the published ten sites or 55-variant catalogue as approved benchmarks.
+
+[Research and proposed direction](TRAINER_WEBSITE_MOTION_RESEARCH_2026-10-30.md) reviews six trainer/coaching sites, two creator case studies and Phive's published motion sequences. Start from audience, offer, coach personality, proof and available media. Compose different narratives from compatible chapters and coordinated transitions. The plan maps ten structures and proposes coach documentary, client case journal and training week as the first three motion studies.
+
+Evidence is page/source inspection and chronological frames from recordings, not live browser/device performance. Native touch, readable settled states, reversible transitions and measured frame pacing belong in the next acceptance gate. No revised sample or production integration was built. Research is ready for owner review before rebuilding; retain the audit-first boundary. Documentation stays on the existing review branch/PR #107, with handoff/completion records maintained.
+
 ### Ten trainer-site samples — owner request of 29 October 2026
 
-After the website audit, the owner authorized ten thorough, distinctive samples with scroll animation and 3D, using modular structures Seed can select from the conversation. The [published independent collection](https://trainer-design-atlas.salman-omar-4050.chatgpt.site) now contains ten complete fictional sites, seven module families/55 variants and ten procedural Three.js scenes. [Guide, exact source/deployment evidence and verification limits](TRAINER_SITE_SAMPLES_2026-10-29.md). Publication succeeded at 00:09:35 Dubai on 30 October; source `4aa2b62b19e40b71c9cf25b5b0d313ab0153b6a3`. The sample stage is complete; production Seed integration, tenant-site migration and application deployment were not performed. No cloud browser was used, in accordance with the standing instruction. Keep the current handoff and sample records updated during further design reviews.
+After the website audit, the owner authorized ten thorough, distinctive samples with scroll animation and 3D, using modular structures Seed can select from the conversation. The [published independent collection](https://trainer-design-atlas.salman-omar-4050.chatgpt.site) now contains ten complete fictional sites, seven module families/55 variants and ten procedural Three.js scenes. [Guide, exact source/deployment evidence and verification limits](TRAINER_SITE_SAMPLES_2026-10-29.md). Publication succeeded at 00:09:35 Dubai on 30 October; source `4aa2b62b19e40b71c9cf25b5b0d313ab0153b6a3`. The publication stage completed, but the owner rejected all ten designs on 30 October; production Seed integration, tenant-site migration and application deployment were not performed. No cloud browser was used, in accordance with the standing instruction. Keep the current handoff and sample records updated during further design reviews.
 
 ### Subscriber CI and functional polish — implementation and release tracking, 20 October 2026
 
