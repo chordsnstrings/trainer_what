@@ -2,15 +2,15 @@
 
 ## Work in progress
 
-### 30 October 2026 — correcting the sites to sell trainer-taught AI coaching
+### 30 October 2026 — trainer-taught AI storefront correction completed
 
 **Owner correction:** clients subscribe to the coach's AI, taught the coach's methods, on their devices and in their ears. The six-site expansion drifted into conventional personal coaching and an in-person club. Mentioning AI in pricing/FAQ did not repair the primary proposition. This is a product-positioning failure, not a new product decision.
 
-**Implemented locally, verification in progress:** all six heroes, trainer-method explanations, scripted AI product demonstrations, weekly content, membership inclusions, signup/review and returning-member previews now express the trainer-taught AI proposition. The human trainer teaches the AI; the AI is the subscribed coaching experience. Voice belongs to the eligible Complete tier and uses the trainer's approved AI voice. Preserve the distinct visual/motion narratives and verified commercial calculations.
+**Completed and published for review:** all six heroes, trainer-method explanations, scripted AI product demonstrations, weekly content, membership inclusions, signup/review and returning-member previews now express the trainer-taught AI proposition. The human trainer teaches the AI; the AI is the subscribed coaching experience. Voice belongs to the eligible Complete tier and uses the trainer's approved AI voice. Preserve the distinct visual/motion narratives and verified commercial calculations.
 
-**Structural correction:** replace the in-person club schedule with on-device AI coaching modes. Make trainer-taught reasoning visible in scripted example interactions. Do not imply live human appointments, human replies, physical attendance or a live model/audio connection in these independent previews.
+**Structural correction completed:** the in-person club schedule is replaced by on-device AI coaching modes. Scripted example interactions show the trainer-taught method. Do not imply live human appointments, human replies, physical attendance or a live model/audio connection in these independent previews.
 
-**Verification and next:** initial generated-source checks passed (410). Commerce/AI DOM checks passed (1,120), including all 54 site/plan/payment combinations, AI example selection, eligible-plan routing and voice entitlement after back/edit. Finish product-copy, typography, CSS and retained motion checks, then publish the corrected existing private review Site. No production account/payment/provider integration or trainsyou deployment. No connected local Browser tool is available; cloud-browser prohibition remains. Keep private release identifiers outside the public repository. Update handoff, memory and completion records.
+**Verification and next:** initial generated-source checks passed (410). Commerce/AI DOM checks passed (1,120), including all 54 site/plan/payment combinations, AI example selection, eligible-plan routing and voice entitlement after back/edit. Product-copy checks (136), typography estimates (120), CSS and retained motion checks also passed. The corrected existing private review Site is published; the saved version matches the checked source. No production account/payment/provider integration or trainsyou deployment. No connected local Browser tool is available; cloud-browser prohibition remains. Keep private release identifiers outside the public repository. Update handoff, memory and completion records.
 
 ## Previous handoff records
 

@@ -1,5 +1,10 @@
 # Completion stages — 26–27 September 2026
 
+## Stage 2026-10-30 — AI storefront correction complete
+
+All six sample websites now consistently sell trainer-taught AI coaching on the client’s device and approved AI trainer voice through the eligible offering. The corrected private preview is published. Pricing, signup and scripted AI interactions were checked. Browser/device performance remains unverified. The governing correction is recorded in CLAUDE_HANDOFF.md and PROJECT_MEMORY.md; the earlier expansion below is historical.
+
+
 ## Stage 2026-10-30 — six complete trainer websites with pricing and joining previews
 
 **Owner direction:** the three motion studies are moving in the right direction; add pricing, signup and more versions.

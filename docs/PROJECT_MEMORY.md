@@ -2,9 +2,11 @@
 
 ### Governing product correction — trainer-taught AI coaching, 30 October 2026
 
-Clients subscribe to the trainer's AI coaching. The human trainer teaches the AI their methods; clients carry that coaching on their devices and hear the trainer's approved AI voice through the eligible voice offering. This is the central proposition, not an AI add-on between human sessions. Every trainer website must establish it in the hero, experience demonstration, offer and signup. Do not turn the storefront into personal-session booking, consultations or physical club attendance. The previous six-site copy drifted away from this and is being corrected. Preserve distinct trainer identities and smooth motion while keeping the same product truth across every narrative. Preview interactions remain openly scripted; no live AI/audio, account or payment may be implied without an actual connection.
+Clients subscribe to the trainer's AI coaching. The human trainer teaches the AI their methods; clients carry that coaching on their devices and hear the trainer's approved AI voice through the eligible voice offering. This is the central proposition, not an AI add-on between human sessions. Every trainer website must establish it in the hero, experience demonstration, offer and signup. Do not turn the storefront into personal-session booking, consultations or physical club attendance. The previous six-site copy drifted away from this; all six have now been corrected and published for review. Preserve distinct trainer identities and smooth motion while keeping the same product truth across every narrative. Preview interactions remain openly scripted; no live AI/audio, account or payment may be implied without an actual connection.
 
-### Six complete website directions — published, 30 October 2026
+### Six complete website directions — prior expansion, 30 October 2026
+
+The product framing below is historical and superseded by the governing AI correction above.
 
 The owner said the first three studies were moving in the right direction and requested signup, pricing and additional versions. The independent owner-private review Site now contains six complete fictional websites, version 3, with native publication and matching pushed-source provenance confirmed. Private links and release identifiers remain outside this public repository.
 
