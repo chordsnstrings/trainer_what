@@ -1,5 +1,9 @@
 # Project memory
 
+### Three motion studies authorized — 30 October 2026
+
+Owner: “let's do it”, approving the proposed coach documentary, client case journal and interactive training week. Build and publish these three working studies in the existing independent owner-private Atlas Site (`appgprj_6ae39a1e83388191a3da9207c20e8763`) before expanding to ten. Smooth coordinated motion and different page narratives are the quality priority. Previous samples remain rejected. Production trainsyou generator integration remains later work. Source/interaction verification can proceed; no local Browser tool is available and the standing no-cloud-browser rule still applies. Keep actual playback/performance validation distinct from source checks and keep the handoff current.
+
 ### Trainer-site design reset — 30 October 2026
 
 The owner rejected every Atlas sample: repeated templates and decorative 3D did not meet the brief. **Extremely smooth, expressive animation is the priority; 3D is optional.** Do not treat the published ten sites or 55-variant catalogue as approved benchmarks.
