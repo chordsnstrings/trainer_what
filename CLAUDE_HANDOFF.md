@@ -6,9 +6,9 @@
 
 **Owner feedback and authorization:** the three motion studies are “going towards the right direction”; add signup, pricing and more versions. This approves further independent sample work, not production integration.
 
-**In source:** six distinct page templates and the shared commercial flow are authored: three existing narratives plus goal-led Starting Line, FORM / SESSION and Sunday Club. Memberships use the versioned AED 199/299/399 minimums, exact prepaid amounts, features/exclusions, FAQs, a three-step signup demonstration and returning-member preview. No account/payment is created. These changes have not yet been built or checked.
+**Built:** all six pages now compile with pricing, inclusions/exclusions, billing selection, signup review/confirmation, returning-member preview and FAQs. Starting Line preferences connect to appropriate memberships; FORM / SESSION adds chapter controls; Sunday Club adds schedule filtering and details.
 
-**Running:** complete the new responsive compositions and motion/interaction behavior, then verify pricing propagation, validation/back/reset states, keyboard access and reduced motion before publication.
+**Checks so far:** 398 source/data/local-reference assertions; 935 DOM-state assertions covering all 54 site/plan/billing combinations, edits/back, validation, reset, safe text and no personal-data persistence; the retained 184 interaction assertions; expanded GSAP calculation checks. CSS parsing and 25 representative solid-colour contrast pairs passed. These do not establish rendered browser performance. Completing motion-state and narrow-screen typography checks before final packaging.
 
 **Commercial basis:** reading the repository's versioned membership pricing and joining contracts. Use transparent sample prices and show exact billing terms; preview signup must not create accounts, charge money or imply a purchase succeeded. Keep personal form data transient. Native scroll and coordinated motion remain the priority.
 
