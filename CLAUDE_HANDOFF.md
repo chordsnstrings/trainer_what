@@ -2,6 +2,20 @@
 
 ## Work in progress
 
+### 30 October 2026 — all ten samples rejected; research and motion direction reset
+
+**Owner feedback:** “None of them. You need to research personal trainer websites and check how you can add animations to improve upon that. Here you simply took an idea and expanded the same template to everyone. Smooth animation is the key not 3d. Extremely smooth animation that has the oomph factor.”
+
+**Correction:** the ten published samples are rejected prototypes, not approved visual benchmarks. Their repeated seven-section architecture and decorative scene swaps did not establish the required distinction or smoothness. Do not integrate their 55-variant catalogue into production on the strength of the previous stage.
+
+**Running:** research actual personal-trainer/coaching sites for positioning, content, proof, media and conversion journeys; research relevant fitness/motion references for page choreography; specify where animation improves the trainer story and how to validate the result. Smooth, coordinated motion is now the priority; 3D is optional and must support the content.
+
+**Evidence boundary:** web/source research is underway. No new live browser playback, mobile frame-time measurement or revised sample is claimed. The standing no-cloud-browser instruction remains respected; no local Browser tool was exposed on discovery. No production app, generator, provider or tenant site changes.
+
+**Next:** complete a concrete referenced comparison, separate observed source facts from proposed motion treatments, and establish genuinely different page narratives and a motion acceptance gate before another sample batch. Update this handoff and project memory with the findings and owner priority.
+
+## Previous handoff records
+
 ### 29 October 2026 request — ten modular trainer-site samples published for review
 
 **Owner authorization:** “Let's establish the sites. Be thorough. Be distinctive. Be aesthetically pleasing and with scroll animations and 3d. We build modular structures so that seed can pick and choose from the conversation. Show me 10 samples.” The sample-building stage is authorized. The production onboarding generator and existing tenant sites are outside this stage.
@@ -20,7 +34,6 @@
 
 **Next:** present all ten samples for review. This authorized sample stage is complete. Seed is not yet connected to these recipes in production; choose/adjust visual directions before extending the production generator and editing flow. Future integration must preserve confirmed public facts, rights-approved assets, native product bindings, tenant isolation, revision checks, trainer edits/history and publication gates.
 
-## Previous handoff records
 
 ### 29 October 2026 — website-creation audit and plan ready; implementation awaits owner approval
 
