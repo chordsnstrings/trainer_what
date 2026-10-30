@@ -6,11 +6,11 @@
 
 **Owner correction:** clients subscribe to the coach's AI, taught the coach's methods, on their devices and in their ears. The six-site expansion drifted into conventional personal coaching and an in-person club. Mentioning AI in pricing/FAQ did not repair the primary proposition. This is a product-positioning failure, not a new product decision.
 
-**Running:** correct all six heroes, trainer-method explanations, product demonstrations, weekly content, membership inclusions, signup/review and returning-member previews. The human trainer teaches the AI; the AI is the subscribed coaching experience. Voice belongs to the eligible Complete tier and uses the trainer's approved AI voice. Preserve the distinct visual/motion narratives and verified commercial calculations.
+**Implemented locally, verification in progress:** all six heroes, trainer-method explanations, scripted AI product demonstrations, weekly content, membership inclusions, signup/review and returning-member previews now express the trainer-taught AI proposition. The human trainer teaches the AI; the AI is the subscribed coaching experience. Voice belongs to the eligible Complete tier and uses the trainer's approved AI voice. Preserve the distinct visual/motion narratives and verified commercial calculations.
 
 **Structural correction:** replace the in-person club schedule with on-device AI coaching modes. Make trainer-taught reasoning visible in scripted example interactions. Do not imply live human appointments, human replies, physical attendance or a live model/audio connection in these independent previews.
 
-**Verification and next:** check the proposition at each conversion step, preview interaction state and membership calculations, then publish the corrected existing private review Site. No production account/payment/provider integration or trainsyou deployment. No connected local Browser tool is available; cloud-browser prohibition remains. Keep private release identifiers outside the public repository. Update handoff, memory and completion records.
+**Verification and next:** initial generated-source checks passed (410). Commerce/AI DOM checks passed (1,120), including all 54 site/plan/payment combinations, AI example selection, eligible-plan routing and voice entitlement after back/edit. Finish product-copy, typography, CSS and retained motion checks, then publish the corrected existing private review Site. No production account/payment/provider integration or trainsyou deployment. No connected local Browser tool is available; cloud-browser prohibition remains. Keep private release identifiers outside the public repository. Update handoff, memory and completion records.
 
 ## Previous handoff records
 
