@@ -1,5 +1,17 @@
 # Completion stages — 26–27 September 2026
 
+## Stage 2026-10-30 — three motion studies built and published
+
+**Authorization:** owner “let's do it” approved the researched first three working studies before expanding the final collection to ten. Smooth coordinated animation and distinct page narratives govern the work; previous samples remain rejected.
+
+**Delivered:** Trainer Studies — Volume 02 (private preview shared separately), with Mara Vale's film-to-profile documentary, Common Ground's three-chapter fictional client journal, and Dayform's unfolding interactive week. Separate page architectures, local footage/fonts, native-scroll GSAP timelines, keyboard/day selection, busy-week content adjustment, enquiry demonstrations and complete reduced-motion alternatives. The old ten samples are marked rejected in the archive. [Guide](TRAINER_MOTION_STUDIES_2026-10-30.md); [prototype contracts](trainer-motion-studies/contracts.json).
+
+**Publication:** exact checked source was pushed and packaged before successful native owner-private publication on 30 October 2026. Private release identifiers and preview links are retained outside this public repository. [Public-safe check receipt](trainer-motion-studies/verification.json).
+
+**Checks:** 226 source/data/asset assertions; 184 DOM-state assertions; 231 actual GSAP timeline/easing assertions with plain-property targets; CSS parsing, ten sampled solid text contrast pairs, 40 headline font-advance estimates, JS syntax and eight archive check groups. Source media frames and the native gallery preview image were inspected. These are not live interactive browser, native-focus, three-page rendered layout, GPU or device frame-pacing checks. No local Browser tool was exposed; no cloud browser was used. No measured smoothness or visual acceptance is claimed.
+
+**Remaining:** owner review and browser/device playback verification, then refine before expanding to ten. Production generator/editor integration remains later work. No trainsyou app source, live tenant data, paid provider calls or production deployment changed. Handoff, memory and research status are updated on the existing documentation branch and draft PR #107; no main merge.
+
 ## Stage 2026-10-30 — trainer-site research and motion direction after sample rejection
 
 **Owner correction:** all ten samples were rejected as the same template expanded across themes; extremely smooth animation with impact takes priority over 3D.
@@ -18,9 +30,9 @@
 
 **Owner authorization:** “Let's establish the sites. Be thorough. Be distinctive. Be aesthetically pleasing and with scroll animations and 3d. We build modular structures so that seed can pick and choose from the conversation. Show me 10 samples.”
 
-**Delivered:** [Trainer Design Atlas](https://trainer-design-atlas.salman-omar-4050.chatgpt.site) — ten full fictional trainer sites, a review gallery, seven module families with 55 variants, ten actual procedural Three.js scenes, responsive compositions, local media/fonts, preview-only enquiries, local shortlist, motion controls and distinct static fallbacks. [Full guide](TRAINER_SITE_SAMPLES_2026-10-29.md).
+**Delivered:** Trainer Design Atlas (private preview shared separately) — ten full fictional trainer sites, a review gallery, seven module families with 55 variants, ten actual procedural Three.js scenes, responsive compositions, local media/fonts, preview-only enquiries, local shortlist, motion controls and distinct static fallbacks. [Full guide](TRAINER_SITE_SAMPLES_2026-10-29.md).
 
-**Evidence:** source `4aa2b62b19e40b71c9cf25b5b0d313ab0153b6a3`; native owner-private publication **succeeded**, deployment `appgdep_6ae3a7ea2b0c81919ea79d35e345dd9f`, version `appgprj_6ae39a1e83388191a3da9207c20e8763~appgver_88c74ed3b8f08191a4b004699f39dcba`, at 00:09:35 Dubai on 30 October 2026. Source was pushed and the archive built from that same state. [Machine-readable receipt](trainer-site-samples/verification.json).
+**Evidence:** source `[private source revision retained in Site history]`; native owner-private publication **succeeded**, deployment `[private deployment identifier omitted]`, version `[private Site identifier omitted]`, at 00:09:35 Dubai on 30 October 2026. Source was pushed and the archive built from that same state. [Machine-readable receipt](trainer-site-samples/verification.json).
 
 **Checks actually run:** eight assembly/source/geometry groups; 140 DOM event/state assertions; CSS parsing of 996 selectors/2,407 declarations; JavaScript syntax; font advance measurements; local photo inspection. Corrected scene framing, mobile headline widths, image selection/descriptions and reduced-motion settling. Not a rendered browser, native-focus, GPU, physical-device or field-performance test; standing cloud-browser prohibition respected.
 

@@ -1,0 +1,121 @@
+{
+  "version": 2,
+  "status": "working studies for review; browser/device performance unmeasured",
+  "runtime": {
+    "scroll": "native",
+    "engine": "GSAP 3.13.0 / ScrollTrigger",
+    "smoothing": "none",
+    "three": false,
+    "reducedMotion": "complete static composition; all interactions retained"
+  },
+  "studies": [
+    {
+      "id": "documentary",
+      "number": "01",
+      "name": "Mara Vale",
+      "title": "The coach documentary",
+      "mood": "Personal. Cinematic. Direct.",
+      "description": "A film becomes a conversation. Meet the person behind the programme.",
+      "image": "coach",
+      "sequence": [
+        "film-introduction",
+        "coach-method",
+        "practice-notes",
+        "conversation"
+      ],
+      "motion": "One continuous film frame moves from an expansive introduction into an intimate editorial composition.",
+      "entry": "film-introduction",
+      "exit": "conversation"
+    },
+    {
+      "id": "journal",
+      "number": "02",
+      "name": "Common Ground",
+      "title": "The client journal",
+      "mood": "Human. Editorial. Unhurried.",
+      "description": "A person, a starting point, a little more possibility. Follow the story.",
+      "image": "runner",
+      "sequence": [
+        "journal-cover",
+        "three-chapter-story",
+        "coaching-principles",
+        "next-page"
+      ],
+      "motion": "One image carries through three chapters as the story, chapter number and progress rail move together.",
+      "entry": "journal-cover",
+      "exit": "next-page"
+    },
+    {
+      "id": "week",
+      "number": "03",
+      "name": "Dayform",
+      "title": "A week with your coach",
+      "mood": "Playful. Practical. Responsive.",
+      "description": "Open the week. Find your rhythm. Make the plan fit real life.",
+      "image": "home",
+      "sequence": [
+        "week-stack",
+        "calendar-unfold",
+        "day-explorer",
+        "week-adjustment",
+        "start-week"
+      ],
+      "motion": "A stack of seven days unfolds into a week. Day selections and a busy-week switch change the actual demonstration plan.",
+      "entry": "week-stack",
+      "exit": "start-week"
+    }
+  ],
+  "contracts": {
+    "film-introduction": {
+      "assets": [
+        "film",
+        "matchedPoster"
+      ],
+      "entry": "full-frame film and title",
+      "readable": "coach introduction alongside the same film",
+      "exit": "media settles into the editorial composition",
+      "mobile": "shorter frame transition above copy",
+      "reduced": "full film still and introduction in normal flow"
+    },
+    "three-chapter-story": {
+      "assets": [
+        "matchedFilmAndPoster",
+        "threeStoryChapters"
+      ],
+      "entry": "client identity and first chapter",
+      "readable": "one chapter beside a persistent image",
+      "exit": "last chapter and approach",
+      "mobile": "shorter sticky image over reading area",
+      "reduced": "all three chapters in order"
+    },
+    "calendar-unfold": {
+      "assets": [
+        "sevenDayRecords"
+      ],
+      "entry": "stacked day cards",
+      "readable": "seven days spread across a week",
+      "exit": "interactive calendar",
+      "mobile": "seven compact cards; no sideways page scrolling",
+      "reduced": "static week strip"
+    },
+    "day-explorer": {
+      "state": [
+        "selectedDay",
+        "busyWeek"
+      ],
+      "input": [
+        "pointer",
+        "keyboard"
+      ],
+      "readable": "only selected panel shown, all controls available",
+      "transition": "short opacity/translation; rapid selections replace the previous animation",
+      "reduced": "immediate selection change"
+    }
+  },
+  "compositionRules": [
+    "Choose a narrative from the confirmed public brief before choosing chapters.",
+    "Do not connect shared-element transitions across unrelated identities.",
+    "No invented client results; use an explicitly fictional study or select a different narrative.",
+    "Trainer edits preserve asset identity and crop; incompatible swaps select a compatible transition."
+  ]
+}

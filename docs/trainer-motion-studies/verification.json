@@ -1,0 +1,123 @@
+{
+  "recordedDate": "2026-10-30",
+  "scope": "Three independent trainer website motion studies; owner design review pending",
+  "publication": {
+    "status": "succeeded",
+    "audience": "owner-private; unchanged",
+    "provenance": "Exact checked source pushed and packaged; private release identifiers retained outside this public repository"
+  },
+  "studyNames": [
+    "Mara Vale",
+    "Common Ground",
+    "Dayform"
+  ],
+  "sourceChecks": {
+    "motion-studies-css.json": {
+      "status": "passed",
+      "selectors": 556,
+      "declarations": 1557,
+      "errors": [],
+      "sampledSolidColourPairs": [
+        {
+          "foreground": "#20211e",
+          "background": "#f3f1eb",
+          "ratio": 14.33
+        },
+        {
+          "foreground": "#e8e9df",
+          "background": "#20211e",
+          "ratio": 13.22
+        },
+        {
+          "foreground": "#c2c6b9",
+          "background": "#20211e",
+          "ratio": 9.3
+        },
+        {
+          "foreground": "#20211e",
+          "background": "#ecece3",
+          "ratio": 13.62
+        },
+        {
+          "foreground": "#3f3831",
+          "background": "#f2ede4",
+          "ratio": 9.89
+        },
+        {
+          "foreground": "#9a482e",
+          "background": "#e9dfd0",
+          "ratio": 4.77
+        },
+        {
+          "foreground": "#ffffff",
+          "background": "#c94326",
+          "ratio": 4.87
+        },
+        {
+          "foreground": "#191916",
+          "background": "#e45c3b",
+          "ratio": 4.94
+        },
+        {
+          "foreground": "#625d54",
+          "background": "#f5f1e9",
+          "ratio": 5.8
+        },
+        {
+          "foreground": "#70665b",
+          "background": "#f5f1e9",
+          "ratio": 4.98
+        }
+      ],
+      "scope": "CSS and selector syntax plus ten representative solid text/background pairs. Not rendered layout, whole-page WCAG qualification or photograph-overlay contrast. Unsupported browser pseudo-elements adapted only for selector parsing."
+    },
+    "motion-studies-interactions.json": {
+      "status": "passed",
+      "assertions": 184,
+      "scope": "DOM state with linkedom 0.18.12 and animation engine unavailable: tabs, keyboard, busy-week data, dialogs, form demo, reduced motion, storage failure. Not native focus, rendered browser playback or measured frame pacing."
+    },
+    "motion-studies-static.json": {
+      "status": "passed",
+      "assertions": 226,
+      "scope": "Generated HTML, local references, distinct recipe structure, data completeness, asset budgets and arithmetic layout constraints; not browser rendering or measured performance.",
+      "browser": "not run; no local Browser tool and standing no-cloud-browser rule",
+      "deviceFramePacing": "unmeasured"
+    },
+    "motion-studies-timelines.json": {
+      "status": "passed",
+      "assertions": 231,
+      "engine": "GSAP 3.13.0",
+      "scope": "Actual timeline/easing calculations with plain-property targets and synthetic viewport dimensions. Forward/reverse/stopped progress and settled states. Not CSS rendering, ScrollTrigger geometry, interaction latency or frame pacing."
+    },
+    "motion-studies-type.json": {
+      "checks": 40,
+      "overflow": [],
+      "scope": "Pillow font-advance estimates with the original source fonts and CSS tracking; not browser text layout."
+    }
+  },
+  "archiveChecks": {
+    "groups": 8,
+    "status": "passed"
+  },
+  "inspectedArtifacts": [
+    "Local stock video/poster frames",
+    "Native Sites-generated root gallery preview image"
+  ],
+  "notVerified": [
+    "Live interactive scroll and sticky geometry",
+    "Three-page desktop/phone rendered layout",
+    "Native dialog focus",
+    "Touch flick/stop/reverse response",
+    "Physical-device frame pacing",
+    "GPU or field performance",
+    "Owner design acceptance"
+  ],
+  "productionIntegration": false,
+  "mainMerged": false,
+  "trainsyouDeployed": false,
+  "notes": [
+    "No cloud browser used; no connected local Browser tool exposed.",
+    "Native publication and source provenance confirmed; native preview image is not live interactive QA.",
+    "GSAP licence scope for a production visual animation builder requires separate architecture/licence review."
+  ]
+}

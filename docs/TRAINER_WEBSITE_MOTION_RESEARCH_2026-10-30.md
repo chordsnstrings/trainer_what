@@ -1,6 +1,6 @@
 # Trainer websites: research and motion direction — 30 October 2026
 
-**Status: research complete; proposed design direction for owner review. No revised samples or production implementation.**
+**Status update, 30 October 2026:** the owner approved the three-study proposal (“let's do it”). Those three working studies are now [published for review](TRAINER_MOTION_STUDIES_2026-10-30.md). Production integration remains later work; browser/device smoothness and owner design acceptance are outstanding. The research, proposals and evidence limits below record the planning stage; recommendations awaiting approval at that point must be read alongside this later authorization.
 
 The owner rejected all ten Atlas samples. Smooth, expressive animation is the priority; 3D is optional. A changed palette, font and object do not establish a different website. The next collection must differ in what visitors encounter, how the story develops and what the movement helps them understand.
 
@@ -46,7 +46,7 @@ Our interpretation: the useful ingredient is coordinated change and continuity. 
 
 ## Why the rejected Atlas did not meet the brief
 
-Source reviewed in the Atlas checkout corresponding to published commit `4aa2b62b19e40b71c9cf25b5b0d313ab0153b6a3`:
+Source reviewed in the Atlas checkout corresponding to published commit `[private source revision retained in Site history]`:
 
 - `samples.mjs` and the shared assembly use the same seven section families, with broadly repeated content roles. Changing their order and presentation did not create ten genuinely different journeys.
 - `dist/app.js` primarily reveals elements once through IntersectionObserver. `dist/styles.css` applies a common fade and 30px upward movement. This is an entrance treatment, not a whole-page motion composition.
