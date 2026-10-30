@@ -1,5 +1,43 @@
 # Project memory
 
+### Governing product correction — trainer-taught AI coaching, 30 October 2026
+
+Clients subscribe to the trainer's AI coaching. The human trainer teaches the AI their methods; clients carry that coaching on their devices and hear the trainer's approved AI voice through the eligible voice offering. This is the central proposition, not an AI add-on between human sessions. Every trainer website must establish it in the hero, experience demonstration, offer and signup. Do not turn the storefront into personal-session booking, consultations or physical club attendance. The previous six-site copy drifted away from this; all six have now been corrected and published for review. Preserve distinct trainer identities and smooth motion while keeping the same product truth across every narrative. Preview interactions remain openly scripted; no live AI/audio, account or payment may be implied without an actual connection.
+
+### Six complete website directions — prior expansion, 30 October 2026
+
+The product framing below is historical and superseded by the governing AI correction above.
+
+The owner said the first three studies were moving in the right direction and requested signup, pricing and additional versions. The independent owner-private review Site now contains six complete fictional websites, version 3, with native publication and matching pushed-source provenance confirmed. Private links and release identifiers remain outside this public repository.
+
+New structures: Starting Line (preference → explanation → fitting membership), FORM / SESSION (continuous film with session phases/cues), Sunday Club (mosaic → invitation → filterable schedule). Mara Vale, Common Ground and Dayform retain their narratives. All six have pricing/inclusions, monthly or prepaid choices, signup review/confirmation, returning-member previews, FAQs and privacy details. [Current guide](TRAINER_SITE_COMMERCE_EXPANSION_2026-10-30.md).
+
+Illustrative online offers follow the versioned AED 199/299/399 minimums; six months upfront saves 10%, twelve saves 30%. Full upfront amounts and monthly equivalents are explicit. Live sessions/events are separate. No account, charge, booking, production consent or personal-data persistence is created; closing/reloading clears entered details, and native dialog-form behavior prevents a network fallback.
+
+Passed 398 source/data checks, 953 commerce state assertions (all 54 combinations), 184 retained interaction assertions, 327 GSAP calculations, CSS/sampled contrast, 75 phone type estimates and eight archive groups. Three long headline lines were corrected. No live browser/device performance claim: no local Browser tool was exposed, and no cloud browser was used. Review the actual six-site journey before expanding toward ten or integrating the production generator/editor. Original prototypes remain rejected. Keep documentation on the existing draft review branch/PR and update the handoff at each stage.
+
+### Three motion studies published for review — 30 October 2026
+
+Owner: “let's do it”, approving the researched coach documentary, client case journal and training-week proposal. Trainer Studies — Volume 02 (private preview shared separately) is published in the existing independent owner-private Atlas Site (`[private Site identifier omitted]`), version 2. [Guide and review instructions](TRAINER_MOTION_STUDIES_2026-10-30.md).
+
+Three separately authored structures: Mara Vale's film-to-coach composition; Common Ground's coordinated three-chapter fictional journal; Dayform's unfolding week, keyboard day selection and real busy-week content changes. Smooth coordinated motion is the priority. Native scrolling, local GSAP/ScrollTrigger, stock media and reduced-motion alternatives; no Three.js on the new routes. The previous ten designs remain rejected and archived. Chapter/transition contracts are prototypes for later Seed work, not a connected generator/editor.
+
+Native owner-private publication succeeded on 30 October. Exact private source and deployment identifiers remain in the Site history and conversation. Passed 226 source/data checks, 184 DOM-state assertions and 231 GSAP calculations with plain-property targets, plus CSS, sampled contrast, font-width estimates and archive checks. Source asset frames and the native gallery preview image were inspected. No live interactive browser or measured device frame pacing: no local Browser tool was available and the standing no-cloud-browser rule applies. Do not convert technical checks/publication into visual acceptance.
+
+Next is owner review and actual browser/device verification of these three before expanding the final collection to ten. Production trainsyou integration remains later work. Source is saved in the Site repository; documentation stays on `docs/handoff-review-2026-10-29`, draft PR #107. Keep the handoff current.
+
+### Trainer-site design reset — 30 October 2026
+
+The owner rejected every Atlas sample: repeated templates and decorative 3D did not meet the brief. **Extremely smooth, expressive animation is the priority; 3D is optional.** Do not treat the published ten sites or 55-variant catalogue as approved benchmarks.
+
+[Research and proposed direction](TRAINER_WEBSITE_MOTION_RESEARCH_2026-10-30.md) reviews six trainer/coaching sites, two creator case studies and Phive's published motion sequences. Start from audience, offer, coach personality, proof and available media. Compose different narratives from compatible chapters and coordinated transitions. The plan maps ten structures and proposes coach documentary, client case journal and training week as the first three motion studies.
+
+Evidence is page/source inspection and chronological frames from recordings, not live browser/device performance. Native touch, readable settled states, reversible transitions and measured frame pacing belong in the next acceptance gate. At this research checkpoint no revised samples or production integration had been built. The later approval and three-study publication above supersede the pending-design-review status; production integration remains later work. Documentation stays on the existing review branch/PR #107, with handoff/completion records maintained.
+
+### Ten trainer-site samples — owner request of 29 October 2026
+
+After the website audit, the owner authorized ten thorough, distinctive samples with scroll animation and 3D, using modular structures Seed can select from the conversation. The published independent collection (private preview shared separately) now contains ten complete fictional sites, seven module families/55 variants and ten procedural Three.js scenes. [Guide, exact source/deployment evidence and verification limits](TRAINER_SITE_SAMPLES_2026-10-29.md). Publication succeeded at 00:09:35 Dubai on 30 October; source `[private source revision retained in Site history]`. The publication stage completed, but the owner rejected all ten designs on 30 October; production Seed integration, tenant-site migration and application deployment were not performed. No cloud browser was used, in accordance with the standing instruction. Keep the current handoff and sample records updated during further design reviews.
+
 ### Subscriber CI and functional polish — implementation and release tracking, 20 October 2026
 
 Owner approved the light subscriber concept: “better. let's get it done.” Base `526c0fbb61832a9b4a3445bb4de8b20cd38aa30f`; branch `work/subscriber-polish-2026-10-20`. The actual app now implements CI White/Ink/Paper/Pace, local Inter Display, measured contrast and restrained motion. WHOOP has dedicated recovery/rules views and separate connection/workout permission. Voice guidance has its own paid add-on journey; eligible monthly memberships have exact-amount upgrade review and payment confirmation. Ordinary workout edits and paused/running rest timers restore safely. Existing prescriptions, offline logs, nutrition, bookings and music remain connected. The latest request supersedes the historical prohibition on package changes. Prepaid terms retain their price/duration and use existing module passes; overlapping purchases and different programme lengths remain guarded.
@@ -16,6 +54,8 @@ The downloadable `trainsyou-ux-ui-audit-2026-10-19.html` was refreshed and saved
 
 ## Standing owner decisions
 
+- Trainer website creation (owner, 29 October 2026): simplify onboarding so the conversation collects website details, photos and videos and produces a complete editable site with distinctive Three.js and scroll effects. The owner requested an audit and plan before execution. The proposal is `docs/WEBSITE_CREATION_AUDIT_PLAN_2026-10-29.md`; implementation, redesign/migration and deployment await approval. Preserve trainsyou CI for the platform while allowing distinct trainer-site identities.
+- Handoff continuity (owner, 29 October 2026): "Always update the hand-off document." Update `CLAUDE_HANDOFF.md` after every completed stage and status update, including read-only repository reviews; keep the current work, checked commit, actual evidence, blockers and next action accurate. Preserve earlier release records as history.
 - Always deploy completed changes after normal release checks. Keep Claude handoff current. Give short updates and avoid redundant checks.
 - Use a clean, minimal white interface, consistent buttons, spacing and navigation. Smooth trainer onboarding and daily use matter.
 - Trainers teach their own coaching AI. They are not expected to build software. The desktop-only visual website editor assembles varied modules; published multipage sites remain responsive. Include transformation galleries.

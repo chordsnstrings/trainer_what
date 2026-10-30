@@ -1,0 +1,214 @@
+{
+  "recordedDate": "2026-10-30",
+  "scope": "Six complete independent trainer website directions with pricing and joining previews",
+  "ownerFeedback": "The first three are moving in the right direction; add signup, pricing and more versions.",
+  "publication": {
+    "status": "succeeded",
+    "versionNumber": 3,
+    "audience": "owner-private; unchanged",
+    "provenance": "Exact checked source pushed and packaged; native saved source matched. Private identifiers retained outside this public repository."
+  },
+  "studyNames": [
+    "Mara Vale",
+    "Common Ground",
+    "Dayform",
+    "Starting Line",
+    "FORM / SESSION",
+    "Sunday Club"
+  ],
+  "commercialPolicy": {
+    "version": "membership-2026-10-14",
+    "monthlyMinimumsMinor": {
+      "training": 19900,
+      "nutrition": 29900,
+      "complete": 39900
+    },
+    "sixMonthDiscountBps": 1000,
+    "twelveMonthDiscountBps": 3000,
+    "currency": "AED",
+    "previewOnly": true
+  },
+  "checks": {
+    "motion-studies-static.json": {
+      "status": "passed",
+      "assertions": 398,
+      "scope": "Generated HTML, local references, distinct recipe structure, data completeness, asset budgets and arithmetic layout constraints; not browser rendering or measured performance.",
+      "browser": "not run; no local Browser tool and standing no-cloud-browser rule",
+      "deviceFramePacing": "unmeasured"
+    },
+    "site-commerce.json": {
+      "status": "passed",
+      "assertions": 953,
+      "sites": 6,
+      "offerTermJourneys": 54,
+      "scope": "DOM state/events with linkedom, independent expected price totals, selected-offer continuity, back/edit, errors, safe text, close/reset, member preview, preferences, schedule filters, reduced motion and storage failure. No real accounts/payments or native browser layout/focus/performance."
+    },
+    "motion-studies-interactions.json": {
+      "status": "passed",
+      "assertions": 184,
+      "scope": "DOM state with linkedom 0.18.12 and animation engine unavailable: tabs, keyboard, busy-week data, dialogs, form demo, reduced motion, storage failure. Not native focus, rendered browser playback or measured frame pacing."
+    },
+    "motion-studies-timelines.json": {
+      "status": "passed",
+      "assertions": 327,
+      "engine": "GSAP 3.13.0",
+      "scope": "Actual timeline/easing calculations with plain-property targets and synthetic viewport dimensions. Forward/reverse/stopped progress and settled states. Not CSS rendering, ScrollTrigger geometry, interaction latency or frame pacing."
+    },
+    "motion-studies-css.json": {
+      "status": "passed",
+      "selectors": 1134,
+      "declarations": 3078,
+      "errors": [],
+      "sampledSolidColourPairs": [
+        {
+          "foreground": "#20211e",
+          "background": "#f3f1eb",
+          "ratio": 14.33
+        },
+        {
+          "foreground": "#e8e9df",
+          "background": "#20211e",
+          "ratio": 13.22
+        },
+        {
+          "foreground": "#c2c6b9",
+          "background": "#20211e",
+          "ratio": 9.3
+        },
+        {
+          "foreground": "#20211e",
+          "background": "#ecece3",
+          "ratio": 13.62
+        },
+        {
+          "foreground": "#3f3831",
+          "background": "#f2ede4",
+          "ratio": 9.89
+        },
+        {
+          "foreground": "#9a482e",
+          "background": "#e9dfd0",
+          "ratio": 4.77
+        },
+        {
+          "foreground": "#ffffff",
+          "background": "#c94326",
+          "ratio": 4.87
+        },
+        {
+          "foreground": "#191916",
+          "background": "#e45c3b",
+          "ratio": 4.94
+        },
+        {
+          "foreground": "#625d54",
+          "background": "#f5f1e9",
+          "ratio": 5.8
+        },
+        {
+          "foreground": "#70665b",
+          "background": "#f5f1e9",
+          "ratio": 4.98
+        },
+        {
+          "foreground": "#26331f",
+          "background": "#efefdc",
+          "ratio": 11.46
+        },
+        {
+          "foreground": "#26331f",
+          "background": "#d7dd8d",
+          "ratio": 9.28
+        },
+        {
+          "foreground": "#eff0da",
+          "background": "#26331f",
+          "ratio": 11.52
+        },
+        {
+          "foreground": "#1649b7",
+          "background": "#e8edf3",
+          "ratio": 6.68
+        },
+        {
+          "foreground": "#ffffff",
+          "background": "#1649b7",
+          "ratio": 7.86
+        },
+        {
+          "foreground": "#3d2c21",
+          "background": "#f4ede2",
+          "ratio": 11.42
+        },
+        {
+          "foreground": "#a93e28",
+          "background": "#f4ede2",
+          "ratio": 5.3
+        },
+        {
+          "foreground": "#ffffff",
+          "background": "#a93e28",
+          "ratio": 6.16
+        },
+        {
+          "foreground": "#3d2c21",
+          "background": "#c9dce0",
+          "ratio": 9.36
+        },
+        {
+          "foreground": "#5b5e53",
+          "background": "#eeede7",
+          "ratio": 5.65
+        },
+        {
+          "foreground": "#c4c9bc",
+          "background": "#242822",
+          "ratio": 8.87
+        },
+        {
+          "foreground": "#616858",
+          "background": "#f3f1eb",
+          "ratio": 5.12
+        },
+        {
+          "foreground": "#9b2c1d",
+          "background": "#f3f1eb",
+          "ratio": 6.71
+        },
+        {
+          "foreground": "#665b4f",
+          "background": "#f4ede2",
+          "ratio": 5.69
+        },
+        {
+          "foreground": "#172233",
+          "background": "#dde4ec",
+          "ratio": 12.48
+        }
+      ],
+      "scope": "CSS and selector syntax plus twenty-five representative solid text/background pairs. Not rendered layout, whole-page WCAG qualification or photograph-overlay contrast. Unsupported browser pseudo-elements adapted only for selector parsing."
+    },
+    "site-commerce-type.json": {
+      "checks": 75,
+      "overflow": [],
+      "scope": "Pillow original-font advance estimates with CSS tracking for selected phone headline lines. Not browser text shaping, line wrapping or rendered layout."
+    }
+  },
+  "archiveCheckGroups": 8,
+  "photographsInspected": true,
+  "notVerified": [
+    "Live scroll and sticky layout",
+    "Six-page desktop/phone rendered layout",
+    "Native dialog focus",
+    "Touch flick/stop/reverse behavior",
+    "GPU and physical-device frame pacing",
+    "Owner acceptance of expanded six-site build"
+  ],
+  "realAccountsCreated": false,
+  "paymentsTaken": false,
+  "bookingsMade": false,
+  "personalDataPersisted": false,
+  "productionIntegration": false,
+  "mainMerged": false,
+  "trainsyouDeployed": false
+}

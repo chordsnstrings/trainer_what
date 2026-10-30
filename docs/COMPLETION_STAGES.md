@@ -1,6 +1,85 @@
 # Completion stages — 26–27 September 2026
 
+## Stage 2026-10-30 — AI storefront correction complete
+
+All six sample websites now consistently sell trainer-taught AI coaching on the client’s device and approved AI trainer voice through the eligible offering. The corrected private preview is published. Pricing, signup and scripted AI interactions were checked. Browser/device performance remains unverified. The governing correction is recorded in CLAUDE_HANDOFF.md and PROJECT_MEMORY.md; the earlier expansion below is historical.
+
+
+## Stage 2026-10-30 — six complete trainer websites with pricing and joining previews
+
+**Owner direction:** the three motion studies are moving in the right direction; add pricing, signup and more versions.
+
+**Delivered and published:** three additions (Starting Line, FORM / SESSION, Sunday Club), plus complete commercial journeys on Mara Vale, Common Ground and Dayform. Six distinct narrative structures and six pricing compositions share versioned offer calculations. Native owner-private publication of version 3 succeeded; exact source push/package/save provenance is confirmed. Private release identifiers remain in the Site history and conversation. [Guide](TRAINER_SITE_COMMERCE_EXPANSION_2026-10-30.md).
+
+**Behavior:** AED 199/299/399 sample online memberships; monthly, six-month and twelve-month billing; explicit full upfront totals and monthly equivalents; feature/exclusion lists; plan/term continuity through three signup steps; edit/back, validation, truthful preview receipt, clear/reset; member access preview, FAQs and privacy details. Goal selection updates the relevant membership; session chapters navigate; club filters/details work. No real account, payment, booking or personal-data storage. Native dialog-form method prevents a network fallback.
+
+**Checks:** 398 source/data/local-reference assertions; 953 commerce DOM-state assertions across 54 site/plan/term combinations; 184 original interaction assertions; 327 actual GSAP calculations; 1,134 CSS selectors / 3,078 declarations parsed; 25 sampled solid contrast pairs at least 4.77:1; 75 phone headline-width estimates after correcting three lines; JS syntax and eight archive check groups. Reused photographs were inspected. [Receipt](trainer-motion-studies/verification.json).
+
+**Limits and next:** no live browser/device, native-focus, GPU or measured smoothness acceptance. No local Browser tool was exposed; no cloud browser used. Owner reviews the six actual designs and signup journeys; refine before extending toward ten. Production Seed, editor, signup/payment integration and tenant migration remain later work. Handoff, memory, guide and contracts updated on the existing draft documentation PR; no main merge or trainsyou release.
+
+## Stage 2026-10-30 — three motion studies built and published
+
+**Authorization:** owner “let's do it” approved the researched first three working studies before expanding the final collection to ten. Smooth coordinated animation and distinct page narratives govern the work; previous samples remain rejected.
+
+**Delivered:** Trainer Studies — Volume 02 (private preview shared separately), with Mara Vale's film-to-profile documentary, Common Ground's three-chapter fictional client journal, and Dayform's unfolding interactive week. Separate page architectures, local footage/fonts, native-scroll GSAP timelines, keyboard/day selection, busy-week content adjustment, enquiry demonstrations and complete reduced-motion alternatives. The old ten samples are marked rejected in the archive. [Guide](TRAINER_MOTION_STUDIES_2026-10-30.md); [prototype contracts](trainer-motion-studies/contracts.json).
+
+**Publication:** exact checked source was pushed and packaged before successful native owner-private publication on 30 October 2026. Private release identifiers and preview links are retained outside this public repository. [Public-safe check receipt](trainer-motion-studies/verification.json).
+
+**Checks:** 226 source/data/asset assertions; 184 DOM-state assertions; 231 actual GSAP timeline/easing assertions with plain-property targets; CSS parsing, ten sampled solid text contrast pairs, 40 headline font-advance estimates, JS syntax and eight archive check groups. Source media frames and the native gallery preview image were inspected. These are not live interactive browser, native-focus, three-page rendered layout, GPU or device frame-pacing checks. No local Browser tool was exposed; no cloud browser was used. No measured smoothness or visual acceptance is claimed.
+
+**Remaining:** owner review and browser/device playback verification, then refine before expanding to ten. Production generator/editor integration remains later work. No trainsyou app source, live tenant data, paid provider calls or production deployment changed. Handoff, memory and research status are updated on the existing documentation branch and draft PR #107; no main merge.
+
+## Stage 2026-10-30 — trainer-site research and motion direction after sample rejection
+
+**Owner correction:** all ten samples were rejected as the same template expanded across themes; extremely smooth animation with impact takes priority over 3D.
+
+**Completed:** [referenced research and proposed direction](TRAINER_WEBSITE_MOTION_RESEARCH_2026-10-30.md), covering six trainer/coaching sites, two creator case studies and Phive/Büro. Compared content, audiences, proof, media and conversion structures; inspected chronological frames from four published Phive UI recordings and four studio presentation clips; audited the rejected Atlas's repeated section/entrance patterns. Defined ten narrative proposals, three initial motion studies, chapter/transition contracts for Seed, asset fallbacks and proposed playback/performance acceptance.
+
+**Actual verification:** public page/source research and recorded-frame inspection. The Malta Personal Trainer live URL returned HTTP 503. No live interactive browser, phone trace, measured website frame rate, new samples, application tests or production changes were performed. Published recording cadence is not live performance. No cloud browser used.
+
+**Records:** current handoff and project memory updated; sample guide and original audit annotated with superseding priority; prototype catalogue README records rejection. Prior publication/technical receipts remain historical evidence only. Documentation is on the existing review branch and draft PR #107; no main merge or deployment.
+
+**Next:** owner reviews the researched motion direction before rebuilding. Proposed first studies are coach documentary, client case journal and training week; the requested final collection size remains ten. Production integration is later work.
+
+## Ten modular trainer-site samples — 29 October 2026 request; published 30 October Dubai
+
+**Design status superseded on 30 October:** all ten samples were rejected by the owner. The following publication/check record is historical and does not establish visual acceptance.
+
+**Owner authorization:** “Let's establish the sites. Be thorough. Be distinctive. Be aesthetically pleasing and with scroll animations and 3d. We build modular structures so that seed can pick and choose from the conversation. Show me 10 samples.”
+
+**Delivered:** Trainer Design Atlas (private preview shared separately) — ten full fictional trainer sites, a review gallery, seven module families with 55 variants, ten actual procedural Three.js scenes, responsive compositions, local media/fonts, preview-only enquiries, local shortlist, motion controls and distinct static fallbacks. [Full guide](TRAINER_SITE_SAMPLES_2026-10-29.md).
+
+**Evidence:** source `[private source revision retained in Site history]`; native owner-private publication **succeeded**, deployment `[private deployment identifier omitted]`, version `[private Site identifier omitted]`, at 00:09:35 Dubai on 30 October 2026. Source was pushed and the archive built from that same state. [Machine-readable receipt](trainer-site-samples/verification.json).
+
+**Checks actually run:** eight assembly/source/geometry groups; 140 DOM event/state assertions; CSS parsing of 996 selectors/2,407 declarations; JavaScript syntax; font advance measurements; local photo inspection. Corrected scene framing, mobile headline widths, image selection/descriptions and reduced-motion settling. Not a rendered browser, native-focus, GPU, physical-device or field-performance test; standing cloud-browser prohibition respected.
+
+**Boundary and next:** the requested sample collection is complete and ready for owner review. The production app, Seed calls, existing trainer sites, financial paths and provider settings were unchanged. Review/adjust directions before production integration; preserve the audit plan's tenancy, factual/media rights, product/revision/history and publication boundaries. Handoff and project memory updated; documentation remains on the review branch/PR, with no main merge.
+
 Application implementation and the job audit are complete for the current phase. [PR #1](https://github.com/chordsnstrings/trainer_what/pull/1) contains the work; [combined verification](VERIFICATION_2026-09-27.md) records the passing final code revision. The owner authorized merge to main. Real services and deployment remain the next phase; screenshots were waived. Historical entries below record the evidence available at each stage and may contain superseded pending-check statements.
+
+## Stage 2026-10-29 — trainer website-creation audit and proposed plan
+
+Owner request: simplify website creation and improve visual quality so onboarding collects website information, photos and videos and leaves an extensive editable site with Three.js and scroll effects. Explicit boundary: "Audit, plan, lemme know first before execution."
+
+Audited the generation/editing path at `56acf157b945483a733b71988a351909a4097206`. The existing flow already creates a private draft; the main limitations are catalogue-only layout planning, deterministic replacement of generated section copy, caption-only photo context, omitted video, stacked phone motion and limited post-generation conversational editing. Existing commercial bindings, permissions, draft versions and publication history remain valuable.
+
+Prepared [the full audit and plan](WEBSITE_CREATION_AUDIT_PLAN_2026-10-29.md), with source evidence, a conversation-to-complete-site journey, public media intake, staged composition, typed Three.js scenes, preview-led editing, migration strategy and measurable acceptance. Updated handoff and project memory.
+
+Validation: inspected relevant source and existing test/browser assertions; checked proposed rendering/performance principles against official Three.js and Web Vitals documentation. No new application tests, browser captures, paid calls, implementation or deployment were performed. The plan explicitly distinguishes proposed targets from measured results. Documentation checks preserve previous records and limit changes to the four documentation files.
+
+Next action: owner reviews the proposal and approves implementation scope. The first proposed implementation phase establishes three representative full-site visual benchmarks. Documentation is on `docs/handoff-review-2026-10-29`; main is unchanged because automatic approval review rejected the earlier direct-main handoff update. No merge/deployment is attempted for this planning request.
+
+## Stage 2026-10-29 — repository understanding and standing handoff instruction
+
+Owner requested a repository review before further work, then instructed: "Always update the hand-off document."
+
+Reviewed `main` at `56acf157b945483a733b71988a351909a4097206`, tracing the product surfaces, shared Trainer Brain, teaching/review/publication cycle, qualified coaching and plan delivery, subscriber features, commercial rules, provider boundaries, database isolation, background jobs and deployment checks. The product/implementation explanation was delivered to the owner.
+
+Updated the current section of `CLAUDE_HANDOFF.md`, retained its previous release records under a history heading, and recorded the standing instruction in `PROJECT_MEMORY.md`. Only these three documentation files change.
+
+Evidence inspected: [all eight application jobs passed](https://github.com/chordsnstrings/trainer_what/actions/runs/40811688638); [serving verification](https://github.com/chordsnstrings/trainer_what/actions/runs/40815365920) recorded HTTP 200 and the reviewed SHA at 04:10:32 UTC / 08:10:32 Dubai on 29 October. These runs cover the reviewed base. No fresh application tests, live-user journey, provider transaction or deployment are claimed for this review.
+
+Remaining work: no unfinished review task. Next implementation scope awaits the owner's next request; existing marketing phases 2 and 3 keep their previous authority boundary. Continue maintaining the handoff for both implementation and review work.
 
 ## Stage 2026-10-28 — marketing revamp phase 1: Live Brain home, /trainer-brain anatomy, /demo playground and /pricing (PR #105, squash-merged as `2ef5757`; live since 01:32 UTC on 29 October 2026)
 

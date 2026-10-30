@@ -1,0 +1,130 @@
+{
+  "project_id": "appgprj_6ae39a1e83388191a3da9207c20e8763",
+  "source_commit_sha": "4aa2b62b19e40b71c9cf25b5b0d313ab0153b6a3",
+  "deployment_id": "appgdep_6ae3a7ea2b0c81919ea79d35e345dd9f",
+  "version_id": "appgprj_6ae39a1e83388191a3da9207c20e8763~appgver_88c74ed3b8f08191a4b004699f39dcba",
+  "status": "succeeded",
+  "audience": "owner-private",
+  "url": "https://trainer-design-atlas.salman-omar-4050.chatgpt.site",
+  "verified_at": "2026-10-29T20:09:35.637853+00:00",
+  "dubai_time": "30 October 2026, 00:09:35 GST",
+  "source_checks": {
+    "scope": "Source, generated-document and procedural-geometry checks; not browser rendering or field performance",
+    "checks": [
+      {
+        "name": "Ten unique, complete and distinct recipes",
+        "status": "passed"
+      },
+      {
+        "name": "Every recipe selects registered module families and variants",
+        "status": "passed"
+      },
+      {
+        "name": "Built pages have semantic content, unique IDs and exactly one scene",
+        "status": "passed"
+      },
+      {
+        "name": "Every local page, image, stylesheet, script and anchor target resolves",
+        "status": "passed"
+      },
+      {
+        "name": "Gallery exposes all ten routes, filters, shortlist and module contract",
+        "status": "passed"
+      },
+      {
+        "name": "All ten Three.js scenes have finite geometry throughout scroll and fit portrait/square/wide cameras",
+        "status": "passed"
+      },
+      {
+        "name": "Static fallback scenes are distinct and semantic",
+        "status": "passed"
+      },
+      {
+        "name": "Motion has an off switch, reduced-motion CSS and bounded WebGL lifecycle",
+        "status": "passed"
+      }
+    ],
+    "geometry": [
+      {
+        "id": "iron",
+        "vertices": 42480,
+        "drawObjects": 36,
+        "maxProjectedExtent": 0.744
+      },
+      {
+        "id": "forma",
+        "vertices": 3703,
+        "drawObjects": 1,
+        "maxProjectedExtent": 0.917
+      },
+      {
+        "id": "pace",
+        "vertices": 23441,
+        "drawObjects": 12,
+        "maxProjectedExtent": 0.95
+      },
+      {
+        "id": "still",
+        "vertices": 3675,
+        "drawObjects": 3,
+        "maxProjectedExtent": 0.727
+      },
+      {
+        "id": "ringcraft",
+        "vertices": 2679,
+        "drawObjects": 23,
+        "maxProjectedExtent": 0.939
+      },
+      {
+        "id": "altitude",
+        "vertices": 9087,
+        "drawObjects": 2,
+        "maxProjectedExtent": 0.873
+      },
+      {
+        "id": "current",
+        "vertices": 7437,
+        "drawObjects": 53,
+        "maxProjectedExtent": 0.845
+      },
+      {
+        "id": "atelier",
+        "vertices": 6360,
+        "drawObjects": 9,
+        "maxProjectedExtent": 0.854
+      },
+      {
+        "id": "reform",
+        "vertices": 3370,
+        "drawObjects": 6,
+        "maxProjectedExtent": 0.732
+      },
+      {
+        "id": "afterhours",
+        "vertices": 5079,
+        "drawObjects": 3,
+        "maxProjectedExtent": 0.886
+      }
+    ],
+    "summary": "8 check groups passed; 10 sample pages and gallery validated"
+  },
+  "dom_checks": {
+    "scope": "DOM event and local state checks using linkedom 0.18.12; not a browser rendering, native-dialog focus or WebGL test",
+    "assertions": 140,
+    "status": "passed"
+  },
+  "css_checks": {
+    "selectorsParsed": 996,
+    "declarationsParsed": 2407,
+    "issues": [],
+    "parserExceptions": [
+      "Valid ::backdrop and ::-webkit-details-marker stripped for selector parser compatibility"
+    ],
+    "scope": "CSS syntax and selector parsing, not browser layout"
+  },
+  "limits": [
+    "No rendered browser or native-dialog focus acceptance: standing repository instruction prohibits cloud-browser use.",
+    "No physical-device, field-performance or real-user measurement.",
+    "No production onboarding integration, paid Seed call, application deployment or live account mutation."
+  ]
+}

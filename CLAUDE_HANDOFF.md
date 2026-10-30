@@ -2,6 +2,75 @@
 
 ## Work in progress
 
+### 30 October 2026 — trainer-taught AI storefront correction completed
+
+**Owner correction:** clients subscribe to the coach's AI, taught the coach's methods, on their devices and in their ears. The six-site expansion drifted into conventional personal coaching and an in-person club. Mentioning AI in pricing/FAQ did not repair the primary proposition. This is a product-positioning failure, not a new product decision.
+
+**Completed and published for review:** all six heroes, trainer-method explanations, scripted AI product demonstrations, weekly content, membership inclusions, signup/review and returning-member previews now express the trainer-taught AI proposition. The human trainer teaches the AI; the AI is the subscribed coaching experience. Voice belongs to the eligible Complete tier and uses the trainer's approved AI voice. Preserve the distinct visual/motion narratives and verified commercial calculations.
+
+**Structural correction completed:** the in-person club schedule is replaced by on-device AI coaching modes. Scripted example interactions show the trainer-taught method. Do not imply live human appointments, human replies, physical attendance or a live model/audio connection in these independent previews.
+
+**Verification and next:** initial generated-source checks passed (410). Commerce/AI DOM checks passed (1,120), including all 54 site/plan/payment combinations, AI example selection, eligible-plan routing and voice entitlement after back/edit. Product-copy checks (136), typography estimates (120), CSS and retained motion checks also passed. The corrected existing private review Site is published; the saved version matches the checked source. No production account/payment/provider integration or trainsyou deployment. No connected local Browser tool is available; cloud-browser prohibition remains. Keep private release identifiers outside the public repository. Update handoff, memory and completion records.
+
+## Previous handoff records
+
+Private Atlas preview links, publication identifiers and local source details in the historical records below are redacted. Original private release evidence remains in the Site history; this does not change the recorded outcomes.
+
+### 29 October 2026 request — ten modular trainer-site samples published for review
+
+**Superseded design status, 30 October:** the owner rejected all ten samples. Publication and technical-check receipts below remain historical facts, not visual acceptance. The current research record governs next work.
+
+**Owner authorization:** “Let's establish the sites. Be thorough. Be distinctive. Be aesthetically pleasing and with scroll animations and 3d. We build modular structures so that seed can pick and choose from the conversation. Show me 10 samples.” The sample-building stage is authorized. The production onboarding generator and existing tenant sites are outside this stage.
+
+**Completed source:** a separate browsable collection of ten complete fictional trainer sites: Iron / Form (strength), Forma (Pilates), Pace Dept. (running), Still Studio (yoga), Ringcraft (boxing), Altitude (outdoor), Current (swimming), Atelier / Human (private coaching), Re:Form (mobility) and Afterhours (dance fitness). Each has seven full sections, programme details, philosophy, FAQs and a preview-only enquiry. Seven reusable module families expose 55 presentation variants and ten composition recipes, with bounded scene selection. The collection includes mood filters, a device-local shortlist and an “Inside the design” review drawer.
+
+**Motion and 3D:** ten actual procedural Three.js scenes: weight plates, ribbon, running track, stones, boxing ring, terrain, water, balanced mobile, abstract joint and rhythm sculpture. Native scroll drives reveals, type movement and scene transformation. One lazy WebGL canvas per sample; bounded pixel resolution, on-demand rendering, offscreen/hidden-tab pause, disposal, context-loss fallback and ten distinct static SVG studies. System reduced motion and a local motion toggle are respected.
+
+**Actual validation:** eight check groups passed for recipes, module contracts, semantic pages, every local reference/anchor, gallery coverage, finite/fitted geometry at five scroll positions across four camera aspects, static fallbacks and lifecycle source checks. 140 DOM interaction assertions passed using linkedom 0.18.12. CSS parsing passed (996 selectors, 2,407 declarations; two valid browser pseudo-elements accommodated by the parser). Font measurements corrected ten phone headline sizes; camera checks corrected three clipped scenes. Photography was visually inspected and unsuitable images replaced. Local WebP photographs, WOFF2 fonts and Three.js 0.180.0 are bundled with provenance/licenses.
+
+**Verification limits:** no cloud browser was used, following the standing repository instruction. DOM/geometry/source checks are not rendered browser acceptance, native-dialog focus checks, GPU/physical-device evidence or field-performance results. No application release, paid Seed call, live account mutation or production provider change was performed.
+
+**Published:** Trainer Design Atlas (private preview shared separately) — ten complete samples and their review gallery. Native private publication succeeded for source `[private source revision retained in Site history]`, version `[private Site identifier omitted]`, deployment `[private deployment identifier omitted]`, at **00:09:35 Dubai on 30 October 2026**. Site ID `[private Site identifier omitted]`; source checkout `[private source checkout]`. Reuse that Site identity/source repository for follow-up work. [Sample guide and all ten links](docs/TRAINER_SITE_SAMPLES_2026-10-29.md); [module catalogue](docs/trainer-site-samples/catalog.json); [verification receipt](docs/trainer-site-samples/verification.json).
+
+**Repository records:** [draft PR #107](https://github.com/chordsnstrings/trainer_what/pull/107), branch `docs/handoff-review-2026-10-29`. The earlier direct-main automatic-review rejection remains respected; main and the trainsyou application deployment are unchanged. The previous [audit](docs/WEBSITE_CREATION_AUDIT_PLAN_2026-10-29.md) remains the production-integration plan.
+
+**Next:** present all ten samples for review. This authorized sample stage is complete. Seed is not yet connected to these recipes in production; choose/adjust visual directions before extending the production generator and editing flow. Future integration must preserve confirmed public facts, rights-approved assets, native product bindings, tenant isolation, revision checks, trainer edits/history and publication gates.
+
+
+### 29 October 2026 — website-creation audit and plan ready; implementation awaits owner approval
+
+**Owner instructions:** "Always update the hand-off document." The next request is to simplify trainer website creation: onboarding should collect website details, videos and photos and produce a complete editable site with distinctive Three.js and scroll effects. The owner explicitly requested **"Audit, plan, lemme know first before execution."**
+
+**Completed:** source and existing-test audit of `main` at `56acf157b945483a733b71988a351909a4097206`, covering onboarding website facts/actions, photo intake, starter generation, deterministic content population, renderer/scroll behaviour, editing, storage/publication and relevant tests. The [full audit and proposed implementation plan](docs/WEBSITE_CREATION_AUDIT_PLAN_2026-10-29.md) records findings, source links, a proposed trainer journey, architecture, delivery phases and acceptance criteria.
+
+**Key findings:** chat already saves the first private website draft. The model mainly selects catalogue modules; subsequent code overwrites much of its copy, the model receives photo descriptions rather than images, automatic composition excludes video, and generated scroll sections use stacked phone presentation. The inspected website path has no Three.js runtime. Later chat changes do not revise an edited website, and phone quick edit is limited. Existing native offers, permissions, revision checks, publication snapshots and tenant boundaries should be retained.
+
+**Proposal, not approved implementation:** a public website brief and media pipeline; complete-site composition with section-specific content and coordinated visual direction; real Three.js scenes plus designed phone/scroll experiences; preview-led conversational editing with preserved manual choices. Start after approval by establishing three representative complete-site visual benchmarks, then build the generator to that quality.
+
+**Checks and limits:** this is source review, not a fresh rendered visual/performance audit. No application code, tests, dependencies, infrastructure, provider settings or customer data were changed or run for the proposal. Existing successful CI and serving evidence for the reviewed base remain in the previous review record below. Official Three.js and Web Vitals documentation informed proposed rendering/performance targets; no new performance result is claimed.
+
+**Documentation location:** [draft PR #107](https://github.com/chordsnstrings/trainer_what/pull/107), branch `docs/handoff-review-2026-10-29`, containing this handoff, project memory, completion entries and the plan. Automatic approval review rejected a prior direct `main` ref update because it could trigger deployment and `CLAUDE.md` assigns deployment separately. Use the documentation review branch/PR; do not bypass that rejection. Main was not moved by that attempted update.
+
+**Next:** present the audit and plan, then wait for the owner's approval before implementation. This is a review checkpoint, not authorization to build, migrate websites, merge to main or deploy. Existing marketing revamp phases 2 and 3 retain their separate scope. Continue updating this handoff after each stage and status update.
+
+
+### 29 October 2026 — repository review complete; standing handoff instruction
+
+**Owner instruction:** "Always update the hand-off document." Keep this Work in progress section current after every completed stage and status update, including read-only repository reviews. Record the reviewed or changed commit, work completed, actual checks, blockers and next action; do not claim unrun checks or a new deployment.
+
+**Completed:** reviewed `main` at `56acf157b945483a733b71988a351909a4097206`: current handoff and owner decisions, trainer/subscriber/admin routing, conversational onboarding, versioned shared Trainer Brain, learning and qualification, plan delivery, nutrition and voice access, WHOOP workout adjustments, membership pricing/upgrades, tenant/database boundaries, background jobs and release workflows. Reported the product and implementation map to the owner. This follow-up changes documentation only.
+
+**Existing evidence checked through GitHub:**
+
+- [Application checks 40811688638](https://github.com/chordsnstrings/trainer_what/actions/runs/40811688638): all eight jobs succeeded for the reviewed commit.
+- [Serving verification 40815365920](https://github.com/chordsnstrings/trainer_what/actions/runs/40815365920), job `123255036482`: HTTP 200 and exact release `56acf157b945483a733b71988a351909a4097206` at 04:10:32 UTC / 08:10:32 Dubai on 29 October.
+- These are existing checks of the reviewed base, not freshly run application tests or proof that this documentation update has deployed.
+
+**Boundaries:** no application code, provider settings or customer records changed; no live-user browser journey or paid-provider call was performed. The feature flags in the previous 03:20 UTC handoff are that record's observation, not independently refreshed here: payments and payouts were off while model, nutrition, meal photos, voice, custom domains and WHOOP were on. Older README/build-status statements must be reconciled with newer source and release evidence.
+
+**Next:** the requested repository understanding is complete. Carry this context into the next owner-requested task and update this handoff as work progresses. Marketing revamp phases 2 and 3 retain the previous owner-decision boundary; this review starts neither phase. No review blocker or owner action is outstanding.
+
+
 ### Status at 03:20 UTC on 29 October 2026 (Claude): marketing revamp phase 1 is live and checked; done
 
 **What it is:** phase 1 of the marketing revamp (`/`, `/trainer-brain`, `/demo`, `/pricing`), as the owner chose on 27 Oct ("Go with your recommendation"; each phase is its own PR, "checked and deployed"). The full record is the 28 October entry of `docs/COMPLETION_STAGES.md`.
