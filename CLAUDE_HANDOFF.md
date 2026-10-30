@@ -8,7 +8,9 @@
 
 **Direction:** extremely smooth coordinated animation takes priority; 3D is optional. The previous ten samples remain rejected. New studies must differ in page narrative and interaction, with real continuity between states and readable pauses. Fictional trainers, illustrative media and demonstration content must be identified.
 
-**Running:** reopened Site `appgprj_6ae39a1e83388191a3da9207c20e8763` (owner-private) through the Sites source workflow; preparing three different compositions and reusable chapter/transition contracts in `/workspace/sites/trainer-design-atlas`. Previous published source: `4aa2b62b19e40b71c9cf25b5b0d313ab0153b6a3`. Follow [the researched plan](docs/TRAINER_WEBSITE_MOTION_RESEARCH_2026-10-30.md).
+**Built and checked:** three separate page structures, native-scroll GSAP timelines, local stock footage/posters, a working journal navigator, keyboard day selector, busy-week content adjustment, enquiry demonstrations and reduced-motion/static alternatives. The old collection is explicitly archived as rejected. Passed 226 source/data/asset assertions, 184 DOM-state assertions and 231 actual GSAP timeline assertions against plain-property targets, plus CSS parsing, 40 phone headline-width estimates and representative solid-colour contrast checks. These do not establish rendered browser or measured device performance. Packaging and private publication are running.
+
+**Source:** reopened Site `appgprj_6ae39a1e83388191a3da9207c20e8763` (owner-private) through the Sites source workflow; preparing three different compositions and reusable chapter/transition contracts in `/workspace/sites/trainer-design-atlas`. Previous published source: `4aa2b62b19e40b71c9cf25b5b0d313ab0153b6a3`. Follow [the researched plan](docs/TRAINER_WEBSITE_MOTION_RESEARCH_2026-10-30.md).
 
 **Verification boundary:** no local Browser tool is exposed. The standing no-cloud-browser instruction still applies. Source/interaction checks can proceed; actual browser/device frame pacing is not yet verified and must not be labelled passed. Publication is for owner design review, not production visual acceptance.
 
