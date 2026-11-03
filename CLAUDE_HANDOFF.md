@@ -2,6 +2,30 @@
 
 ## Work in progress
 
+### Status at 08:58 UTC on 3 November 2026 (Claude): Connect Facebook (Page numbers + a Facebook estimate), research running
+
+**Owner request (3 Nov):** "let's add option to connect facebook as well", next to "Connect Instagram" on Followers & growth. Asked what it should do, the owner chose **"Page numbers + own estimate"**:
+- a trainer connects their Facebook Page; we read its followers and recent engagement once and save only the numbers, as Instagram does;
+- plus a Facebook version of the subscriber estimate, built on researched Facebook Page reach figures. **The owner sees those figures before it goes live.**
+
+**Why its own estimate:** the existing estimate uses Instagram-only benchmarks (Stories, Reels, link stickers), so Facebook numbers cannot simply be fed into it.
+
+**Context at the start:**
+- `main` and production are both `56acf15` (checked live at 3 Nov).
+- Draft PR #107 (another session's 29–30 Oct trainer-website records) is still open and holds newer handoff entries than `main`.
+- The Instagram callback stays `https://trainsyou.com/api/v1/trainer/instagram/callback`.
+
+**Running:** research workflow `wf_81a2f16d-ffa`:
+- current Meta Graph API facts: version, Page permissions, endpoints, app review, data-deletion rules;
+- sourced Facebook Page benchmarks, and a Facebook estimate designed to mirror the Instagram model.
+
+**Next:**
+1. Build: the API (authorize, state, callback, snapshot, delete), provider settings and availability flag, the platform-address list, the estimate in `packages/domain`, the UI on `/trainer/growth`, tests and docs. It stays off until Meta app review is recorded as approved.
+2. Adversarial review.
+3. The PR and CI.
+4. Show the owner the Facebook figures.
+5. Merge and deploy (dormant until enabled).
+
 ### Status at 03:20 UTC on 29 October 2026 (Claude): marketing revamp phase 1 is live and checked; done
 
 **What it is:** phase 1 of the marketing revamp (`/`, `/trainer-brain`, `/demo`, `/pricing`), as the owner chose on 27 Oct ("Go with your recommendation"; each phase is its own PR, "checked and deployed"). The full record is the 28 October entry of `docs/COMPLETION_STAGES.md`.
