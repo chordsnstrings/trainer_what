@@ -2,29 +2,39 @@
 
 ## Work in progress
 
-### Status at 08:58 UTC on 3 November 2026 (Claude): Connect Facebook (Page numbers + a Facebook estimate), research running
+### Status at 09:25 UTC on 3 November 2026 (Claude): Connect Facebook (Page numbers + a Facebook estimate), build running
 
-**Owner request (3 Nov):** "let's add option to connect facebook as well", next to "Connect Instagram" on Followers & growth. Asked what it should do, the owner chose **"Page numbers + own estimate"**:
-- a trainer connects their Facebook Page; we read its followers and recent engagement once and save only the numbers, as Instagram does;
-- plus a Facebook version of the subscriber estimate, built on researched Facebook Page reach figures. **The owner sees those figures before it goes live.**
+**Owner request (3 Nov):** "let's add option to connect facebook as well", next to "Connect Instagram" on Followers & growth. The owner chose **"Page numbers + own estimate"**:
+- a trainer connects their Facebook Page; we read its followers and recent engagement once and save only the numbers;
+- plus a Facebook version of the subscriber estimate on researched Facebook Page reach figures. **The owner sees those figures before it goes live.**
 
-**Why its own estimate:** the existing estimate uses Instagram-only benchmarks (Stories, Reels, link stickers), so Facebook numbers cannot simply be fed into it.
+**Owner's Meta setup steps, to do only after the code is complete** (3 Nov, "once done do this. don't do it before actually completing the code"):
+- the site's Facebook connection uses the new Meta App ID `1653212959862915` and its secret (App settings → Basic); Instagram stays on Instagram App ID `2881563462229057`;
+- someone with a role on each app signs in once through each button on trainsyou.com, because Meta needs one successful call before it accepts a review request;
+- two App Review requests go in, each with a screen recording of the sign-in.
 
-**Context at the start:**
-- `main` and production are both `56acf15` (checked live at 3 Nov).
-- Draft PR #107 (another session's 29–30 Oct trainer-website records) is still open and holds newer handoff entries than `main`.
-- The Instagram callback stays `https://trainsyou.com/api/v1/trainer/instagram/callback`.
+**What I found:**
+- No DigitalOcean, Meta or Super admin access exists in this environment. The owner pastes the App secret into Super admin and submits the reviews; I prepare the checklist, reviewer text and recording scripts.
+- **Correction to pass on:** Page numbers need `pages_show_list`, `pages_read_engagement` and `public_profile` (Advanced Access, with Business Verification), not `email`, which is only for a "Sign in with Facebook" button. The Instagram app's request stays `instagram_business_basic`.
+- **Code gap:** Connect Instagram is hidden until `INSTAGRAM_APP_REVIEW_APPROVED=true`, so nobody could make the required pre-review call. The build adds a pre-approval test mode for both providers: listed coach addresses can connect before review, and the public flags stay off.
 
-**Running:** research workflow `wf_81a2f16d-ffa`:
-- current Meta Graph API facts: version, Page permissions, endpoints, app review, data-deletion rules;
-- sourced Facebook Page benchmarks, and a Facebook estimate designed to mirror the Instagram model.
+**Research** (`wf_81a2f16d-ffa`, saved in `scratchpad/fb/research.json`):
+- **Meta facts:** Graph API v26.0; Facebook Login for Business with a `config_id`; `/me/accounts` with `followers_count`; `/<page>/published_posts` with reaction, comment and share totals; data deletion by an instructions URL.
+- **Facebook estimate:** version `2026-11-03`; Socialinsider reach by Page size (4.35% of followers at 1–5K down to 0.50% above 100K); link posts and Reels as shares of that; Messenger keyword replies; the Page link. It comes out far lower than Instagram's (7,000 followers: about 5 active subscribers after 12 months in the strong case, against about 116).
+
+**Running:** build workflow `wf_43ce5a30-1af`:
+- core: the domain estimate, plus the API, settings and test mode;
+- surface: the trainer card and calculator, plus the methodology section, deletion instructions, docs and the Meta checklist (`docs/features/meta-app-review.md`);
+- review: two adversarial reviewers.
 
 **Next:**
-1. Build: the API (authorize, state, callback, snapshot, delete), provider settings and availability flag, the platform-address list, the estimate in `packages/domain`, the UI on `/trainer/growth`, tests and docs. It stays off until Meta app review is recorded as approved.
-2. Adversarial review.
-3. The PR and CI.
-4. Show the owner the Facebook figures.
-5. Merge and deploy (dormant until enabled).
+1. Verify and commit.
+2. PR and CI.
+3. Show the owner the Facebook figures.
+4. Merge and deploy (dormant until enabled).
+5. Then the owner's Meta steps, with the checklist.
+
+**Waiting on the owner:** whether to merge draft PR #107 (another session's records) into `main`.
 
 ### Status at 03:20 UTC on 29 October 2026 (Claude): marketing revamp phase 1 is live and checked; done
 
