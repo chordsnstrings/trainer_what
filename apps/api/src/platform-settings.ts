@@ -103,7 +103,9 @@ function isActive(def: IntegrationDefinition, row?: SettingsRow) {
   });
   return Boolean(
     def.implemented &&
-    (!capability || capability.approved) &&
+    // A Meta connection also activates for its listed test workspaces before
+    // app review (integrationCapability testing); public claims stay off.
+    (!capability || capability.approved || capability.testing) &&
     row.enabled &&
     row.last_test?.revision === row.revision &&
     ["verified", "validated"].includes(row.last_test.status),
@@ -663,6 +665,7 @@ export function platformSettingsRoutes(
         const result =
           capability &&
           !capability.approved &&
+          !capability.testing &&
           !READ_ONLY_CHECK_BEFORE_APPROVAL.has(def.id)
             ? { status: "unavailable" as const }
             : await probe(def.id, values);

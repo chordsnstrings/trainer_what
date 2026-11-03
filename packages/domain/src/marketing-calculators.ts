@@ -530,9 +530,10 @@ export type FollowerEstimate = {
   assumptionsVersion: string;
 };
 
-const clamp = (value: number, [min, max]: readonly [number, number]) =>
+// Shared with the Facebook Page calculator (facebook-calculator.ts).
+export const clamp = (value: number, [min, max]: readonly [number, number]) =>
   Math.min(max, Math.max(min, Number.isFinite(value) ? value : min));
-const optional = (
+export const optional = (
   value: number | null | undefined,
   limits: readonly [number, number],
 ) =>
@@ -591,7 +592,8 @@ export function followerInputsUsed(input: FollowerInputs): FollowerInputsUsed {
   };
 }
 
-const MONTHS = 12;
+// The monthly arithmetic below is shared with the Facebook Page calculator.
+export const MONTHS = 12;
 /**
  * First visits in each month 1-12 from a group of `people` who each open
  * your page with `chance` a month. Each month a share `renewal` of the group
@@ -600,7 +602,7 @@ const MONTHS = 12;
  * after its first members have decided. With no renewal the same people stay
  * all year: first visits by month T are people × (1 − (1 − chance)^T).
  */
-function groupVisits(people: number, chance: number, renewal: number): number[] {
+export function groupVisits(people: number, chance: number, renewal: number): number[] {
   const out: number[] = [];
   let fresh = 1; // share of the group that has not visited yet
   for (let m = 0; m < MONTHS; m++) {
@@ -609,21 +611,21 @@ function groupVisits(people: number, chance: number, renewal: number): number[] 
   }
   return out;
 }
-const addInto = (total: number[], add: number[]) =>
+export const addInto = (total: number[], add: number[]) =>
   add.forEach((value, m) => (total[m] += value));
-const cumulate = (values: number[]) => {
+export const cumulate = (values: number[]) => {
   let sum = 0;
   return values.map((value) => (sum += value));
 };
 
-type Channel = { people: number; chance: number };
+export type Channel = { people: number; chance: number };
 /**
  * Monthly first visits when channels reach nested groups (each smaller
  * audience sits inside the larger ones; Stories are ranked by closeness, so
  * the closest followers see everything). Each person visits with
  * 1 − Π(1 − chance) a month over the channels that reach them.
  */
-function nestedVisits(channels: Channel[], renewal: number): number[] {
+export function nestedVisits(channels: Channel[], renewal: number): number[] {
   const sizes = [...new Set(channels.map((c) => c.people))]
     .filter((size) => size > 0)
     .sort((a, b) => a - b);

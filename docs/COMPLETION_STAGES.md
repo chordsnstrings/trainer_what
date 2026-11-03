@@ -2,6 +2,89 @@
 
 Application implementation and the job audit are complete for the current phase. [PR #1](https://github.com/chordsnstrings/trainer_what/pull/1) contains the work; [combined verification](VERIFICATION_2026-09-27.md) records the passing final code revision. The owner authorized merge to main. Real services and deployment remain the next phase; screenshots were waived. Historical entries below record the evidence available at each stage and may contain superseded pending-check statements.
 
+## Stage 2026-11-03 — Connect Facebook: Page numbers and a Facebook estimate, plus a pre-approval test mode for both Meta connections (PR pending; ships dormant)
+
+**Owner, 3 November 2026:** "let's add option to connect facebook as well". Asked what it should do, the owner chose **"Page numbers + own estimate"**: a trainer connects their Facebook Page, we read its followers and recent engagement once and save only the numbers, beside Instagram. A Facebook version of the subscriber estimate is built on researched Facebook Page reach figures, which **the owner sees before it goes live**.
+
+**The owner's Meta setup** comes after the code is complete ("once done do this. don't do it before actually completing the code"):
+- Facebook Login for Business is in the **"trainsyou social login"** Meta app, App ID `2335071867263863`. It is the same app as Instagram, Instagram App ID `2881563462229057`.
+- The configuration ID is `1420000509847051` (sent as `config_id` in place of a scope list).
+- Both callbacks are already registered.
+- The App secret is copied into Super admin by whoever has access to the dashboard.
+- One sign-in by someone with a role on the app comes before App Review.
+
+**What changed:**
+- **API, `apps/api/src/facebook.ts`:**
+  - routes: GET and DELETE `/api/v1/trainer/facebook`; POST `…/authorize` (owner only, platform host, rate limited, single-use state tied to the session); GET `…/callback`;
+  - calls: Graph v26.0 pinned; the Login for Business dialog with `config_id`, `response_type=code` and no scope; `/me/permissions`; `/me/accounts` (at most 2 pages of 25); the usable Page with the most followers; `/{page}/published_posts` (12 posts, reaction, comment and share totals); `appsecret_proof` on every call;
+  - outcomes: connected, declined, expired, failed, unavailable, permissions_required, no_page, page_access_required and busy;
+  - storage: the snapshot keeps the numbers and the Page name only, with no token, Page ID or user ID.
+- **Test mode before Meta review,** for both providers:
+  - new settings `INSTAGRAM_TEST_WORKSPACES` and `FACEBOOK_TEST_WORKSPACES` (coach addresses). A listed workspace can connect while the provider is configured but not approved;
+  - `platform-settings.ts` accepts that state;
+  - `publicAvailability()` stays approval-only.
+- **Settings:** a new provider "Facebook Pages (follower estimates)": Meta App ID, App secret, Redirect URI, Configuration ID, review switch and test workspaces.
+- **Estimate, `packages/domain/src/facebook-calculator.ts`** (version `2026-11-03`; defaults only, no Super admin settings yet):
+  - post reach by Page size;
+  - link posts and Reels as shares of it;
+  - link clicks, Messenger keyword replies and the Page link;
+  - new people each month;
+  - visit to paid and cancellations shared with Instagram.
+  The figures are listed under "Figures for the owner's sign-off" below.
+- **Trainer screen:**
+  - Connect Facebook sits right under Connect Instagram, then the two calculators;
+  - a "Testing before Meta review" note;
+  - a notice for each outcome;
+  - saved Facebook numbers stay removable after access ends;
+  - "#_=_" is stripped from the address.
+- **Public pages:**
+  - the `/methodology` Facebook section, and the Facebook-only sources on `/methodology` and in `llms-full.txt`, are hidden until `availability.facebook`;
+  - data deletion instructions at `/security-and-privacy#facebook-instagram-data`. They ship on deploy, and both Meta products use them.
+- **Instagram:** the snapshot event carries no numbers (the public deletion promise), and test mode is added.
+- **Docs:** `docs/features/facebook-connect.md`, `docs/features/meta-app-review.md` (the owner's checklist), `infra-ops.md` and `marketing-site.md`.
+
+**How it was built:**
+- **Research workflow** `wf_81a2f16d-ffa`: Meta API facts, plus sourced benchmarks and the design.
+- **Build workflow** `wf_43ce5a30-1af`: 4 builders and 2 adversarial reviewers.
+- **The reviewers' 13 findings,** all fixed (`wf_779c79ff-e39`):
+  - numbers left in events;
+  - Facebook numbers unremovable after access ended;
+  - Graph error 190/492 mapped to "expired";
+  - Facebook-only sources in `llms-full.txt`;
+  - the superseded App ID in the docs;
+  - the layout;
+  - wording and labels.
+
+**Checks:**
+- **Agents' targeted runs:**
+  - domain: 13/13 new tests, plus 133 marketing and source tests;
+  - API: 23/23, plus 55 adjacent;
+  - UI: 5/5;
+  - docs and methodology: 123;
+  - after the fixes: 92/92 targeted plus 30/30 related;
+  - typecheck clean.
+- **Full `npm run check`** (typecheck, all tests, web build): FULLCHECK.
+
+**Figures for the owner's sign-off** (Facebook estimate, version `2026-11-03`):
+- **Post reach** by Page size: 4.35% of followers (up to 5K), 3.40% (5–10K), 2.70% (10–50K), 1.50% (50–100K), 0.50% (above 100K). Measured, Socialinsider, brand Pages, January 2025 – August 2026.
+- **Link post and Reel shares** of that reach: link posts 16.67% (cautious) or 25.64% (typical, strong); Reels 45.83% or 70.51%. Our division of Socialinsider's reach by format.
+- **Link clicks** per person reached: 1% / 2.5% / 2.8%. Echobox 2021 publishers, a proxy; the 1% is our assumption.
+- **Messenger link open** after a keyword comment: 18% / 30% / 45%. Instagram auto-DM vendor claims, a proxy.
+- **Page link** per Page visit: 1% / 2% / 3%. The link-in-bio rule of thumb.
+- **New people each month:** 0% / 1.5% / 8%.
+- **Comments per Reel viewer** 0.46%, keyword factor ×2.0278.
+- **Engagement benchmark** by size: 0.25 / 0.21 / 0.17 / 0.15 / 0.125%.
+- **Visit to paid** (0.72 / 2.9 / 6.2%) and cancellations (30% a year) are shared with Instagram.
+- **Worked example:** 7,000 followers, AED 199, 4 link posts and 4 keyword Reels a month. Active subscribers at month 12 come to 0.14 / 1.62 / 4.56, against about 116 on Instagram's strong case.
+
+**Remaining:**
+- the owner's sign-off on the figures;
+- the owner's Meta steps (`docs/features/meta-app-review.md`): the Super admin values with the secret, one test sign-in through each button, and one App Review request in "trainsyou social login" for `pages_show_list`, `pages_read_engagement`, `public_profile` and `instagram_business_basic` (not `email`), with Business Verification;
+- an owner-approved privacy-policy paragraph about Facebook and Instagram data (proposed in the checklist; `/privacy` is a versioned legal document);
+- open Meta behaviour to confirm at the first sign-in: whether comment totals need `pages_read_user_content`, whether `?code=` comes back, and which Pages `/me/accounts` lists.
+
+**Next action:** PR, CI, merge and deploy (dormant until the settings are saved), then the HTTP live check. Then the owner's Meta steps.
+
 ## Stage 2026-10-28 — marketing revamp phase 1: Live Brain home, /trainer-brain anatomy, /demo playground and /pricing (PR #105, squash-merged as `2ef5757`; live since 01:32 UTC on 29 October 2026)
 
 Owner, 27 October 2026: "Go with your recommendation". That means A "Live Brain", plus C's "Anatomy of one decision", Never list and source badges, plus B's pricing page and calculators. The defaults were accepted, and each phase ships as its own PR, "checked and deployed". Spec: `docs/marketing-revamp-2026-10-26/phase1/PLAN.md`. What shipped: `docs/features/marketing-site.md` ("Phase 1") and `docs/features/brain-showcase.md`.

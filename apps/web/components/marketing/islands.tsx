@@ -42,14 +42,14 @@ export function withEarlyAccessContext(
   return path.split("?")[0] + (query ? "?" + query : "") + "#" + hash;
 }
 
-const aed = aedWhole;
+export const aed = aedWhole;
 // One formatter each, made once: making one costs far more than a format.
 const WHOLE = new Intl.NumberFormat("en-AE", { maximumFractionDigits: 0 });
 const PCT = new Intl.NumberFormat("en-AE", { maximumFractionDigits: 2 });
-const whole = (n: number) => WHOLE.format(n);
-const pct = (n: number) => PCT.format(n) + "%";
+export const whole = (n: number) => WHOLE.format(n);
+export const pct = (n: number) => PCT.format(n) + "%";
 
-function NumberField({
+export function NumberField({
   label,
   value,
   onChange,
@@ -96,10 +96,10 @@ function NumberField({
     </div>
   );
 }
-const num = (value: number | "", fallback = 0) =>
+export const num = (value: number | "", fallback = 0) =>
   value === "" || !Number.isFinite(value) ? fallback : value;
 
-function CheckField({
+export function CheckField({
   label,
   checked,
   onChange,
@@ -132,14 +132,14 @@ function CheckField({
   );
 }
 
-const countLabel = (n: number) => {
+export const countLabel = (n: number) => {
   const count = displayCount(n);
   return count === null ? "fewer than 1" : whole(count);
 };
 /** A lever's gain: one decimal below 10, so small gains are not shown as 0. */
-const gainLabel = (n: number) =>
+export const gainLabel = (n: number) =>
   n < 0.05 ? "about the same" : n < 10 ? `+${n.toFixed(1)}` : `+${whole(Math.round(n))}`;
-const SCENARIO_LABEL: Record<FollowerScenario, string> = {
+export const SCENARIO_LABEL: Record<FollowerScenario, string> = {
   cautious: "Cautious",
   typical: "Typical",
   strong: "Strong case",

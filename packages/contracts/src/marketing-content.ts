@@ -35,6 +35,8 @@ const PREPAY = {
   twelve: { months: 12, pct: prepayQuote(MEMBERSHIP_MINIMUMS.training, 12).discountBps / 100 },
 };
 const RETRIEVED = "2026-09-28";
+/** Sources of the Facebook Page estimate (assumptions version 2026-11-03). */
+const RETRIEVED_FACEBOOK = "2026-11-03";
 
 export const MARKETING_SOURCES: MarketingSource[] = [
   {
@@ -460,7 +462,153 @@ export const MARKETING_SOURCES: MarketingSource[] = [
     usedFor:
       "Comparison for the strong case: its monthly amount is far above these averages (for example, USD 273 a month for 1-10K followers). Larger accounts sell more in total but less per follower, so the strong case uses lower rates for larger accounts.",
   },
+  {
+    id: "socialinsider-reach-facebook",
+    publisher: "Socialinsider",
+    title: "Social media reach statistics (Facebook figures)",
+    url: "https://www.socialinsider.io/blog/social-media-reach/",
+    evidence: "Measured, brand accounts",
+    published: "3 September 2026, updated 21 October 2026",
+    retrieved: RETRIEVED_FACEBOOK,
+    claim:
+      "Facebook reach (reach divided by followers) by Page size: 1-5K 4.35%, 5-10K 3.40%, 10-50K 2.70%, 50-100K 1.50%, 100K-1M 0.50%. By post format: images 1.20%, albums 1.15%, status 0.80%, Reels 0.55%, links 0.20%. Organic posts by brand Pages, January 2025-August 2026. The study also gives overall Facebook reach as 1.25% (August 2026) and 1.80% (mid-2026) without reconciling them, says Pages above 100,000 followers were excluded yet shows a 100K-1M tier, and notes that reach is itself an estimate within Meta.",
+    usedFor:
+      "Facebook Page estimate: one organic post's reach for your Page size (Pages under 1,000 followers use the 1-5K figure and Pages above 1 million the 100K-1M figure: our assumptions). The format figures sit on a different basis, so they are used only as ratios: a link post reaches 16.67% (cautious, against images) or 25.64% (against the five-format average, 0.78%) of an average post, and a call-to-action Reel 45.83% or 70.51% (our division).",
+  },
+  {
+    id: "socialinsider-facebook",
+    publisher: "Socialinsider",
+    title: "2026 organic Facebook engagement benchmarks",
+    url: "https://www.socialinsider.io/social-media-benchmarks/facebook",
+    evidence: "Measured, brand accounts",
+    published: "23 March 2026",
+    retrieved: RETRIEVED_FACEBOOK,
+    claim:
+      "Facebook engagement rate by followers (reactions plus comments plus shares, divided by followers) was 0.15% in 2025, flat year on year: status 0.20%, albums 0.18%, Reels 0.18%, images 0.15%, links 0.05%. Per Reel, from 1-5K to 100K-1M followers: 5 / 12 / 30 / 47 / 73 likes, 1 / 1 / 2 / 5 / 10 comments and 1 / 1 / 2 / 4 / 6 shares. Yearly follower growth in 2025 by Page size: 22.73%, 21.40%, 38.20%, 20.85% and 14.50%. Brand Pages posted 39 times a month (links 10, images 10, Reels 7, albums 6, status 6). About 25 million posts from about 139,000 Pages; the page labels its 2025 data as 2026.",
+    usedFor:
+      "Facebook Page estimate: the engagement-rate formula Connect Facebook uses; all formats against Reels (0.15 / 0.18) to scale the Reels engagement benchmarks; comments' share of Reel interactions (19 of 200, 9.5%) for comments per Reel viewer; and the typical scenario's new people each month (1.5%, near the measured growth of about 1.1-1.7% a month, 2.7% for 10-50K).",
+  },
+  {
+    id: "socialinsider-video-statistics",
+    publisher: "Socialinsider",
+    title: "2026 social media video performance statistics",
+    url: "https://www.socialinsider.io/social-media-benchmarks/social-media-video-statistics",
+    evidence: "Measured, brand accounts",
+    published: "21 August 2026",
+    retrieved: RETRIEVED_FACEBOOK,
+    claim:
+      "Facebook Reels engagement by followers, by Page size: 1-5K 0.30%, 5-10K 0.25%, 10-50K 0.20%, 50-100K 0.18%, 100K-1M 0.15%. Average views per Reel: 264, 480, 1,000, 2,500 and 6,500. 5,614,592 organic Facebook Reels, January-June 2026.",
+    usedFor:
+      "Facebook Page estimate: the engagement benchmark for Pages your size, which your own rate is compared with: these Reels figures × 0.15 / 0.18 (all formats against Reels) give 0.25%, 0.21%, 0.17%, 0.15% and 0.125% (our scaling). Views per Reel are not used: they count replays and people who don't follow the Page, and Socialinsider's two pages disagree about tenfold.",
+  },
+  {
+    id: "buffer-engagement-2026",
+    publisher: "Buffer",
+    title: "The state of social media engagement in 2026: 52M+ posts analyzed",
+    url: "https://buffer.com/resources/state-of-social-media-engagement/",
+    evidence: "Measured",
+    published: "5 March 2026",
+    retrieved: RETRIEVED_FACEBOOK,
+    claim:
+      "Facebook median engagement per reach (reactions plus comments plus shares, divided by reach) was about 5.6% in 2025 (5.0% in 2024); by post type images 5.20%, video 4.84%, text 4.76%, links 4.43%. Over 52 million posts; data through 3 December 2025.",
+    usedFor:
+      "Facebook Page estimate: comments per Reel viewer, 0.46%: the 4.84% video engagement per reach × comments' 9.5% share of Socialinsider's per-Reel interactions (our arithmetic).",
+  },
+  {
+    id: "buffer-facebook-benchmarks",
+    publisher: "Buffer",
+    title: "Facebook benchmarks",
+    url: "https://buffer.com/social-media-benchmarks/facebook",
+    evidence: "Measured",
+    published: "updated 25 October 2026",
+    retrieved: RETRIEVED_FACEBOOK,
+    claim:
+      "Facebook accounts grow their followers by 4.3% a month on average and post 40 times a month; median reach per post 599 and median engagement 2.9% (counting clicks). About 52 million posts from 213,000 Facebook accounts.",
+    usedFor:
+      "Context for the strong scenario's new people each month in the Facebook Page estimate (8%, our assumption).",
+  },
+  {
+    id: "meta-widely-viewed-content",
+    publisher: "Meta Transparency Center",
+    title: "Widely Viewed Content Report (Q2 2026, US)",
+    url: "https://transparency.meta.com/reports/widely-viewed-content-report/",
+    evidence: "Platform statement",
+    retrieved: RETRIEVED_FACEBOOK,
+    claim:
+      "98.9% of US Feed content views in Q2 2026 did not include a link to a source outside Facebook; the 1.1% with links typically came from a Page the person followed. Feed views came from friends (20.2%), groups joined (14.6%), Pages followed (14.8%), recommended posts from accounts people don't follow (36.6%) and other sources (13.8%).",
+    usedFor:
+      "Facebook Page estimate: why posts with a link reach fewer people and repeat link posts reach the same followers, why Reels count as reaching new people in the typical and strong scenarios, and context for the strong scenario's new people each month.",
+  },
+  {
+    id: "techcrunch-facebook-link-limit",
+    publisher: "TechCrunch",
+    title: "Facebook is testing a link posting limit for professional accounts and pages",
+    url: "https://techcrunch.com/2025/12/17/facebook-is-testing-a-link-posting-limit-for-professional-accounts-and-pages",
+    evidence: "Press report",
+    published: "17 December 2025",
+    retrieved: RETRIEVED_FACEBOOK,
+    claim:
+      "Meta is testing a limit of two link posts for some professional-mode profiles and Facebook Pages unless they pay for Meta Verified. Publishers are not included and links in comments are not affected; Meta calls it a limited test.",
+    usedFor:
+      "The note beside posts with your link in the Facebook Page estimate: some Pages may be limited to 2 link posts a month, and we can't tell whether a Page is in the test.",
+  },
+  {
+    id: "socialmediatoday-facebook-link-limit",
+    publisher: "Social Media Today",
+    title: "Meta considering charging business Pages to post links",
+    url: "https://www.socialmediatoday.com/news/meta-considering-charging-business-pages-to-post-links/808099/",
+    evidence: "Press report",
+    published: "17 December 2025",
+    retrieved: RETRIEVED_FACEBOOK,
+    claim:
+      "Meta's notification says affected profiles 'will be limited to sharing links in 2 organic posts per month', starting 16 December, for some Pages and professional-mode profiles without Meta Verified; publisher Pages are not included.",
+    usedFor:
+      "The wording of Meta's 2-link-posts-a-month test, for the same note in the Facebook Page estimate.",
+  },
+  {
+    id: "echobox-facebook-ctr-2021",
+    publisher: "Echobox",
+    title: "New research reveals industry-wide Facebook click-through rates for publishers",
+    url: "https://www.echobox.com/resources/?p=2549",
+    evidence: "Measured; used as a proxy",
+    published: "22 June 2021",
+    retrieved: RETRIEVED_FACEBOOK,
+    claim:
+      "Publishers record an average click-through rate of 2.5% on organic Facebook posts; magazines have the highest, 2.8%. 6.5 million Facebook shares from 500 publishers, 1 May 2020 to 30 April 2021. No formula for the click-through rate is given.",
+    usedFor:
+      "Facebook Page estimate: link clicks per person who sees a link post, 2.5% typical and 2.8% strong (news audiences in 2020-21, a dated proxy; no benchmark exists for brand or creator Pages). The cautious 1% is our assumption, the low end creators report for link taps.",
+  },
+  {
+    id: "meta-private-replies",
+    publisher: "Meta for Developers",
+    title: "Messenger Platform: Private Replies",
+    url: "https://developers.facebook.com/docs/messenger-platform/discovery/private-replies/",
+    evidence: "Platform statement",
+    retrieved: RETRIEVED_FACEBOOK,
+    claim:
+      "A business can send a single message to a person who posted or commented on its Page or Group, within 7 days of the comment; it needs the pages_messaging permission and a Page token with the MESSAGING task.",
+    usedFor:
+      "How a comment keyword sends your link by Messenger in the Facebook Page estimate: one private reply per comment.",
+  },
 ];
+
+/**
+ * Sources only the Facebook Page estimate cites. Their claims and "Used for"
+ * lines give its figures, so /methodology and llms-full.txt list them only
+ * once availability.facebook is on (approved by Meta's app review).
+ */
+export const FACEBOOK_ONLY_SOURCES: ReadonlySet<string> = new Set([
+  "socialinsider-reach-facebook",
+  "socialinsider-facebook",
+  "socialinsider-video-statistics",
+  "buffer-engagement-2026",
+  "buffer-facebook-benchmarks",
+  "meta-widely-viewed-content",
+  "techcrunch-facebook-link-limit",
+  "socialmediatoday-facebook-link-limit",
+  "echobox-facebook-ctr-2021",
+  "meta-private-replies",
+]);
 
 /**
  * The trainer's setup checklist, in order: the same keys and labels as the
@@ -2340,6 +2488,43 @@ export const MARKETING_CONTENT: MarketingPage[] = [
         ],
       },
       {
+        // The data deletion instructions URL of the Meta app ("trainsyou
+        // social login", Facebook and Instagram alike;
+        // docs/features/meta-app-review.md): keep this id stable. The revoke
+        // steps say "the {APP_NAME} app" rather than the app's exact display
+        // name, which Meta's settings show and the owner may change.
+        id: "facebook-instagram-data",
+        heading: "Your Facebook and Instagram data",
+        body: [
+          "If you connect Facebook or Instagram, where your workspace offers it, we read your Page or account once and discard the access. We never keep an access token, user ID or Page ID.",
+        ],
+        bullets: [
+          "Kept for your workspace: the Page or account name and account type.",
+          "Kept: followers, Page likes, post counts and average engagement.",
+          "Kept: how many Pages you shared, and when we read them.",
+          "Never fetched: post content, or who reacted or commented.",
+        ],
+        steps: [
+          {
+            title: "Remove saved numbers",
+            body: "Open Grow, expand Explore a growth estimate, then choose Remove saved numbers. They are deleted at once.",
+          },
+          {
+            title: "Close your workspace",
+            body: "Closing your workspace, under Privacy and your data, also deletes these numbers.",
+          },
+          {
+            title: "Revoke Facebook permission",
+            body: "In Facebook’s settings, open Business integrations or Apps and websites, and remove the {APP_NAME} app.",
+          },
+          {
+            title: "Revoke Instagram permission",
+            body: "In Instagram’s settings, open Apps and websites and remove the {APP_NAME} app.",
+          },
+        ],
+        note: "Removing the {APP_NAME} app in Facebook or Instagram ends its permission there. Numbers already saved stay until you remove them.",
+      },
+      {
         id: "ai",
         heading: "AI disclosure",
         body: [
@@ -2378,7 +2563,7 @@ export const MARKETING_CONTENT: MarketingPage[] = [
       },
     ],
     related: ["/features/safety", "/ai-disclosure", "/privacy"],
-    lastUpdated: "2026-10-03",
+    lastUpdated: "2026-11-03",
     indexable: true,
     jsonLd: ["WebPage", "FAQPage"],
     cta: { label: "Read the AI disclosure", href: "/ai-disclosure" },

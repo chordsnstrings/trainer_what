@@ -16,6 +16,13 @@ The downloadable `trainsyou-ux-ui-audit-2026-10-19.html` was refreshed and saved
 
 ## Standing owner decisions
 
+- **Connect Facebook** (owner, 3 November 2026):
+  - **What it does:** Page numbers plus a Facebook estimate. A trainer's Facebook Page followers and recent engagement are read once and only the numbers are kept, beside Instagram.
+  - **The estimate:** a Facebook version of the subscriber estimate, built on sourced Facebook Page figures (`packages/domain/src/facebook-calculator.ts`). The owner signs off its figures before it goes live. Never feed Facebook numbers into the Instagram estimate, and never add the two estimates together.
+  - **Meta setup:** one Meta app, "trainsyou social login" (App ID `2335071867263863`), holds Instagram (Instagram App ID `2881563462229057`) and Facebook Login for Business (configuration `1420000509847051`, sent as `config_id`, no scope). Both callbacks are registered.
+  - **App Review:** `pages_show_list`, `pages_read_engagement`, `public_profile` and `instagram_business_basic`. Not `email`: there is no "Sign in with Facebook".
+  - **Before approval:** coach addresses in the test-workspace settings can connect, and public pages make no claim.
+  - **Docs:** `docs/features/facebook-connect.md` and `docs/features/meta-app-review.md`.
 - Always deploy completed changes after normal release checks. Keep Claude handoff current. Give short updates and avoid redundant checks.
 - Use a clean, minimal white interface, consistent buttons, spacing and navigation. Smooth trainer onboarding and daily use matter.
 - Trainers teach their own coaching AI. They are not expected to build software. The desktop-only visual website editor assembles varied modules; published multipage sites remain responsive. Include transformation galleries.

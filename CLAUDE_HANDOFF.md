@@ -9,7 +9,7 @@
 - plus a Facebook version of the subscriber estimate on researched Facebook Page reach figures. **The owner sees those figures before it goes live.**
 
 **Owner's Meta setup steps, to do only after the code is complete** (3 Nov, "once done do this. don't do it before actually completing the code"):
-- the site's Facebook connection uses the new Meta App ID `1653212959862915` and its secret (App settings → Basic); Instagram stays on Instagram App ID `2881563462229057`;
+- (superseded by the owner's later message below) the site's Facebook connection would use Meta App ID `1653212959862915`; Instagram stays on Instagram App ID `2881563462229057`;
 - someone with a role on each app signs in once through each button on trainsyou.com, because Meta needs one successful call before it accepts a review request;
 - two App Review requests go in, each with a screen recording of the sign-in.
 

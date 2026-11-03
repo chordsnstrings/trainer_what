@@ -71,6 +71,7 @@ test("the DNS preview shows each name's answers against this server and the prov
     "https://trainsyou.com/api/v1/integrations/whoop/callback",
     "https://trainsyou.com/api/v1/integrations/zepp/callback",
     "https://trainsyou.com/api/v1/trainer/instagram/callback",
+    "https://trainsyou.com/api/v1/trainer/facebook/callback",
   ])
     assert.ok(html.includes(url), url);
   assert.match(html, /Coach-domain CNAME target/);
