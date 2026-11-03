@@ -1011,9 +1011,11 @@ test("saved Super admin settings activate for the listed workspaces before revie
       assert.equal(bad.statusCode, 400, bad.body);
     } finally {
       redirectUri = REDIRECT;
+      // The service role may not delete saved settings (011_platform_settings.sql
+      // grants SELECT, INSERT, UPDATE), so switch them off instead.
       await h.db.system((tx) =>
         tx.query(
-          "DELETE FROM platform_settings WHERE integration_id='facebook'",
+          "UPDATE platform_settings SET enabled=false WHERE integration_id='facebook'",
         ),
       );
     }
