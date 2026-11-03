@@ -63,7 +63,7 @@ Application implementation and the job audit are complete for the current phase.
   - docs and methodology: 123;
   - after the fixes: 92/92 targeted plus 30/30 related;
   - typecheck clean.
-- **Full `npm run check`** (typecheck, all tests, web build): FULLCHECK.
+- **Full `npm run check`** on the final tree (3 Nov, 11:13–11:45 UTC): exit 0 in 1,929 s. Typecheck clean; 2,123 tests (2,122 pass, 1 skipped: the known test that needs real PostgreSQL connections); the Next web build passed.
 
 **Figures for the owner's sign-off** (Facebook estimate, version `2026-11-03`):
 - **Post reach** by Page size: 4.35% of followers (up to 5K), 3.40% (5–10K), 2.70% (10–50K), 1.50% (50–100K), 0.50% (above 100K). Measured, Socialinsider, brand Pages, January 2025 – August 2026.

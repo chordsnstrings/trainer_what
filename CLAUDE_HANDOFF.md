@@ -2,7 +2,7 @@
 
 ## Work in progress
 
-### Status at 10:57 UTC on 3 November 2026 (Claude): Connect Facebook built and reviewed, fixes running
+### Status at 11:46 UTC on 3 November 2026 (Claude): Connect Facebook complete and verified; PR and CI next
 
 **Owner request (3 Nov):** "let's add option to connect facebook as well", next to "Connect Instagram" on Followers & growth. The owner chose **"Page numbers + own estimate"**:
 - a trainer connects their Facebook Page; we read its followers and recent engagement once and save only the numbers;
@@ -43,7 +43,7 @@
 - **Docs:** `docs/features/facebook-connect.md` and `meta-app-review.md`.
 - **Checks:** typecheck and the targeted tests pass, per the agents.
 
-**Review:** 2 adversarial agents, 13 findings, now being fixed (`wf_779c79ff-e39`):
+**Review:** 2 adversarial agents, 13 findings, all fixed (`wf_779c79ff-e39`). **Full `npm run check` passed** on the final tree: 2,123 tests (2,122 pass, 1 skipped), typecheck and web build (1,929 s). The work is committed as `2517f67`. The findings were:
 - the snapshot events kept follower counts after removal;
 - saved Facebook numbers became unremovable once access was lost;
 - Graph error 190/492 was reported as "expired";
