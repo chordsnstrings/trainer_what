@@ -2,14 +2,21 @@
 
 ## Work in progress
 
-### Status at 13:29 UTC on 3 November 2026 (Claude): Connect Facebook is live (dormant); waiting on the owner's Meta steps
+### Status at 14:16 UTC on 3 November 2026 (Claude): Connect Facebook is live (dormant); waiting on the owner's Super admin settings and Meta steps
 
 **What it is:** the owner's 3 Nov request, "Page numbers + own estimate". A trainer connects their Facebook Page on Followers & growth, right under Connect Instagram. We read its followers and recent engagement once and keep the numbers only. A separate Facebook estimate uses sourced figures (version `2026-11-03`). A pre-approval test mode lets listed coach addresses use both Meta connections before review. The stage record is the 3 November entry of `docs/COMPLETION_STAGES.md`.
 
 **Live:**
-- PR #108 is squash-merged as `50c01ba`. CI on its head was 8/8 green, after one test-cleanup fix found by CI's PostgreSQL job. `main`'s run passed.
-- Production has served `50c01ba` since 13:27:20 UTC.
-- The HTTP live checks passed: the Facebook release 15/15 (dormant; deletion instructions present) and the four marketing pages 40/40.
+- PR #108 is squash-merged as `50c01ba`. CI on its head was 8/8 green, after one test-cleanup fix found by CI's PostgreSQL job. `main`'s run passed. Live since 13:27:20 UTC.
+- Records PR #109 is merged as `04ecf36`, and production serves `04ecf36` (release header checked at 14:16 UTC).
+- HTTP live checks: the Facebook check passed 16/16 at 14:16 UTC (dormant: `availability.facebook` false; deletion instructions present; no Facebook section or sources on `/methodology` or in `llms-full.txt`; the trainer Facebook and Instagram APIs answer 401 without a session). The four marketing pages passed 40/40 at 13:29 UTC on `50c01ba` and were not re-run.
+
+**Owner's request at about 14:00 UTC, "just update the facebook settings through admin for me": not possible from a cloud session.**
+- Super admin needs a signed-in super-admin session with two-factor, and the app has no admin API token an environment could hold.
+- The App secret exists only in Meta's dashboard, and credentials pasted in chat must not be used.
+- Claude gave the owner the values to enter (list below).
+
+**Not visible from outside:** whether the settings are saved. Public availability stays false until Meta approves, and the trainer endpoints need a session. The card result after the first sign-in, or the `?facebook=` outcome in the address it returns to, will show it.
 
 **Waiting on the owner** (`docs/features/meta-app-review.md`):
 1. **Super admin → Settings → Facebook Pages (follower estimates):**
@@ -17,8 +24,9 @@
    - App secret (App settings → Basic), pasted by whoever has dashboard access;
    - Redirect URI `https://trainsyou.com/api/v1/trainer/facebook/callback`;
    - Configuration ID `1420000509847051`;
-   - Test workspaces: the owner's coach address.
-   Add the same address to Instagram's test workspaces.
+   - Test workspaces: the owner's coach address;
+   - "Meta app review approved" stays off until Meta approves.
+   Save it switched on, then Test connection. Add the same address to Instagram's test workspaces.
 2. **One sign-in** through each button on Followers & growth, by someone with a role on the Meta app.
 3. **One App Review request** in that app for `pages_show_list`, `pages_read_engagement`, `public_profile` and `instagram_business_basic` (not `email`), with Business Verification and a screen recording per permission (scripts in the checklist).
 4. **Sign-off** on the Facebook figures (the PR #108 table).
@@ -27,7 +35,7 @@
 
 **To confirm at the first sign-in:** whether comment totals need `pages_read_user_content`; that `?code=` comes back; which Pages `/me/accounts` lists.
 
-**Records branch:** this records update is committed locally on the branch restarted from `main`. Its force-with-lease push waits for the owner's go-ahead, because the permission classifier asks each time.
+**Next action:** when the owner reports what each card shows (or the `?facebook=` outcome), check it and fix forward if needed.
 
 ### Status at 03:20 UTC on 29 October 2026 (Claude): marketing revamp phase 1 is live and checked; done
 
