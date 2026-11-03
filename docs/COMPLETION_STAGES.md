@@ -2,7 +2,7 @@
 
 Application implementation and the job audit are complete for the current phase. [PR #1](https://github.com/chordsnstrings/trainer_what/pull/1) contains the work; [combined verification](VERIFICATION_2026-09-27.md) records the passing final code revision. The owner authorized merge to main. Real services and deployment remain the next phase; screenshots were waived. Historical entries below record the evidence available at each stage and may contain superseded pending-check statements.
 
-## Stage 2026-11-03 — Connect Facebook: Page numbers and a Facebook estimate, plus a pre-approval test mode for both Meta connections (PR pending; ships dormant)
+## Stage 2026-11-03 — Connect Facebook: Page numbers and a Facebook estimate, plus a pre-approval test mode for both Meta connections (PR #108, squash-merged as `50c01ba`; live since 13:27 UTC on 3 November 2026, dormant until the settings are saved)
 
 **Owner, 3 November 2026:** "let's add option to connect facebook as well". Asked what it should do, the owner chose **"Page numbers + own estimate"**: a trainer connects their Facebook Page, we read its followers and recent engagement once and save only the numbers, beside Instagram. A Facebook version of the subscriber estimate is built on researched Facebook Page reach figures, which **the owner sees before it goes live**.
 
@@ -83,7 +83,16 @@ Application implementation and the job audit are complete for the current phase.
 - an owner-approved privacy-policy paragraph about Facebook and Instagram data (proposed in the checklist; `/privacy` is a versioned legal document);
 - open Meta behaviour to confirm at the first sign-in: whether comment totals need `pages_read_user_content`, whether `?code=` comes back, and which Pages `/me/accounts` lists.
 
-**Next action:** PR, CI, merge and deploy (dormant until the settings are saved), then the HTTP live check. Then the owner's Meta steps.
+**Merged and live:**
+- **PR #108 CI:** the first run (`481b1ff`) failed in postgres-and-container, in one file. The settings test's cleanup deleted `platform_settings` as `trainer_service`, which may only select, insert and update it.
+  - Fix (`533f172`): switch the row off. Checked on a local PostgreSQL 16 cluster provisioned like CI's, with the tests as `trainer_service`.
+  - CI on `533f172` (run 41633565628): all 8 jobs green.
+- **Merged:** squash-merged as `50c01ba` at 12:43 UTC. `main`'s run 41638058602 passed (12:43–13:22). `/api/v1/ready` has reported `50c01ba` since 13:27:20 UTC.
+- **Live checks** (HTTP only, no browser):
+  - the Facebook release: 15/15. The deletion instructions are at `/security-and-privacy#facebook-instagram-data` and in `llms-full.txt`. `availability.facebook` is false. `/methodology` and `llms-full.txt` show no Facebook section or Facebook-only sources. Anonymous `/api/v1/trainer/facebook` and `/instagram` return 401;
+  - the four phase 1 pages: 40/40.
+
+**Next action:** the owner's Meta steps (`docs/features/meta-app-review.md`) and sign-off on the Facebook figures.
 
 ## Stage 2026-10-28 — marketing revamp phase 1: Live Brain home, /trainer-brain anatomy, /demo playground and /pricing (PR #105, squash-merged as `2ef5757`; live since 01:32 UTC on 29 October 2026)
 
