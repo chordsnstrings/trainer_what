@@ -84,6 +84,7 @@ import { registerEarlyAccess } from "./early-access.ts";
 import { freeStartingSlug, registerCoachSignup } from "./coach-signup.ts";
 import { registerCoachSetup } from "./coach-setup.ts";
 import { registerMarketing, type InstagramTransport } from "./marketing.ts";
+import { registerFacebook, type FacebookTransport } from "./facebook.ts";
 import {
   assistantAvailable,
   registerMarketingAssistant,
@@ -396,6 +397,8 @@ export async function buildApp(
       platformDns?: PlatformDnsDeps;
       /** Nonproduction fixtures only: replaces Instagram HTTP calls. */
       instagram?: InstagramTransport;
+      /** Nonproduction fixtures only: replaces Facebook HTTP calls. */
+      facebook?: FacebookTransport;
     };
   } = {},
 ) {
@@ -765,6 +768,7 @@ export async function buildApp(
     instagramTransport: options.providers?.instagram,
     assistantAvailable: () => assistantAvailable(db),
   });
+  registerFacebook(app, db, { transport: options.providers?.facebook });
   registerMarketingAssistant(app, db, identity);
   registerEarlyAccess(app, db, identity);
   registerCoachSignup(app, db, session);

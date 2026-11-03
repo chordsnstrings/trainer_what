@@ -84,11 +84,15 @@ const VOICE_PROVIDER_OPTIONS = [
   },
 ];
 
-/** Account approval never follows from saving a key or a successful probe. */
+/**
+ * Account approval never follows from saving a key or a successful probe.
+ * `testing` (Meta connections only): not approved, but limited to the
+ * workspaces the operator listed before app review.
+ */
 export function integrationCapability(
   id: string,
   config: RuntimeConfig = runtimeConfig(),
-): { configured: boolean; approved: boolean } | undefined {
+): { configured: boolean; approved: boolean; testing?: boolean } | undefined {
   const has = (...keys: string[]) => keys.every((key) => !!config[key]?.trim());
   if (id === "whoop") {
     const configured = has(
@@ -265,12 +269,56 @@ export function integrationCapability(
       "INSTAGRAM_APP_SECRET",
       "INSTAGRAM_REDIRECT_URI",
     );
-    return {
+    return metaCapability(
       configured,
-      approved: configured && config.INSTAGRAM_APP_REVIEW_APPROVED === "true",
-    };
+      config.INSTAGRAM_APP_REVIEW_APPROVED,
+      config.INSTAGRAM_TEST_WORKSPACES,
+    );
+  }
+  if (id === "facebook") {
+    const configured = has(
+      "FACEBOOK_APP_ID",
+      "FACEBOOK_APP_SECRET",
+      "FACEBOOK_REDIRECT_URI",
+      "FACEBOOK_LOGIN_CONFIG_ID",
+    );
+    return metaCapability(
+      configured,
+      config.FACEBOOK_APP_REVIEW_APPROVED,
+      config.FACEBOOK_TEST_WORKSPACES,
+    );
   }
   return undefined;
+}
+/**
+ * A Meta connection (Instagram, Facebook) is approved once app review is
+ * recorded. Before that it runs only for the coach addresses listed for
+ * testing (testing: Meta lets only people with a role on the app sign in), so
+ * the saved settings can activate without any public availability claim.
+ */
+function metaCapability(
+  configured: boolean,
+  reviewApproved: string | undefined,
+  testWorkspaces: string | undefined,
+) {
+  const approved = configured && reviewApproved === "true";
+  return {
+    configured,
+    approved,
+    testing:
+      configured && !approved && testWorkspaceSlugs(testWorkspaces).length > 0,
+  };
+}
+/** The coach addresses (workspace slugs) in a test-workspaces setting. */
+export function testWorkspaceSlugs(value: string | undefined): string[] {
+  return [
+    ...new Set(
+      (value ?? "")
+        .split(",")
+        .map((slug) => slug.trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  ];
 }
 
 export type IntegrationField = {
@@ -417,6 +465,14 @@ function followerAssumptionFields(): IntegrationField[] {
     );
   return fields;
 }
+
+/** Pre-approval test mode of the Meta connections (metaCapability). */
+const META_TEST_WORKSPACES_LABEL =
+  "Before app review: coach addresses that may connect";
+const META_TEST_WORKSPACES_HELP =
+  "Workspace slugs, comma-separated (for example layla-strength). Only people with a role on the Meta app can complete the sign-in until review.";
+const META_TEST_MODE_NOTE =
+  "Stays off until Meta app review is recorded as approved, except for the coach addresses listed under Before app review. Until review, Meta lets only people with a role on the Meta app (App roles: administrators, developers, testers) complete the sign-in. Meta asks for at least one successful connection through the real button before it accepts an App Review request; give its reviewers a test coach account whose address is listed. Public pages say available only after approval.";
 
 export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
   {
@@ -617,7 +673,8 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
     description:
       "Lets trainers connect an Instagram professional account to fill the follower calculator with their follower count and recent engagement.",
     setupNotes:
-      "Uses the Instagram API with Instagram Login (professional accounts only, instagram_business_basic). Set the redirect URI in your Meta app to /api/v1/trainer/instagram/callback on the public application address. Access is read once and not stored. Stays off until Meta app review is recorded as approved.",
+      "Uses the Instagram API with Instagram Login (professional accounts only, instagram_business_basic). Set the redirect URI in your Meta app to /api/v1/trainer/instagram/callback on the public application address. Access is read once and not stored. " +
+      META_TEST_MODE_NOTE,
     fields: [
       field("INSTAGRAM_APP_ID", "Instagram app ID", "text", { required: true }),
       field("INSTAGRAM_APP_SECRET", "Instagram app secret", "secret", {
@@ -633,6 +690,48 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
         "boolean",
         { defaultValue: "false" },
       ),
+      field("INSTAGRAM_TEST_WORKSPACES", META_TEST_WORKSPACES_LABEL, "text", {
+        help: META_TEST_WORKSPACES_HELP,
+      }),
+    ],
+  },
+  {
+    id: "facebook",
+    name: "Facebook Pages (follower estimates)",
+    category: "marketing",
+    implemented: true,
+    description:
+      "Lets trainers connect a Facebook Page to fill the Facebook estimate with the Page's follower count and recent engagement.",
+    setupNotes:
+      "Uses Facebook Login for Business (Graph API v26.0). Enter the Meta App ID shown at the top of the Meta App Dashboard and under App settings → Basic, not the Instagram app ID, and the Meta App Secret from App settings → Basic. Under Facebook Login for Business → Configurations, create a configuration with a user access token, the Pages asset and the pages_show_list and pages_read_engagement permissions, and enter its configuration ID. Add the redirect URI, /api/v1/trainer/facebook/callback on the public application address, under Facebook Login for Business → Settings → Valid OAuth Redirect URIs. The Page's follower count and its recent reactions, comments and shares are read once; no Facebook access, Page ID or user ID is stored. " +
+      META_TEST_MODE_NOTE,
+    fields: [
+      field("FACEBOOK_APP_ID", "Meta App ID", "text", { required: true }),
+      field("FACEBOOK_APP_SECRET", "Meta App Secret", "secret", {
+        required: true,
+      }),
+      field("FACEBOOK_REDIRECT_URI", "Redirect URI", "url", {
+        required: true,
+        help: "https://<your application address>/api/v1/trainer/facebook/callback",
+      }),
+      field(
+        "FACEBOOK_LOGIN_CONFIG_ID",
+        "Facebook Login for Business configuration ID",
+        "text",
+        {
+          required: true,
+          help: "A configuration with a user access token, the Pages asset and the pages_show_list and pages_read_engagement permissions.",
+        },
+      ),
+      field(
+        "FACEBOOK_APP_REVIEW_APPROVED",
+        "Meta app review approved for pages_show_list and pages_read_engagement",
+        "boolean",
+        { defaultValue: "false" },
+      ),
+      field("FACEBOOK_TEST_WORKSPACES", META_TEST_WORKSPACES_LABEL, "text", {
+        help: META_TEST_WORKSPACES_HELP,
+      }),
     ],
   },
   {
@@ -1855,6 +1954,24 @@ export function validateIntegrationValues(
         throw new ConfigurationError(
           `${entry.label} must be up to 50 comma-separated names such as trainsyou`,
         );
+      if (
+        (key === "INSTAGRAM_TEST_WORKSPACES" ||
+          key === "FACEBOOK_TEST_WORKSPACES") &&
+        !/^\s*[a-z0-9][a-z0-9-]{0,62}(\s*,\s*[a-z0-9][a-z0-9-]{0,62}){0,49}\s*$/i.test(
+          text,
+        )
+      )
+        throw new ConfigurationError(
+          `${entry.label} must be up to 50 comma-separated coach addresses (workspace slugs) such as layla-strength`,
+        );
+      // Meta shows both as numbers; a pasted secret or address is refused.
+      if (
+        (key === "FACEBOOK_APP_ID" || key === "FACEBOOK_LOGIN_CONFIG_ID") &&
+        !/^\d{1,32}$/.test(text)
+      )
+        throw new ConfigurationError(
+          `${entry.label} must be the number shown in the Meta App Dashboard`,
+        );
       // Whole cents: at most two decimals, never rounded.
       const cents = /^\d{1,7}(\.\d{1,2})?$/.test(text)
         ? Math.round(Number(text) * 100)
@@ -2296,8 +2413,11 @@ export async function testIntegration(
       speech_to_text: "STT_CONTRACT_VERIFIED",
       domains: "DOMAIN_OPERATIONS_ENABLED",
       instagram: "INSTAGRAM_APP_REVIEW_APPROVED",
+      facebook: "FACEBOOK_APP_REVIEW_APPROVED",
     };
-    if (contractFlags[id] && config[contractFlags[id]] !== "true")
+    // A Meta connection may also run for the workspaces listed before review.
+    const testing = !!integrationCapability(id, config)?.testing;
+    if (contractFlags[id] && config[contractFlags[id]] !== "true" && !testing)
       return {
         status: "unavailable",
         message:
@@ -2571,7 +2691,8 @@ export async function testIntegration(
       id === "zepp" ||
       id === "voice" ||
       id === "domains" ||
-      id === "instagram"
+      id === "instagram" ||
+      id === "facebook"
     ) {
       if (
         id === "zepp" &&
@@ -2596,6 +2717,18 @@ export async function testIntegration(
           checkedAt,
           "Cartesia access verified by reading one voice; no audio was made and no clone was created.",
         );
+      if (testing)
+        return {
+          status: "validated",
+          message:
+            "Configuration validated without an external request. Meta app review is not recorded as approved, so only the listed coach addresses can connect, and only people with a role on the Meta app can complete the sign-in. " +
+            // Instagram is listed as Available soon (/faq); public pages never
+            // mention connecting Facebook before approval.
+            (id === "facebook"
+              ? "Public pages make no availability claim until approval."
+              : "Public pages keep saying available soon."),
+          checkedAt,
+        };
       return {
         status: "validated",
         message:

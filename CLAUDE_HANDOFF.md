@@ -2,6 +2,65 @@
 
 ## Work in progress
 
+### Status at 11:46 UTC on 3 November 2026 (Claude): Connect Facebook complete and verified; PR and CI next
+
+**Owner request (3 Nov):** "let's add option to connect facebook as well", next to "Connect Instagram" on Followers & growth. The owner chose **"Page numbers + own estimate"**:
+- a trainer connects their Facebook Page; we read its followers and recent engagement once and save only the numbers;
+- plus a Facebook version of the subscriber estimate on researched Facebook Page reach figures. **The owner sees those figures before it goes live.**
+
+**Owner's Meta setup steps, to do only after the code is complete** (3 Nov, "once done do this. don't do it before actually completing the code"):
+- (superseded by the owner's later message below) the site's Facebook connection would use Meta App ID `1653212959862915`; Instagram stays on Instagram App ID `2881563462229057`;
+- someone with a role on each app signs in once through each button on trainsyou.com, because Meta needs one successful call before it accepts a review request;
+- two App Review requests go in, each with a screen recording of the sign-in.
+
+**Owner's Meta app details (3 Nov, later message; these supersede App ID `1653212959862915` for this feature):**
+- Facebook Login for Business lives in the **"trainsyou social login"** Meta app, App ID `2335071867263863` (the same app as Instagram, Instagram App ID `2881563462229057`).
+- Configuration ID `1420000509847051` goes in the login URL as `config_id`, in place of a scope list (the build does exactly this).
+- The App secret is copied from App settings → Basic by someone with access to the dashboard, never through chat.
+- Both callbacks are already registered: `https://trainsyou.com/api/v1/trainer/facebook/callback` and `https://trainsyou.com/api/v1/trainer/instagram/callback`.
+- **After deploy, Super admin → Settings → Facebook Pages (follower estimates):**
+  - App ID `2335071867263863`;
+  - the secret;
+  - Redirect URI `https://trainsyou.com/api/v1/trainer/facebook/callback`;
+  - Configuration ID `1420000509847051`;
+  - Test workspaces = the owner's coach address.
+
+**What I found:**
+- No DigitalOcean, Meta or Super admin access exists in this environment. The owner pastes the App secret into Super admin and submits the reviews; I prepare the checklist, reviewer text and recording scripts.
+- **Correction to pass on:** Page numbers need `pages_show_list`, `pages_read_engagement` and `public_profile` (Advanced Access, with Business Verification), not `email`, which is only for a "Sign in with Facebook" button. The Instagram app's request stays `instagram_business_basic`.
+- **Code gap:** Connect Instagram is hidden until `INSTAGRAM_APP_REVIEW_APPROVED=true`, so nobody could make the required pre-review call. The build adds a pre-approval test mode for both providers: listed coach addresses can connect before review, and the public flags stay off.
+
+**Research** (`wf_81a2f16d-ffa`, saved in `scratchpad/fb/research.json`):
+- **Meta facts:** Graph API v26.0; Facebook Login for Business with a `config_id`; `/me/accounts` with `followers_count`; `/<page>/published_posts` with reaction, comment and share totals; data deletion by an instructions URL.
+- **Facebook estimate:** version `2026-11-03`; Socialinsider reach by Page size (4.35% of followers at 1–5K down to 0.50% above 100K); link posts and Reels as shares of that; Messenger keyword replies; the Page link. It comes out far lower than Instagram's (7,000 followers: about 5 active subscribers after 12 months in the strong case, against about 116).
+
+**Built** (`wf_43ce5a30-1af`, 6 agents, uncommitted until verified):
+- **Estimate:** `packages/domain/src/facebook-calculator.ts` (13 tests). The worked example at 7,000 followers gives 0.14 / 1.62 / 4.56 active subscribers at month 12 (cautious / typical / strong).
+- **API:** `apps/api/src/facebook.ts`, with the routes, outcomes and the test mode for both providers in `configuration.ts`, `marketing.ts` and `platform-settings.ts` (`tests/facebook-api.test.ts`).
+- **Trainer screen:** `trainer-growth.tsx` and `marketing/facebook-calculator.tsx`.
+- **Public pages:** the `/methodology` Facebook section, hidden until `availability.facebook`.
+- **Deletion instructions** at `/security-and-privacy#facebook-instagram-data`.
+- **Docs:** `docs/features/facebook-connect.md` and `meta-app-review.md`.
+- **Checks:** typecheck and the targeted tests pass, per the agents.
+
+**Review:** 2 adversarial agents, 13 findings, all fixed (`wf_779c79ff-e39`). **Full `npm run check` passed** on the final tree: 2,123 tests (2,122 pass, 1 skipped), typecheck and web build (1,929 s). The work is committed as `2517f67`. The findings were:
+- the snapshot events kept follower counts after removal;
+- saved Facebook numbers became unremovable once access was lost;
+- Graph error 190/492 was reported as "expired";
+- Facebook-only sources appeared in `llms-full.txt` before sign-off;
+- the docs used the superseded App ID;
+- Connect Facebook sat far below Connect Instagram;
+- plus wording and label nits.
+
+**Next:**
+1. Verify and commit.
+2. PR and CI.
+3. Show the owner the Facebook figures.
+4. Merge and deploy (dormant until enabled).
+5. Then the owner's Meta steps, with the checklist.
+
+**Waiting on the owner:** whether to merge draft PR #107 (another session's records) into `main`.
+
 ### Status at 03:20 UTC on 29 October 2026 (Claude): marketing revamp phase 1 is live and checked; done
 
 **What it is:** phase 1 of the marketing revamp (`/`, `/trainer-brain`, `/demo`, `/pricing`), as the owner chose on 27 Oct ("Go with your recommendation"; each phase is its own PR, "checked and deployed"). The full record is the 28 October entry of `docs/COMPLETION_STAGES.md`.

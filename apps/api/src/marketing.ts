@@ -5,6 +5,8 @@
 // instagram_business_basic). The access token is used once in the callback to
 // read the follower count and recent likes and comments, then discarded; only
 // the resulting numbers are stored, as a workspace record the owner can delete.
+// Before Meta app review, only the workspaces the operator lists may connect
+// (metaConnectAccess; Connect Facebook in facebook.ts works the same way).
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { event, putRecord, type Actor, type Database } from "@trainer/db";
 import {
@@ -22,6 +24,7 @@ import {
   providerRequest,
   runtimeConfig,
   strictSecurity,
+  testWorkspaceSlugs,
   type RuntimeConfig,
 } from "../../../packages/providers/src/configuration.ts";
 import {
@@ -65,7 +68,10 @@ export function publicAvailability(config: RuntimeConfig = runtimeConfig()) {
     payouts: !!status.lean,
     whoop: !!status.whoop,
     zepp: !!status.zepp,
+    // Approved by Meta app review only: the pre-review test list (testing)
+    // never changes a public claim.
     instagram: !!integrationCapability("instagram", config)?.approved,
+    facebook: !!integrationCapability("facebook", config)?.approved,
     // The active model profile is frontier tier and its latest switch check
     // passed (docs/features/model-profiles.md); public wording may then say
     // "frontier model", never the model or its vendor.
@@ -113,9 +119,14 @@ export type InstagramTransport = (
   init?: RequestInit,
 ) => Promise<Response>;
 
+/**
+ * The Instagram app settings, once configured and approved (or listed for
+ * testing); whether this workspace may use them is metaConnectAccess's call.
+ */
 export function instagramConfig(config: RuntimeConfig = runtimeConfig()) {
   const capability = integrationCapability("instagram", config);
-  if (!capability?.configured || !capability.approved) return null;
+  if (!capability?.configured || !(capability.approved || capability.testing))
+    return null;
   return {
     appId: config.INSTAGRAM_APP_ID!.trim(),
     secret: config.INSTAGRAM_APP_SECRET!.trim(),
@@ -211,6 +222,40 @@ export async function readInstagramSnapshot(
   };
 }
 
+const TEST_WORKSPACES = {
+  instagram: "INSTAGRAM_TEST_WORKSPACES",
+  facebook: "FACEBOOK_TEST_WORKSPACES",
+} as const;
+/**
+ * Whether this workspace may connect Instagram or Facebook: every workspace
+ * once Meta app review is recorded as approved; before that, only the coach
+ * addresses the operator listed (testing: true), since Meta lets only people
+ * with a role on the app complete the sign-in until review. The connect
+ * routes and their callbacks all ask here.
+ */
+export async function metaConnectAccess(
+  db: Database,
+  a: Actor,
+  provider: keyof typeof TEST_WORKSPACES,
+  config: RuntimeConfig = runtimeConfig(),
+): Promise<{ available: boolean; testing: boolean }> {
+  const capability = integrationCapability(provider, config);
+  if (capability?.approved) return { available: true, testing: false };
+  if (!capability?.testing) return { available: false, testing: false };
+  // The owner's scope cannot read tenants; read only this workspace's slug,
+  // as go-live does (coach-setup.ts).
+  const [tenant] = await db.system(
+    (tx) => tx.query("SELECT slug FROM tenants WHERE id=$1", [a.tenantId]),
+    { tenantId: a.tenantId },
+  );
+  const listed =
+    !!tenant &&
+    testWorkspaceSlugs(config[TEST_WORKSPACES[provider]]).includes(
+      String(tenant.slug).toLowerCase(),
+    );
+  return { available: listed, testing: listed };
+}
+
 function owner(req: FastifyRequest): Actor & { workspaceState?: string } {
   const a = req.identity;
   if (!a) throw fail(401, "AUTH_REQUIRED", "Please sign in");
@@ -272,7 +317,7 @@ export function registerMarketing(
   app.get("/api/v1/trainer/instagram", async (req) => {
     const a = owner(req);
     return {
-      available: !!instagramConfig(),
+      ...(await metaConnectAccess(db, a, "instagram")),
       snapshot: await snapshotFor(db, a),
       followerModel: followerModelFromSettings(runtimeConfig()),
     };
@@ -289,7 +334,8 @@ export function registerMarketing(
           "PLATFORM_HOST_REQUIRED",
           "Connect Instagram from the platform address.",
         );
-      const settings = instagramConfig();
+      const access = await metaConnectAccess(db, a, "instagram");
+      const settings = access.available ? instagramConfig() : null;
       if (!settings)
         throw fail(
           409,
@@ -344,7 +390,10 @@ export function registerMarketing(
     });
     if (!valid) return back("expired");
     if (!code || typeof q.error === "string") return back("declined");
-    const settings = instagramConfig();
+    // The same per-workspace check as authorize: approval may be withdrawn or
+    // the workspace taken off the test list in between.
+    const access = await metaConnectAccess(db, a, "instagram");
+    const settings = access.available ? instagramConfig() : null;
     if (!settings) return back("unavailable");
     let snapshot: InstagramSnapshot;
     try {
@@ -363,10 +412,9 @@ export function registerMarketing(
     await db.tenant(a, async (tx) => {
       await tx.query("DELETE FROM records WHERE kind=$1", [SNAPSHOT_KIND]);
       await putRecord(tx, a, SNAPSHOT_KIND, snapshot, { status: "ready" });
-      await event(tx, a, "instagram.snapshot_saved", undefined, {
-        followers: snapshot.followers,
-        postsSampled: snapshot.postsSampled,
-      });
+      // The name only: the numbers live in the record alone, so "Remove
+      // saved numbers" and workspace closure delete every copy of them.
+      await event(tx, a, "instagram.snapshot_saved");
     });
     return back("connected");
   });

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Check, UserRound } from "lucide-react";
 import type { ReactNode } from "react";
 import {
+  FACEBOOK_ONLY_SOURCES,
   OFFERED_DIRECTORY_SPECIALTIES,
   MARKETING_PAGES,
   MARKETING_SOURCES,
@@ -26,6 +27,12 @@ import {
   type FollowerRateKey,
   type FollowerScenario,
 } from "../../../../packages/domain/src/marketing-calculators";
+import {
+  DEFAULT_FACEBOOK_INPUTS,
+  DEFAULT_FACEBOOK_MODEL,
+  estimateFacebookConversion,
+  type FacebookRateKey,
+} from "../../../../packages/domain/src/facebook-calculator";
 import { claimCta, MarketingFooter, MarketingHeader } from "./frame";
 import {
   AddressPreview,
@@ -210,44 +217,578 @@ const RATE_ROWS: Array<{
   },
 ];
 
+/** A tier's follower range, as the /methodology tables print it. */
+function tierRange(tiers: ReadonlyArray<{ upTo: number | null }>, i: number) {
+  const upTo = tiers[i].upTo,
+    from = i === 0 ? 0 : (tiers[i - 1].upTo ?? 0) + 1;
+  return upTo === null
+    ? `Above ${from - 1 > 0 ? (from - 1).toLocaleString("en-AE") : "0"}`
+    : `${from.toLocaleString("en-AE")}–${upTo.toLocaleString("en-AE")}`;
+}
+/** Subscribers as the worked examples print them: whole, or "fewer than 1". */
+function countText(n: number) {
+  const c = displayCount(n);
+  return c === null ? "fewer than 1" : c.toLocaleString("en-AE");
+}
+/**
+ * The sources cited for one assumption. A value the operator changed no
+ * longer rests on the cited source, so it is marked instead.
+ */
+function SourceLinks({
+  fields,
+  links,
+  adjusted,
+  version,
+}: {
+  fields: string[];
+  links: Array<[string, string]>;
+  adjusted: ReadonlySet<string>;
+  version: string;
+}) {
+  const list = links.map(([id, label], i) => (
+    <span key={id}>
+      {i > 0 && ", "}
+      <a href={"#" + id}>{label}</a>
+    </span>
+  ));
+  return fields.some((f) => adjusted.has(f)) ? (
+    <span>
+      <span className="badge amber">Adjusted by the operator</span> version{" "}
+      {version}; differs from the cited source ({list})
+    </span>
+  ) : (
+    <span>{list}</span>
+  );
+}
+
+/**
+ * When the Facebook-only sources were retrieved, for the Facebook section and
+ * change log. FACEBOOK_ONLY_SOURCES (@trainer/contracts) are listed only with
+ * that section, as llms-full.txt lists them only once Facebook is approved.
+ */
+const FACEBOOK_RETRIEVED = dateLabel(
+  MARKETING_SOURCES.filter((s) => FACEBOOK_ONLY_SOURCES.has(s.id))
+    .map((s) => s.retrieved)
+    .sort()
+    .pop() ?? DEFAULT_FACEBOOK_MODEL.version.slice(0, 10),
+);
+/** One Facebook rate row on /methodology: values, basis, label and sources. */
+const FACEBOOK_RATE_ROWS: Array<{
+  key: FacebookRateKey;
+  label: string;
+  basis: string;
+  /**
+   * How much weight it bears, from [Measured], [Proxy], [Vendor claim],
+   * [Rule of thumb] and [Our assumption].
+   */
+  evidence: string;
+  sources: Array<[string, string]>;
+}> = [
+  {
+    key: "linkPostRelativeReachPct",
+    label: "Reach of one post carrying your link, as a share of an average post’s reach",
+    basis: "Socialinsider’s reach by format: links 0.20% of followers against images 1.20% (cautious, the format that reaches most) and 0.78%, the average of five formats (typical, strong). The format figures sit on a different basis from the Page-size figures, so only the ratio is used (our division). Meta: 98.9% of US Feed views in Q2 2026 were of posts without a link to an outside site",
+    evidence: "Measured; Our assumption",
+    sources: [
+      ["socialinsider-reach-facebook", "Socialinsider"],
+      ["meta-widely-viewed-content", "Meta Transparency Center"],
+    ],
+  },
+  {
+    key: "reelRelativeReachPct",
+    label: "Reach of one call-to-action Reel, as a share of an average post’s reach",
+    basis: "Reels reach 0.55% of followers on the same basis, against images (cautious) or the five-format average (typical, strong) (our division)",
+    evidence: "Measured; Our assumption",
+    sources: [["socialinsider-reach-facebook", "Socialinsider"]],
+  },
+  {
+    key: "linkClickPct",
+    label: "Link click, per person who sees a link post",
+    basis: "Typical and strong: Echobox’s average and highest (magazines) organic Facebook click-through for publishers, 6.5 million posts from May 2020 to April 2021. News audiences make it a dated proxy; no benchmark exists for brand or creator Pages. Cautious: the low end creators report for link taps",
+    evidence: "Proxy; Our assumption",
+    sources: [
+      ["echobox-facebook-ctr-2021", "Echobox"],
+      ["creatorflow-link-sticker", "Creatorflow"],
+    ],
+  },
+  {
+    key: "dmOpenPct",
+    label: "Keyword commenters who open the link sent by Messenger",
+    basis: "The Instagram auto-DM vendor claims, used as a proxy. A Page may send one private reply per comment, within 7 days of it",
+    evidence: "Vendor claim; Proxy",
+    sources: [
+      ["communipass-auto-dm", "CommuniPass"],
+      ["chatautodm-2026", "ChatAutoDM"],
+      ["meta-private-replies", "Meta for Developers"],
+    ],
+  },
+  {
+    key: "pageLinkClickPct",
+    label: "Page visitors who open your Page’s link (action button or website) in a month, only when you enter Page visits",
+    basis: "The link-in-bio rule of thumb, 1-3%, used as a proxy",
+    evidence: "Rule of thumb; Proxy",
+    sources: [["hopp-bio-link", "Hopp by Wix"]],
+  },
+  {
+    key: "audienceRenewalPct",
+    label: "New people each month: share of each audience new to your link",
+    basis: "Cautious: the same people all year. Typical: about the yearly follower growth Socialinsider measured on Facebook brand Pages in 2025, 14.5-22.7% by Page size (38.2% for 10,000-50,000 followers), about 1.1-1.7% a month (our rounding). Strong: our assumption, as for Instagram, beside Meta’s 36.6% of US Feed views from recommended posts and Buffer’s 4.3% average monthly follower growth; above the default monthly cancellations (2.9%)",
+    evidence: "Measured; Our assumption",
+    sources: [
+      ["socialinsider-facebook", "Socialinsider"],
+      ["meta-widely-viewed-content", "Meta Transparency Center"],
+      ["buffer-facebook-benchmarks", "Buffer"],
+    ],
+  },
+];
+
+/**
+ * The Facebook Page estimate on /methodology (packages/domain/src/
+ * facebook-calculator.ts): every assumption with its label and sources, the
+ * source caveats and a worked example. Its own figures are cited defaults;
+ * visit to paid is the follower model's, so an operator change shows here.
+ */
+function FacebookAssumptions({ platform }: { platform: PublicPlatform }) {
+  const fb = DEFAULT_FACEBOOK_MODEL,
+    m = platform.followerModel;
+  const adjusted = new Set(followerModelAdjustments(m).map((a) => a.field));
+  const Source = ({
+    fields = [],
+    links,
+  }: {
+    fields?: string[];
+    links: Array<[string, string]>;
+  }) => <SourceLinks fields={fields} links={links} adjusted={adjusted} version={m.version} />;
+  const reach: Array<[string, string]> = [["socialinsider-reach-facebook", "Socialinsider"]];
+  const worked = estimateFacebookConversion(DEFAULT_FACEBOOK_INPUTS, fb, m);
+  const strong = worked.scenarios.strong;
+  const instagram = estimateFollowerConversion(DEFAULT_FOLLOWER_INPUTS, m).scenarios.strong;
+  const inputs = DEFAULT_FACEBOOK_INPUTS;
+  const last = fb.tiers.length - 1;
+  return (
+    <section className="mk-section" id="facebook-assumptions" aria-labelledby="fb-h">
+      <h2 id="fb-h">Facebook Page estimate assumptions (version {fb.version})</h2>
+      <p className="mk-body">
+        The Facebook Page estimate runs the follower calculator’s three
+        scenarios on researched Facebook Page figures: averages for brand
+        Pages’ organic posts, not trainer data. Each assumption is labelled
+        [Measured], [Proxy], [Vendor claim], [Rule of thumb] or [Our assumption].
+        The strong case is a best case for an engaged, growing audience. It is
+        not a typical result and not a promise, and you may get fewer
+        subscribers than the cautious figure. Sources retrieved{" "}
+        {FACEBOOK_RETRIEVED}.
+      </p>
+      <p className="mk-body">
+        Facebook shows a Page’s posts to few of its followers, so this estimate
+        is far below the follower calculator’s at the same size. With each
+        calculator’s starting numbers,{" "}
+        {inputs.followers.toLocaleString("en-AE")} followers give about{" "}
+        {countText(strong.activeMonth12)} active subscribers after 12 months in
+        the strong case, against about {countText(instagram.activeMonth12)} on
+        Instagram. Don’t add the two estimates together: many people follow you
+        on both, and cross-posted content reaches the same people.
+      </p>
+      <h3>What the estimate counts</h3>
+      <ul className="mk-list">
+        <li>
+          <Check size={16} aria-hidden="true" />
+          <span>
+            Posts that carry your coaching link: followers × post reach for
+            your Page size × the link share × your engagement scaling. The same
+            followers see each link post, so a follower’s chance of a visit
+            levels off. Your link posts’ average viewers from Insights replace
+            this audience, our biggest guess, in every scenario.
+          </span>
+        </li>
+        <li>
+          <Check size={16} aria-hidden="true" />
+          <span>
+            Reels with a call to action, where a comment keyword sends your
+            link by Messenger: Reel viewers × comments per viewer × the keyword
+            factor × Messenger opens. With the keyword off, those Reels count
+            only through the Page visits you enter.
+          </span>
+        </li>
+        <li>
+          <Check size={16} aria-hidden="true" />
+          <span>
+            Your Page’s own link (the action button, the website in your Intro
+            or a pinned post): counted only when you enter your monthly Page
+            visits from Insights, as no benchmark exists for Page visits.
+          </span>
+        </li>
+        <li>
+          <Check size={16} aria-hidden="true" />
+          <span>
+            Visit to paid and cancellations are the follower calculator’s, so a
+            change to visit to paid moves both estimates. Each channel reaches
+            at least as many people as a Page at the top of each smaller size
+            band, so crossing a band never lowers the estimate.
+          </span>
+        </li>
+      </ul>
+      <div className="mk-table-wrap">
+        <table className="mk-table">
+          <caption>
+            Average reach of one organic Page post, % of followers, by Page
+            size (the same in every scenario)
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col">Followers</th>
+              <th scope="col">Post reach</th>
+              <th scope="col">Basis and label</th>
+            </tr>
+          </thead>
+          <tbody>
+            {fb.tiers.map((tier, i) => (
+              <tr key={i}>
+                <td>{tierRange(fb.tiers, i)}</td>
+                <td>{tier.postReachPct}%</td>
+                <td>
+                  {i === 0
+                    ? "Measured on brand Pages of 1,000-5,000 followers; Pages under 1,000 were not in the study and use this figure. [Measured; Our assumption] "
+                    : i === last
+                      ? "Measured on brand Pages of 100,000-1 million followers, a band the study shows although it says Pages above 100,000 were excluded; Pages above 1 million use this figure. [Measured; Our assumption] "
+                      : "Measured on brand Pages this size. [Measured] "}
+                  <Source links={reach} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="mk-table-wrap">
+        <table className="mk-table">
+          <caption>Rates per scenario</caption>
+          <thead>
+            <tr>
+              <th scope="col">Assumption</th>
+              <th scope="col">Cautious</th>
+              <th scope="col">Typical</th>
+              <th scope="col">Strong case</th>
+              <th scope="col">Basis and label</th>
+            </tr>
+          </thead>
+          <tbody>
+            {FACEBOOK_RATE_ROWS.map((row) => (
+              <tr key={row.key}>
+                <td>{row.label}</td>
+                <td>{fb.scenarios.cautious[row.key]}%</td>
+                <td>{fb.scenarios.typical[row.key]}%</td>
+                <td>{fb.scenarios.strong[row.key]}%</td>
+                <td>
+                  {row.basis}. [{row.evidence}] <Source links={row.sources} />
+                </td>
+              </tr>
+            ))}
+            <tr>
+              <td>Visit to paid subscriber, the follower calculator’s</td>
+              <td>{m.scenarios.cautious.paidPct}%</td>
+              <td>{m.scenarios.typical.paidPct}%</td>
+              <td>{m.scenarios.strong.paidPct}%</td>
+              <td>
+                Luxury retail; Health &amp; Fitness app downloads that turn
+                paid within 35 days, median and upper quartile. An app install
+                shows more intent than a link tap, so these may overstate, and
+                no published benchmark exists for coaching subscriptions.
+                [Measured; Proxy]{" "}
+                <Source
+                  fields={FOLLOWER_SCENARIOS.map((s) => `scenarios.${s}.paidPct`)}
+                  links={[
+                    ["dynamicyield-conversion", "Dynamic Yield"],
+                    ["revenuecat-state-2026", "RevenueCat"],
+                  ]}
+                />
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div className="mk-table-wrap">
+        <table className="mk-table">
+          <caption>Other assumptions</caption>
+          <thead>
+            <tr>
+              <th scope="col">Assumption</th>
+              <th scope="col">Value</th>
+              <th scope="col">Basis and label</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Engagement benchmark by Page size (your own rate is compared with it)</td>
+              <td>
+                {fb.tiers.map((t) => t.engagementBenchmarkPct + "%").join(" / ")},
+                scaling link-post reach and keyword comments at most ×
+                {fb.engagementFactorMax} either way (×1 when unknown)
+              </td>
+              <td>
+                Socialinsider’s Facebook Reels engagement by followers,
+                January-June 2026 (0.30 / 0.25 / 0.20 / 0.18 / 0.15%), × 0.15 /
+                0.18, all formats against Reels in 2025 (our scaling).
+                Engagement is reactions, comments and shares per post ÷
+                followers, as Connect Facebook measures it. The ×
+                {fb.engagementFactorMax} limit is our assumption, as for
+                Instagram. [Measured; Proxy; Our assumption]{" "}
+                <Source
+                  links={[
+                    ["socialinsider-video-statistics", "Socialinsider"],
+                    ["socialinsider-facebook", "Socialinsider"],
+                  ]}
+                />
+              </td>
+            </tr>
+            <tr>
+              <td>Comments per Reel viewer</td>
+              <td>{fb.reelCommentsPerViewPct}%</td>
+              <td>
+                Buffer’s median Facebook video engagement per reach in 2025
+                (4.84%) × comments’ share of Socialinsider’s 2025 per-Reel
+                interactions (19 of 200, 9.5%) (our arithmetic). [Measured;
+                Proxy]{" "}
+                <Source
+                  links={[
+                    ["buffer-engagement-2026", "Buffer"],
+                    ["socialinsider-facebook", "Socialinsider"],
+                  ]}
+                />
+              </td>
+            </tr>
+            <tr>
+              <td>Keyword comments per viewer</td>
+              <td>Comments per viewer × {fb.keywordCommentFactor}</td>
+              <td>
+                Metricool measured +202.78% comments with a comment call to
+                action on Instagram, used here as a proxy; treating the extra
+                comments as keyword comments is our inference. [Measured;
+                Proxy]{" "}
+                <Source links={[["metricool-2026", "Metricool"]]} />
+              </td>
+            </tr>
+            <tr>
+              <td>What counts as a post carrying your link</td>
+              <td>
+                A link-preview post, or a photo or video with the link in its
+                text
+              </td>
+              <td>
+                Meta’s report counts any Feed post with a link to an outside
+                site as a link post. [Our assumption]{" "}
+                <Source links={[["meta-widely-viewed-content", "Meta Transparency Center"]]} />
+              </td>
+            </tr>
+            <tr>
+              <td>How channels overlap</td>
+              <td>
+                Every scenario: repeat link posts reach the same followers.
+                Cautious: Reel viewers are people your link posts already
+                reach. Typical and strong: each Reel’s keyword commenters are
+                new people
+              </td>
+              <td>
+                Meta: the 1.1% of US Feed views with a link typically came from
+                a Page the person followed, and 36.6% were recommended posts
+                from accounts people don’t follow (Q2 2026). [Our assumption]{" "}
+                <Source links={[["meta-widely-viewed-content", "Meta Transparency Center"]]} />
+              </td>
+            </tr>
+            <tr>
+              <td>Members who cancel per year</td>
+              <td>Your input, 5-80%; 30% unless you change it, as in the follower calculator</td>
+              <td>
+                Owner assumption. Published data show more cancellations: 32-54%
+                of Health &amp; Fitness app subscribers leave after the first
+                month (measured), and 45% of online coaching clients remain at
+                month 12 (vendor data). [Our assumption]{" "}
+                <Source
+                  links={[
+                    ["revenuecat-renewals", "RevenueCat"],
+                    ["coachway-2026", "Coachway"],
+                  ]}
+                />
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <h3>What is not counted</h3>
+      <ul className="mk-list">
+        <li>
+          <Check size={16} aria-hidden="true" />
+          <span>
+            Stories: we found no published reach benchmark for Facebook Page
+            Stories, and many trainers share their Instagram Stories to
+            Facebook, so counting them again would count the same people twice.
+          </span>
+        </li>
+        <li>
+          <Check size={16} aria-hidden="true" />
+          <span>
+            Groups: no benchmark exists, Connect Facebook can’t read Groups,
+            and Group posts reach members rather than Page followers.
+          </span>
+        </li>
+        <li>
+          <Check size={16} aria-hidden="true" />
+          <span>
+            A link in the first comment of a post: a popular workaround that
+            Meta’s link-post test doesn’t affect, but with no published click
+            data, so it is a tip, not a number.
+          </span>
+        </li>
+        <li>
+          <Check size={16} aria-hidden="true" />
+          <span>
+            Ordinary posts without a link, Live, Events, broadcast channels and
+            Marketplace: no direct path to your coaching page, or no benchmark.
+          </span>
+        </li>
+        <li>
+          <Check size={16} aria-hidden="true" />
+          <span>
+            Paid boosts and ads: the estimate is organic only, like the samples
+            behind it.
+          </span>
+        </li>
+      </ul>
+      <h3>What the sources can’t tell you</h3>
+      <ul className="mk-list">
+        <li>
+          <Check size={16} aria-hidden="true" />
+          <span>
+            These are averages for brand Pages of 1,000 to 1 million followers,
+            not for fitness trainers.
+          </span>
+        </li>
+        <li>
+          <Check size={16} aria-hidden="true" />
+          <span>
+            Since December 2025 Meta has been testing a limit of 2 organic link
+            posts a month for some Pages and professional profiles without Meta
+            Verified. Publishers are excluded and links in comments are not
+            affected. We can’t tell whether your Page is in the test; if it is,
+            use keyword Reels.{" "}
+            <Source
+              links={[
+                ["techcrunch-facebook-link-limit", "TechCrunch"],
+                ["socialmediatoday-facebook-link-limit", "Social Media Today"],
+              ]}
+            />
+          </span>
+        </li>
+        <li>
+          <Check size={16} aria-hidden="true" />
+          <span>
+            Socialinsider’s reach study gives two overall Facebook reach
+            figures without reconciling them (1.25% in August 2026 and 1.80%
+            as the mid-2026 average). It says Pages above 100,000 followers
+            were excluded yet shows a 100,000-1 million band, and its format
+            figures sit on a different basis from its Page-size figures, so we
+            use them only as ratios. <Source links={reach} />
+          </span>
+        </li>
+        <li>
+          <Check size={16} aria-hidden="true" />
+          <span>
+            Socialinsider’s Facebook benchmarks page labels its 2025 data as
+            2026, and its two pages disagree about tenfold on views per Reel,
+            so no per-view rate is taken from them.{" "}
+            <Source
+              links={[
+                ["socialinsider-facebook", "Socialinsider"],
+                ["socialinsider-video-statistics", "Socialinsider"],
+              ]}
+            />
+          </span>
+        </li>
+        <li>
+          <Check size={16} aria-hidden="true" />
+          <span>
+            Rival IQ’s 2025 Facebook medians appear only in charts and include
+            paid posts, so they are not used.
+          </span>
+        </li>
+        <li>
+          <Check size={16} aria-hidden="true" />
+          <span>
+            We found no published benchmark for Facebook Page Stories, for
+            organic link click-through on brand or creator Pages, or for
+            coaching subscriptions.
+          </span>
+        </li>
+        <li>
+          <Check size={16} aria-hidden="true" />
+          <span>
+            Reach is itself an estimate within Meta, and Meta replaced
+            impressions with views in 2025, so Insights numbers from after the
+            change may not match older ones.
+          </span>
+        </li>
+      </ul>
+      <div className="mk-table-wrap">
+        <table className="mk-table">
+          <caption>
+            Worked example: {inputs.followers.toLocaleString("en-AE")} Page
+            followers, AED {inputs.priceAed}, {inputs.linkPostsPerMonth} link
+            posts and {inputs.ctaReelsPerMonth} keyword Reels a month,{" "}
+            {inputs.yearlyCancelPct}% yearly cancellations
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col">Scenario</th>
+              <th scope="col">First month</th>
+              <th scope="col">Active after 12 months</th>
+              <th scope="col">Sign-ups over 12 months</th>
+              <th scope="col">A month at month 12</th>
+            </tr>
+          </thead>
+          <tbody>
+            {FOLLOWER_SCENARIOS.map((s) => {
+              const r = worked.scenarios[s];
+              return (
+                <tr key={s}>
+                  <th scope="row">{SCENARIO_NAMES[s]}</th>
+                  <td>{countText(r.month1New)}</td>
+                  <td>{countText(r.activeMonth12)}</td>
+                  <td>{countText(r.signups12)}</td>
+                  <td>{aed(r.revenueMonth12Minor)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="mk-body">
+        In the strong case one link post reaches about{" "}
+        {Math.round(strong.linkPostViewers).toLocaleString("en-AE")} people
+        and one Reel about{" "}
+        {Math.round(strong.reelViewers).toLocaleString("en-AE")}. The first
+        month brings {countText(strong.month1New)} new{" "}
+        {(displayCount(strong.month1New) ?? 0) > 1 ? "subscribers" : "subscriber"}
+        , and new people each month lift active subscribers to{" "}
+        {countText(strong.activeMonth12)} by month 12.
+      </p>
+      <p className="fine-print muted">
+        Before platform commission, payment processing and tax. Trials,
+        discounts, refunds and failed payments are not included.
+      </p>
+    </section>
+  );
+}
+
 function Methodology({ platform }: { platform: PublicPlatform }) {
   const m = platform.followerModel;
   const adjusted = new Set(followerModelAdjustments(m).map((a) => a.field));
-  const tierLabel = (i: number) => {
-    const upTo = m.tiers[i].upTo,
-      from = i === 0 ? 0 : (m.tiers[i - 1].upTo ?? 0) + 1;
-    return upTo === null
-      ? `Above ${from - 1 > 0 ? (from - 1).toLocaleString("en-AE") : "0"}`
-      : `${from.toLocaleString("en-AE")}–${upTo.toLocaleString("en-AE")}`;
-  };
-  // A value the operator changed no longer rests on the cited source.
-  const Source = ({
-    fields,
-    links,
-  }: {
-    fields: string[];
-    links: Array<[string, string]>;
-  }) => {
-    const list = links.map(([id, label], i) => (
-      <span key={id}>
-        {i > 0 && ", "}
-        <a href={"#" + id}>{label}</a>
-      </span>
-    ));
-    return fields.some((f) => adjusted.has(f)) ? (
-      <span>
-        <span className="badge amber">Adjusted by the operator</span> version{" "}
-        {m.version}; differs from the cited source ({list})
-      </span>
-    ) : (
-      <span>{list}</span>
-    );
-  };
+  const tierLabel = (i: number) => tierRange(m.tiers, i);
+  const Source = (cited: { fields: string[]; links: Array<[string, string]> }) => (
+    <SourceLinks {...cited} adjusted={adjusted} version={m.version} />
+  );
+  // The Facebook Page estimate's public switch (GET /api/v1/public/platform):
+  // on only once Meta app review is recorded as approved, the owner's
+  // go-ahead after signing its figures off.
+  const facebook = platform.availability.facebook === true;
   const worked = estimateFollowerConversion(DEFAULT_FOLLOWER_INPUTS, m);
-  const count = (n: number) => {
-    const c = displayCount(n);
-    return c === null ? "fewer than 1" : c.toLocaleString("en-AE");
-  };
   const strong = m.scenarios.strong;
   const perStory = Math.round(strong.linkClickPct * strong.paidPct) / 100;
   const signupShare =
@@ -542,9 +1083,9 @@ function Methodology({ platform }: { platform: PublicPlatform }) {
                 return (
                   <tr key={s}>
                     <th scope="row">{SCENARIO_NAMES[s]}</th>
-                    <td>{count(r.month1New)}</td>
-                    <td>{count(r.activeMonth12)}</td>
-                    <td>{count(r.signups12)}</td>
+                    <td>{countText(r.month1New)}</td>
+                    <td>{countText(r.activeMonth12)}</td>
+                    <td>{countText(r.signups12)}</td>
                     <td>{aed(r.revenueMonth12Minor)}</td>
                   </tr>
                 );
@@ -558,6 +1099,7 @@ function Methodology({ platform }: { platform: PublicPlatform }) {
           followers count only through the new people each month.
         </p>
       </section>
+      {facebook && <FacebookAssumptions platform={platform} />}
       <section className="mk-section" id="sources" aria-labelledby="src-h">
         <h2 id="src-h">Sources</h2>
         <p className="mk-body">
@@ -567,7 +1109,7 @@ function Methodology({ platform }: { platform: PublicPlatform }) {
           guide or press report.
         </p>
         <ol className="mk-source-list">
-          {MARKETING_SOURCES.map((s) => (
+          {MARKETING_SOURCES.filter((s) => facebook || !FACEBOOK_ONLY_SOURCES.has(s.id)).map((s) => (
             <li key={s.id} id={s.id}>
               <p>
                 <span className="badge">{s.evidence}</span>{" "}
@@ -637,6 +1179,16 @@ function Methodology({ platform }: { platform: PublicPlatform }) {
               source.
             </span>
           </li>
+          {facebook && (
+            <li>
+              <Check size={16} aria-hidden="true" />
+              <span>
+                Facebook Page estimate, version {DEFAULT_FACEBOOK_MODEL.version}:
+                first version, from Facebook Page figures retrieved{" "}
+                {FACEBOOK_RETRIEVED}.
+              </span>
+            </li>
+          )}
           {adjusted.size > 0 && (
             <li>
               <Check size={16} aria-hidden="true" />
@@ -775,7 +1327,27 @@ function AfterSection({
         headingLevel={3}
       />
     );
+  // The data deletion instructions both Meta apps link to
+  // (docs/features/meta-app-review.md) end with the support contact.
+  if (page.path === "/security-and-privacy" && section.id === "facebook-instagram-data")
+    return <SupportContact platform={platform} />;
   return null;
+}
+
+/** The public support contact, as /about shows it. */
+function SupportContact({ platform }: { platform: PublicPlatform }) {
+  return platform.supportEmail ? (
+    <p className="mk-body">
+      Contact:{" "}
+      <a className="ltr-data" href={"mailto:" + platform.supportEmail}>
+        {platform.supportEmail}
+      </a>
+    </p>
+  ) : (
+    <p className="mk-body">
+      A public support email has not been published yet. Existing trainers can <Link href="/login">sign in</Link> and open Support. New visitors can <Link href={claimCta(platform.registrationOpen).href}>{platform.registrationOpen ? "get started" : "join early access"}</Link>.
+    </p>
+  );
 }
 
 function StandardPage({ page, platform, origin }: Ctx) {
@@ -814,18 +1386,7 @@ function StandardPage({ page, platform, origin }: Ctx) {
           <section className="mk-section" id="company" aria-labelledby="company-h">
             <h2 id="company-h">Company and contact</h2>
             <p className="mk-body">{platform.companyDetails || "Company details have not been published yet."}</p>
-            {platform.supportEmail ? (
-              <p className="mk-body">
-                Contact:{" "}
-                <a className="ltr-data" href={"mailto:" + platform.supportEmail}>
-                  {platform.supportEmail}
-                </a>
-              </p>
-            ) : (
-              <p className="mk-body">
-                A public support email has not been published yet. Existing trainers can <Link href="/login">sign in</Link> and open Support. New visitors can <Link href={claimCta(platform.registrationOpen).href}>{platform.registrationOpen ? "get started" : "join early access"}</Link>.
-              </p>
-            )}
+            <SupportContact platform={platform} />
           </section>
         )}
         {page.path === "/methodology" && <Methodology platform={platform} />}

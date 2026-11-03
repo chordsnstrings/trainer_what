@@ -5,6 +5,7 @@
 // the configured platform name (runtimeConfig().APP_NAME) when rendered.
 import {
   AVAILABILITY_LINES,
+  FACEBOOK_ONLY_SOURCES,
   MARKETING_CONTENT,
   MARKETING_SOURCES,
   SETUP_CHECKLIST,
@@ -17,7 +18,7 @@ import {
   usesBrandIdentity,
 } from "./brand.ts";
 import { HOME_OFFER, PRICING_CHIPS, STATUS_ITEMS, gatesState, type StatusGate } from "./marketing-proof.ts";
-export { AVAILABILITY_LINES, MARKETING_SOURCES, SETUP_CHECKLIST };
+export { AVAILABILITY_LINES, FACEBOOK_ONLY_SOURCES, MARKETING_SOURCES, SETUP_CHECKLIST };
 
 /**
  * The platform name when the Super admin has not set APP_NAME (the settings
@@ -449,8 +450,13 @@ export type MarketingContext = {
   supportEmail?: string | null;
   /** The follower model in use, for the assumption tokens in copy. */
   followerModel?: AssumptionFigures;
-  /** Provider availability; lines gated on a flag show only while it is on. */
-  availability?: Partial<Record<AvailabilityKey, boolean>>;
+  /**
+   * Provider availability; lines gated on a flag show only while it is on.
+   * `facebook` (Connect Facebook approved by Meta's app review) gates no
+   * line; it only lets llms-full.txt list the Facebook-only sources, as
+   * /methodology does.
+   */
+  availability?: Partial<Record<AvailabilityKey | "facebook", boolean>>;
   /** Whether new sign-ups are open; a status that waits for them is left out while this is unknown. */
   registrationOpen?: boolean;
 };
@@ -877,10 +883,13 @@ export function llmsFullTxt(ctx: MarketingContext): string {
     }
   }
   out.push("## Sources", "");
-  for (const s of MARKETING_SOURCES)
+  for (const s of MARKETING_SOURCES) {
+    // As on /methodology: the Facebook estimate's own sources wait for it.
+    if (FACEBOOK_ONLY_SOURCES.has(s.id) && ctx.availability?.facebook !== true) continue;
     out.push(
       `- ${s.publisher}, "${s.title}"${s.published ? ` (${s.published})` : ""}, retrieved ${s.retrieved} [${s.evidence}]: ${s.claim} ${s.url}`,
     );
+  }
   out.push("");
   return out.join("\n");
 }

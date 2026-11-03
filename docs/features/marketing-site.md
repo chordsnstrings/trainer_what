@@ -292,7 +292,9 @@ voice usage line since the owner's decision of 30 September 2026, below).
 Every result carries "Estimate, not a promise" / "Not an earnings promise",
 the assumptions and a link to `/methodology`, which lists every source with
 its date and use, the assumptions in force (read from settings) and a change
-log.
+log. The Facebook Page estimate's section and its own sources appear only
+once Connect Facebook is approved (see "Connect Facebook and the Facebook
+estimate" below).
 
 ### Super admin: assumptions and company details
 
@@ -322,38 +324,92 @@ Platform settings gain a "Growth & marketing" group:
 
 ### Connect Instagram (optional, disabled until configured)
 
-Settings entry **Instagram (follower estimates)**: app ID, app secret
-(sealed like other secrets), redirect URI
-(`/api/v1/trainer/instagram/callback` on the platform address) and "Meta app
-review approved for instagram_business_basic". The connection test is
-`unavailable` until approval is recorded; `integrationCapability("instagram")`
-needs all three values plus approval. Instagram API with Instagram Login only
-serves professional (business and creator) accounts.
+Settings entry **Instagram (follower estimates)**:
+- app ID, app secret (sealed like other secrets), redirect URI
+  (`/api/v1/trainer/instagram/callback` on the platform address) and "Meta app
+  review approved for instagram_business_basic";
+- since 3 November 2026, "Before app review: coach addresses that may connect"
+  (`INSTAGRAM_TEST_WORKSPACES`).
+
+How it switches on:
+- `integrationCapability("instagram")` is approved with all three values plus
+  approval.
+- Before approval it is `testing` while the list is not empty. Only the listed
+  workspaces can then connect (`metaConnectAccess`, the pre-approval test mode
+  shared with Connect Facebook: [facebook-connect.md](facebook-connect.md)),
+  and the connection test validates instead of answering `unavailable`.
+- The public `availability.instagram` flag still follows approval only.
+
+Instagram API with Instagram Login only serves professional (business and
+creator) accounts.
 
 Owner-only routes (`apps/api/src/marketing.ts`):
 
-- `GET /api/v1/trainer/instagram`: availability, saved numbers, the model.
+- `GET /api/v1/trainer/instagram`: whether this workspace may connect
+  (`available`, `testing`), saved numbers, the model.
 - `POST /api/v1/trainer/instagram/authorize` (platform address, rate
   limited): stores a single-use state (hash, session hash, 10-minute expiry)
   as a workspace record and returns the Instagram authorize address.
 - `GET /api/v1/trainer/instagram/callback`: checks the state against the
   signed-in owner's session, deletes it, exchanges the code, reads
   `followers_count` and the likes and comments of up to 12 recent posts, and
-  stores only `{username, followers, mediaCount, engagementRatePct,
-  postsSampled, fetchedAt}`. The token is used in memory and discarded.
+  stores only `{username, accountType, followers, mediaCount,
+  engagementRatePct, postsSampled, fetchedAt}`. The token is used in memory
+  and discarded.
   Redirects to `/trainer/growth?instagram=connected|declined|expired|failed|
   professional_required|unavailable`.
 - `DELETE /api/v1/trainer/instagram`: removes the saved numbers.
 
 Events: `instagram.authorization_started`, `instagram.snapshot_saved`,
-`instagram.snapshot_removed` (no token). Nonproduction fixtures can replace
-the HTTP calls through `buildApp({ providers: { instagram } })`.
+`instagram.snapshot_removed`. They carry no token and, since 3 November
+2026, no numbers: the numbers live only in the saved record, so Remove saved
+numbers and workspace closure leave no copy in the event log. Nonproduction
+fixtures can replace the HTTP calls through
+`buildApp({ providers: { instagram } })`.
+
+### Connect Facebook and the Facebook estimate (3 November 2026, hidden until approved)
+
+The same shape as Connect Instagram, for a trainer's Facebook Page, plus a
+Facebook version of the subscriber estimate (version `2026-11-03`).
+- Everything is in [facebook-connect.md](facebook-connect.md).
+- The owner's Meta steps are in [meta-app-review.md](meta-app-review.md).
+- One Meta app holds both connections: "trainsyou social login" (Meta App
+  ID `2335071867263863`, with Instagram App ID `2881563462229057` and Facebook
+  Login for Business configuration `1420000509847051`). Its four permissions
+  go into one App Review request.
+
+What the public pages show:
+- **`/methodology#facebook-assumptions`** (`FacebookAssumptions` in
+  `site.tsx`):
+  - every Facebook assumption with its label and sources, the source caveats
+    and a worked example;
+  - with it, the ten sources only it cites (`FACEBOOK_ONLY_SOURCES`).
+  - All of it renders only while `availability.facebook` is true, that is once
+    Meta app review is recorded as approved. The owner records approval after
+    signing the figures off.
+  - Until then `/methodology` is unchanged. Its Sources list leaves those ten
+    out, because their "Used for" lines give the hidden figures, and
+    `llms-full.txt` leaves them out too.
+- **`/security-and-privacy#facebook-instagram-data`:**
+  - the data deletion instructions the Meta app links to (App settings →
+    Basic, once for Facebook and Instagram): what is kept, Remove saved
+    numbers, workspace closure, and removing the app in Facebook's and
+    Instagram's settings;
+  - followed by the support contact as `/about` shows it (`SupportContact`).
+  - Not gated: Meta checks the address before review. Public pages make no
+    claim that Facebook is available, or coming soon, until approval.
+  - Keep the section id stable. The page's `lastUpdated` is 3 November 2026.
 
 ### Trainer workspace
 
 - New owner page **Followers & growth** (`/trainer/growth`,
   `components/trainer-growth.tsx`): Connect / refresh / remove Instagram, the
   follower calculator filled from the saved numbers, and the tagged links.
+  Since 3 November 2026, Connect Facebook sits right under Connect
+  Instagram, and the calculators follow: Instagram's, then Facebook's. The
+  Facebook card and estimate show while Connect Facebook is available to the
+  workspace; numbers saved earlier stay removable after that
+  ([facebook-connect.md](facebook-connect.md)).
 - New optional setup step **Share your link** (`share`, after Publish) in the
   onboarding registry: tagged links for the bio and Stories
   (`utm_source=instagram&utm_medium=social&utm_campaign=bio|story`, which the

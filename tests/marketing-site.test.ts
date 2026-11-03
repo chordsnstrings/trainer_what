@@ -18,6 +18,7 @@ import {
   isHiddenSpecialty,
   REPLACES,
   ENTITY_SENTENCE,
+  FACEBOOK_ONLY_SOURCES,
   INDEXABLE_MARKETING_PAGES,
   MARKETING_PAGES,
   MARKETING_SOURCES,
@@ -65,6 +66,12 @@ import {
   followerModelFromSettings,
   type EarningsInputs,
 } from "../packages/domain/src/marketing-calculators.ts";
+import {
+  DEFAULT_FACEBOOK_INPUTS,
+  DEFAULT_FACEBOOK_MODEL,
+  FACEBOOK_RATE_KEYS,
+  estimateFacebookConversion,
+} from "../packages/domain/src/facebook-calculator.ts";
 import { SETUP_STEPS } from "../packages/contracts/src/coach-setup.ts";
 import { MarketingSite } from "../apps/web/components/marketing/site.tsx";
 import {
@@ -660,7 +667,12 @@ test("llms.txt follows llmstxt.org and llms-full.txt carries every page, FAQ and
     assert.ok(full.includes("## " + brandText(page.h1, APP)), page.path);
     for (const faq of page.faqs) assert.ok(full.includes(brandText(faq.a, APP)), faq.q);
   }
-  for (const source of MARKETING_SOURCES) assert.ok(full.includes(source.url), source.id);
+  // Every source; the Facebook estimate's own sources once it is approved,
+  // as on /methodology (both states are tested with its section).
+  for (const source of MARKETING_SOURCES.filter((s) => !FACEBOOK_ONLY_SOURCES.has(s.id)))
+    assert.ok(full.includes(source.url), source.id);
+  const approved = llmsFullTxt({ ...ctx, availability: { facebook: true } });
+  for (const source of MARKETING_SOURCES) assert.ok(approved.includes(source.url), source.id);
   assert.doesNotMatch(full, /\{APP_NAME\}/);
 });
 
@@ -924,8 +936,9 @@ test("the guide's example accounts and the methodology worked example use the mo
     methodology.includes(`Strong case ${displayCount(seven.month1New)} ${displayCount(seven.activeMonth12)} ${displayCount(seven.signups12)} ${aedText(seven.revenueMonth12Minor)}`),
     "worked example row",
   );
-  // Every source carries its label.
-  for (const source of MARKETING_SOURCES)
+  // Every source carries its label (the Facebook estimate's own sources join
+  // the list with its section, tested below).
+  for (const source of MARKETING_SOURCES.filter((s) => !FACEBOOK_ONLY_SOURCES.has(s.id)))
     assert.ok(methodology.includes(`${source.evidence} ${source.publisher}`), source.id);
   for (const label of ["Measured, brand accounts", "Vendor claim, no dataset", "Rule of thumb", "Measured; used as a proxy"])
     assert.ok(MARKETING_SOURCES.some((s) => s.evidence === label), label);
@@ -999,7 +1012,8 @@ test("calculators and pages carry their estimate disclaimers", () => {
   const pricing = decode(render(marketingPage("/pricing")!));
   assert.match(pricing, /An arithmetic example, not a forecast or promise/);
   const methodology = decode(render(marketingPage("/methodology")!));
-  for (const source of MARKETING_SOURCES) assert.ok(methodology.includes(source.publisher), source.id);
+  for (const source of MARKETING_SOURCES.filter((s) => !FACEBOOK_ONLY_SOURCES.has(s.id)))
+    assert.ok(methodology.includes(source.publisher), source.id);
   assert.match(methodology, /Follower calculator assumptions \(version 2026-09-28\.4\)/);
   assert.match(methodology, /not a typical result and not a promise/);
   assert.doesNotMatch(methodology, /Adjusted by the operator/);
@@ -1122,6 +1136,169 @@ test("honesty scan: public pages never name a registrar, the payout provider or 
   for (const file of files) {
     const source = await readFile(file, "utf8");
     assert.doesNotMatch(source, REGISTRARS, file.pathname);
+  }
+});
+
+// The Facebook Page estimate (packages/domain/src/facebook-calculator.ts)
+// waits for Meta app review and the owner's go-ahead on its figures: its
+// /methodology section, change log line and the sources only it cites appear
+// once availability.facebook is on.
+test("/methodology shows the Facebook Page estimate only once availability.facebook is on, every assumption labelled and sourced", () => {
+  const page = marketingPage("/methodology")!;
+  const offHtml = render(page);
+  assert.doesNotMatch(offHtml, /id="facebook-assumptions"/);
+  assert.doesNotMatch(decode(offHtml), /Facebook Page estimate/);
+  for (const id of FACEBOOK_ONLY_SOURCES) {
+    assert.ok(MARKETING_SOURCES.some((s) => s.id === id), `${id} is a source`);
+    assert.doesNotMatch(offHtml, new RegExp(`id="${id}"|href="#${id}"`), id);
+  }
+  // llms-full.txt agrees: the Facebook-only sources (and their figures) only
+  // once availability.facebook is on, every other source either way.
+  const sourcesOf = (text: string) => text.slice(text.indexOf("\n## Sources\n"));
+  const fbOnly = MARKETING_SOURCES.filter((s) => FACEBOOK_ONLY_SOURCES.has(s.id));
+  const others = MARKETING_SOURCES.filter((s) => !FACEBOOK_ONLY_SOURCES.has(s.id));
+  assert.equal(fbOnly.length, FACEBOOK_ONLY_SOURCES.size);
+  for (const availability of [undefined, { ...platform.availability, facebook: false }]) {
+    const full = llmsFullTxt({ ...ctx, availability });
+    // By claim: one Socialinsider page is cited for Instagram and Facebook figures alike.
+    for (const s of fbOnly) assert.ok(!full.includes(s.claim), `${s.id} waits for availability.facebook`);
+    for (const s of others) assert.ok(sourcesOf(full).includes(`: ${s.claim} ${s.url}`), s.id);
+  }
+  assert.doesNotMatch(llmsFullTxt({ ...ctx, availability: platform.availability }), /1-5K 4\.35%/);
+  const fullOn = sourcesOf(llmsFullTxt({ ...ctx, availability: { ...platform.availability, facebook: true } }));
+  for (const s of MARKETING_SOURCES) assert.ok(fullOn.includes(`: ${s.claim} ${s.url}`), s.id);
+  const facebook = { ...platform, availability: { ...platform.availability, facebook: true } };
+  const html = render(page, facebook);
+  const text = decode(html);
+  const sectionOf = (markup: string) =>
+    markup.match(/<section class="mk-section" id="facebook-assumptions"[\s\S]*?<\/section>/)?.[0] ?? "";
+  const sectionHtml = sectionOf(html);
+  const section = decode(sectionHtml);
+  assert.match(section, /Facebook Page estimate assumptions \(version 2026-11-03\)/);
+  assert.equal(DEFAULT_FACEBOOK_MODEL.version, "2026-11-03");
+  // Labels come from the five the follower calculator uses, and each is used.
+  const LABELS = ["Measured", "Proxy", "Vendor claim", "Rule of thumb", "Our assumption"];
+  const used = [...section.matchAll(/\[([^\]]+)\]/g)].flatMap((m) => m[1].split("; "));
+  for (const label of used) assert.ok(LABELS.includes(label), label);
+  for (const label of LABELS) assert.ok(used.includes(label), label);
+  // Every assumption row (Page size, rates, visit to paid, others) has a label and a source.
+  const rows = sectionHtml
+    .split("<table")
+    .slice(1)
+    .filter((table) => !table.includes("Worked example"))
+    .flatMap((table) => [...table.matchAll(/<tr>([\s\S]*?)<\/tr>/g)].map((m) => m[1]))
+    .filter((row) => row.includes("<td"));
+  assert.equal(rows.length, DEFAULT_FACEBOOK_MODEL.tiers.length + FACEBOOK_RATE_KEYS.length + 1 + 6);
+  for (const row of rows) {
+    assert.match(decode(row), /\[[^\]]+\]/, decode(row));
+    assert.match(row, /href="#[\w-]+"/, decode(row));
+  }
+  // The values are the model's.
+  const fb = DEFAULT_FACEBOOK_MODEL;
+  for (const tier of fb.tiers) assert.ok(section.includes(` ${tier.postReachPct}% `), String(tier.postReachPct));
+  for (const key of FACEBOOK_RATE_KEYS)
+    assert.ok(
+      section.includes(`${fb.scenarios.cautious[key]}% ${fb.scenarios.typical[key]}% ${fb.scenarios.strong[key]}%`),
+      key,
+    );
+  const paid = DEFAULT_FOLLOWER_MODEL.scenarios;
+  assert.ok(section.includes(`${paid.cautious.paidPct}% ${paid.typical.paidPct}% ${paid.strong.paidPct}%`), "visit to paid");
+  assert.ok(section.includes(fb.tiers.map((t) => t.engagementBenchmarkPct + "%").join(" / ")), "engagement benchmarks");
+  assert.ok(section.includes(` ${fb.reelCommentsPerViewPct}% `), "comments per Reel viewer");
+  assert.ok(section.includes(`× ${fb.keywordCommentFactor}`), "keyword factor");
+  // Each cited source is listed under Sources, including every Facebook-only one.
+  const cited = new Set([...sectionHtml.matchAll(/href="#([\w-]+)"/g)].map((m) => m[1]));
+  for (const id of cited) assert.match(html, new RegExp(`<li id="${id}"`), id);
+  for (const id of FACEBOOK_ONLY_SOURCES) assert.ok(cited.has(id), `${id} is cited`);
+  for (const source of MARKETING_SOURCES)
+    assert.ok(text.includes(`${source.evidence} ${source.publisher}`), source.id);
+  // The research's honesty notes and source caveats.
+  for (const said of [
+    /averages for brand Pages’ organic posts, not trainer data/,
+    /It is not a typical result and not a promise, and you may get fewer subscribers than the cautious figure/,
+    /not for fitness trainers/,
+    /Don’t add the two estimates together: many people follow you on both, and cross-posted content reaches the same people/,
+    /testing a limit of 2 organic link posts a month .* We can’t tell whether your Page is in the test/,
+    /1\.25% in August 2026 and 1\.80% as the mid-2026 average/,
+    /says Pages above 100,000 followers were excluded yet shows a 100,000-1 million band/,
+    /use them only as ratios/,
+    /labels its 2025 data as 2026, and its two pages disagree about tenfold on views per Reel/,
+    /Rival IQ’s 2025 Facebook medians appear only in charts and include paid posts, so they are not used/,
+    /no published benchmark for Facebook Page Stories, for organic link click-through on brand or creator Pages, or for coaching subscriptions/,
+    /Reach is itself an estimate within Meta/,
+    /Stories: .* would count the same people twice/,
+    /Groups: no benchmark exists/,
+    /Paid boosts and ads: the estimate is organic only/,
+  ])
+    assert.match(section, said);
+  // The worked example and the Instagram comparison are the calculators' own arithmetic.
+  const count = (n: number) => String(displayCount(n) ?? "fewer than 1");
+  const worked = estimateFacebookConversion(DEFAULT_FACEBOOK_INPUTS);
+  for (const [s, name] of [["cautious", "Cautious"], ["typical", "Typical"], ["strong", "Strong case"]] as const) {
+    const r = worked.scenarios[s];
+    assert.ok(section.includes(`${name} ${count(r.month1New)} ${count(r.activeMonth12)} ${count(r.signups12)} ${aedText(r.revenueMonth12Minor)}`), s);
+  }
+  const instagram = estimateFollowerConversion(DEFAULT_FOLLOWER_INPUTS).scenarios.strong;
+  assert.ok(
+    section.includes(
+      `7,000 followers give about ${count(worked.scenarios.strong.activeMonth12)} active subscribers after 12 months in the strong case, against about ${count(instagram.activeMonth12)} on Instagram`,
+    ),
+    "Instagram comparison",
+  );
+  assert.match(text, /Facebook Page estimate, version 2026-11-03: first version, from Facebook Page figures retrieved 3 November 2026/);
+  // The same scans as the rest of the public site.
+  for (const banned of [HYPE, REGISTRARS, PLACEHOLDER, /\bAI (usage|costs?)\b|at cost|passed (through|on)|usage cost|voice usage|model costs?/i])
+    assert.doesNotMatch(text, banned);
+  // Visit to paid is the follower model's: an operator change shows here, marked.
+  const k = FOLLOWER_MODEL_SETTING_KEYS;
+  const model = followerModelFromSettings({
+    [k.version]: "2026-11-01",
+    [k.rates.paidPct.strong]: "9",
+    [k.changeNote]: "Operator trial data, October 2026",
+  });
+  const edited = decode(sectionOf(render(page, { ...facebook, followerModel: model })));
+  assert.match(edited, /0\.72% 2\.9% 9% .*Adjusted by the operator version 2026-11-01; differs from the cited source \( Dynamic Yield , RevenueCat \)/);
+  assert.equal(edited.match(/Adjusted by the operator/g)?.length, 1, "Facebook's own figures are cited defaults");
+  const raised = estimateFacebookConversion(DEFAULT_FACEBOOK_INPUTS, DEFAULT_FACEBOOK_MODEL, model).scenarios.strong;
+  assert.ok(edited.includes(`Strong case ${count(raised.month1New)} ${count(raised.activeMonth12)} ${count(raised.signups12)} ${aedText(raised.revenueMonth12Minor)}`));
+});
+
+// Meta needs a data deletion instructions URL for each app before review
+// (docs/features/meta-app-review.md): one stable anchor on a public page.
+test("the Facebook and Instagram data deletion instructions stay at /security-and-privacy#facebook-instagram-data", () => {
+  const registered = marketingPage("/security-and-privacy")!;
+  assert.ok(INDEXABLE_MARKETING_PAGES.some((p) => p.path === registered.path));
+  // Not gated: shown before app review, with every flag off.
+  const section = marketingPageFor(registered, {}, false).sections.find((s) => s.id === "facebook-instagram-data");
+  assert.ok(section, "stable anchor");
+  const block = (p: PublicPlatform = platform) =>
+    decode(render(registered, p).match(/<section class="mk-section" id="facebook-instagram-data"[\s\S]*?<\/section>[\s\S]*?<\/p>/)![0]);
+  const text = block();
+  // What is kept, how to delete it, how to revoke each app, and who to ask.
+  for (const said of [
+    /If you connect Facebook or Instagram, where your workspace offers it, we read your Page or account once and discard the access\. We never keep an access token, user ID or Page ID\./,
+    /Kept for your workspace: the Page or account name and account type\./,
+    /Never fetched: post content, or who reacted or commented\./,
+    /Open Grow, expand Explore a growth estimate, then choose Remove saved numbers\. They are deleted at once\./,
+    /Closing your workspace, under Privacy and your data, also deletes these numbers\./,
+    /In Facebook’s settings, open Business integrations or Apps and websites, and remove the trainsyou app\./,
+    /In Instagram’s settings, open Apps and websites and remove the trainsyou app\./,
+    /Removing the trainsyou app in Facebook or Instagram ends its permission there\./,
+    /Numbers already saved stay until you remove them\./,
+    /Contact: hello@trainsyou\.example/,
+  ])
+    assert.match(text, said);
+  assert.match(block({ ...platform, supportEmail: null }), /A public support email has not been published yet\. Existing trainers can sign in and open Support\./);
+  assert.match(llmsFullTxt(ctx), /### Your Facebook and Instagram data/);
+  // Within the house copy limits (docs/features/marketing-site.md).
+  const words = (s: string) => brandText(s, APP).split(/\s+/).filter(Boolean).length;
+  assert.ok(words(section.heading) <= 6, section.heading);
+  for (const p of section.body ?? []) assert.ok(words(p) <= 35, p);
+  assert.ok((section.bullets ?? []).length <= 5);
+  for (const b of section.bullets ?? []) assert.ok(words(b) <= 12, b);
+  for (const step of section.steps ?? []) {
+    assert.ok(words(step.title) <= 4, step.title);
+    assert.ok(words(step.body) <= 18, step.body);
   }
 });
 

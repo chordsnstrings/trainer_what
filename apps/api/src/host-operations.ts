@@ -1166,6 +1166,12 @@ export function platformAddressUpdates(origin: string, host: string) {
         "Meta app → Instagram → API setup with Instagram login → OAuth redirect URIs, and Super admin → Settings → Instagram (follower estimates) → Redirect URI.",
     },
     {
+      name: "Facebook redirect URI",
+      value: `${origin}/api/v1/trainer/facebook/callback`,
+      where:
+        "Meta app → Facebook Login for Business → Settings → Valid OAuth Redirect URIs, and Super admin → Settings → Facebook Pages (follower estimates) → Redirect URI.",
+    },
+    {
       name: "Coach-domain CNAME target",
       value: host,
       where:
@@ -1420,7 +1426,7 @@ export async function checkPlatformAddress(
     ok: true,
     level: "info",
     message: moving
-      ? "After the move, update every provider setting that names the platform address (listed below): the Stripe webhook endpoint, sign-in and wearable OAuth redirect URLs, Instagram and the coach-domain CNAME target."
+      ? "After the move, update every provider setting that names the platform address (listed below): the Stripe webhook endpoint, sign-in and wearable OAuth redirect URLs, Instagram, Facebook and the coach-domain CNAME target."
       : "Provider callbacks are unaffected.",
   });
   return {

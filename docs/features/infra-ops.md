@@ -279,7 +279,9 @@ servers whose controller predates this change. Nothing here has been run on the 
    | Sign in with Apple | `<new>/api/v1/auth/oidc/apple/callback` | Apple Developer → the Services ID → Sign in with Apple → domains and return URLs |
    | WHOOP | `<new>/api/v1/integrations/whoop/callback` | WHOOP developer dashboard, and Super admin → Settings → WHOOP → Registered callback URL |
    | Amazfit / Zepp | `<new>/api/v1/integrations/zepp/callback` | Zepp developer console, and Super admin → Settings → Amazfit / Zepp → Registered callback URL |
-   | Instagram | `<new>/api/v1/trainer/instagram/callback` | Meta app OAuth redirect URIs, and Super admin → Settings → Instagram (follower estimates) → Redirect URI |
+   | Instagram | `<new>/api/v1/trainer/instagram/callback` | The Meta app "trainsyou social login" (Instagram App ID `2881563462229057`) → Instagram → API setup with Instagram login → Business login settings → OAuth redirect URIs, and Super admin → Settings → Instagram (follower estimates) → Redirect URI |
+   | Facebook | `<new>/api/v1/trainer/facebook/callback` | The same Meta app (Meta App ID `2335071867263863`) → Facebook Login for Business → Settings → Valid OAuth Redirect URIs (Strict Mode: the exact address), and Super admin → Settings → Facebook Pages (follower estimates) → Redirect URI ([meta-app-review.md](meta-app-review.md)) |
+   | Meta app's public pages | `<new>/privacy` and `<new>/security-and-privacy#facebook-instagram-data` | The Meta app → App settings → Basic → Privacy policy URL and User data deletion (data deletion instructions URL), once for Facebook and Instagram. Not in the Host page's list yet |
    | Coach-domain CNAME target | the new host name | Super admin → Settings → Custom domains → `DOMAIN_CNAME_TARGET` |
 
    Then re-run the live checks. Where a provider accepts several redirect URIs (Google does),

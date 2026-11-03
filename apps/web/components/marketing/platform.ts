@@ -18,7 +18,16 @@ export type PublicPlatform = {
   companyDetails: string | null;
   registrationOpen: boolean;
   coachAddressTemplate: string;
-  availability: Record<AvailabilityKey, boolean>;
+  availability: Record<AvailabilityKey, boolean> & {
+    /**
+     * Connect Facebook, approved by Meta's app review. Only then do
+     * /methodology (its Facebook Page estimate section) and llms-full.txt
+     * show the estimate's figures and sources; no public page offers
+     * connecting Facebook. Trainers see Facebook on /trainer/growth only
+     * while their workspace may connect (or to remove numbers saved earlier).
+     */
+    facebook?: boolean;
+  };
   followerModel: FollowerModelAssumptions;
   /** The home page voice assistant is on, connected and under today's cap. */
   assistant?: boolean;
@@ -47,6 +56,7 @@ function fallback(): PublicPlatform {
       whoop: false,
       zepp: false,
       instagram: false,
+      facebook: false,
       frontier: false,
     },
     followerModel: DEFAULT_FOLLOWER_MODEL,

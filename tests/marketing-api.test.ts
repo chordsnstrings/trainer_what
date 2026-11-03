@@ -108,6 +108,7 @@ test("the public platform endpoint gives the brand, availability and assumptions
   assert.equal(platform.registrationOpen, true);
   assert.equal(platform.coachAddressTemplate, PLATFORM + "/coach/{slug}");
   assert.equal(platform.availability.instagram, true);
+  assert.equal(platform.availability.facebook, false);
   assert.equal(platform.availability.voice, false);
   assert.deepEqual(platform.followerModel, DEFAULT_FOLLOWER_MODEL);
   // Secrets never appear in the public answer.
@@ -159,6 +160,7 @@ test("Connect Instagram: owner only, single-use state bound to the session, toke
   );
   const empty = await ok(h, "/trainer/instagram", { cookie: owner.cookie });
   assert.equal(empty.available, true);
+  assert.equal(empty.testing, false);
   assert.equal(empty.snapshot, null);
 
   const start = await ok(h, "/trainer/instagram/authorize", {
@@ -204,6 +206,9 @@ test("Connect Instagram: owner only, single-use state bound to the session, toke
     tx.query("SELECT name,data FROM events WHERE tenant_id=$1 AND name LIKE 'instagram.%' ORDER BY created_at", [owner.tenantId]),
   );
   assert.deepEqual(events.map((e: any) => e.name), ["instagram.authorization_started", "instagram.snapshot_saved"]);
+  // No numbers in the event: they live in the record alone, so "Remove saved
+  // numbers" and workspace closure delete every copy.
+  assert.deepEqual(events.at(-1)!.data, {});
   assert.doesNotMatch(JSON.stringify(events), new RegExp(TOKEN));
   // The token was only ever sent to Instagram, as a header.
   assert.ok(calls.every((c) => !c.url.includes(TOKEN)));
@@ -252,6 +257,65 @@ test("Connect Instagram stays off until the Meta app is configured and approved"
     INSTAGRAM_APP_REVIEW_APPROVED: "true",
   });
   assert.equal(approved.status, "validated");
+});
+
+test("Connect Instagram before app review: only the listed coach addresses, and public pages still say soon", async () => {
+  profile = BUSINESS;
+  const listed = await coach(h, "ig-tester");
+  const unlisted = await coach(h, "ig-unlisted");
+  const access = async (c: { cookie: string }) => {
+    const { available, testing } = await ok(h, "/trainer/instagram", { cookie: c.cookie });
+    return { available, testing };
+  };
+  const off = { available: false, testing: false };
+  const start = async (c: { cookie: string }) =>
+    new URL((await ok(h, "/trainer/instagram/authorize", { method: "POST", cookie: c.cookie })).url).searchParams.get("state");
+  const keys = ["INSTAGRAM_APP_REVIEW_APPROVED", "INSTAGRAM_TEST_WORKSPACES"];
+  const earlier = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+  try {
+    process.env.INSTAGRAM_APP_REVIEW_APPROVED = "false";
+    process.env.INSTAGRAM_TEST_WORKSPACES = "someone-else, IG-Tester";
+    assert.equal((await ok(h, "/public/platform")).availability.instagram, false);
+    assert.deepEqual(await access(unlisted), off);
+    const refused = await call(h, "/trainer/instagram/authorize", { method: "POST", cookie: unlisted.cookie });
+    assert.equal(refused.statusCode, 409);
+    assert.equal(refused.json().code, "INSTAGRAM_UNAVAILABLE");
+    assert.deepEqual(await access(listed), { available: true, testing: true });
+    const state = await start(listed);
+    const done = await call(h, `/trainer/instagram/callback?state=${state}&code=good-code`, { cookie: listed.cookie });
+    assert.equal(done.headers.location, "/trainer/growth?instagram=connected");
+    // The callback asks again: a workspace taken off the list in between is refused.
+    const second = await start(listed);
+    process.env.INSTAGRAM_TEST_WORKSPACES = "someone-else";
+    const late = await call(h, `/trainer/instagram/callback?state=${second}&code=good-code`, { cookie: listed.cookie });
+    assert.equal(late.headers.location, "/trainer/growth?instagram=unavailable");
+    assert.deepEqual(await access(listed), off);
+    assert.equal((await ok(h, "/trainer/instagram", { cookie: listed.cookie })).snapshot.followers, 5000);
+    // Approval opens it to every workspace, no longer as a test.
+    process.env.INSTAGRAM_APP_REVIEW_APPROVED = "true";
+    assert.deepEqual(await access(unlisted), { available: true, testing: false });
+    assert.deepEqual(await access(listed), { available: true, testing: false });
+    assert.equal((await ok(h, "/public/platform")).availability.instagram, true);
+  } finally {
+    for (const [k, v] of Object.entries(earlier))
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+  }
+  // The connection check passes in test mode without a provider request and
+  // refuses a list that is not coach addresses.
+  const base = {
+    INSTAGRAM_APP_ID: "a",
+    INSTAGRAM_APP_SECRET: "b",
+    INSTAGRAM_REDIRECT_URI: "https://app.example.test/api/v1/trainer/instagram/callback",
+  };
+  const testing = await testIntegration("instagram", { ...base, INSTAGRAM_TEST_WORKSPACES: "layla-strength" });
+  assert.equal(testing.status, "validated");
+  assert.match(testing.message, /only the listed coach addresses can connect/);
+  // Instagram is listed as Available soon on /faq until approval.
+  assert.match(testing.message, /Public pages keep saying available soon\.$/);
+  const malformed = await testIntegration("instagram", { ...base, INSTAGRAM_TEST_WORKSPACES: "layla strength!" });
+  assert.equal(malformed.status, "failed");
+  assert.match(malformed.message, /comma-separated coach addresses/);
 });
 
 test("the snapshot reader and authorize address need no stored token", async () => {
