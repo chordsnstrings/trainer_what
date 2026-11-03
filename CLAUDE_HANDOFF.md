@@ -13,6 +13,18 @@
 - someone with a role on each app signs in once through each button on trainsyou.com, because Meta needs one successful call before it accepts a review request;
 - two App Review requests go in, each with a screen recording of the sign-in.
 
+**Owner's Meta app details (3 Nov, later message; these supersede App ID `1653212959862915` for this feature):**
+- Facebook Login for Business lives in the **"trainsyou social login"** Meta app, App ID `2335071867263863` (the same app as Instagram, Instagram App ID `2881563462229057`).
+- Configuration ID `1420000509847051` goes in the login URL as `config_id`, in place of a scope list (the build does exactly this).
+- The App secret is copied from App settings → Basic by someone with access to the dashboard, never through chat.
+- Both callbacks are already registered: `https://trainsyou.com/api/v1/trainer/facebook/callback` and `https://trainsyou.com/api/v1/trainer/instagram/callback`.
+- **After deploy, Super admin → Settings → Facebook Pages (follower estimates):**
+  - App ID `2335071867263863`;
+  - the secret;
+  - Redirect URI `https://trainsyou.com/api/v1/trainer/facebook/callback`;
+  - Configuration ID `1420000509847051`;
+  - Test workspaces = the owner's coach address.
+
 **What I found:**
 - No DigitalOcean, Meta or Super admin access exists in this environment. The owner pastes the App secret into Super admin and submits the reviews; I prepare the checklist, reviewer text and recording scripts.
 - **Correction to pass on:** Page numbers need `pages_show_list`, `pages_read_engagement` and `public_profile` (Advanced Access, with Business Verification), not `email`, which is only for a "Sign in with Facebook" button. The Instagram app's request stays `instagram_business_basic`.
