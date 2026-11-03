@@ -2,7 +2,7 @@
 
 ## Work in progress
 
-### Status at 09:25 UTC on 3 November 2026 (Claude): Connect Facebook (Page numbers + a Facebook estimate), build running
+### Status at 10:57 UTC on 3 November 2026 (Claude): Connect Facebook built and reviewed, fixes running
 
 **Owner request (3 Nov):** "let's add option to connect facebook as well", next to "Connect Instagram" on Followers & growth. The owner chose **"Page numbers + own estimate"**:
 - a trainer connects their Facebook Page; we read its followers and recent engagement once and save only the numbers;
@@ -34,10 +34,23 @@
 - **Meta facts:** Graph API v26.0; Facebook Login for Business with a `config_id`; `/me/accounts` with `followers_count`; `/<page>/published_posts` with reaction, comment and share totals; data deletion by an instructions URL.
 - **Facebook estimate:** version `2026-11-03`; Socialinsider reach by Page size (4.35% of followers at 1–5K down to 0.50% above 100K); link posts and Reels as shares of that; Messenger keyword replies; the Page link. It comes out far lower than Instagram's (7,000 followers: about 5 active subscribers after 12 months in the strong case, against about 116).
 
-**Running:** build workflow `wf_43ce5a30-1af`:
-- core: the domain estimate, plus the API, settings and test mode;
-- surface: the trainer card and calculator, plus the methodology section, deletion instructions, docs and the Meta checklist (`docs/features/meta-app-review.md`);
-- review: two adversarial reviewers.
+**Built** (`wf_43ce5a30-1af`, 6 agents, uncommitted until verified):
+- **Estimate:** `packages/domain/src/facebook-calculator.ts` (13 tests). The worked example at 7,000 followers gives 0.14 / 1.62 / 4.56 active subscribers at month 12 (cautious / typical / strong).
+- **API:** `apps/api/src/facebook.ts`, with the routes, outcomes and the test mode for both providers in `configuration.ts`, `marketing.ts` and `platform-settings.ts` (`tests/facebook-api.test.ts`).
+- **Trainer screen:** `trainer-growth.tsx` and `marketing/facebook-calculator.tsx`.
+- **Public pages:** the `/methodology` Facebook section, hidden until `availability.facebook`.
+- **Deletion instructions** at `/security-and-privacy#facebook-instagram-data`.
+- **Docs:** `docs/features/facebook-connect.md` and `meta-app-review.md`.
+- **Checks:** typecheck and the targeted tests pass, per the agents.
+
+**Review:** 2 adversarial agents, 13 findings, now being fixed (`wf_779c79ff-e39`):
+- the snapshot events kept follower counts after removal;
+- saved Facebook numbers became unremovable once access was lost;
+- Graph error 190/492 was reported as "expired";
+- Facebook-only sources appeared in `llms-full.txt` before sign-off;
+- the docs used the superseded App ID;
+- Connect Facebook sat far below Connect Instagram;
+- plus wording and label nits.
 
 **Next:**
 1. Verify and commit.
