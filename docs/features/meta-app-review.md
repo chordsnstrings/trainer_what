@@ -85,7 +85,9 @@ What the code does is in [facebook-connect.md](facebook-connect.md).
   - an Instagram professional (business or creator) account.
 - [ ] Your coach address: the workspace name in your address, such as
   `layla-strength` in `layla-strength.trainsyou.com` or
-  `trainsyou.com/coach/layla-strength`.
+  `trainsyou.com/coach/layla-strength`. **The owner's is `ahmedhassan`**
+  (owner, 5 November 2026). It goes in both test lists, Instagram's and
+  Facebook's.
 - [ ] A trainer account for Meta's reviewers:
   - a fresh email you control;
   - make sure it can sign in with email and password alone (reviewers cannot
@@ -187,8 +189,9 @@ already set up (owner, 3 November 2026), so most steps are checks.
    - **Meta app review approved for pages_show_list and
      pages_read_engagement:** leave **off**.
    - **Before app review: coach addresses that may connect:** your coach
-     address. Add the reviewers' test trainer's before you submit the
-     review, comma-separated (for example `layla-strength, meta-review`).
+     address, `ahmedhassan`. Add the reviewers' test trainer's before you
+     submit the review, comma-separated (for example
+     `ahmedhassan, meta-review`).
    - **Save**, then **Test connection**. Expect "Configuration validated …
      only the listed coach addresses can connect, and only people with a role
      on the Meta app can complete the sign-in. Public pages make no
@@ -223,7 +226,7 @@ already set up (owner, 3 November 2026), so most steps are checks.
    - **Redirect URI:** `https://trainsyou.com/api/v1/trainer/instagram/callback`;
    - **Meta app review approved for instagram_business_basic:** **off**;
    - **Before app review: coach addresses that may connect:** your coach
-     address, and the reviewers' before you submit.
+     address, `ahmedhassan`, and the reviewers' before you submit.
    - Save, Test connection ("Configuration validated … Public pages keep
      saying available soon."), then Enable integration if it is not already
      on.

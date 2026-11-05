@@ -2,32 +2,51 @@
 
 ## Work in progress
 
-### Status at 13:29 UTC on 3 November 2026 (Claude): Connect Facebook is live (dormant); waiting on the owner's Meta steps
+### Status at 14:20 UTC on 5 November 2026 (Claude): the owner sent the Instagram values; entering them in Super admin is the owner's step
 
-**What it is:** the owner's 3 Nov request, "Page numbers + own estimate". A trainer connects their Facebook Page on Followers & growth, right under Connect Instagram. We read its followers and recent engagement once and keep the numbers only. A separate Facebook estimate uses sourced figures (version `2026-11-03`). A pre-approval test mode lets listed coach addresses use both Meta connections before review. The stage record is the 3 November entry of `docs/COMPLETION_STAGES.md`.
+**What it is:** on 5 November the owner sent the Super admin values for Connect Instagram, and the coach address allowed before review. Connect Facebook (PR #108, live and dormant since 13:27 UTC on 3 November) is otherwise unchanged. The stage record is the 3 November entry of `docs/COMPLETION_STAGES.md`, and the checklist is `docs/features/meta-app-review.md`.
 
-**Live:**
-- PR #108 is squash-merged as `50c01ba`. CI on its head was 8/8 green, after one test-cleanup fix found by CI's PostgreSQL job. `main`'s run passed.
-- Production has served `50c01ba` since 13:27:20 UTC.
-- The HTTP live checks passed: the Facebook release 15/15 (dormant; deletion instructions present) and the four marketing pages 40/40.
+**The owner's Instagram values** (Super admin → Settings → Instagram (follower estimates)):
+- **Instagram app ID:** `2881563462229057`.
+- **Instagram app secret:** Meta dashboard → trainsyou social login → Use cases → Instagram API → API setup with Instagram login → Instagram app secret → Show. The owner copies it straight into the field. It is not in chat, the repository or this file.
+- **Redirect URI:** `https://trainsyou.com/api/v1/trainer/instagram/callback`. It is already registered on Meta.
+- **Permission:** `instagram_business_basic`. It is already on the app.
+- **Coach allowed before review:** `ahmedhassan`. This is the owner's coach address, so it goes in **both** test lists, Instagram's and Facebook's.
 
-**Waiting on the owner** (`docs/features/meta-app-review.md`):
-1. **Super admin → Settings → Facebook Pages (follower estimates):**
-   - App ID `2335071867263863` ("trainsyou social login", the same Meta app as Instagram App ID `2881563462229057`);
-   - App secret (App settings → Basic), pasted by whoever has dashboard access;
+**Checked by Claude (5 Nov, HTTP and code only):**
+- The values match the code's Instagram entry ("Instagram (follower estimates)" in `packages/providers/src/configuration.ts`) and the checklist.
+- `ahmedhassan` passes the field's rule (up to 50 comma-separated workspace slugs). It must be exactly the workspace name in the coach's address, as in `ahmedhassan.trainsyou.com`; upper and lower case count the same. Claude could not confirm from here that the workspace exists. Unpublished and missing workspaces both return 404 at `/coach/<name>`.
+- Live release is `04ecf36`. `/api/v1/public/platform` shows `instagram: false` and `facebook: false`, as expected before review: the test mode makes no public claim.
+- **Not done by Claude:** entering the values. This session has no Super admin or Meta access, and only the owner pastes secrets.
+
+**Waiting on the owner:**
+1. **Instagram (follower estimates)** in Super admin → Settings:
+   - Enter the values above.
+   - Leave "Meta app review approved for instagram_business_basic" **off**.
+   - **Save**, then run **Test connection** straight away: a save switches the setting off until its test passes for the new revision.
+   - Expected: "Configuration validated without an external request. Meta app review is not recorded as approved, so only the listed coach addresses can connect … Public pages keep saying available soon."
+   - Then **Enable integration** if it is not already on.
+2. **Facebook Pages (follower estimates):**
+   - App ID `2335071867263863`;
+   - the App secret (App settings → Basic → Show), pasted by the owner;
    - Redirect URI `https://trainsyou.com/api/v1/trainer/facebook/callback`;
    - Configuration ID `1420000509847051`;
-   - Test workspaces: the owner's coach address.
-   Add the same address to Instagram's test workspaces.
-2. **One sign-in** through each button on Followers & growth, by someone with a role on the Meta app.
-3. **One App Review request** in that app for `pages_show_list`, `pages_read_engagement`, `public_profile` and `instagram_business_basic` (not `email`), with Business Verification and a screen recording per permission (scripts in the checklist).
-4. **Sign-off** on the Facebook figures (the PR #108 table).
-5. **Privacy:** an owner-approved privacy-policy paragraph about Facebook and Instagram data (proposed in the checklist; `/privacy` is a versioned legal document).
-6. **Earlier:** whether to merge draft PR #107 (another session's records).
+   - test list `ahmedhassan`.
+   Leave approval off, then Save, Test connection and Enable integration.
+3. **One sign-in through each button** on Followers & growth:
+   - on `https://trainsyou.com`, not a coach domain;
+   - signed in as the `ahmedhassan` coach;
+   - with a Facebook and Instagram login that has a role on the Meta app.
+4. **One App Review request** in that app for `pages_show_list`, `pages_read_engagement`, `public_profile` and `instagram_business_basic` (not `email`), with Business Verification and a screen recording per permission. The scripts are in the checklist. Add the reviewers' test coach to both lists before submitting, comma-separated.
+5. **Sign-off** on the Facebook figures (the PR #108 table).
+6. **Privacy:** an owner-approved privacy-policy paragraph about Facebook and Instagram data (proposed in the checklist; `/privacy` is a versioned legal document).
+7. **Earlier:** whether to merge draft PR #107 (another session's records).
 
 **To confirm at the first sign-in:** whether comment totals need `pages_read_user_content`; that `?code=` comes back; which Pages `/me/accounts` lists.
 
-**Records branch:** this records update is committed locally on the branch restarted from `main`. Its force-with-lease push waits for the owner's go-ahead, because the permission classifier asks each time.
+**Next action (Claude):** when the owner reports the Test connection messages and the first sign-in results, record them here and in the checklist. Any open question the sign-in answers is fixed in code, as its own PR.
+
+**Records branch:** `claude/admiring-faraday-332jj8`, restarted at `main` (`04ecf36`). This update is a records-only commit there.
 
 ### Status at 03:20 UTC on 29 October 2026 (Claude): marketing revamp phase 1 is live and checked; done
 

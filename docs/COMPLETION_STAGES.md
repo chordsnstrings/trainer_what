@@ -94,6 +94,21 @@ Application implementation and the job audit are complete for the current phase.
 
 **Next action:** the owner's Meta steps (`docs/features/meta-app-review.md`) and sign-off on the Facebook figures.
 
+**Update, 5 November 2026 (records only, no code change):**
+- **The owner sent the Instagram values:**
+  - Instagram App ID `2881563462229057`;
+  - the Instagram App Secret, which the owner pastes into the field;
+  - redirect `https://trainsyou.com/api/v1/trainer/instagram/callback`;
+  - `instagram_business_basic`;
+  - the coach address allowed before review, `ahmedhassan`.
+- **Checks (code and HTTP only):**
+  - the values match the Instagram entry in `configuration.ts`;
+  - `ahmedhassan` passes the test-list rule;
+  - live is `04ecf36`, with `instagram` and `facebook` both false in `/api/v1/public/platform`.
+  - Not checked: that the `ahmedhassan` workspace exists. Unpublished and missing workspaces both return 404 at `/coach/<name>`.
+- **Not done by Claude:** entering them. There is no Super admin or Meta access here, and secrets are the owner's to paste.
+- **Next:** the owner saves and tests both entries with `ahmedhassan` on both test lists, then makes one sign-in through each button.
+
 ## Stage 2026-10-28 — marketing revamp phase 1: Live Brain home, /trainer-brain anatomy, /demo playground and /pricing (PR #105, squash-merged as `2ef5757`; live since 01:32 UTC on 29 October 2026)
 
 Owner, 27 October 2026: "Go with your recommendation". That means A "Live Brain", plus C's "Anatomy of one decision", Never list and source badges, plus B's pricing page and calculators. The defaults were accepted, and each phase ships as its own PR, "checked and deployed". Spec: `docs/marketing-revamp-2026-10-26/phase1/PLAN.md`. What shipped: `docs/features/marketing-site.md` ("Phase 1") and `docs/features/brain-showcase.md`.
