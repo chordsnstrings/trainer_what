@@ -2,6 +2,28 @@
 
 ## Work in progress
 
+### Status at 05:24 UTC on 5 November 2026 (Claude): Kamran phone-audio audit done (read-only); waiting on the owner's phone check and go-ahead
+
+**Request (5 Nov):** "The Kamran voice on the marketing page when responding uses internal phone speakers as opposed to phone speakers. Is that a bug? Audit, explain".
+
+**Finished:**
+- A read-only audit: eight agents, then three reviewers, each returning "partly holds", with their corrections applied.
+- The record is in `docs/features/kamran-assistant.md` ("Phone audio routing audit — 5 November 2026"), plus the 5 November entry of `docs/COMPLETION_STAGES.md` and `docs/PROJECT_MEMORY.md`.
+- No code changed and nothing deployed.
+
+**Answer given to the owner:**
+- **Yes, a real problem caused by our design.** The microphone stays open during replies (since PR #61), and on iPhone that makes every reply call audio. Earpiece or loudspeaker depends on the iOS version.
+- **Also a source-derived repeat-call failure on WebKit:** `"ambient"` is left set after a call.
+- **Recommended:** Stage 1 clean-up, then Stage 2 iPhone half-duplex replies behind a flag.
+
+**Waiting on the owner:**
+1. **The phone check:** device, iOS version and which app opened the link; the cover test (top slot vs bottom grille); whether volume up stops above zero; crackle; and a second call in the same tab.
+2. **Go-ahead** to build Stages 1 and 2.
+3. **"push it" for the records branch.** It needs `--force-with-lease`: the remote tip `db88500` has the same tree as main's `04ecf36`. The local branch is `origin/main` plus the records commits. The push was blocked twice by the permission check.
+4. **The Facebook items** in the entry below, unchanged.
+
+**Next action:** on the go-ahead, build Stage 1 and the flagged Stage 2 on a branch, with the unit tests and `marketing-call-check`, then a device check. Deployment still needs its own go-ahead.
+
 ### Status at 14:16 UTC on 3 November 2026 (Claude): Connect Facebook is live (dormant); waiting on the owner's Super admin settings and Meta steps
 
 **What it is:** the owner's 3 Nov request, "Page numbers + own estimate". A trainer connects their Facebook Page on Followers & growth, right under Connect Instagram. We read its followers and recent engagement once and keep the numbers only. A separate Facebook estimate uses sourced figures (version `2026-11-03`). A pre-approval test mode lets listed coach addresses use both Meta connections before review. The stage record is the 3 November entry of `docs/COMPLETION_STAGES.md`.

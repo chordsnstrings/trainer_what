@@ -2,6 +2,30 @@
 
 Application implementation and the job audit are complete for the current phase. [PR #1](https://github.com/chordsnstrings/trainer_what/pull/1) contains the work; [combined verification](VERIFICATION_2026-09-27.md) records the passing final code revision. The owner authorized merge to main. Real services and deployment remain the next phase; screenshots were waived. Historical entries below record the evidence available at each stage and may contain superseded pending-check statements.
 
+## Stage 2026-11-05 — Kamran phone-audio audit (read-only; nothing built or deployed; waiting for the owner's phone check and go-ahead)
+
+**Owner, 5 November 2026:** "The Kamran voice on the marketing page when responding uses internal phone speakers as opposed to phone speakers. Is that a bug? Audit, explain"
+
+**What changed:** documentation only. The findings, the staged fix and the phone check are in `docs/features/kamran-assistant.md`, section "Phone audio routing audit — 5 November 2026".
+
+**Findings:**
+- **The reported sound is a real problem caused by our design.** Since PR #61 the call keeps the echo-cancelled microphone open during replies and holds `"play-and-record"`. On iPhone, where every browser is WebKit, that makes every reply call audio: call volume, mono, crackle on iOS 27.0.x. Earpiece or loudspeaker then depends on the iOS version.
+- **A separate repeat-call failure on WebKit**, derived from source and not reproduced: `"ambient"` is left set after a call, so the next audio `getUserMedia` is rejected.
+- **Recommended:** Stage 1 clean-up, then Stage 2 iPhone half-duplex replies behind a flag.
+
+**Checks actually run:**
+- A read-only audit by eight agents of our code, WebKit and Chromium source (main and Safari release branches), bug threads and field reports.
+- Three independent reviewers (source, evidence, fix) each returned "partly holds"; their corrections are applied.
+- No phone, browser or app was run, and no tests were run (no code changed).
+
+**Remaining:**
+- the owner's phone check;
+- the go-ahead to build Stages 1 and 2;
+- a device check before calling it fixed;
+- deployment, which is separately assigned.
+
+**Next action:** on the go-ahead, build Stage 1 and the flagged Stage 2 on a branch. Run the unit tests and `marketing-call-check`, then ask for a device check.
+
 ## Stage 2026-11-03 — Connect Facebook: Page numbers and a Facebook estimate, plus a pre-approval test mode for both Meta connections (PR #108, squash-merged as `50c01ba`; live since 13:27 UTC on 3 November 2026, dormant until the settings are saved)
 
 **Owner, 3 November 2026:** "let's add option to connect facebook as well". Asked what it should do, the owner chose **"Page numbers + own estimate"**: a trainer connects their Facebook Page, we read its followers and recent engagement once and save only the numbers, beside Instagram. A Facebook version of the subscriber estimate is built on researched Facebook Page reach figures, which **the owner sees before it goes live**.

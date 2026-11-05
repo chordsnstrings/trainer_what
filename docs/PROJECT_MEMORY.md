@@ -1,5 +1,11 @@
 # Project memory
 
+**Kamran phone audio — audit, 5 November 2026 (read-only).**
+- On iPhone every browser is WebKit, and a page that holds the microphone plays call audio (PlayAndRecord): call volume, mono, a route iOS decides, and crackle on iOS 27.0.x.
+- Kamran keeps the microphone open during replies (full duplex since PR #61), so it cannot give loudspeaker replies at media volume on iPhone. The fix is half-duplex replies on iPhone.
+- Separately, leaving `navigator.audioSession.type` at `"ambient"` makes WebKit refuse the next audio `getUserMedia`.
+- Findings, the staged fix and the phone check are in `features/kamran-assistant.md`. Nothing is built yet.
+
 ### Subscriber CI and functional polish — implementation and release tracking, 20 October 2026
 
 Owner approved the light subscriber concept: “better. let's get it done.” Base `526c0fbb61832a9b4a3445bb4de8b20cd38aa30f`; branch `work/subscriber-polish-2026-10-20`. The actual app now implements CI White/Ink/Paper/Pace, local Inter Display, measured contrast and restrained motion. WHOOP has dedicated recovery/rules views and separate connection/workout permission. Voice guidance has its own paid add-on journey; eligible monthly memberships have exact-amount upgrade review and payment confirmation. Ordinary workout edits and paused/running rest timers restore safely. Existing prescriptions, offline logs, nutrition, bookings and music remain connected. The latest request supersedes the historical prohibition on package changes. Prepaid terms retain their price/duration and use existing module passes; overlapping purchases and different programme lengths remain guarded.
