@@ -2,7 +2,7 @@
 
 ## Work in progress
 
-### Status at 05:24 UTC on 5 November 2026 (Claude): Kamran phone-audio audit done (read-only); waiting on the owner's phone check and go-ahead
+### Status at 04:09 UTC on 7 November 2026 (Claude): Kamran phone-audio audit done (read-only); records pushed as draft PR #110; waiting on the owner's phone check and go-ahead
 
 **Request (5 Nov):** "The Kamran voice on the marketing page when responding uses internal phone speakers as opposed to phone speakers. Is that a bug? Audit, explain".
 
@@ -19,8 +19,12 @@
 **Waiting on the owner:**
 1. **The phone check:** device, iOS version and which app opened the link; the cover test (top slot vs bottom grille); whether volume up stops above zero; crackle; and a second call in the same tab.
 2. **Go-ahead** to build Stages 1 and 2.
-3. **"push it" for the records branch.** It needs `--force-with-lease`: the remote tip `db88500` has the same tree as main's `04ecf36`. The local branch is `origin/main` plus the records commits. The push was blocked twice by the permission check.
-4. **The Facebook items** in the entry below, unchanged.
+3. **The Facebook items** in the entry below, unchanged.
+
+**Records pushed (7 Nov):**
+- The owner replied "Push". The branch went up with `--force-with-lease` over the old merged tip `db88500`, which had the same tree as main's `04ecf36`.
+- Draft PR #110 (docs only) is open and watched; CI is pending.
+- Merging it is the owner's call, like the earlier records PRs.
 
 **Next action:** on the go-ahead, build Stage 1 and the flagged Stage 2 on a branch, with the unit tests and `marketing-call-check`, then a device check. Deployment still needs its own go-ahead.
 
