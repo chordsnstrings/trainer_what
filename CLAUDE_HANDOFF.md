@@ -23,7 +23,7 @@
 
 **Records pushed (7 Nov):**
 - The owner replied "Push". The branch went up with `--force-with-lease` over the old merged tip `db88500`, which had the same tree as main's `04ecf36`.
-- Draft PR #110 (docs only) is open and watched; CI is pending.
+- Draft PR #110 (docs only) is open and watched. It has no checks because `check.yml` skips pull requests that touch only `docs/**` and `*.md`. GitHub reports it mergeable (clean).
 - Merging it is the owner's call, like the earlier records PRs.
 
 **Next action:** on the go-ahead, build Stage 1 and the flagged Stage 2 on a branch, with the unit tests and `marketing-call-check`, then a device check. Deployment still needs its own go-ahead.
