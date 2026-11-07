@@ -19,6 +19,87 @@ Verification uses real local Chromium worklet/capture/playback with synthetic mi
 
 The shared microphone layer now uses locally hosted neural speech detection plus RNNoise where 48 kHz processing is available. Browser echo cancellation and suppression remain enabled. Strong, sustained speech is required to cancel an answer; a brief provisional interruption pauses and then resumes the same audio position. Quiet words retain their leading audio. Models load from the site, and classifier/worklet failures close the microphone with a clear restart path. Required detection never silently falls back to the previous energy-only gate. See `../VOICE_NOISE_2026-10-13.md` for audit, benchmark evidence and the remaining physical-device/nearby-voice limits. The exact serving release and hosted audio assets are verified.
 
+## Phone audio routing audit — 5 November 2026 (read-only; no code changed, nothing deployed)
+
+**Owner, 5 November 2026:** "The Kamran voice on the marketing page when responding uses internal phone speakers as opposed to phone speakers. Is that a bug? Audit, explain". Read as: on a phone, replies come from the earpiece, or sound like a phone call, instead of the loudspeaker.
+
+**How it was audited:** our code, WebKit and Chromium source (main and Safari release branches), WebKit/Mozilla bug threads and field reports. Eight agents did the audit; three independent reviewers then checked it (source, evidence, fix) and each found it "partly holds". Their corrections are applied below. No phone was used. CI cannot reach this code, because Chromium has no `navigator.audioSession`.
+
+**Verdict: a real problem caused by our design. Apple's iPhone audio policy then decides route and volume, and a page cannot override it while it holds the microphone.**
+- **What our code does:**
+  - Since PR #61 (13 October 2026) the call keeps an echo-cancelled microphone open during every reply, for voice barge-in.
+  - Right after `getUserMedia` it sets `navigator.audioSession.type = "play-and-record"` and keeps it until hang-up.
+  - `onboarding-call.tsx` does the same. The pattern came from 304f550 (8 October).
+  - Before 13 October the panel was hold-to-talk and released the microphone before each reply.
+- **Why it affects every iPhone browser:** a page that captures audio puts the shared iOS session into PlayAndRecord (voice chat). Every iOS browser and in-app browser (Instagram, Facebook) uses WebKit.
+- **What replies sound like:** call audio.
+  - Call volume, saved separately from media volume. The volume buttons then change call volume, which does not go to zero.
+  - Mono, with a lower sample rate on iOS 26.4+ (WebKit 311451).
+  - On iOS 27.0.x, crackle while the echo-cancelled microphone is open (WebKit 326286; no fix listed in Safari 27.1 or 27.2).
+- **Earpiece vs loudspeaker is unresolved and depends on the iOS version.**
+  - Open-source WebKit asks for the loudspeaker (`DefaultToSpeaker`) unless the page picks the receiver, and ours never does. But Apple-internal code runs on every session activation, and shipping iOS has not always followed the open-source options.
+  - Receiver output during capture is reported on iOS 15.0–15.3 (WebKit 230902, fixed in 15.4), on 18.5 (295889) and in LiveKit #1836 (March 2026).
+  - Loudspeaker output is reported on 18.6, 18.7, 26.2 and 27.0.1.
+  - Take the owner's description literally until the phone check below.
+- **Bluetooth:** with AirPods, a car or a wired headset connected, the open microphone can force hands-free (HFP) call quality, or move output from the headset to the phone (WebKit 282939, 283103).
+- **Android:**
+  - Chrome, Samsung Internet and WebView use the loudspeaker in communication mode, near call volume.
+  - Firefox for Android may use the earpiece (Mozilla 1626081, from 2020; not checked).
+
+**Second defect: a repeat call in the same tab fails on WebKit.** This comes from source and has not been reproduced or reported yet.
+- `end()` in the panel and `closeAudio()` in the onboarding call set `"ambient"` and never `"auto"`. `closeAudio()` also runs on unmount, even when no call ran.
+- WebKit rejects audio `getUserMedia` while a non-record type is set (`MediaDevices.cpp`, Safari 16.4–27). The next call then shows "AudioSession category is not compatible with audio capture."
+- Affected: every iOS browser and Mac Safari. Triggers are a second call, and a restart after the turn limit, after the 15-minute cap or after leaving the tab.
+- It probably survives a reload in the same web process: the override is kept per process, and `Page::didChangeMainDocument` does not clear it.
+- `setAudioSessionType` skips the assignment when the getter already reads the same value, so it cannot reset the override.
+- Quick check: in Mac Safari, start a call, end it, start again.
+
+**Recommended fix (staged; not built):**
+1. **Stage 1, clean-up in both calls:**
+   - Add `forceAudioSessionType()`, which always assigns.
+   - Set `"auto"` just before `getUserMedia`, and at hang-up instead of `"ambient"`.
+   - Keep the `"play-and-record"` after `getUserMedia` for now. Removing it changes the iOS 17–26 session mode (WebKit 316800 ties VideoChat mode to call volume), and it is reported to restore headset routing (282939).
+   - Add a fake-navigator unit test, and confirm on Mac Safari.
+2. **Stage 2, iPhone half-duplex replies.** Marketing panel first, behind a flag that tests can set, off until a device check.
+   - **Gate:** iOS WebKit (reuse `isIos` from `apps/web/components/pwa.ts`) with no headset input (enumerate audio inputs; re-check on `devicechange`).
+   - **Each reply:** finish or queue any utterance in progress, stop the microphone, set `"playback"`, play the reply, set `"auto"`, re-open the microphone.
+   - **Expected, to be checked on a device:** loudspeaker at media volume, no call processing, no iOS 27 crackle.
+   - **Risks:**
+     - Field reports say `"playback"` right after the microphone stops "only helps sometimes".
+     - Measure the settle time; reports say several hundred ms, not 150 ms.
+     - If the route sticks, decode and play each reply in a fresh AudioContext or an `<audio>` element.
+     - The override only wins if no other tab holds the microphone or play-and-record.
+   - **Costs on iPhone:**
+     - No voice barge-in during a reply; **Let me speak** does that.
+     - About 0.5–1 s before the microphone is live again.
+     - The microphone indicator turns off and on each turn.
+   - **Permission:** no new prompt if the microphone is off for under 1 minute. The 10-minute window after a tap exists only from safari-7624. Keep Mute as `track.enabled = false` and re-open even while muted, so the grant never ages.
+   - **Unchanged:** headset users, Android and desktop keep full duplex.
+   - **Onboarding call later:** its replies (up to about 900 characters, 60–75 s) exceed the 1-minute window.
+   - **CI:** `onboarding-chat-check` runs an iPhone user agent in Chromium, so decide what the gate does there. Add a half-duplex variant to `marketing-call-check`.
+3. **Rejected:**
+   - a `MediaStreamAudioDestinationNode` into `<audio>` with `setSinkId`: iOS 26+ only, mixed evidence, still call audio;
+   - `mediaSession.setMicrophoneActive(false)`: unmute needs a tap and the volume is not fixed;
+   - `"playback"` with a live microphone: unsupported;
+   - half-duplex everywhere: loses barge-in on Android and desktop for no gain.
+
+**Phone check needed from the owner (current live build, about 2 minutes):**
+- First reproduce it as it happened: same app, same Bluetooth or car state, same sequence.
+- Note iPhone or Android, the model, the iOS version and which app opened the link. Read the version from Settings → General → About, because the Safari user agent is frozen on iOS 26+.
+- During a reply, cover the top earpiece slot, then the bottom grille. If only the top sounds, it is the receiver. If covering the bottom cuts it sharply, it is the loudspeaker.
+- Press volume up. If it stops above zero, that is call volume.
+- Listen for crackle.
+- Then start a second call in the same tab.
+
+**Uncertainties:**
+- The owner's device and browser are unknown.
+- Receiver vs speaker is decided inside iOS or in Apple-internal WebKit.
+- Whether `DefaultToSpeaker` is honoured under iOS 27's LongFormAudio policy cannot be read from source.
+- Switching category under one running AudioContext is untested per iOS version.
+- Capture and re-prompt behaviour in in-app browsers is unverified.
+- The mapping from WebKit branch to Safari version is inferred.
+- No routing claim has been checked on hardware.
+
 ## Historical first implementation (1 October 2026)
 
 The original implementation and qualification record follows; its hold-to-talk, home-only, automatic signup and pending-release descriptions are historical and superseded above.
